@@ -7,7 +7,7 @@ from decimal import Decimal
 
 
 def get_daily_price(db: Session, symbol: str, date: date) -> Optional[DailyPrice]:
-    """获取指定股票在指定日期的价格数据"""
+    """獲取指定股票在指定日期的價格數據"""
     return db.query(DailyPrice).filter(
         DailyPrice.symbol == symbol,
         DailyPrice.date == date
@@ -22,7 +22,7 @@ def get_price_by_symbol(
     skip: int = 0,
     limit: int = 100
 ) -> List[DailyPrice]:
-    """获取指定股票的历史价格数据"""
+    """獲取指定股票的歷史價格數據"""
     query = db.query(DailyPrice).filter(DailyPrice.symbol == symbol)
     
     if start_date:
@@ -39,7 +39,7 @@ def get_price_count(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None
 ) -> int:
-    """获取指定条件的记录数量"""
+    """獲取指定條件的記錄數量"""
     query = db.query(DailyPrice).filter(DailyPrice.symbol == symbol)
     
     if start_date:
@@ -51,7 +51,7 @@ def get_price_count(
 
 
 def get_latest_price(db: Session, symbol: str) -> Optional[DailyPrice]:
-    """获取指定股票的最新价格"""
+    """獲取指定股票的最新價格"""
     return db.query(DailyPrice).filter(
         DailyPrice.symbol == symbol
     ).order_by(desc(DailyPrice.date)).first()
@@ -63,7 +63,7 @@ def get_price_range(
     start_date: date,
     end_date: date
 ) -> List[DailyPrice]:
-    """获取指定日期范围的价格数据（用于K线图）"""
+    """獲取指定日期範圍的價格數據（用於K線圖）"""
     return db.query(DailyPrice).filter(
         and_(
             DailyPrice.symbol == symbol,
@@ -79,7 +79,7 @@ def get_price_statistics(
     start_date: date,
     end_date: date
 ) -> dict:
-    """获取指定时间范围的统计数据"""
+    """獲取指定時間範圍的統計數據"""
     stats = db.query(
         func.max(DailyPrice.high).label('highest_price'),
         func.min(DailyPrice.low).label('lowest_price'),
@@ -114,7 +114,7 @@ def get_multi_stock_prices(
     start_date: date,
     end_date: date
 ) -> List[DailyPrice]:
-    """获取多支股票的价格数据（用于比较）"""
+    """獲取多支股票的價格數據（用於比較）"""
     return db.query(DailyPrice).filter(
         and_(
             DailyPrice.symbol.in_(symbols),
@@ -125,13 +125,13 @@ def get_multi_stock_prices(
 
 
 def get_available_symbols(db: Session) -> List[str]:
-    """获取所有可用的股票代号"""
+    """獲取所有可用的股票代號"""
     result = db.query(DailyPrice.symbol).distinct().order_by(DailyPrice.symbol).all()
     return [row[0] for row in result]
 
 
 def get_date_range_for_symbol(db: Session, symbol: str) -> Optional[Tuple[date, date]]:
-    """获取指定股票的日期范围"""
+    """獲取指定股票的日期範圍"""
     result = db.query(
         func.min(DailyPrice.date).label('min_date'),
         func.max(DailyPrice.date).label('max_date')
