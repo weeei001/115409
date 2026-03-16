@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS `crawl_checkpoint` (
 	`yyyymm` CHAR(6) NOT NULL COMMENT '完成月份(YYYYMM)',
 	PRIMARY KEY (`symbol`, `yyyymm`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `cnyes_tw_stock_news` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主鍵 ID',
+  `news_id` BIGINT NOT NULL COMMENT '來源新聞編號（唯一）',
+  `title` VARCHAR(500) NOT NULL COMMENT '新聞標題',
+  `content` LONGTEXT COMMENT '新聞內文',
+  `related_stocks` VARCHAR(500) DEFAULT NULL COMMENT '關聯股票（逗號分隔）',
+  `publish_time` DATETIME DEFAULT NULL COMMENT '發布時間',
+  `url` VARCHAR(1000) DEFAULT NULL COMMENT '原始新聞網址',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '建立時間',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新時間',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_news_id` (`news_id`),
+  KEY `idx_publish_time` (`publish_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 
 說明：`crawl_checkpoint` 供爬蟲斷點續抓使用；`twse_crawler.py` 啟動時也會自動建立這張表。
@@ -164,6 +179,22 @@ python main.py
 - `GET /stocks/{symbol}/candlestick` 取得 K 線資料
 - `GET /stocks/{symbol}/statistics` 取得統計資料
 - `GET /stocks/compare/multiple` 多股比較
+
+### 新聞查詢（cnyes_tw_stock_news）
+
+- `GET /news`  
+  - 查詢新聞列表，支援：
+    - `news_id`、`id` 精準查詢
+    - `keyword` 標題與內容關鍵字模糊搜尋
+    - `stock` 關聯股票（`related_stocks` LIKE）
+    - `start_time` / `end_time` 發布時間區間
+    - 分頁 `page` / `page_size`，排序 `sort_by` / `sort_order`
+- `GET /news/{id}`  
+  - 依主鍵 `id` 取得單筆新聞。
+- `GET /news/by-news-id/{news_id}`  
+  - 依來源 `news_id`（唯一索引 `uk_news_id`）取得單筆新聞。
+- `GET /news/stats/count`  
+  - 取得符合條件的新聞總筆數（與 `GET /news` 相同過濾條件）。
 
 ## 注意事項
 
