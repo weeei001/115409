@@ -1,0 +1,220 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/router';
+import { motion } from 'motion/react';
+import {
+  fetchLatestPrice,
+  fetchCandlestickMA,
+  fetchVolume,
+  fetchPriceChange,
+  fetchStatistics,
+  fetchHistory,
+  fetchDateRange,
+} from '../../lib/api/stock';
+import type {
+  DailyPriceResponse,
+  CandlestickWithMAResponse,
+  VolumeAnalysisResponse,
+  PriceChangeResponse,
+  PriceStatistics,
+  HistoricalPriceList,
+  DateRangeResponse,
+  AITrendAnalysis,
+} from '../../lib/types';
+import { StockHeader } from '../../components/StockHeader';
+import { StatisticsPanel } from '../../components/StatisticsPanel';
+import { CandlestickChart } from '../../components/CandlestickChart';
+import { VolumeChart } from '../../components/VolumeChart';
+import { PriceChangeChart } from '../../components/PriceChangeChart';
+import { HistoryTable } from '../../components/HistoryTable';
+import { DateRangePicker } from '../../components/DateRangePicker';
+import { AITrendPanel } from '../../components/AITrendPanel';
+
+const HISTORY_PAGE_SIZE = 30;
+
+function getDefaultDates() {
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(start.getMonth() - 3);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
+}
+
+const mockAiAnalysis: AITrendAnalysis = {
+  conclusion: '強力看多',
+  confidence: 92,
+  summary:
+    '受惠於 AI 晶片需求強勁，先進製程產能滿載，預期本季營收將再創新高。外資連續買超，技術面呈現多頭排列，短期內上漲動能充足。',
+  sources: [
+    { id: '1', title: '外資重申台積電買進評等，目標價上看 1200 元', date: '2026-03-15' },
+    { id: '2', title: 'AI 伺服器需求爆發，3奈米產能供不應求', date: '2026-03-14' },
+    { id: '3', title: '法說會釋出樂觀展望，資本支出維持高檔', date: '2026-03-12' },
+  ],
+};
+
+export default function StockDetail() {
+  const router = useRouter();
+  const symbol = (Array.isArray(router.query.id) ? router.query.id[0] : router.query.id) || '';
+
+  const defaults = getDefaultDates();
+  const [startDate, setStartDate] = useState(defaults.start);
+  const [endDate, setEndDate] = useState(defaults.end);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [latest, setLatest] = useState<DailyPriceResponse | null>(null);
+  const [candlestickMA, setCandlestickMA] = useState<CandlestickWithMAResponse | null>(null);
+  const [volumeData, setVolumeData] = useState<VolumeAnalysisResponse | null>(null);
+  const [priceChangeData, setPriceChangeData] = useState<PriceChangeResponse | null>(null);
+  const [statistics, setStatistics] = useState<PriceStatistics | null>(null);
+  const [history, setHistory] = useState<HistoricalPriceList | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+
+  const loadChartData = useCallback(
+    async (sym: string, sd: string, ed: string) => {
+      const [kma, vol, pc, stats] = await Promise.allSettled([
+        fetchCandlestickMA(sym, sd, ed, '5,10,20'),
+        fetchVolume(sym, sd, ed),
+        fetchPriceChange(sym, sd, ed),
+        fetchStatistics(sym, sd, ed),
+      ]);
+      if (kma.status === 'fulfilled') setCandlestickMA(kma.value);
+      if (vol.status === 'fulfilled') setVolumeData(vol.value);
+      if (pc.status === 'fulfilled') setPriceChangeData(pc.value);
+      if (stats.status === 'fulfilled') setStatistics(stats.value);
+    },
+    []
+  );
+
+  const loadHistory = useCallback(
+    async (sym: string, page: number) => {
+      try {
+        const res = await fetchHistory(sym, {
+          skip: (page - 1) * HISTORY_PAGE_SIZE,
+          limit: HISTORY_PAGE_SIZE,
+        });
+        setHistory(res);
+      } catch {
+        /* silent */
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!router.isReady || !symbol) return;
+
+    let cancelled = false;
+    const init = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const latestRes = await fetchLatestPrice(symbol);
+        if (cancelled) return;
+        setLatest(latestRes);
+
+        let sd = startDate;
+        let ed = endDate;
+        try {
+          const range = await fetchDateRange(symbol);
+          if (range.latest_date) ed = range.latest_date;
+          const startD = new Date(ed);
+          startD.setMonth(startD.getMonth() - 3);
+          sd = startD.toISOString().slice(0, 10);
+          if (!cancelled) {
+            setStartDate(sd);
+            setEndDate(ed);
+          }
+        } catch {
+          /* use defaults */
+        }
+
+        if (!cancelled) {
+          await Promise.all([
+            loadChartData(symbol, sd, ed),
+            loadHistory(symbol, 1),
+          ]);
+          setHistoryPage(1);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : '載入失敗');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    init();
+    return () => { cancelled = true; };
+  }, [symbol, router.isReady]);
+
+  useEffect(() => {
+    if (!symbol || loading) return;
+    loadChartData(symbol, startDate, endDate);
+  }, [startDate, endDate]);
+
+  useEffect(() => {
+    if (!symbol) return;
+    loadHistory(symbol, historyPage);
+  }, [historyPage, symbol, loadHistory]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+          className="w-8 h-8 border-4 border-[#ffd45a] border-t-[#ffa95a] rounded-full"
+        />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white gap-4">
+        <div className="text-red-500 text-lg">{error}</div>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-2 bg-[#ffa95a] text-white rounded-lg hover:bg-[#ff9a3a] transition-colors"
+        >
+          返回首頁
+        </button>
+      </div>
+    );
+  }
+
+  if (!latest) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-50/50 text-gray-900 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-5xl flex flex-col gap-8">
+        <StockHeader data={latest} />
+        <AITrendPanel analysis={mockAiAnalysis} />
+
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onStartChange={setStartDate}
+            onEndChange={setEndDate}
+          />
+        </div>
+
+        {statistics && <StatisticsPanel stats={statistics} />}
+        {candlestickMA && <CandlestickChart data={candlestickMA} />}
+        {volumeData && <VolumeChart data={volumeData} />}
+        {priceChangeData && <PriceChangeChart data={priceChangeData} />}
+        {history && (
+          <HistoryTable
+            data={history}
+            page={historyPage}
+            pageSize={HISTORY_PAGE_SIZE}
+            onPageChange={setHistoryPage}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
