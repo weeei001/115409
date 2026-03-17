@@ -1,6 +1,5 @@
 node_modules/
 build/
-dist/
 coverage/
 .DS_Store
 *.log
@@ -11,3 +10,4 @@ coverage/
 .next
 API_DOCS.md
 openapi.json
+tsconfig.tsbuildinfo
