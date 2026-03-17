@@ -28,18 +28,10 @@ import { PriceChangeChart } from '../../components/PriceChangeChart';
 import { HistoryTable } from '../../components/HistoryTable';
 import { DateRangePicker } from '../../components/DateRangePicker';
 import { AITrendPanel } from '../../components/AITrendPanel';
+import { ThemeToggle } from '../../components/ThemeToggle';
+import { getDefaultDateRange } from '../../lib/utils/date';
 
 const HISTORY_PAGE_SIZE = 30;
-
-function getDefaultDates() {
-  const end = new Date();
-  const start = new Date();
-  start.setMonth(start.getMonth() - 3);
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  };
-}
 
 const mockAiAnalysis: AITrendAnalysis = {
   conclusion: '強力看多',
@@ -57,7 +49,7 @@ export default function StockDetail() {
   const router = useRouter();
   const symbol = (Array.isArray(router.query.id) ? router.query.id[0] : router.query.id) || '';
 
-  const defaults = getDefaultDates();
+  const defaults = getDefaultDateRange();
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
 
@@ -71,6 +63,7 @@ export default function StockDetail() {
   const [statistics, setStatistics] = useState<PriceStatistics | null>(null);
   const [history, setHistory] = useState<HistoricalPriceList | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const loadChartData = useCallback(
     async (sym: string, sd: string, ed: string) => {
@@ -90,14 +83,16 @@ export default function StockDetail() {
 
   const loadHistory = useCallback(
     async (sym: string, page: number) => {
+      setHistoryError(null);
       try {
         const res = await fetchHistory(sym, {
           skip: (page - 1) * HISTORY_PAGE_SIZE,
           limit: HISTORY_PAGE_SIZE,
         });
         setHistory(res);
-      } catch {
-        /* silent */
+      } catch (err) {
+        console.error('loadHistory failed:', err);
+        setHistoryError(err instanceof Error ? err.message : '無法載入歷史資料');
       }
     },
     []
@@ -152,7 +147,7 @@ export default function StockDetail() {
   useEffect(() => {
     if (!symbol || loading) return;
     loadChartData(symbol, startDate, endDate);
-  }, [startDate, endDate]);
+  }, [symbol, loading, startDate, endDate, loadChartData]);
 
   useEffect(() => {
     if (!symbol) return;
@@ -161,7 +156,7 @@ export default function StockDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
@@ -173,7 +168,7 @@ export default function StockDetail() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white gap-4">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4">
         <div className="text-red-500 text-lg">{error}</div>
         <button
           onClick={() => router.push('/')}
@@ -188,8 +183,11 @@ export default function StockDetail() {
   if (!latest) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50/50 text-gray-900 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-5xl flex flex-col gap-8">
+        <div className="flex items-center justify-end">
+          <ThemeToggle />
+        </div>
         <StockHeader data={latest} />
         <AITrendPanel analysis={mockAiAnalysis} />
 
@@ -206,6 +204,9 @@ export default function StockDetail() {
         {candlestickMA && <CandlestickChart data={candlestickMA} />}
         {volumeData && <VolumeChart data={volumeData} />}
         {priceChangeData && <PriceChangeChart data={priceChangeData} />}
+        {historyError && (
+          <div className="text-red-500 text-sm py-2">{historyError}</div>
+        )}
         {history && (
           <HistoryTable
             data={history}
