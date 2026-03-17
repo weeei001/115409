@@ -48,13 +48,13 @@ export const StockSearch: React.FC<Props> = ({
           }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-gray-800
+          className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200
                      focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
-                     bg-white text-base shadow-sm"
+                     bg-white dark:bg-gray-700 text-base shadow-sm"
         />
       </div>
       {open && filtered.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-gray-200 shadow-lg z-50 max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 shadow-lg z-50 max-h-60 overflow-y-auto">
           {filtered.map((s) => (
             <button
               key={s}
@@ -63,7 +63,7 @@ export const StockSearch: React.FC<Props> = ({
                 setQuery(s);
                 setOpen(false);
               }}
-              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-[#fff9e6] hover:text-[#ffa95a] transition-colors font-mono"
+              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 hover:text-[#ffa95a] transition-colors font-mono"
             >
               {s}
             </button>

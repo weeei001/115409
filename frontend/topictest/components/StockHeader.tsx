@@ -3,19 +3,10 @@ import { motion } from 'motion/react';
 import { TrendingUp, TrendingDown, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/router';
 import type { DailyPriceResponse } from '../lib/types';
+import { fmt, fmtPrice } from '../lib/utils/format';
 
 interface Props {
   data: DailyPriceResponse;
-}
-
-function fmt(val: string | number | null | undefined, fallback = '--') {
-  if (val == null || val === '') return fallback;
-  return Number(val).toLocaleString();
-}
-
-function fmtPrice(val: string | null | undefined) {
-  if (val == null || val === '') return '--';
-  return Number(val).toFixed(2);
 }
 
 export const StockHeader: React.FC<Props> = ({ data }) => {
@@ -45,27 +36,27 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
       <div className="flex items-center gap-3 mb-4">
         <button
           onClick={() => router.push('/')}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
-          <ArrowLeft size={20} className="text-gray-500" />
+          <ArrowLeft size={20} className="text-gray-500 dark:text-gray-400" />
         </button>
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+        <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           股海明燈
         </h2>
       </div>
 
       <div className="flex justify-between items-end mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-baseline gap-3">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-baseline gap-3">
             {data.symbol}
-            <span className="text-base text-gray-400">{data.date}</span>
+            <span className="text-base text-gray-400 dark:text-gray-500">{data.date}</span>
           </h1>
         </div>
         <div className="text-right">
-          <div className="text-4xl font-mono font-bold text-gray-900">
+          <div className="text-4xl font-mono font-bold text-gray-900 dark:text-gray-100">
             {fmtPrice(data.close)}
           </div>
-          <div className={`flex items-center justify-end gap-1 text-sm font-medium ${isUp ? 'text-red-500' : 'text-green-600'}`}>
+          <div className={`flex items-center justify-end gap-1 text-sm font-medium ${isUp ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
             {isUp ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
             <span>{isUp ? '+' : ''}{change.toFixed(2)}</span>
             <span>({isUp ? '+' : ''}{changePct}%)</span>
@@ -77,10 +68,10 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
         {infoItems.map((item) => (
           <div
             key={item.label}
-            className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-100"
+            className="bg-gray-50 dark:bg-gray-800 rounded-xl px-4 py-3 border border-gray-100 dark:border-gray-700"
           >
-            <div className="text-xs text-gray-400 mb-1">{item.label}</div>
-            <div className="text-sm font-semibold text-gray-800 font-mono">{item.value}</div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mb-1">{item.label}</div>
+            <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 font-mono">{item.value}</div>
           </div>
         ))}
       </div>

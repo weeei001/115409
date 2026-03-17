@@ -11,6 +11,7 @@ import {
   Cell,
 } from 'recharts';
 import type { CandlestickWithMAResponse } from '../lib/types';
+import { useTheme } from '../lib/ThemeContext';
 
 interface Props {
   data: CandlestickWithMAResponse;
@@ -81,6 +82,8 @@ const CandlestickShape = (props: Record<string, unknown>) => {
 };
 
 export const CandlestickChart: React.FC<Props> = ({ data }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const maKeys = useMemo(() => Object.keys(data.moving_averages), [data.moving_averages]);
 
   const chartData: ChartRow[] = useMemo(() => {
@@ -116,7 +119,7 @@ export const CandlestickChart: React.FC<Props> = ({ data }) => {
   }, [chartData]);
 
   if (chartData.length === 0) {
-    return <div className="text-gray-400 text-sm text-center py-12">無 K 線資料</div>;
+    return <div className="text-gray-400 dark:text-gray-500 text-sm text-center py-12">無 K 線資料</div>;
   }
 
   return (
@@ -125,12 +128,12 @@ export const CandlestickChart: React.FC<Props> = ({ data }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.2 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 mb-2 flex items-center gap-2">
+      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-2">
         K 線圖 + 移動平均線
       </h3>
       <div className="flex flex-wrap gap-4 mb-3">
         {maKeys.map((key) => (
-          <span key={key} className="flex items-center gap-1 text-xs text-gray-500">
+          <span key={key} className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
             <span
               className="inline-block w-3 h-0.5 rounded"
               style={{ background: MA_COLORS[key] || '#888' }}
@@ -139,19 +142,19 @@ export const CandlestickChart: React.FC<Props> = ({ data }) => {
           </span>
         ))}
       </div>
-      <div className="bg-white rounded-2xl border border-gray-100 p-4" style={{ height: 420 }}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4" style={{ height: 420 }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 10, fill: '#aaa' }}
+              tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#aaa' }}
               tickLine={false}
               axisLine={false}
               interval={Math.max(Math.floor(chartData.length / 8), 1)}
             />
             <YAxis
               domain={[minPrice, maxPrice]}
-              tick={{ fontSize: 10, fill: '#aaa' }}
+              tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#aaa' }}
               tickLine={false}
               axisLine={false}
               width={60}
@@ -163,6 +166,8 @@ export const CandlestickChart: React.FC<Props> = ({ data }) => {
                 border: 'none',
                 boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
                 fontSize: '12px',
+                backgroundColor: isDark ? '#1f2937' : '#fff',
+                color: isDark ? '#f3f4f6' : '#111',
               }}
               labelStyle={{ fontWeight: 600, marginBottom: 4 }}
               formatter={(value: unknown, name?: string | number) => {
@@ -178,7 +183,7 @@ export const CandlestickChart: React.FC<Props> = ({ data }) => {
               isAnimationActive={false}
             >
               {chartData.map((entry, idx) => (
-                <Cell key={idx} fill={entry.isUp ? '#ef4444' : '#22c55e'} />
+                <Cell key={`${entry.date}-${idx}`} fill={entry.isUp ? '#ef4444' : '#22c55e'} />
               ))}
             </Bar>
             {maKeys.map((key) => (
