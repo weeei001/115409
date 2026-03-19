@@ -153,3 +153,47 @@ export interface PaginatedNewsResponse {
   total: number;
   items: News[];
 }
+
+// ── Auth Types ──
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+// ── Order Types ──
+
+export type OrderSide = 'buy' | 'sell';
+export type OrderType = 'market' | 'limit';
+export type OrderStatus = 'pending' | 'filled' | 'cancelled';
+
+export interface OrderRequest {
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  price: number | null;
+  quantity: number;
+}
+
+export interface OrderRecord {
+  id: string;
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  price: number | null;
+  quantity: number;
+  status: OrderStatus;
+  estimatedAmount: number;
+  createdAt: string;
+}
