@@ -1,26 +1,18 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { ArrowLeft, Plus, X } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import { fetchSymbols, fetchMultipleStocks } from '../lib/api/stock';
 import type { MultiStockResponse } from '../lib/types';
+import { getDefaultDateRange } from '../lib/utils/date';
 import { StockSearch } from '../components/StockSearch';
 import { DateRangePicker } from '../components/DateRangePicker';
 import { ComparisonChart } from '../components/ComparisonChart';
-
-function getDefaultDates() {
-  const end = new Date();
-  const start = new Date();
-  start.setMonth(start.getMonth() - 3);
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  };
-}
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export default function ComparePage() {
   const router = useRouter();
-  const defaults = getDefaultDates();
+  const defaults = getDefaultDateRange();
   const [allSymbols, setAllSymbols] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(defaults.start);
@@ -30,7 +22,9 @@ export default function ComparePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchSymbols().then(setAllSymbols).catch(() => {});
+    fetchSymbols()
+      .then(setAllSymbols)
+      .catch((err) => setError(err instanceof Error ? err.message : '無法載入股票清單'));
   }, []);
 
   const handleCompare = useCallback(async () => {
@@ -63,37 +57,45 @@ export default function ComparePage() {
     setSelected((prev) => prev.filter((s) => s !== sym));
   };
 
+  const availableSymbols = useMemo(
+    () => allSymbols.filter((s) => !selected.includes(s)),
+    [allSymbols, selected]
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50/50 text-gray-900 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-5xl flex flex-col gap-8">
         <motion.div
-          className="flex items-center gap-3"
+          className="flex items-center justify-between"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <button
-            onClick={() => router.push('/')}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <ArrowLeft size={20} className="text-gray-500" />
-          </button>
-          <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
-              股海明燈
-            </h2>
-            <h1 className="text-2xl font-bold text-gray-900">多股比較</h1>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/')}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <ArrowLeft size={20} className="text-gray-500 dark:text-gray-400" />
+            </button>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                股海明燈
+              </h2>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">多股比較</h1>
+            </div>
           </div>
+          <ThemeToggle />
         </motion.div>
 
         <motion.div
-          className="bg-white rounded-2xl border border-gray-100 p-6 flex flex-col gap-5"
+          className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6 flex flex-col gap-5"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
           <div className="flex flex-col sm:flex-row gap-4">
             <StockSearch
-              symbols={allSymbols.filter((s) => !selected.includes(s))}
+              symbols={availableSymbols}
               onSelect={addSymbol}
               placeholder="新增股票代號..."
             />
@@ -110,7 +112,7 @@ export default function ComparePage() {
               {selected.map((sym) => (
                 <span
                   key={sym}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#fff9e6] border border-[#ffa95a]/20 text-sm font-mono text-[#b97a3a]"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#fff9e6] dark:bg-[#ffa95a]/10 border border-[#ffa95a]/20 text-sm font-mono text-[#b97a3a] dark:text-[#ffa95a]"
                 >
                   {sym}
                   <button onClick={() => removeSymbol(sym)} className="hover:text-red-500 transition-colors">

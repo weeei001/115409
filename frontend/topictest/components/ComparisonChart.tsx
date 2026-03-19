@@ -10,6 +10,7 @@ import {
   Legend,
 } from 'recharts';
 import type { MultiStockResponse } from '../lib/types';
+import { useTheme } from '../lib/ThemeContext';
 
 interface Props {
   data: MultiStockResponse;
@@ -21,6 +22,9 @@ const COLORS = [
 ];
 
 export const ComparisonChart: React.FC<Props> = ({ data }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const chartData = useMemo(
     () =>
       data.data.map((d) => ({
@@ -31,7 +35,7 @@ export const ComparisonChart: React.FC<Props> = ({ data }) => {
   );
 
   if (chartData.length === 0) {
-    return <div className="text-gray-400 text-sm text-center py-12">無比較資料</div>;
+    return <div className="text-gray-400 dark:text-gray-500 text-sm text-center py-12">無比較資料</div>;
   }
 
   return (
@@ -40,19 +44,19 @@ export const ComparisonChart: React.FC<Props> = ({ data }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 mb-4">多股價格比較</h3>
-      <div className="bg-white rounded-2xl border border-gray-100 p-4" style={{ height: 420 }}>
+      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">多股價格比較</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4" style={{ height: 420 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 10, fill: '#aaa' }}
+              tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#aaa' }}
               tickLine={false}
               axisLine={false}
               interval={Math.max(Math.floor(chartData.length / 8), 1)}
             />
             <YAxis
-              tick={{ fontSize: 10, fill: '#aaa' }}
+              tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#aaa' }}
               tickLine={false}
               axisLine={false}
               width={60}
@@ -64,6 +68,8 @@ export const ComparisonChart: React.FC<Props> = ({ data }) => {
                 border: 'none',
                 boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
                 fontSize: '12px',
+                backgroundColor: isDark ? '#1f2937' : '#fff',
+                color: isDark ? '#f3f4f6' : '#111',
               }}
               formatter={(value: unknown, name?: string | number) => {
                 if (typeof value === 'number') return [value.toFixed(2), String(name ?? '')];
@@ -71,7 +77,7 @@ export const ComparisonChart: React.FC<Props> = ({ data }) => {
               }}
             />
             <Legend
-              wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+              wrapperStyle={{ fontSize: '12px', paddingTop: '8px', color: isDark ? '#d1d5db' : undefined }}
             />
             {data.symbols.map((sym, i) => (
               <Line

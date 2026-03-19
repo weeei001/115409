@@ -11,8 +11,10 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response) {
       const { status, data } = error.response;
-      const message =
-        data?.detail?.[0]?.msg || data?.detail || `API 錯誤 (${status})`;
+      const raw = Array.isArray(data?.detail)
+        ? (data.detail[0]?.msg ?? data.detail)
+        : (data?.detail ?? `API 錯誤 (${status})`);
+      const message = typeof raw === 'string' ? raw : JSON.stringify(raw);
       return Promise.reject(new Error(message));
     }
     if (error.request) {
