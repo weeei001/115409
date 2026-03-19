@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
 import {
@@ -10,6 +10,7 @@ import {
   Search,
   LogIn,
   ShoppingCart,
+  Bot,
 } from 'lucide-react';
 import { fetchSymbols, fetchLatestPrice } from '../lib/api/stock';
 import { fetchNews } from '../lib/api/news';
@@ -23,6 +24,7 @@ const FEATURED_COUNT = 6;
 
 export default function Home() {
   const router = useRouter();
+  const newsRequestIdRef = useRef(0);
 
   const [symbols, setSymbols] = useState<string[]>([]);
   const [prices, setPrices] = useState<DailyPriceResponse[]>([]);
@@ -68,6 +70,7 @@ export default function Home() {
   }, [symbols]);
 
   const loadNews = (page: number, searchTerm?: string) => {
+    const requestId = (newsRequestIdRef.current += 1);
     setLoadingNews(true);
     const trimmed = searchTerm?.trim();
     const isStockCode = trimmed && /^\d+$/.test(trimmed);
@@ -80,11 +83,18 @@ export default function Home() {
       keyword: trimmed && !isStockCode ? trimmed : undefined,
     })
       .then((data) => {
+        if (requestId !== newsRequestIdRef.current) return;
         setNewsData(data);
         setErrorNews(null);
       })
-      .catch((err) => setErrorNews(err instanceof Error ? err.message : '無法載入新聞'))
-      .finally(() => setLoadingNews(false));
+      .catch((err) => {
+        if (requestId !== newsRequestIdRef.current) return;
+        setErrorNews(err instanceof Error ? err.message : '無法載入新聞');
+      })
+      .finally(() => {
+        if (requestId !== newsRequestIdRef.current) return;
+        setLoadingNews(false);
+      });
   };
 
   useEffect(() => {
@@ -139,6 +149,14 @@ export default function Home() {
                 )}
               </div>
 
+              <button
+                onClick={() => router.push('/ai')}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
+                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap"
+              >
+                <Bot size={15} />
+                AI 顧問
+              </button>
               <button
                 onClick={() => router.push('/order')}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400

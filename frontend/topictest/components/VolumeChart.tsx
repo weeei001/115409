@@ -37,7 +37,7 @@ export const VolumeChart: React.FC<Props> = ({ data }) => {
       transition={{ duration: 0.5, delay: 0.3 }}
     >
       <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">成交量分析</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4" style={{ height: 260 }}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 h-[200px] sm:h-[240px] lg:h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
             <XAxis

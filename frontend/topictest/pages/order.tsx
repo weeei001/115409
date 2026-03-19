@@ -77,8 +77,11 @@ export default function OrderPage() {
   }, [orderType, price, quantity, currentPrice]);
 
   const validateOrder = (): string | null => {
-    if (!symbol.trim()) return '請輸入股票代號';
-    if (!currentPrice) return `找不到股票 ${symbol} 的報價資料`;
+    const normalizedSymbol = symbol.trim().toUpperCase();
+    if (!normalizedSymbol) return '請輸入股票代號';
+    if (normalizedSymbol.length > 12) return '股票代號過長';
+    if (!/^[0-9A-Z.]+$/.test(normalizedSymbol)) return '股票代號格式不正確';
+    if (!currentPrice) return `找不到股票 ${normalizedSymbol} 的報價資料`;
     const qty = parseInt(quantity);
     if (!qty || qty <= 0) return '請輸入有效的委託數量';
     if (orderType === 'limit') {
@@ -99,9 +102,10 @@ export default function OrderPage() {
   };
 
   const confirmOrder = () => {
+    const normalizedSymbol = symbol.trim().toUpperCase();
     const newOrder: OrderRecord = {
       id: `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      symbol,
+      symbol: normalizedSymbol,
       side,
       type: orderType,
       price: orderType === 'limit' ? parseFloat(price) : null,
@@ -118,7 +122,7 @@ export default function OrderPage() {
         hour12: false,
       }),
     };
-    setOrders([newOrder, ...orders]);
+    setOrders((prev) => [newOrder, ...prev]);
     setShowConfirm(false);
     setShowSuccess(true);
     setSymbol('');
@@ -190,8 +194,12 @@ export default function OrderPage() {
                 <input
                   type="text"
                   value={symbol}
-                  onChange={(e) => setSymbol(e.target.value.trim())}
+                  onChange={(e) => setSymbol(e.target.value)}
                   placeholder="例如: 2330"
+                  autoComplete="off"
+                  inputMode="text"
+                  maxLength={12}
+                  pattern="[0-9A-Za-z.]+"
                   className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
                              focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                 />
