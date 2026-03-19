@@ -23,6 +23,8 @@ log = logging.getLogger(__name__)
 CRAWLER_SCRIPT = os.getenv("CRAWLER_SCRIPT", "twse_crawler.py")
 CRAWLER_PYTHON = os.getenv("CRAWLER_PYTHON", "env/Scripts/python.exe")
 CRAWLER_SCHEDULE_TIME = os.getenv("CRAWLER_SCHEDULE_TIME", "15:00")
+INDICATOR_SCRIPT = os.getenv("INDICATOR_SCRIPT", "technical_indicator_job.py")
+INDICATOR_ENABLED = os.getenv("INDICATOR_ENABLED", "true").lower() == "true"
 
 
 def _resolve_script_path(script_value: str) -> Path:
@@ -94,6 +96,8 @@ def run_crawler_job():
         # 根據回傳碼判斷是否成功 (0 代表成功)
         if result.returncode == 0:
             log.info("✅ 爬取作業順利完成！")
+            if INDICATOR_ENABLED:
+                run_indicator_job(python_cmd)
             # 如果想看爬蟲的輸出，可以把下面這行解除註解
             # print(result.stdout)
         else:
@@ -102,6 +106,35 @@ def run_crawler_job():
             
     except Exception as e:
         log.error(f"執行爬蟲時發生未預期的例外錯誤: {e}")
+
+
+def run_indicator_job(python_cmd: str) -> None:
+    script_path = _resolve_script_path(INDICATOR_SCRIPT)
+    if not script_path.exists():
+        log.error(f"找不到技術指標腳本 '{script_path}'，略過技術指標計算。")
+        return
+
+    try:
+        command = [python_cmd, str(script_path)]
+        output_encoding = os.getenv("CRAWLER_OUTPUT_ENCODING") or locale.getpreferredencoding(False) or "utf-8"
+        log.info("📈 開始計算技術指標...")
+        log.info(f"執行指令: {' '.join(command)}")
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding=output_encoding,
+            errors="replace",
+        )
+
+        if result.returncode == 0:
+            log.info("✅ 技術指標計算完成！")
+        else:
+            log.error(f"❌ 技術指標計算失敗 (Return code: {result.returncode})")
+            log.error(f"錯誤訊息：\n{result.stderr}")
+    except Exception as e:
+        log.error(f"執行技術指標腳本時發生未預期例外: {e}")
 
 def main():
     """
