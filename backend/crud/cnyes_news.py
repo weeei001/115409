@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, or_, desc
 
 from models.cnyes_news import CnyesTWStockNews
 

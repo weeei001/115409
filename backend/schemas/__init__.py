@@ -14,6 +14,11 @@ from .daily_price import (
     PriceChangeData,
     PriceChangeResponse
 )
+from .technical_indicator import (
+    TechnicalIndicatorBase,
+    TechnicalIndicatorResponse,
+    TechnicalIndicatorListResponse,
+)
 
 __all__ = [
     "DailyPriceBase",
@@ -29,5 +34,8 @@ __all__ = [
     "VolumeData",
     "VolumeAnalysisResponse",
     "PriceChangeData",
-    "PriceChangeResponse"
+    "PriceChangeResponse",
+    "TechnicalIndicatorBase",
+    "TechnicalIndicatorResponse",
+    "TechnicalIndicatorListResponse",
 ]
