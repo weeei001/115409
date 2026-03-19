@@ -14,6 +14,13 @@ export interface AITrendAnalysis {
   sources: RAGSource[];
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
 // ── Backend API Response Types (matching openapi.json schemas) ──
 
 export interface DailyPriceResponse {
@@ -125,6 +132,20 @@ export interface MultiStockResponse {
   end_date: string;
   symbols: string[];
   data: MultiStockData[];
+}
+
+export type CompareChartMode = 'price' | 'index100' | 'cumulativeReturn';
+
+export interface CompareMetricsRow {
+  symbol: string;
+  totalReturnPct: number | null;
+  volatilityPct: number | null;
+  maxDrawdownPct: number | null;
+  winRatePct: number | null;
+  maxDailyGainPct: number | null;
+  maxDailyLossPct: number | null;
+  avgVolume: number | null;
+  avgAmount: number | null;
 }
 
 export interface DateRangeResponse {

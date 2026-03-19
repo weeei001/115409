@@ -125,14 +125,7 @@ export default function StockDetail() {
         } catch {
           /* use defaults */
         }
-
-        if (!cancelled) {
-          await Promise.all([
-            loadChartData(symbol, sd, ed),
-            loadHistory(symbol, 1),
-          ]);
-          setHistoryPage(1);
-        }
+        if (!cancelled) setHistoryPage(1);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : '載入失敗');
       } finally {
@@ -150,7 +143,7 @@ export default function StockDetail() {
   }, [symbol, loading, startDate, endDate, loadChartData]);
 
   useEffect(() => {
-    if (!symbol) return;
+    if (!symbol || loading) return;
     loadHistory(symbol, historyPage);
   }, [historyPage, symbol, loadHistory]);
 

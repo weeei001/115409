@@ -23,11 +23,23 @@ function truncateContent(content: string | null, maxLen = 120): string {
   return plain.length > maxLen ? plain.slice(0, maxLen) + '…' : plain;
 }
 
+function safeExternalUrl(rawUrl: string | null): string | null {
+  if (!rawUrl) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 }) {
   const [expanded, setExpanded] = useState(false);
   const stocks = parseStocks(news.related_stocks);
   const hasContent = !!news.content?.trim();
   const snippet = truncateContent(news.content);
+  const safeUrl = safeExternalUrl(news.url);
 
   return (
     <motion.article
@@ -59,8 +71,8 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
 
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 leading-snug mb-1
                          group-hover:text-[#ffa95a] transition-colors line-clamp-2">
-            {news.url ? (
-              <a href={news.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+            {safeUrl ? (
+              <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
                 {news.title}
               </a>
             ) : (
@@ -101,9 +113,9 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
               />
             </button>
           )}
-          {news.url && (
+          {safeUrl && (
             <a
-              href={news.url}
+              href={safeUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-400 hover:text-[#ffa95a]"
