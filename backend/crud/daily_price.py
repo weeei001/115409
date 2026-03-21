@@ -57,6 +57,19 @@ def get_latest_price(db: Session, symbol: str) -> Optional[DailyPrice]:
     ).order_by(desc(DailyPrice.date)).first()
 
 
+def get_latest_price_on_or_before(db: Session, symbol: str, target_date: date) -> Optional[DailyPrice]:
+    """獲取指定日期(含)以前最近一個交易日價格"""
+    return (
+        db.query(DailyPrice)
+        .filter(
+            DailyPrice.symbol == symbol,
+            DailyPrice.date <= target_date,
+        )
+        .order_by(desc(DailyPrice.date))
+        .first()
+    )
+
+
 def get_price_range(
     db: Session,
     symbol: str,
