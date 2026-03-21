@@ -19,10 +19,13 @@ log = logging.getLogger(__name__)
 CRAWLER_DIR = Path(__file__).resolve().parent
 SCHEDULE_TIME = "15:00"  # 台股盤後資料約 14:00–15:00 釋出，預設收盤後一小時執行
 TWSE_CRAWLER_SCRIPT = CRAWLER_DIR / "twse_crawler.py"
+CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
 INDICATOR_SCRIPT = CRAWLER_DIR / "technical_indicator_job.py"
 INSTITUTIONAL_TRADES_SCRIPT = CRAWLER_DIR / "institutional_trades_job.py"
 RUN_TECHNICAL_INDICATOR_AFTER_CRAWL = True
 RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = False
+RUN_CNYES_NEWS_CRAWL = True
+CNYES_INTERVAL_MINUTES = 30
 
 
 def _python_executable() -> str:
@@ -139,6 +142,37 @@ def run_indicator_job(python_cmd: str) -> None:
     except Exception as e:
         log.error(f"執行技術指標腳本時發生未預期例外: {e}")
 
+
+def run_cnyes_job() -> None:
+    """鉅亨台股新聞：與 cnyes_crawlwer 內 SCHEDULE_LOOKBACK_DAYS 一致，僅增量區間。"""
+    if not RUN_CNYES_NEWS_CRAWL:
+        return
+    script_path = CNYES_CRAWLER_SCRIPT
+    python_cmd = _python_executable()
+    if not script_path.exists():
+        log.error("找不到鉅亨爬蟲檔案 '%s'。", script_path)
+        return
+    try:
+        command = [python_cmd, str(script_path), "--scheduled-once"]
+        output_encoding = _subprocess_text_encoding()
+        log.info("📰 開始執行鉅亨新聞排程抓取...")
+        log.info(f"執行指令: {' '.join(command)}")
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding=output_encoding,
+            errors="replace",
+        )
+        if result.returncode == 0:
+            log.info("✅ 鉅亨新聞抓取完成！")
+        else:
+            log.error(f"❌ 鉅亨新聞抓取失敗 (Return code: {result.returncode})")
+            log.error(f"錯誤訊息：\n{result.stderr}")
+    except Exception as e:
+        log.error(f"執行鉅亨爬蟲時發生未預期例外: {e}")
+
+
 def main():
     """
     排程器主程式
@@ -154,6 +188,15 @@ def main():
         schedule_time,
         TWSE_CRAWLER_SCRIPT.name,
     )
+
+    if RUN_CNYES_NEWS_CRAWL:
+        interval = max(1, CNYES_INTERVAL_MINUTES)
+        schedule.every(interval).minutes.do(run_cnyes_job)
+        log.info(
+            "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，回溯天數見該腳本 SCHEDULE_LOOKBACK_DAYS）",
+            interval,
+            CNYES_CRAWLER_SCRIPT.name,
+        )
 
     # ----------------------------------------------------
     # [開發測試用] 
