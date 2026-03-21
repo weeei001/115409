@@ -4,7 +4,7 @@ institutional_trades_job.py — 三大法人買賣超（TWSE T86）單次請求�
 資料來源：證交所「三大法人買賣超日報」
 API：https://www.twse.com.tw/rwd/zh/fund/T86（selectType=ALL，一日一請求全市場）
 
-預設只保留六檔（可改環境變數 INSTITUTIONAL_TRADES_SYMBOLS）。
+預設只保留六檔（與 twse_crawler 相同清單，請於本檔 DEFAULT_SYMBOLS 修改）。
 為降低被擋風險：每次執行對「單一交易日」僅發起 **一筆** GET；若需補歷史請用
 --backfill，會「僅週一至週五逐日、間隔 sleep」請求，不並行、不連發多筆於同一瞬間。
 自動回溯同樣略過週六、週日（不發 HTTP）。
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import random
 import sys
 import time
@@ -29,9 +28,8 @@ from typing import Any, Iterable, Optional
 
 import pymysql
 import pymysql.cursors
-import urllib3
 import requests
-from dotenv import load_dotenv
+import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -40,37 +38,15 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 TZ_TAIPEI = timezone(timedelta(hours=8))
 API_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
+from database import get_pymysql_connect_kwargs
 
-def _get_env(*keys: str, default: str) -> str:
-    for key in keys:
-        value = os.getenv(key)
-        if value is not None and value != "":
-            return value
-    return default
+DB_CONFIG: dict = dict(get_pymysql_connect_kwargs(autocommit=False))
 
-
-DB_CONFIG: dict = {
-    "host": _get_env("DATABASE_HOST", "DB_HOST", default="localhost"),
-    "port": int(_get_env("DATABASE_PORT", "DB_PORT", default="3306")),
-    "user": _get_env("DATABASE_USER", "DB_USER", default="root"),
-    "password": _get_env("DATABASE_PASSWORD", "DB_PASS", default=""),
-    "db": _get_env("DATABASE_NAME", "DB_NAME", default="topic_stock"),
-    "charset": "utf8mb4",
-    "cursorclass": pymysql.cursors.DictCursor,
-    "autocommit": False,
-}
-
-DEFAULT_SYMBOLS = [
-    s.strip()
-    for s in _get_env(
-        "INSTITUTIONAL_TRADES_SYMBOLS",
-        "CRAWLER_DEFAULT_STOCKS",
-        default="2330,2317,2454,2881,2408,2615",
-    ).split(",")
-    if s.strip()
-]
+DEFAULT_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
 
 HEADERS: dict[str, str] = {
     "User-Agent": (
@@ -85,8 +61,8 @@ HEADERS: dict[str, str] = {
 MAX_RETRY = 5
 BACKOFF_FACTOR = 0.8
 # 單次 job 內「兩次 GET 之間」最短間隔（backfill 多日時使用）
-BACKFILL_SLEEP_MIN = float(_get_env("INSTITUTIONAL_TRADES_BACKFILL_SLEEP_MIN", default="2.0"))
-BACKFILL_SLEEP_MAX = float(_get_env("INSTITUTIONAL_TRADES_BACKFILL_SLEEP_MAX", default="5.0"))
+BACKFILL_SLEEP_MIN = 2.0
+BACKFILL_SLEEP_MAX = 5.0
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -410,7 +386,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=DB_CONFIG["port"])
     parser.add_argument("--user", default=DB_CONFIG["user"])
     parser.add_argument("--password", default=DB_CONFIG["password"])
-    parser.add_argument("--dbname", default=DB_CONFIG["db"])
+    parser.add_argument("--dbname", default=DB_CONFIG["database"])
     parser.set_defaults(verify=False)
     args = parser.parse_args()
     configure_console_output()
@@ -421,7 +397,7 @@ def main() -> None:
             "port": args.port,
             "user": args.user,
             "password": args.password,
-            "db": args.dbname,
+            "database": args.dbname,
         }
     )
 
