@@ -25,6 +25,8 @@ CRAWLER_PYTHON = os.getenv("CRAWLER_PYTHON", "env/Scripts/python.exe")
 CRAWLER_SCHEDULE_TIME = os.getenv("CRAWLER_SCHEDULE_TIME", "15:00")
 INDICATOR_SCRIPT = os.getenv("INDICATOR_SCRIPT", "technical_indicator_job.py")
 INDICATOR_ENABLED = os.getenv("INDICATOR_ENABLED", "true").lower() == "true"
+INSTITUTIONAL_TRADES_SCRIPT = os.getenv("INSTITUTIONAL_TRADES_SCRIPT", "institutional_trades_job.py")
+INSTITUTIONAL_TRADES_ENABLED = os.getenv("INSTITUTIONAL_TRADES_ENABLED", "false").lower() == "true"
 
 
 def _resolve_script_path(script_value: str) -> Path:
@@ -96,6 +98,8 @@ def run_crawler_job():
         # 根據回傳碼判斷是否成功 (0 代表成功)
         if result.returncode == 0:
             log.info("✅ 爬取作業順利完成！")
+            if INSTITUTIONAL_TRADES_ENABLED:
+                run_institutional_trades_job(python_cmd)
             if INDICATOR_ENABLED:
                 run_indicator_job(python_cmd)
             # 如果想看爬蟲的輸出，可以把下面這行解除註解
@@ -106,6 +110,36 @@ def run_crawler_job():
             
     except Exception as e:
         log.error(f"執行爬蟲時發生未預期的例外錯誤: {e}")
+
+
+def run_institutional_trades_job(python_cmd: str) -> None:
+    """三大法人 T86：單次執行僅對「一個交易日」發一筆 GET（腳本內保證不連發）。"""
+    script_path = _resolve_script_path(INSTITUTIONAL_TRADES_SCRIPT)
+    if not script_path.exists():
+        log.error(f"找不到三大法人腳本 '{script_path}'，略過。")
+        return
+
+    try:
+        command = [python_cmd, str(script_path)]
+        output_encoding = os.getenv("CRAWLER_OUTPUT_ENCODING") or locale.getpreferredencoding(False) or "utf-8"
+        log.info("🏛️ 開始抓取三大法人買賣超（單日單請求）...")
+        log.info(f"執行指令: {' '.join(command)}")
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding=output_encoding,
+            errors="replace",
+        )
+
+        if result.returncode == 0:
+            log.info("✅ 三大法人資料寫入完成！")
+        else:
+            log.error(f"❌ 三大法人作業失敗 (Return code: {result.returncode})")
+            log.error(f"錯誤訊息：\n{result.stderr}")
+    except Exception as e:
+        log.error(f"執行三大法人腳本時發生未預期例外: {e}")
 
 
 def run_indicator_job(python_cmd: str) -> None:
