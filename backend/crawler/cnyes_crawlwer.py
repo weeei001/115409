@@ -410,6 +410,11 @@ def main() -> None:
     default_interval = SCHEDULE_INTERVAL_MINUTES
     parser = argparse.ArgumentParser(description="鉅亨網台股新聞爬蟲")
     parser.add_argument(
+        "--scheduled-once",
+        action="store_true",
+        help="執行一次排程用抓取（回溯 SCHEDULE_LOOKBACK_DAYS）後結束，供 scheduler_utils 統一排程",
+    )
+    parser.add_argument(
         "--schedule",
         action="store_true",
         help=f"啟動定時排程：預設每 {SCHEDULE_INTERVAL_MINUTES} 分鐘執行（可用 --every-minutes 覆寫）",
@@ -431,12 +436,18 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.schedule:
+        if args.scheduled_once:
+            parser.error("--schedule 與 --scheduled-once 請勿併用")
         if args.last_days is not None:
             parser.error("--last-days 與 --schedule 請勿併用（排程回溯天數請改程式內 SCHEDULE_LOOKBACK_DAYS）")
         interval = args.every_minutes if args.every_minutes is not None else default_interval
         if interval < 1:
             parser.error("--every-minutes 須為 >= 1 的整數")
         run_scheduler(interval)
+    elif args.scheduled_once:
+        if args.last_days is not None:
+            parser.error("--last-days 與 --scheduled-once 請勿併用（回溯天數請改 SCHEDULE_LOOKBACK_DAYS）")
+        _scheduled_crawl_job()
     elif args.last_days is not None:
         if args.last_days < 1:
             parser.error("--last-days 須為 >= 1 的整數")
