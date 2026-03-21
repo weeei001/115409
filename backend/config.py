@@ -1,5 +1,9 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_BACKEND_DIR = Path(__file__).resolve().parent
 
 
 class Settings(BaseSettings):
@@ -19,7 +23,7 @@ class Settings(BaseSettings):
     APP_RELOAD: bool = True
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_DIR / ".env",
         case_sensitive=True,
         extra="ignore",
     )

@@ -10,28 +10,31 @@ API：https://www.twse.com.tw/exchangeReport/STOCK_DAY
   python twse_crawler.py --csv stocks.csv     # 從 CSV 讀取
   python twse_crawler.py --batch              # 批次排程模式 (不詢問任何輸入)
 
-MySQL 連線設定（下方 DB_CONFIG 常數或用環境變數覆蓋）：
-  host=localhost  port=3306  db=topic_stock
+MySQL 連線：與 FastAPI 相同，來自 backend/database.py（設定讀自 config / .env）。
 """
 
 import argparse
 import csv
 import logging
-import os
 import random
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
-import sys
 
 import pymysql
 import pymysql.cursors
-import urllib3
 import requests
-from dotenv import load_dotenv
+import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from database import get_pymysql_connect_kwargs
 
 # 關閉 SSL 驗證不通過產生的 InsecureRequestWarning 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -42,36 +45,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 TZ_TAIPEI = timezone(timedelta(hours=8))   # UTC+8，台灣無夏令時
 API_URL   = "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
 
-# 載入 backend/.env，讓爬蟲與 API 服務共用同一份設定
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+# ── MySQL：與 database.py / SQLAlchemy 同源 ─────────────────────────────
+DB_CONFIG: dict = dict(get_pymysql_connect_kwargs(autocommit=False))
 
-
-def _get_env(*keys: str, default: str) -> str:
-    for key in keys:
-        value = os.getenv(key)
-        if value is not None and value != "":
-            return value
-    return default
-
-# ── MySQL 連線設定 ─────────────────────────────
-# 優先讀取 DATABASE_*，並向下相容舊版 DB_*
-DB_CONFIG: dict = {
-    "host": _get_env("DATABASE_HOST", "DB_HOST", default="localhost"),
-    "port": int(_get_env("DATABASE_PORT", "DB_PORT", default="3306")),
-    "user": _get_env("DATABASE_USER", "DB_USER", default="root"),
-    "password": _get_env("DATABASE_PASSWORD", "DB_PASS", default=""),
-    "db": _get_env("DATABASE_NAME", "DB_NAME", default="topic_stock"),
-    "charset": "utf8mb4",
-    "cursorclass": pymysql.cursors.DictCursor,
-    "autocommit": False,
-}
-
-DEFAULT_STOCKS = [
-    s.strip()
-    for s in _get_env("CRAWLER_DEFAULT_STOCKS", default="2330,2317,2454,2881,2408,2615").split(",")
-    if s.strip()
-]
-DEFAULT_YEARS = int(_get_env("CRAWLER_DEFAULT_YEARS", default="5"))
+DEFAULT_STOCKS = ["2330", "2317", "2454", "2881", "2408", "2615"]
+DEFAULT_YEARS = 5
 
 # HTTP headers — 模擬瀏覽器，避免被擋
 HEADERS: dict[str, str] = {
@@ -427,7 +405,7 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--stocks", type=str, help="股票代號，逗號分隔，例如 2330,2317")
     group.add_argument("--csv",    type=str, help="stocks.csv 路徑")
-    parser.add_argument("--years", type=int, default=DEFAULT_YEARS, help="往回抓取年數（預設值可由 CRAWLER_DEFAULT_YEARS 控制）")
+    parser.add_argument("--years", type=int, default=DEFAULT_YEARS, help="往回抓取年數（預設與 DEFAULT_YEARS 相同）")
     parser.add_argument("--start", type=str, help="開始月份 (YYYYMM)，例如 202401")
     parser.add_argument("--end",   type=str, help="結束月份 (YYYYMM)，例如 202412")
     parser.add_argument("--batch", action="store_true", help="批次排程模式，不詢問任何輸入 (跳過 input)")
@@ -438,7 +416,7 @@ def main() -> None:
     parser.add_argument("--port",     type=int, default=DB_CONFIG["port"])
     parser.add_argument("--user",     default=DB_CONFIG["user"])
     parser.add_argument("--password", default=DB_CONFIG["password"])
-    parser.add_argument("--dbname",   default=DB_CONFIG["db"])
+    parser.add_argument("--dbname",   default=DB_CONFIG["database"])
     parser.add_argument("--no-verify", action="store_false", dest="verify", help="跳過 SSL 憑證驗證")
     parser.add_argument("--clean",     action="store_true", help="清除所有斷點記錄，重新抓取")
     parser.set_defaults(verify=False)
@@ -446,9 +424,11 @@ def main() -> None:
 
     # 套用命令列覆蓋到 DB_CONFIG
     DB_CONFIG.update({
-        "host": args.host, "port": args.port,
-        "user": args.user, "password": args.password,
-        "db":   args.dbname,
+        "host": args.host,
+        "port": args.port,
+        "user": args.user,
+        "password": args.password,
+        "database": args.dbname,
     })
 
     # ── 決定股票清單 ──────────────────────────
@@ -506,7 +486,9 @@ def main() -> None:
             except: pass
 
     print("📡 TWSE 歷史日資料爬取 (MySQL)")
-    print(f"   MySQL   ：{DB_CONFIG['user']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['db']}")
+    print(
+        f"   MySQL   ：{DB_CONFIG['user']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
+    )
     print(f"   股票清單：{symbols}")
     print(f"   抓取範圍：{start_year}-{start_month:02d} ～ {end_year}-{end_month:02d}")
     print()

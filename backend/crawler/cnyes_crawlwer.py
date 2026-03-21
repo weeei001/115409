@@ -1,8 +1,8 @@
 import argparse
 import html
 import logging
-import os
 import re
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,10 +13,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import pymysql
 import requests
 import schedule
-from dotenv import load_dotenv
 
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+from database import get_pymysql_connect_kwargs
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -24,14 +26,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 log = logging.getLogger(__name__)
-
-
-def _get_env(*keys: str, default: str) -> str:
-    for key in keys:
-        value = os.getenv(key)
-        if value is not None and value != "":
-            return value
-    return default
 
 
 # =========================
@@ -46,16 +40,14 @@ HEADERS = {
     "Referer": "https://news.cnyes.com/",
 }
 
-MYSQL_CONFIG = {
-    "host": _get_env("DATABASE_HOST", "DB_HOST", default="localhost"),
-    "port": int(_get_env("DATABASE_PORT", "DB_PORT", default="3306")),
-    "user": _get_env("DATABASE_USER", "DB_USER", default="root"),
-    "password": _get_env("DATABASE_PASSWORD", "DB_PASS", default=""),
-    "database": _get_env("DATABASE_NAME", "DB_NAME", default="topic_stock"),
-    "charset": "utf8mb4",
-    "cursorclass": pymysql.cursors.DictCursor,
-    "autocommit": True,
-}
+MYSQL_CONFIG = dict(get_pymysql_connect_kwargs(autocommit=True))
+
+# 列表抓取與排程（定期更新，參數固定於此即可）
+PAGE_LIMIT = 30
+IS_CATEGORY_HEADLINE = 0
+MAX_WORKERS = 4
+SCHEDULE_LOOKBACK_DAYS = 14
+SCHEDULE_INTERVAL_MINUTES = 30
 
 
 # =========================
@@ -344,9 +336,9 @@ def run_by_year_month(
     start_dt: Optional[datetime] = None,
     end_dt: Optional[datetime] = None,
 ) -> None:
-    limit = int(os.getenv("CNYES_LIMIT", "30"))
-    is_category_headline = int(os.getenv("CNYES_IS_CATEGORY_HEADLINE", "0"))
-    max_workers = int(os.getenv("CNYES_MAX_WORKERS", "4"))
+    limit = PAGE_LIMIT
+    is_category_headline = IS_CATEGORY_HEADLINE
+    max_workers = MAX_WORKERS
 
     if start_dt is None:
         start_dt = datetime(2024, 1, 1, 0, 0, 0)
@@ -391,8 +383,7 @@ def run_by_year_month(
 
 def _scheduled_crawl_job() -> None:
     """排程用：僅回溯最近 N 天，避免每日重掃全歷史。"""
-    days = int(os.getenv("CNYES_SCHEDULE_LOOKBACK_DAYS", "14"))
-    days = max(1, days)
+    days = max(1, SCHEDULE_LOOKBACK_DAYS)
     end_dt = datetime.now()
     start_dt = end_dt - timedelta(days=days)
     log.info("開始排程抓取鉅亨新聞（回溯 %s 天）", days)
@@ -416,32 +407,32 @@ def run_scheduler(interval_minutes: int) -> None:
 
 
 def main() -> None:
-    default_interval = int(os.getenv("CNYES_SCHEDULE_INTERVAL_MINUTES", "30"))
+    default_interval = SCHEDULE_INTERVAL_MINUTES
     parser = argparse.ArgumentParser(description="鉅亨網台股新聞爬蟲")
     parser.add_argument(
         "--schedule",
         action="store_true",
-        help="啟動定時排程：每 30 分鐘執行（可用 --every-minutes 或 CNYES_SCHEDULE_INTERVAL_MINUTES 覆寫）",
+        help=f"啟動定時排程：預設每 {SCHEDULE_INTERVAL_MINUTES} 分鐘執行（可用 --every-minutes 覆寫）",
     )
     parser.add_argument(
         "--every-minutes",
         type=int,
         default=None,
         metavar="N",
-        help=f"排程間隔分鐘數（預設 {default_interval}，來自環境變數 CNYES_SCHEDULE_INTERVAL_MINUTES 未設時為 30）",
+        help=f"排程間隔分鐘數（預設 {default_interval}，與程式內 SCHEDULE_INTERVAL_MINUTES 相同）",
     )
     parser.add_argument(
         "--last-days",
         type=int,
         default=None,
         metavar="N",
-        help="僅抓取最近 N 天（起迄為現在往前推算；未指定時維持自 2024-01-01 起全量）。排程模式請用環境變數 CNYES_SCHEDULE_LOOKBACK_DAYS",
+        help="僅抓取最近 N 天（起迄為現在往前推算；未指定時維持自 2024-01-01 起全量）",
     )
     args = parser.parse_args()
 
     if args.schedule:
         if args.last_days is not None:
-            parser.error("--last-days 與 --schedule 請勿併用（排程請設 CNYES_SCHEDULE_LOOKBACK_DAYS）")
+            parser.error("--last-days 與 --schedule 請勿併用（排程回溯天數請改程式內 SCHEDULE_LOOKBACK_DAYS）")
         interval = args.every_minutes if args.every_minutes is not None else default_interval
         if interval < 1:
             parser.error("--every-minutes 須為 >= 1 的整數")

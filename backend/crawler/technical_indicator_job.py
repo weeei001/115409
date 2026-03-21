@@ -6,8 +6,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import Optional
 
-from dotenv import load_dotenv
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -15,8 +13,6 @@ if str(BACKEND_ROOT) not in sys.path:
 from crud.daily_price import get_available_symbols
 from crud.technical_indicator import compute_all_for_symbol, compute_latest_for_symbol
 from database import Base, SessionLocal, engine
-
-load_dotenv(BACKEND_ROOT / ".env")
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
