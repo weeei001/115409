@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import stock_router, news_router, indicator_router
+from routers import stock_router, news_router, indicator_router, simulated_order_router
 from config import get_settings
 
 settings = get_settings()
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(stock_router)
 app.include_router(news_router)
 app.include_router(indicator_router)
+app.include_router(simulated_order_router)
 
 
 @app.get("/")
