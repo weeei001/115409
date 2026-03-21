@@ -142,7 +142,7 @@ export const CandlestickChart: React.FC<Props> = ({ data }) => {
           </span>
         ))}
       </div>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4" style={{ height: 420 }}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 h-[240px] sm:h-[320px] lg:h-[420px]">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
             <XAxis

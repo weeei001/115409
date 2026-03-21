@@ -42,7 +42,7 @@ export const PriceChangeChart: React.FC<Props> = ({ data }) => {
       transition={{ duration: 0.5, delay: 0.35 }}
     >
       <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">漲跌幅分析</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4" style={{ height: 280 }}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 h-[200px] sm:h-[240px] lg:h-[280px]">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
             <XAxis

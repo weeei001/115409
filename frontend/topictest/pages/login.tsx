@@ -16,8 +16,22 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
 
-    if (!email.trim() || !password.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password;
+    if (!normalizedEmail || !normalizedPassword.trim()) {
       setError('請填寫所有欄位');
+      return;
+    }
+    if (normalizedEmail.length > 254) {
+      setError('電子郵件長度過長');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError('請輸入有效的電子郵件格式');
+      return;
+    }
+    if (normalizedPassword.length > 128) {
+      setError('密碼長度過長');
       return;
     }
 
@@ -78,6 +92,9 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
+                    autoComplete="email"
+                    inputMode="email"
+                    maxLength={254}
                     className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200
                                focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                   />
@@ -95,6 +112,8 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="請輸入密碼"
+                    autoComplete="current-password"
+                    maxLength={128}
                     className="w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200
                                focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                   />

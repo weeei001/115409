@@ -16,14 +16,28 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
 
   const validate = (): string | null => {
-    if (!name.trim() || !email.trim() || !password || !confirmPassword) {
+    const normalizedName = name.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedName || !normalizedEmail || !password || !confirmPassword) {
       return '請填寫所有欄位';
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (normalizedName.length > 50) {
+      return '姓名長度過長';
+    }
+    if (normalizedEmail.length > 254) {
+      return '電子郵件長度過長';
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       return '請輸入有效的電子郵件格式';
     }
-    if (password.length < 6) {
-      return '密碼至少需要 6 個字元';
+    if (password.length < 8) {
+      return '密碼至少需要 8 個字元';
+    }
+    if (password.length > 128) {
+      return '密碼長度過長';
+    }
+    if (!/(?=.*[A-Za-z])(?=.*\d)/.test(password)) {
+      return '密碼需同時包含英文字母與數字';
     }
     if (password !== confirmPassword) {
       return '兩次輸入的密碼不一致';
@@ -97,6 +111,8 @@ export default function RegisterPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="您的姓名"
+                    autoComplete="name"
+                    maxLength={50}
                     className={inputClass}
                   />
                 </div>
@@ -111,6 +127,9 @@ export default function RegisterPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
+                    autoComplete="email"
+                    inputMode="email"
+                    maxLength={254}
                     className={inputClass}
                   />
                 </div>
@@ -124,7 +143,9 @@ export default function RegisterPage() {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="至少 6 個字元"
+                    placeholder="至少 8 個字元，含英文字母與數字"
+                    autoComplete="new-password"
+                    maxLength={128}
                     className="w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                   />
                   <button
@@ -146,6 +167,8 @@ export default function RegisterPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="再次輸入密碼"
+                    autoComplete="new-password"
+                    maxLength={128}
                     className="w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                   />
                   <button
