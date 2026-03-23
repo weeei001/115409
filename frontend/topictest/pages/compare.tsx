@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { motion } from 'motion/react';
-import { ArrowLeft, X } from 'lucide-react';
+import { GitCompare, X } from 'lucide-react';
 import { fetchSymbols, fetchMultipleStocks, fetchPriceChange, fetchVolume } from '../lib/api/stock';
 import type { CompareChartMode, CompareMetricsRow, MultiStockResponse, PriceChangeResponse } from '../lib/types';
 import { getDefaultDateRange } from '../lib/utils/date';
@@ -12,7 +12,7 @@ import { ComparisonChart } from '../components/ComparisonChart';
 import { CompareMetricsTable } from '../components/CompareMetricsTable';
 import { RiskReturnScatter } from '../components/RiskReturnScatter';
 import { CorrelationHeatmap } from '../components/CorrelationHeatmap';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { SubpageHeader } from '../components/SubpageHeader';
 
 interface MetricsCacheEntry {
   rows: CompareMetricsRow[];
@@ -26,7 +26,6 @@ const MODE_BUTTONS: Array<{ key: CompareChartMode; label: string }> = [
 ];
 
 export default function ComparePage() {
-  const router = useRouter();
   const defaults = getDefaultDateRange();
   const [allSymbols, setAllSymbols] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -148,30 +147,21 @@ export default function ComparePage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-5xl flex flex-col gap-8">
-        <motion.div
-          className="flex items-center justify-between"
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push('/')}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            >
-              <ArrowLeft size={20} className="text-gray-500 dark:text-gray-400" />
-            </button>
-            <div>
-              <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                股海明燈
-              </h2>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">多股比較</h1>
-            </div>
-          </div>
-          <ThemeToggle />
-        </motion.div>
+    <div className="min-h-screen flex flex-col bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <Head>
+        <title>股海明燈｜多股比較</title>
+        <meta
+          name="description"
+          content="同時比較多支股票的價格走勢、累積報酬、相關係數與風險報酬（展示／專題用途）。"
+        />
+      </Head>
+      <SubpageHeader
+        icon={GitCompare}
+        title="多股比較"
+        subtitle="同時比較多支股票的走勢與指標"
+      />
 
+      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
         <motion.div
           className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6 flex flex-col gap-5"
           initial={{ opacity: 0, y: 20 }}
