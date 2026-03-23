@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
 import {
@@ -115,6 +116,13 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <Head>
+        <title>股海明燈｜即時股價與財經新聞</title>
+        <meta
+          name="description"
+          content="即時股價、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。"
+        />
+      </Head>
       {/* ── Hero ── */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -134,8 +142,8 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-full sm:w-80">
+            <div className="flex flex-wrap items-center justify-end gap-3 w-full sm:w-auto">
+              <div className="w-full sm:w-80 min-w-0">
                 {loadingSymbols ? (
                   <div className="h-12 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
                 ) : errorSymbols ? (
@@ -152,7 +160,7 @@ export default function Home() {
               <button
                 onClick={() => router.push('/ai')}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap"
+                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
               >
                 <Bot size={15} />
                 AI 顧問
@@ -160,7 +168,7 @@ export default function Home() {
               <button
                 onClick={() => router.push('/order')}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap"
+                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
               >
                 <ShoppingCart size={15} />
                 模擬下單
@@ -169,7 +177,7 @@ export default function Home() {
                 onClick={() => router.push('/login')}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a]
                            text-white text-sm font-semibold shadow-lg shadow-[#ffa95a]/20
-                           hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all whitespace-nowrap"
+                           hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all whitespace-nowrap cursor-pointer"
               >
                 <LogIn size={15} />
                 登入
@@ -191,7 +199,7 @@ export default function Home() {
             {!loadingSymbols && symbols.length > 0 && (
               <button
                 onClick={() => router.push('/compare')}
-                className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-[#ffa95a] transition-colors"
+                className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-[#ffa95a] transition-colors cursor-pointer"
               >
                 <GitCompareArrows size={14} />
                 多股比較
@@ -273,7 +281,7 @@ export default function Home() {
               <button
                 onClick={handleNewsSearch}
                 className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-400 hover:text-[#ffa95a]
-                           hover:border-[#ffa95a] transition-colors"
+                           hover:border-[#ffa95a] transition-colors cursor-pointer"
               >
                 <RefreshCw size={14} />
               </button>
@@ -317,7 +325,7 @@ export default function Home() {
                     onClick={() => handleNewsPageChange(newsPage - 1)}
                     className="px-3 py-1 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300
                                hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors
-                               disabled:opacity-40 disabled:cursor-not-allowed"
+                               disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                   >
                     上一頁
                   </button>
@@ -326,7 +334,7 @@ export default function Home() {
                     onClick={() => handleNewsPageChange(newsPage + 1)}
                     className="px-3 py-1 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300
                                hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors
-                               disabled:opacity-40 disabled:cursor-not-allowed"
+                               disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                   >
                     下一頁
                   </button>
@@ -335,23 +343,6 @@ export default function Home() {
             )}
           </div>
         </section>
-
-        {/* ── Footer Quick Links ── */}
-        <motion.footer
-          className="flex flex-wrap items-center justify-center gap-4 pt-4 pb-8"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-        >
-          <button
-            onClick={() => router.push('/compare')}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                       hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-800"
-          >
-            <GitCompareArrows size={16} />
-            多股比較
-          </button>
-        </motion.footer>
       </main>
     </div>
   );
