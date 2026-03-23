@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Send } from 'lucide-react';
 
 interface Props {
@@ -8,7 +8,6 @@ interface Props {
 
 export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
   const [value, setValue] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
@@ -27,7 +26,6 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
   return (
     <div className="flex gap-2 items-end p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
       <textarea
-        ref={textareaRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -46,7 +44,7 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
         className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center
                    bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white shadow-lg shadow-[#ffa95a]/20
                    hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all
-                   disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                   disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none cursor-pointer"
       >
         <Send size={18} />
       </button>

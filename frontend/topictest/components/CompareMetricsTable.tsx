@@ -56,7 +56,8 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
                 {headers.map((h) => (
                   <th key={h.key} className="px-4 py-3 text-left whitespace-nowrap">
                     <button
-                      className="font-semibold text-gray-600 dark:text-gray-300 hover:text-[#ffa95a] transition-colors"
+                      type="button"
+                      className="font-semibold text-gray-600 dark:text-gray-300 hover:text-[#ffa95a] transition-colors cursor-pointer"
                       onClick={() =>
                         setSort((prev) => ({
                           key: h.key,
