@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
+import { TrendingUp } from 'lucide-react';
 import {
   fetchLatestPrice,
   fetchCandlestickMA,
@@ -17,7 +19,6 @@ import type {
   PriceChangeResponse,
   PriceStatistics,
   HistoricalPriceList,
-  DateRangeResponse,
   AITrendAnalysis,
 } from '../../lib/types';
 import { StockHeader } from '../../components/StockHeader';
@@ -28,7 +29,7 @@ import { PriceChangeChart } from '../../components/PriceChangeChart';
 import { HistoryTable } from '../../components/HistoryTable';
 import { DateRangePicker } from '../../components/DateRangePicker';
 import { AITrendPanel } from '../../components/AITrendPanel';
-import { ThemeToggle } from '../../components/ThemeToggle';
+import { SubpageHeader } from '../../components/SubpageHeader';
 import { getDefaultDateRange } from '../../lib/utils/date';
 
 const HISTORY_PAGE_SIZE = 30;
@@ -64,39 +65,67 @@ export default function StockDetail() {
   const [history, setHistory] = useState<HistoricalPriceList | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [chartLoading, setChartLoading] = useState(false);
 
-  const loadChartData = useCallback(
-    async (sym: string, sd: string, ed: string) => {
-      const [kma, vol, pc, stats] = await Promise.allSettled([
+  const chartReqIdRef = useRef(0);
+  const historyReqIdRef = useRef(0);
+
+  const loadChartData = useCallback(async (sym: string, sd: string, ed: string) => {
+    const id = ++chartReqIdRef.current;
+    setChartError(null);
+    setChartLoading(true);
+    try {
+      const results = await Promise.allSettled([
         fetchCandlestickMA(sym, sd, ed, '5,10,20'),
         fetchVolume(sym, sd, ed),
         fetchPriceChange(sym, sd, ed),
         fetchStatistics(sym, sd, ed),
       ]);
+      if (id !== chartReqIdRef.current) return;
+
+      const [kma, vol, pc, stats] = results;
       if (kma.status === 'fulfilled') setCandlestickMA(kma.value);
       if (vol.status === 'fulfilled') setVolumeData(vol.value);
       if (pc.status === 'fulfilled') setPriceChangeData(pc.value);
       if (stats.status === 'fulfilled') setStatistics(stats.value);
-    },
-    []
-  );
 
-  const loadHistory = useCallback(
-    async (sym: string, page: number) => {
-      setHistoryError(null);
-      try {
-        const res = await fetchHistory(sym, {
-          skip: (page - 1) * HISTORY_PAGE_SIZE,
-          limit: HISTORY_PAGE_SIZE,
-        });
-        setHistory(res);
-      } catch (err) {
-        console.error('loadHistory failed:', err);
-        setHistoryError(err instanceof Error ? err.message : '無法載入歷史資料');
+      const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
+      if (fulfilled === 0) {
+        const firstRejected = results.find((r) => r.status === 'rejected') as
+          | PromiseRejectedResult
+          | undefined;
+        const msg =
+          firstRejected?.reason instanceof Error
+            ? firstRejected.reason.message
+            : '圖表資料載入失敗';
+        setChartError(msg);
       }
-    },
-    []
-  );
+    } catch (err) {
+      if (id !== chartReqIdRef.current) return;
+      setChartError(err instanceof Error ? err.message : '圖表資料載入失敗');
+    } finally {
+      if (id === chartReqIdRef.current) setChartLoading(false);
+    }
+  }, []);
+
+  const loadHistory = useCallback(async (sym: string, page: number) => {
+    const id = ++historyReqIdRef.current;
+    setHistoryError(null);
+    try {
+      const res = await fetchHistory(sym, {
+        skip: (page - 1) * HISTORY_PAGE_SIZE,
+        limit: HISTORY_PAGE_SIZE,
+      });
+      if (id !== historyReqIdRef.current) return;
+      setHistory(res);
+    } catch (err) {
+      if (id !== historyReqIdRef.current) return;
+      console.error('loadHistory failed:', err);
+      setHistoryError(err instanceof Error ? err.message : '無法載入歷史資料');
+      setHistory(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (!router.isReady || !symbol) return;
@@ -144,43 +173,66 @@ export default function StockDetail() {
 
   useEffect(() => {
     if (!symbol || loading) return;
-    loadHistory(symbol, historyPage);
-  }, [historyPage, symbol, loadHistory]);
+    void loadHistory(symbol, historyPage);
+  }, [historyPage, symbol, loading, loadHistory]);
+
+  const stockPageHead = (
+    <Head>
+      <title>{symbol ? `股海明燈｜${symbol} 個股分析` : '股海明燈｜個股分析'}</title>
+      <meta
+        name="description"
+        content={
+          symbol
+            ? `查詢 ${symbol} 即時股價、K 線、成交量、漲跌幅與歷史行情（展示／專題用途）。`
+            : '個股走勢、技術線圖與歷史行情分析（展示／專題用途）。'
+        }
+      />
+    </Head>
+  );
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-          className="w-8 h-8 border-4 border-[#ffd45a] border-t-[#ffa95a] rounded-full"
-        />
-      </div>
+      <>
+        {stockPageHead}
+        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+            className="w-8 h-8 border-4 border-[#ffd45a] border-t-[#ffa95a] rounded-full"
+          />
+        </div>
+      </>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4">
-        <div className="text-red-500 text-lg">{error}</div>
-        <button
-          onClick={() => router.push('/')}
-          className="px-4 py-2 bg-[#ffa95a] text-white rounded-lg hover:bg-[#ff9a3a] transition-colors"
-        >
-          返回首頁
-        </button>
-      </div>
+      <>
+        {stockPageHead}
+        <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4">
+          <div className="text-red-500 text-lg">{error}</div>
+          <button
+            onClick={() => router.push('/')}
+            className="px-4 py-2 bg-[#ffa95a] text-white rounded-lg hover:bg-[#ff9a3a] transition-colors"
+          >
+            返回首頁
+          </button>
+        </div>
+      </>
     );
   }
 
-  if (!latest) return null;
+  if (!latest) return <>{stockPageHead}</>;
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-5xl flex flex-col gap-8">
-        <div className="flex items-center justify-end">
-          <ThemeToggle />
-        </div>
+    <div className="min-h-screen flex flex-col bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {stockPageHead}
+      <SubpageHeader
+        icon={TrendingUp}
+        title="股海明燈"
+        subtitle="個股走勢與分析"
+      />
+      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
         <StockHeader data={latest} />
         <AITrendPanel analysis={mockAiAnalysis} />
 
@@ -192,6 +244,15 @@ export default function StockDetail() {
             onEndChange={setEndDate}
           />
         </div>
+
+        {chartLoading && (
+          <div className="text-sm text-gray-500 dark:text-gray-400">載入圖表資料中…</div>
+        )}
+        {chartError && (
+          <div className="text-red-500 text-sm py-2 rounded-xl border border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-900/20 px-4">
+            {chartError}
+          </div>
+        )}
 
         {statistics && <StatisticsPanel stats={statistics} />}
         {candlestickMA && <CandlestickChart data={candlestickMA} />}

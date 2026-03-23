@@ -62,7 +62,13 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
           <tbody>
             {data.data.map((row) => {
               const change = Number(row.change ?? 0);
-              const isUp = change >= 0;
+              const isUp = change > 0;
+              const isDown = change < 0;
+              const changeColorClass = isUp
+                ? 'text-red-500'
+                : isDown
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-gray-400';
               return (
                 <tr key={row.date} className="border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors">
                   <td className="px-4 py-2.5 font-mono text-gray-600 dark:text-gray-400">{row.date}</td>
@@ -70,7 +76,7 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
                   <td className="px-4 py-2.5 text-right font-mono text-red-500">{fmtPrice(row.high)}</td>
                   <td className="px-4 py-2.5 text-right font-mono text-green-600 dark:text-green-400">{fmtPrice(row.low)}</td>
                   <td className="px-4 py-2.5 text-right font-mono font-semibold">{fmtPrice(row.close)}</td>
-                  <td className={`px-4 py-2.5 text-right font-mono ${isUp ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+                  <td className={`px-4 py-2.5 text-right font-mono ${changeColorClass}`}>
                     {isUp ? '+' : ''}{fmtPrice(row.change)}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono text-gray-500 dark:text-gray-400">{fmtNum(row.volume_shares)}</td>
