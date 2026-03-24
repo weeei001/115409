@@ -105,7 +105,7 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
           {hasContent && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
             >
               <ChevronDown
                 size={14}

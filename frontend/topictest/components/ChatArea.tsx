@@ -9,14 +9,28 @@ interface Props {
 }
 
 export const ChatArea: React.FC<Props> = ({ messages, loading }) => {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length === 0 && !loading) return;
+
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const scrollToBottom = () => {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToBottom);
+    });
   }, [messages, loading]);
 
   return (
-    <div className="flex-1 overflow-y-auto flex flex-col gap-4 px-4 py-6">
+    <div
+      ref={scrollContainerRef}
+      className="flex-1 overflow-y-auto flex flex-col gap-4 px-4 py-6"
+    >
       {messages.length === 0 && !loading && (
         <motion.div
           className="flex-1 flex flex-col items-center justify-center text-center py-12"
@@ -54,8 +68,6 @@ export const ChatArea: React.FC<Props> = ({ messages, loading }) => {
           </div>
         </motion.div>
       )}
-
-      <div ref={bottomRef} />
     </div>
   );
 };

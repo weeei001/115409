@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { TrendingUp, KeyRound, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { KeyRound, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
+import { SubpageHeader } from '../components/SubpageHeader';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -32,20 +33,11 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 flex flex-col">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20">
-              <TrendingUp size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">股海明燈</span>
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
+      <Head>
+        <title>股海明燈｜重設密碼</title>
+        <meta name="description" content="重設密碼流程（模擬功能，展示／專題用途）。" />
+      </Head>
+      <SubpageHeader icon={KeyRound} title="股海明燈" subtitle="重設密碼" />
 
       <main className="flex-1 flex items-center justify-center px-4 py-12">
         <motion.div

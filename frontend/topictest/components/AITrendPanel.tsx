@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { BookOpen, TrendingUp } from 'lucide-react';
-import { AITrendAnalysis } from '../lib/types';
+import type { AITrendAnalysis } from '../lib/types';
 import styles from '../styles/components/AITrendPanel.module.scss';
 
 interface Props {

@@ -1,92 +1,136 @@
-import React, { useState, useMemo } from 'react';
-import { useRouter } from 'next/router';
+import React, { useState, useEffect, useCallback } from 'react';
+import Head from 'next/head';
 import { motion } from 'motion/react';
 import {
-  TrendingUp,
   ShoppingCart,
   ArrowUpCircle,
   ArrowDownCircle,
   ClipboardList,
   CheckCircle,
   X,
+  Copy,
+  RefreshCw,
+  PieChart,
+  Loader2,
 } from 'lucide-react';
-import type { OrderSide, OrderType, OrderRecord } from '../lib/types';
-import { ThemeToggle } from '../components/ThemeToggle';
+import type {
+  OrderSide,
+  SimulatedOrderCreate,
+  SimulatedOrderResponse,
+  SimulatedOrderCategoryProfitResponse,
+} from '../lib/types';
+import { ApiRequestError } from '../lib/api/client';
+import { SubpageHeader } from '../components/SubpageHeader';
+import {
+  createSimulatedOrder,
+  fetchSimulatedOrders,
+  fetchSimulatedProfitByCategory,
+} from '../lib/api/simulatedOrder';
+import {
+  getOrCreateSimulatedSessionId,
+  resetSimulatedSessionId,
+  getLocalDateString,
+} from '../lib/utils/session';
 
-const MOCK_PRICES: Record<string, number> = {
-  '2330': 985,
-  '2317': 178,
-  '2454': 1680,
-  '2412': 128,
-  '2308': 420,
-  '3711': 260,
-  '2881': 67.5,
-  '2882': 62.3,
-  '2891': 28.9,
-  '0050': 187,
-};
+function formatCreatedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('zh-TW', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return iso;
+  }
+}
 
-const INITIAL_ORDERS: OrderRecord[] = [
-  {
-    id: 'ORD-001',
-    symbol: '2330',
-    side: 'buy',
-    type: 'limit',
-    price: 980,
-    quantity: 2,
-    status: 'filled',
-    estimatedAmount: 1960000,
-    createdAt: '2026-03-17 09:15:30',
-  },
-  {
-    id: 'ORD-002',
-    symbol: '2454',
-    side: 'sell',
-    type: 'market',
-    price: null,
-    quantity: 1,
-    status: 'pending',
-    estimatedAmount: 1680000,
-    createdAt: '2026-03-17 10:02:15',
-  },
-];
+function formatPriceCell(price: SimulatedOrderResponse['price']): string {
+  if (price === null || price === undefined || price === '') return '—';
+  const n = typeof price === 'string' ? parseFloat(price) : price;
+  return Number.isFinite(n) ? n.toLocaleString() : '—';
+}
 
 export default function OrderPage() {
-  const router = useRouter();
-
+  const [sessionId, setSessionId] = useState('');
   const [symbol, setSymbol] = useState('');
   const [side, setSide] = useState<OrderSide>('buy');
-  const [orderType, setOrderType] = useState<OrderType>('limit');
-  const [price, setPrice] = useState('');
+  const [tradeDate, setTradeDate] = useState('');
   const [quantity, setQuantity] = useState('');
-  const [orders, setOrders] = useState<OrderRecord[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<SimulatedOrderResponse[]>([]);
+  const [profitSummary, setProfitSummary] = useState<SimulatedOrderCategoryProfitResponse | null>(null);
+
+  const [listLoading, setListLoading] = useState(false);
+  const [profitLoading, setProfitLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copyHint, setCopyHint] = useState(false);
 
-  const currentPrice = MOCK_PRICES[symbol] ?? null;
+  const todayStr = getLocalDateString();
 
-  const estimatedAmount = useMemo(() => {
-    const qty = parseInt(quantity) || 0;
-    if (qty <= 0) return 0;
-    const unitPrice =
-      orderType === 'market'
-        ? currentPrice ?? 0
-        : parseFloat(price) || 0;
-    return unitPrice * qty * 1000;
-  }, [orderType, price, quantity, currentPrice]);
+  useEffect(() => {
+    setSessionId(getOrCreateSimulatedSessionId());
+  }, []);
+
+  const loadOrdersAndProfit = useCallback(async (sid: string) => {
+    if (!sid) return;
+    setListLoading(true);
+    setProfitLoading(true);
+    setError(null);
+    try {
+      const [listRes, profitRes] = await Promise.all([
+        fetchSimulatedOrders(sid, 100),
+        fetchSimulatedProfitByCategory(sid),
+      ]);
+      setOrders(listRes.data);
+      setProfitSummary(profitRes);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '載入資料失敗');
+      setOrders([]);
+      setProfitSummary(null);
+    } finally {
+      setListLoading(false);
+      setProfitLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (sessionId) void loadOrdersAndProfit(sessionId);
+  }, [sessionId, loadOrdersAndProfit]);
+
+  const handleCopySession = async () => {
+    if (!sessionId || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setCopyHint(true);
+      setTimeout(() => setCopyHint(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleResetSession = () => {
+    const next = resetSimulatedSessionId();
+    setSessionId(next);
+    setOrders([]);
+    setProfitSummary(null);
+  };
 
   const validateOrder = (): string | null => {
     const normalizedSymbol = symbol.trim().toUpperCase();
     if (!normalizedSymbol) return '請輸入股票代號';
     if (normalizedSymbol.length > 12) return '股票代號過長';
     if (!/^[0-9A-Z.]+$/.test(normalizedSymbol)) return '股票代號格式不正確';
-    if (!currentPrice) return `找不到股票 ${normalizedSymbol} 的報價資料`;
-    const qty = parseInt(quantity);
-    if (!qty || qty <= 0) return '請輸入有效的委託數量';
-    if (orderType === 'limit') {
-      const p = parseFloat(price);
-      if (!p || p <= 0) return '請輸入有效的限價價格';
+    const qty = parseInt(quantity, 10);
+    if (!qty || qty <= 0) return '請輸入有效的委託張數';
+    if (tradeDate) {
+      if (tradeDate > todayStr) return '模擬下單日不可晚於今天';
     }
     return null;
   };
@@ -101,61 +145,60 @@ export default function OrderPage() {
     setShowConfirm(true);
   };
 
-  const confirmOrder = () => {
+  const confirmOrder = async () => {
+    if (!sessionId) return;
     const normalizedSymbol = symbol.trim().toUpperCase();
-    const newOrder: OrderRecord = {
-      id: `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    const qty = parseInt(quantity, 10);
+    const body: SimulatedOrderCreate = {
+      session_id: sessionId,
       symbol: normalizedSymbol,
       side,
-      type: orderType,
-      price: orderType === 'limit' ? parseFloat(price) : null,
-      quantity: parseInt(quantity),
-      status: 'pending',
-      estimatedAmount,
-      createdAt: new Date().toLocaleString('zh-TW', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }),
+      order_type: 'market',
+      quantity: qty,
     };
-    setOrders((prev) => [newOrder, ...prev]);
-    setShowConfirm(false);
-    setShowSuccess(true);
-    setSymbol('');
-    setPrice('');
-    setQuantity('');
-    setTimeout(() => setShowSuccess(false), 3000);
+    const td = tradeDate.trim();
+    if (td) body.trade_date = td;
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createSimulatedOrder(body);
+      setShowConfirm(false);
+      setShowSuccess(true);
+      setSymbol('');
+      setQuantity('');
+      setTradeDate('');
+      setTimeout(() => setShowSuccess(false), 3000);
+      await loadOrdersAndProfit(sessionId);
+    } catch (e) {
+      if (e instanceof ApiRequestError && e.status === 404) {
+        setError('該股票在指定日期無日線收盤資料，請換日期或代號再試');
+      } else {
+        setError(e instanceof Error ? e.message : '下單失敗');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20">
-              <TrendingUp size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">股海明燈</span>
-          </button>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
-              <ShoppingCart size={16} />
-              模擬下單
-            </div>
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+  const profitRows = profitSummary?.data ?? [];
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
-        {/* Success toast */}
+  return (
+    <div className="min-h-screen flex flex-col bg-gray-50/60 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <Head>
+        <title>股海明燈｜模擬下單</title>
+        <meta
+          name="description"
+          content="模擬市價委託、檢視委託紀錄與依股票彙總損益（展示／專題用途）。"
+        />
+      </Head>
+      <SubpageHeader
+        icon={ShoppingCart}
+        title="模擬下單"
+        subtitle="模擬交易與損益紀錄"
+      />
+
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
         {showSuccess && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -168,7 +211,6 @@ export default function OrderPage() {
           </motion.div>
         )}
 
-        {/* Order Form */}
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -177,8 +219,36 @@ export default function OrderPage() {
           <div className="flex items-center gap-2 mb-5">
             <ShoppingCart size={18} className="text-[#ffa95a]" />
             <h2 className="text-lg font-bold">委託下單</h2>
-            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">（模擬功能）</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">（市價模擬，連線後端）</span>
           </div>
+
+          {sessionId && (
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm">
+              <span className="text-gray-500 dark:text-gray-400 shrink-0">會話 ID</span>
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <code className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700/80 font-mono text-xs break-all">
+                  {sessionId}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => void handleCopySession()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  <Copy size={14} />
+                  複製
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetSession}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+                >
+                  <RefreshCw size={14} />
+                  重新產生會話
+                </button>
+                {copyHint && <span className="text-xs text-green-600 dark:text-green-400">已複製</span>}
+              </div>
+            </div>
+          )}
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             {error && (
@@ -188,7 +258,6 @@ export default function OrderPage() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Symbol */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">股票代號</label>
                 <input
@@ -199,23 +268,11 @@ export default function OrderPage() {
                   autoComplete="off"
                   inputMode="text"
                   maxLength={12}
-                  pattern="[0-9A-Za-z.]+"
                   className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
                              focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                 />
-                {symbol && currentPrice && (
-                  <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">
-                    目前模擬報價：<span className="font-mono font-semibold text-gray-600 dark:text-gray-300">{currentPrice.toLocaleString()}</span> 元
-                  </p>
-                )}
-                {symbol && !currentPrice && (
-                  <p className="mt-1.5 text-xs text-red-400">
-                    可用代號：{Object.keys(MOCK_PRICES).join('、')}
-                  </p>
-                )}
               </div>
 
-              {/* Buy/Sell */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">買賣方向</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -246,58 +303,28 @@ export default function OrderPage() {
                 </div>
               </div>
 
-              {/* Order Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">委託類型</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setOrderType('limit')}
-                    className={`py-2.5 rounded-lg border text-sm font-medium transition-all ${
-                      orderType === 'limit'
-                        ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/10 text-[#e8953a]'
-                        : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                    }`}
-                  >
-                    限價
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOrderType('market');
-                      setPrice('');
-                    }}
-                    className={`py-2.5 rounded-lg border text-sm font-medium transition-all ${
-                      orderType === 'market'
-                        ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/10 text-[#e8953a]'
-                        : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                    }`}
-                  >
-                    市價
-                  </button>
+                <div className="px-4 py-2.5 rounded-lg border border-[#ffa95a]/40 bg-[#fff9e6] dark:bg-[#ffa95a]/10 text-sm text-[#b97a3a] dark:text-[#ffa95a]">
+                  市價（後端目前僅支援 market）
                 </div>
               </div>
 
-              {/* Price (limit only) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  委託價格 {orderType === 'market' && <span className="text-gray-400 dark:text-gray-500 font-normal">（市價免填）</span>}
+                  模擬下單日
+                  <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">（選填，預設今日）</span>
                 </label>
                 <input
-                  type="number"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder={orderType === 'market' ? '依市價成交' : '輸入限價'}
-                  disabled={orderType === 'market'}
-                  min={0}
-                  step={0.01}
+                  type="date"
+                  value={tradeDate}
+                  max={todayStr}
+                  onChange={(e) => setTradeDate(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
-                             disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-300 dark:disabled:text-gray-600 disabled:cursor-not-allowed"
+                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
                 />
               </div>
 
-              {/* Quantity */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">委託數量（張）</label>
                 <input
@@ -311,14 +338,11 @@ export default function OrderPage() {
                 />
               </div>
 
-              {/* Estimated Amount */}
               <div className="flex items-end">
                 <div className="w-full px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-600">
                   <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">預估金額</p>
-                  <p className="text-lg font-bold font-mono text-gray-900 dark:text-gray-100">
-                    {estimatedAmount > 0
-                      ? `NT$ ${estimatedAmount.toLocaleString()}`
-                      : '—'}
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    送出後依該日<strong className="font-medium">日線收盤價</strong>× 張數 × 1000 計算
                   </p>
                 </div>
               </div>
@@ -326,21 +350,22 @@ export default function OrderPage() {
 
             <div className="mt-6 flex justify-end">
               <button
+                type="button"
+                disabled={submitting || !sessionId}
                 onClick={handleSubmit}
-                className={`px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 ${
+                className={`px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   side === 'buy'
                     ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20'
                     : 'bg-green-500 hover:bg-green-600 text-white shadow-green-500/20'
                 }`}
               >
-                <ShoppingCart size={18} />
+                {submitting ? <Loader2 size={18} className="animate-spin" /> : <ShoppingCart size={18} />}
                 {side === 'buy' ? '確認買進' : '確認賣出'}
               </button>
             </div>
           </div>
         </motion.section>
 
-        {/* Confirm Dialog */}
         {showConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50">
             <motion.div
@@ -350,7 +375,11 @@ export default function OrderPage() {
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold">確認委託</h3>
-                <button onClick={() => setShowConfirm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
                   <X size={20} />
                 </button>
               </div>
@@ -358,51 +387,55 @@ export default function OrderPage() {
               <div className="flex flex-col gap-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-400 dark:text-gray-500">股票代號</span>
-                  <span className="font-mono font-semibold">{symbol}</span>
+                  <span className="font-mono font-semibold">{symbol.trim().toUpperCase()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400 dark:text-gray-500">方向</span>
-                  <span className={side === 'buy' ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-green-600 dark:text-green-400 font-semibold'}>
+                  <span
+                    className={
+                      side === 'buy'
+                        ? 'text-red-600 dark:text-red-400 font-semibold'
+                        : 'text-green-600 dark:text-green-400 font-semibold'
+                    }
+                  >
                     {side === 'buy' ? '買進' : '賣出'}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400 dark:text-gray-500">類型</span>
-                  <span>{orderType === 'limit' ? '限價' : '市價'}</span>
+                  <span>市價</span>
                 </div>
-                {orderType === 'limit' && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400 dark:text-gray-500">委託價格</span>
-                    <span className="font-mono">{parseFloat(price).toLocaleString()} 元</span>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400 dark:text-gray-500">模擬下單日</span>
+                  <span className="font-mono">{tradeDate.trim() || todayStr}</span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400 dark:text-gray-500">數量</span>
-                  <span className="font-mono">{parseInt(quantity)} 張</span>
+                  <span className="font-mono">{parseInt(quantity, 10)} 張</span>
                 </div>
-                <div className="border-t border-gray-100 dark:border-gray-700 pt-3 flex justify-between">
-                  <span className="text-gray-400 dark:text-gray-500">預估金額</span>
-                  <span className="font-bold font-mono text-[#ffa95a]">
-                    NT$ {estimatedAmount.toLocaleString()}
-                  </span>
+                <div className="border-t border-gray-100 dark:border-gray-700 pt-3 text-xs text-gray-500 dark:text-gray-400">
+                  預估金額將於送出後由後端依收盤價計算
                 </div>
               </div>
 
               <div className="mt-6 grid grid-cols-2 gap-3">
                 <button
+                  type="button"
                   onClick={() => setShowConfirm(false)}
-                  className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  disabled={submitting}
+                  className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                 >
                   取消
                 </button>
                 <button
-                  onClick={confirmOrder}
-                  className={`py-2.5 rounded-xl text-sm font-semibold text-white transition-colors ${
-                    side === 'buy'
-                      ? 'bg-red-500 hover:bg-red-600'
-                      : 'bg-green-500 hover:bg-green-600'
+                  type="button"
+                  onClick={() => void confirmOrder()}
+                  disabled={submitting}
+                  className={`py-2.5 rounded-xl text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${
+                    side === 'buy' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
                   }`}
                 >
+                  {submitting && <Loader2 size={16} className="animate-spin" />}
                   確認送出
                 </button>
               </div>
@@ -410,7 +443,90 @@ export default function OrderPage() {
           </div>
         )}
 
-        {/* Order History */}
+        <motion.section
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <div className="flex items-center gap-2 mb-5">
+            <PieChart size={18} className="text-[#ffa95a]" />
+            <h2 className="text-lg font-bold">依股票彙總（模擬收益）</h2>
+            {profitLoading && <Loader2 size={16} className="animate-spin text-gray-400" />}
+          </div>
+
+          {profitSummary && (
+            <div className="mb-4 flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-300">
+              <span>
+                總委託 <strong className="font-mono">{profitSummary.total_orders}</strong> 筆
+              </span>
+              <span>
+                可估值 <strong className="font-mono">{profitSummary.priced_orders}</strong> 筆
+              </span>
+              <span>
+                無行情 <strong className="font-mono">{profitSummary.unpriced_orders}</strong> 筆
+              </span>
+            </div>
+          )}
+
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden mb-8">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50/80 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
+                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">股票</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">筆數</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">成本（元）</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">市值（元）</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">損益（元）</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">收益率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profitLoading ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 size={18} className="animate-spin" />
+                          載入中…
+                        </span>
+                      </td>
+                    </tr>
+                  ) : profitRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                        尚無彙總資料
+                      </td>
+                    </tr>
+                  ) : (
+                    profitRows.map((row) => (
+                      <tr
+                        key={row.category}
+                        className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors"
+                      >
+                        <td className="px-5 py-3 font-mono font-semibold">{row.category}</td>
+                        <td className="px-5 py-3 text-right font-mono text-xs">{row.order_count}</td>
+                        <td className="px-5 py-3 text-right font-mono text-xs">{row.cost_amount.toLocaleString()}</td>
+                        <td className="px-5 py-3 text-right font-mono text-xs">{row.market_amount.toLocaleString()}</td>
+                        <td
+                          className={`px-5 py-3 text-right font-mono text-xs font-medium ${
+                            row.profit_amount >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                          }`}
+                        >
+                          {row.profit_amount >= 0 ? '+' : ''}
+                          {row.profit_amount.toLocaleString()}
+                        </td>
+                        <td className="px-5 py-3 text-right font-mono text-xs">
+                          {row.profit_rate.toFixed(2)}%
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </motion.section>
+
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -419,7 +535,7 @@ export default function OrderPage() {
           <div className="flex items-center gap-2 mb-5">
             <ClipboardList size={18} className="text-[#ffa95a]" />
             <h2 className="text-lg font-bold">委託紀錄</h2>
-            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">（模擬資料）</span>
+            {listLoading && <Loader2 size={16} className="animate-spin text-gray-400" />}
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -432,6 +548,7 @@ export default function OrderPage() {
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">方向</th>
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">類型</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">價格</th>
+                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">下單日</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">數量</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">預估金額</th>
                     <th className="text-center px-5 py-3 font-medium text-gray-500 dark:text-gray-400">狀態</th>
@@ -439,15 +556,27 @@ export default function OrderPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 ? (
+                  {listLoading ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={10} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 size={18} className="animate-spin" />
+                          載入中…
+                        </span>
+                      </td>
+                    </tr>
+                  ) : orders.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="text-center py-12 text-gray-400 dark:text-gray-500">
                         尚無委託紀錄
                       </td>
                     </tr>
                   ) : (
                     orders.map((o) => (
-                      <tr key={o.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors">
+                      <tr
+                        key={o.id}
+                        className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors"
+                      >
                         <td className="px-5 py-3 font-mono text-xs text-gray-400 dark:text-gray-500">{o.id}</td>
                         <td className="px-5 py-3 font-mono font-semibold">{o.symbol}</td>
                         <td className="px-5 py-3">
@@ -461,14 +590,13 @@ export default function OrderPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3 text-xs text-gray-500 dark:text-gray-400">
-                          {o.type === 'limit' ? '限價' : '市價'}
+                          {o.order_type === 'limit' ? '限價' : '市價'}
                         </td>
-                        <td className="px-5 py-3 text-right font-mono text-xs">
-                          {o.price ? o.price.toLocaleString() : '—'}
-                        </td>
+                        <td className="px-5 py-3 text-right font-mono text-xs">{formatPriceCell(o.price)}</td>
+                        <td className="px-5 py-3 font-mono text-xs whitespace-nowrap">{o.trade_date}</td>
                         <td className="px-5 py-3 text-right font-mono text-xs">{o.quantity}</td>
                         <td className="px-5 py-3 text-right font-mono text-xs">
-                          {o.estimatedAmount.toLocaleString()}
+                          {o.estimated_amount.toLocaleString()}
                         </td>
                         <td className="px-5 py-3 text-center">
                           <span
@@ -483,7 +611,9 @@ export default function OrderPage() {
                             {o.status === 'filled' ? '已成交' : o.status === 'cancelled' ? '已取消' : '委託中'}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">{o.createdAt}</td>
+                        <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                          {formatCreatedAt(o.created_at)}
+                        </td>
                       </tr>
                     ))
                   )}

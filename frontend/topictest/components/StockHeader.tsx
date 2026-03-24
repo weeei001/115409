@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { TrendingUp, TrendingDown, ArrowLeft } from 'lucide-react';
-import { useRouter } from 'next/router';
+import { TrendingUp, TrendingDown } from 'lucide-react';
 import type { DailyPriceResponse } from '../lib/types';
 import { fmt, fmtPrice } from '../lib/utils/format';
 
@@ -10,7 +9,6 @@ interface Props {
 }
 
 export const StockHeader: React.FC<Props> = ({ data }) => {
-  const router = useRouter();
   const change = Number(data.change ?? 0);
   const close = Number(data.close ?? 0);
   const prevClose = close - change;
@@ -28,23 +26,11 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
 
   return (
     <motion.header
-      className="w-full max-w-5xl mb-8"
+      className="w-full mb-8"
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          onClick={() => router.push('/')}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-        >
-          <ArrowLeft size={20} className="text-gray-500 dark:text-gray-400" />
-        </button>
-        <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-          股海明燈
-        </h2>
-      </div>
-
       <div className="flex justify-between items-end mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-baseline gap-3">

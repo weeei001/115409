@@ -63,7 +63,7 @@ export const StockSearch: React.FC<Props> = ({
                 setQuery(s);
                 setOpen(false);
               }}
-              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 hover:text-[#ffa95a] transition-colors font-mono"
+              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 hover:text-[#ffa95a] transition-colors font-mono cursor-pointer"
             >
               {s}
             </button>

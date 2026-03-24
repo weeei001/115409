@@ -218,3 +218,54 @@ export interface OrderRecord {
   estimatedAmount: number;
   createdAt: string;
 }
+
+// ── Simulated Order API (openapi: /simulated-orders) ──
+
+export interface SimulatedOrderCreate {
+  session_id: string;
+  symbol: string;
+  side: OrderSide;
+  order_type: OrderType;
+  quantity: number;
+  /** 市價單勿送；限價時使用 */
+  price?: number | string | null;
+  trade_date?: string | null;
+}
+
+export interface SimulatedOrderResponse {
+  id: string;
+  session_id: string;
+  symbol: string;
+  side: OrderSide;
+  order_type: OrderType;
+  price: string | number | null;
+  trade_date: string;
+  quantity: number;
+  status: OrderStatus;
+  estimated_amount: number;
+  created_at: string;
+}
+
+export interface SimulatedOrderListResponse {
+  session_id: string;
+  total: number;
+  data: SimulatedOrderResponse[];
+}
+
+export interface SimulatedOrderCategoryProfitItem {
+  category: string;
+  order_count: number;
+  symbols: string[];
+  cost_amount: number;
+  market_amount: number;
+  profit_amount: number;
+  profit_rate: number;
+}
+
+export interface SimulatedOrderCategoryProfitResponse {
+  session_id: string;
+  total_orders: number;
+  priced_orders: number;
+  unpriced_orders: number;
+  data?: SimulatedOrderCategoryProfitItem[];
+}
