@@ -23,7 +23,7 @@ CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
 INDICATOR_SCRIPT = CRAWLER_DIR / "technical_indicator_job.py"
 INSTITUTIONAL_TRADES_SCRIPT = CRAWLER_DIR / "institutional_trades_job.py"
 RUN_TECHNICAL_INDICATOR_AFTER_CRAWL = True
-RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = False
+RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = True
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
 
@@ -184,10 +184,14 @@ def main():
     # 設定每天執行一次
     schedule.every().day.at(schedule_time).do(run_crawler_job)
     log.info(
-        "✅ 已設定每天 %s 執行：%s（成功後依常數接續三大法人／技術指標）",
+        "✅ 已設定每天 %s 執行：%s",
         schedule_time,
         TWSE_CRAWLER_SCRIPT.name,
     )
+    if RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL:
+        log.info("  ↳ 三大法人買賣超：爬蟲成功後自動執行")
+    if RUN_TECHNICAL_INDICATOR_AFTER_CRAWL:
+        log.info("  ↳ 技術指標計算：爬蟲成功後自動執行")
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)
