@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = "topic_stock"
     DATABASE_PORT: int = 3306
     
+    # NVIDIA NIM LLM 配置
+    NIM_API_KEY: str = ""
+    NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NIM_MODEL: str = "meta/llama-3.1-70b-instruct"
+
+    # 新聞 RAG API 配置
+    RAG_API_URL: str = ""
+    RAG_API_KEY: str = ""
+    RAG_API_TIMEOUT: int = 10
+
     # 應用配置
     APP_NAME: str = "FastAPI MySQL Application"
     APP_VERSION: str = "1.0.0"
