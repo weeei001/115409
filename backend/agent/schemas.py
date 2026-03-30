@@ -10,7 +10,7 @@ class ParsedIntent(BaseModel):
     symbols: list[str] = Field(default_factory=list)
     date_start: date
     date_end: date
-    focus: Literal["technical", "institutional", "news", "general", "pattern"] = "general"
+    focus: Literal["technical", "institutional", "news", "general"] = "general"
     original_query: str = ""
 
 
@@ -34,6 +34,7 @@ class FetchedData(BaseModel):
     indicators: list[dict] = Field(default_factory=list)
     institutional: list[dict] = Field(default_factory=list)
     news: list[NormalizedNewsChunk] = Field(default_factory=list)
+    rag_summary: str = Field("", description="RAG API 回傳的 raw_answer 新聞情緒摘要")
     news_fallback: bool = False
 
 

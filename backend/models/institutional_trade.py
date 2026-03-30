@@ -37,9 +37,7 @@ class InstitutionalTrade(Base):
     )
 
     __table_args__ = (
-        Index("idx_it_date_symbol", "date", "symbol"),
-        Index("idx_it_date", "date"),
-        Index("idx_it_symbol", "symbol"),
+        Index("idx_it_symbol_date", "symbol", "date"),
     )
 
     def __repr__(self) -> str:

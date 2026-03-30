@@ -7,13 +7,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from agent.llm_client import LLMClient
-from agent.pattern_detector import detect_all_patterns
-from agent.prompt_templates import (
-    ANALYSIS_SYSTEM,
-    ANALYSIS_USER,
-    PATTERN_SUMMARY_SYSTEM,
-    PATTERN_SUMMARY_USER,
-)
+from agent.prompt_templates import ANALYSIS_SYSTEM, ANALYSIS_USER
 from agent.schemas import AnalysisResult, FetchedData, NormalizedNewsChunk
 
 logger = logging.getLogger(__name__)
@@ -45,18 +39,138 @@ def _format_prices(prices: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _format_indicators(indicators: list[dict]) -> str:
+def _format_indicators(indicators: list[dict], prices: list[dict] | None = None) -> str:
     if not indicators:
         return "（無資料）"
+
     latest = indicators[-1]
-    parts = [f"日期: {latest.get('date', 'N/A')}"]
+    sections: list[str] = []
+
+    # ── 最新數值總覽 ──
+    d = latest.get("date", "N/A")
+    row_parts = [f"日期: {d}"]
     for key in ("ma5", "ma10", "ma20", "ma60", "k_value", "d_value",
                 "rsi14", "macd", "macd_signal", "macd_hist",
                 "bb_upper", "bb_middle", "bb_lower"):
         val = latest.get(key)
         if val is not None:
-            parts.append(f"{key}: {val}")
-    return "\n".join(parts)
+            row_parts.append(f"{key}: {val}")
+    sections.append("【最新技術指標】\n" + "\n".join(row_parts))
+
+    # ── RSI(14) 月內走勢 ──
+    rsi_lines: list[str] = []
+    rsi_series = [(i.get("date", ""), i.get("rsi14")) for i in indicators if i.get("rsi14") is not None]
+    if rsi_series:
+        overbought = [(dt, v) for dt, v in rsi_series if v > 70]
+        oversold = [(dt, v) for dt, v in rsi_series if v < 30]
+        rsi_lines.append("超買（>70）：" + ("、".join(f"{dt} RSI={v}" for dt, v in overbought) if overbought else "無"))
+        rsi_lines.append("超賣（<30）：" + ("、".join(f"{dt} RSI={v}" for dt, v in oversold) if oversold else "無"))
+        recent_5 = rsi_series[-5:]
+        if len(recent_5) >= 2:
+            trend = "上升" if recent_5[-1][1] > recent_5[0][1] else "下降"
+            trail = " → ".join(f"{v}" for _, v in recent_5)
+            rsi_lines.append(f"近 {len(recent_5)} 日走勢（{trend}）：{trail}")
+        sections.append("【RSI(14) 月內走勢】\n" + "\n".join(rsi_lines))
+
+    # ── MACD 月內走勢 ──
+    macd_lines: list[str] = []
+    macd_series = [
+        (i.get("date", ""), i.get("macd"), i.get("macd_signal"), i.get("macd_hist"))
+        for i in indicators
+        if i.get("macd") is not None and i.get("macd_signal") is not None
+    ]
+    if len(macd_series) >= 2:
+        for idx in range(1, len(macd_series)):
+            prev_m, prev_s = macd_series[idx - 1][1], macd_series[idx - 1][2]
+            cur_d, cur_m, cur_s, _ = macd_series[idx]
+            prev_diff = prev_m - prev_s
+            cur_diff = cur_m - cur_s
+            if prev_diff <= 0 < cur_diff:
+                pos = "零軸上方" if cur_m > 0 else "零軸下方"
+                macd_lines.append(f"{cur_d} MACD 金叉（{pos}）：MACD={cur_m} 上穿 Signal={cur_s}")
+            elif prev_diff >= 0 > cur_diff:
+                pos = "零軸上方" if cur_m > 0 else "零軸下方"
+                macd_lines.append(f"{cur_d} MACD 死叉（{pos}）：MACD={cur_m} 下穿 Signal={cur_s}")
+        if not macd_lines:
+            macd_lines.append("本月無金叉/死叉交叉")
+        hist_recent = [(dt, h) for dt, _, _, h in macd_series[-5:] if h is not None]
+        if hist_recent:
+            trail = " → ".join(f"{h}" for _, h in hist_recent)
+            macd_lines.append(f"Histogram 近 {len(hist_recent)} 日：{trail}")
+        sections.append("【MACD 月內走勢】\n" + "\n".join(macd_lines))
+
+    # ── KD 月內走勢 ──
+    kd_lines: list[str] = []
+    kd_series = [
+        (i.get("date", ""), i.get("k_value"), i.get("d_value"))
+        for i in indicators
+        if i.get("k_value") is not None and i.get("d_value") is not None
+    ]
+    if len(kd_series) >= 2:
+        for idx in range(1, len(kd_series)):
+            prev_k, prev_d_val = kd_series[idx - 1][1], kd_series[idx - 1][2]
+            cur_date, cur_k, cur_d_val = kd_series[idx]
+            if prev_k <= prev_d_val and cur_k > cur_d_val:
+                zone = "低檔" if cur_k < 30 else ("中檔" if cur_k < 70 else "高檔")
+                kd_lines.append(f"{cur_date} KD 金叉（{zone}）：K={cur_k} 上穿 D={cur_d_val}")
+            elif prev_k >= prev_d_val and cur_k < cur_d_val:
+                zone = "低檔" if cur_k < 30 else ("中檔" if cur_k < 70 else "高檔")
+                kd_lines.append(f"{cur_date} KD 死叉（{zone}）：K={cur_k} 下穿 D={cur_d_val}")
+        if not kd_lines:
+            kd_lines.append("本月無 KD 金叉/死叉交叉")
+        last_k, last_d = kd_series[-1][1], kd_series[-1][2]
+        state = "多方排列（K > D）" if last_k > last_d else "空方排列（K < D）"
+        kd_lines.append(f"目前 K={last_k} / D={last_d}，{state}")
+        sections.append("【KD 月內走勢】\n" + "\n".join(kd_lines))
+
+    # ── 股價與均線關係 ──
+    if prices:
+        ma_lines: list[str] = []
+        valid_prices = [p for p in prices if p.get("close") is not None]
+        if valid_prices:
+            closes = [(p["date"], float(p["close"])) for p in valid_prices]
+            high_date, high_val = max(closes, key=lambda x: x[1])
+            low_date, low_val = min(closes, key=lambda x: x[1])
+            ma_lines.append(f"月內最高收盤：{high_date} {high_val}")
+            ma_lines.append(f"月內最低收盤：{low_date} {low_val}")
+
+        ma20_pairs = []
+        for p, ind in zip(prices, indicators):
+            close = p.get("close")
+            ma20 = ind.get("ma20")
+            if close is not None and ma20 is not None:
+                ma20_pairs.append((p.get("date", ""), float(close), float(ma20)))
+        if ma20_pairs:
+            latest_close, latest_ma20 = ma20_pairs[-1][1], ma20_pairs[-1][2]
+            above = latest_close >= latest_ma20
+            streak = 0
+            for _, c, m in reversed(ma20_pairs):
+                if (c >= m) == above:
+                    streak += 1
+                else:
+                    break
+            rel = "站上" if above else "跌破"
+            ma_lines.append(f"股價自 {ma20_pairs[-streak][0]} {rel} 20 日均線，已持續 {streak} 個交易日")
+
+        ma_vals = {}
+        for label in ("ma5", "ma10", "ma20", "ma60"):
+            v = latest.get(label)
+            if v is not None:
+                ma_vals[label.upper()] = float(v)
+        if ma_vals:
+            sorted_ma = sorted(ma_vals.items(), key=lambda x: -x[1])
+            order = " > ".join(f"{k}({v})" for k, v in sorted_ma)
+            if all(sorted_ma[i][1] >= sorted_ma[i + 1][1] for i in range(len(sorted_ma) - 1)):
+                if sorted_ma[0][0] == "MA5":
+                    order += "，多頭排列"
+                elif sorted_ma[-1][0] == "MA5":
+                    order += "，空頭排列"
+            ma_lines.append(f"均線排列：{order}")
+
+        if ma_lines:
+            sections.append("【股價與均線關係】\n" + "\n".join(ma_lines))
+
+    return "\n\n".join(sections)
 
 
 def _format_institutional(institutional: list[dict]) -> str:
@@ -117,56 +231,7 @@ def _build_fallback(data: FetchedData) -> AnalysisResult:
     )
 
 
-def _format_pattern_hits(hits: list[dict]) -> str:
-    if not hits:
-        return "（未偵測到任何技術訊號）"
-    lines: list[str] = []
-    for h in hits:
-        detail_parts = []
-        for k, v in h.items():
-            if k in ("date", "pattern"):
-                continue
-            detail_parts.append(f"{k}={v}")
-        detail = ", ".join(detail_parts)
-        lines.append(f"- {h['date']}　{h['pattern']}　({detail})" if detail else f"- {h['date']}　{h['pattern']}")
-    return "\n".join(lines)
-
-
-async def analyze_pattern(
-    llm: LLMClient,
-    data: FetchedData,
-    original_query: str,
-) -> tuple[AnalysisResult, str]:
-    """Run programmatic pattern detection, then let LLM summarize the results.
-
-    Returns (AnalysisResult with empty structured fields, raw_answer text).
-    """
-    hits = detect_all_patterns(data.prices, data.indicators)
-    pattern_text = _format_pattern_hits(hits)
-
-    user_prompt = PATTERN_SUMMARY_USER.format(
-        symbol=data.symbol,
-        date_start=data.date_start.isoformat(),
-        date_end=data.date_end.isoformat(),
-        original_query=original_query,
-        total_hits=len(hits),
-        pattern_lines=pattern_text,
-    )
-
-    try:
-        raw_answer = await llm.complete(PATTERN_SUMMARY_SYSTEM, user_prompt, temperature=0.3, max_tokens=2048)
-    except Exception:
-        logger.exception("Pattern summary LLM call failed, returning raw hits")
-        raw_answer = f"偵測期間：{data.date_start} 至 {data.date_end}\n共偵測到 {len(hits)} 筆技術訊號：\n\n{pattern_text}"
-
-    result = AnalysisResult(fallback_mode=False)
-    return result, raw_answer
-
-
-async def analyze(llm: LLMClient, data: FetchedData, focus: str, original_query: str) -> AnalysisResult | tuple[AnalysisResult, str]:
-    if focus == "pattern":
-        return await analyze_pattern(llm, data, original_query)
-
+async def analyze(llm: LLMClient, data: FetchedData, focus: str, original_query: str) -> AnalysisResult:
     if not data.prices and not data.indicators:
         return _build_fallback(data)
 
@@ -177,9 +242,9 @@ async def analyze(llm: LLMClient, data: FetchedData, focus: str, original_query:
         focus=focus,
         original_query=original_query,
         price_data=_format_prices(data.prices),
-        indicator_data=_format_indicators(data.indicators),
+        indicator_data=_format_indicators(data.indicators, data.prices),
         institutional_data=_format_institutional(data.institutional),
-        news_data=_format_news(data.news),
+        rag_summary=data.rag_summary or "（無新聞情緒摘要）",
     )
 
     try:

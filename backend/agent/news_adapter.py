@@ -35,12 +35,12 @@ async def fetch_from_rag_api(
     rag_url: str,
     rag_key: str,
     timeout: int = 10,
-) -> Tuple[List[NormalizedNewsChunk], bool]:
-    """Call external RAG API. Returns (chunks, is_fallback).
+) -> Tuple[List[NormalizedNewsChunk], str, bool]:
+    """Call external RAG API. Returns (chunks, rag_summary, is_fallback).
     If RAG_API_URL is not configured, returns empty list with fallback=True.
     """
     if not rag_url:
-        return [], True
+        return [], "", True
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -56,8 +56,10 @@ async def fetch_from_rag_api(
             resp.raise_for_status()
             data = resp.json()
 
+        rag_summary: str = data.get("raw_answer") or ""
+
         chunks: list[NormalizedNewsChunk] = []
-        for item in (data.get("results") or data.get("items") or []):
+        for item in (data.get("news_sources") or data.get("results") or data.get("items") or []):
             ts_raw = item.get("timestamp") or item.get("publish_time") or item.get("date") or ""
             try:
                 ts = datetime.fromisoformat(str(ts_raw))
@@ -72,8 +74,8 @@ async def fetch_from_rag_api(
                 url=item.get("url") or None,
                 relevance_score=float(item.get("score", 0.0)),
             ))
-        return chunks[:5], False
+        return chunks[:5], rag_summary, False
 
     except Exception:
         logger.exception("RAG API call failed")
-        return [], True
+        return [], "", True

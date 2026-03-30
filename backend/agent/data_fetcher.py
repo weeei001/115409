@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, timedelta
-
-from sqlalchemy.orm import Session
+from datetime import date
+from functools import partial
 
 from agent.news_adapter import fetch_from_rag_api
 from agent.schemas import FetchedData, NormalizedNewsChunk, ParsedIntent
@@ -14,10 +13,9 @@ from config import get_settings
 from crud import daily_price as crud_price
 from crud import technical_indicator as crud_indicator
 from crud.institutional_trade import get_by_symbol_range as crud_inst_range
+from database import SessionLocal
 
 logger = logging.getLogger(__name__)
-
-PATTERN_LOOKBACK_DAYS = 180
 
 
 def _price_to_dict(p) -> dict:
@@ -61,43 +59,48 @@ def _inst_to_dict(t) -> dict:
     }
 
 
-def _fetch_db_data(
-    db: Session,
-    symbol: str,
-    start: date,
-    end: date,
-) -> tuple[list[dict], list[dict], list[dict]]:
-    """Synchronous DB queries — all run in the same thread that owns the session."""
+# ── Each query gets its own Session so they can run in parallel threads ──
+
+def _fetch_prices(symbol: str, start: date, end: date) -> list[dict]:
+    db = SessionLocal()
     try:
-        prices_raw = crud_price.get_price_range(db, symbol, start, end)
-        prices = [_price_to_dict(p) for p in prices_raw]
+        rows = crud_price.get_price_range(db, symbol, start, end)
+        return [_price_to_dict(p) for p in rows]
     except Exception:
         logger.exception("Failed to fetch prices for %s", symbol)
-        prices = []
+        return []
+    finally:
+        db.close()
 
+
+def _fetch_indicators(symbol: str, start: date, end: date) -> list[dict]:
+    db = SessionLocal()
     try:
-        indicators_raw = crud_indicator.get_indicators(db, symbol, start, end)
-        indicators = [_indicator_to_dict(i) for i in indicators_raw]
+        rows = crud_indicator.get_indicators(db, symbol, start, end)
+        return [_indicator_to_dict(i) for i in rows]
     except Exception:
         logger.exception("Failed to fetch indicators for %s", symbol)
-        indicators = []
+        return []
+    finally:
+        db.close()
 
+
+def _fetch_institutional(symbol: str, start: date, end: date) -> list[dict]:
+    db = SessionLocal()
     try:
-        institutional_raw = crud_inst_range(db, symbol, start, end)
-        institutional = [_inst_to_dict(t) for t in institutional_raw]
+        rows = crud_inst_range(db, symbol, start, end)
+        return [_inst_to_dict(t) for t in rows]
     except Exception:
         logger.exception("Failed to fetch institutional data for %s", symbol)
-        institutional = []
-
-    return prices, indicators, institutional
+        return []
+    finally:
+        db.close()
 
 
 async def _fetch_news(
     intent: ParsedIntent,
-) -> tuple[list[NormalizedNewsChunk], bool]:
-    """Fetch news from external RAG API only. No local DB fallback."""
+) -> tuple[list[NormalizedNewsChunk], str, bool]:
     settings = get_settings()
-
     return await fetch_from_rag_api(
         query=intent.original_query,
         symbols=intent.symbols,
@@ -107,10 +110,7 @@ async def _fetch_news(
     )
 
 
-async def fetch_all(
-    db: Session,
-    intent: ParsedIntent,
-) -> FetchedData:
+async def fetch_all(intent: ParsedIntent) -> FetchedData:
     symbol = intent.symbols[0] if intent.symbols else ""
     if not symbol:
         return FetchedData(
@@ -120,18 +120,18 @@ async def fetch_all(
             news_fallback=True,
         )
 
-    if intent.focus == "pattern":
-        effective_start = min(intent.date_start, intent.date_end - timedelta(days=PATTERN_LOOKBACK_DAYS))
-    else:
-        effective_start = intent.date_start
+    start = intent.date_start
+    end = intent.date_end
+    loop = asyncio.get_running_loop()
 
-    news_task = asyncio.ensure_future(_fetch_news(intent))
+    prices_fut = loop.run_in_executor(None, partial(_fetch_prices, symbol, start, end))
+    indicators_fut = loop.run_in_executor(None, partial(_fetch_indicators, symbol, start, end))
+    inst_fut = loop.run_in_executor(None, partial(_fetch_institutional, symbol, start, end))
+    news_fut = asyncio.ensure_future(_fetch_news(intent))
 
-    prices, indicators, institutional = _fetch_db_data(
-        db, symbol, effective_start, intent.date_end
+    prices, indicators, institutional, (news_chunks, rag_summary, is_fallback) = (
+        await asyncio.gather(prices_fut, indicators_fut, inst_fut, news_fut)
     )
-
-    news_chunks, is_fallback = await news_task
 
     return FetchedData(
         symbol=symbol,
@@ -141,5 +141,6 @@ async def fetch_all(
         indicators=indicators,
         institutional=institutional,
         news=news_chunks,
+        rag_summary=rag_summary,
         news_fallback=is_fallback,
     )

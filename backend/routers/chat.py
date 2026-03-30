@@ -1,14 +1,13 @@
 import logging
+from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, status
 
 from agent.analyzer import analyze
 from agent.data_fetcher import fetch_all
 from agent.llm_client import LLMClient
-from agent.parser import parse_intent
+from agent.schemas import ParsedIntent
 from config import get_settings
-from database import get_db
 from schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -88,50 +87,33 @@ def _build_response(
     )
 
 
-_DEFAULT_MESSAGE = (
-    "請以專業投資顧問的角度，針對這檔股票提供技術面、籌碼面的綜合分析與操作建議。"
-)
+_QUERY_TEMPLATE = "請以專業投資顧問的角度，針對 {symbol} 提供技術面、籌碼面的綜合分析與操作建議。"
+_LOOKBACK_DAYS = 30
 
 
-@router.post("/chat", response_model=ChatResponse, summary="AI 股票分析對話")
-async def chat(req: ChatRequest, db: Session = Depends(get_db)):
-    if not req.messages or not any(m.content.strip() for m in req.messages):
-        if req.symbols:
-            sym_text = "、".join(req.symbols)
-            default_content = f"請以專業投資顧問的角度，針對 {sym_text} 提供技術面、籌碼面的綜合分析與操作建議。"
-        else:
-            default_content = _DEFAULT_MESSAGE
-        messages_raw = [{"role": "user", "content": default_content}]
-    else:
-        messages_raw = [{"role": m.role, "content": m.content} for m in req.messages]
+@router.post("/analyze", response_model=ChatResponse, summary="AI 股票分析")
+async def analyze_stock(req: ChatRequest):
+    symbols = [s.strip().upper() for s in req.symbols if s.strip()]
+    if not symbols:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="請提供股票代號（如 2330）",
+        )
+    symbol = symbols[0]
+
+    today = date.today()
+    intent = ParsedIntent(
+        symbols=[symbol],
+        date_start=today - timedelta(days=_LOOKBACK_DAYS),
+        date_end=today,
+        focus="general",
+        original_query=_QUERY_TEMPLATE.format(symbol=symbol),
+    )
 
     llm = _get_llm()
 
     try:
-        intent = await parse_intent(llm, messages_raw)
-    except Exception:
-        logger.exception("Unexpected error in parse_intent")
-        return ChatResponse(
-            summary="",
-            raw_answer="抱歉，系統暫時無法處理您的請求，請稍後再試。",
-            fallback_mode=True,
-        )
-
-    if req.symbols:
-        intent.symbols = [s.strip().upper() for s in req.symbols if s.strip()]
-
-    if not intent.symbols:
-        return ChatResponse(
-            summary="",
-            raw_answer=(
-                "您好！我是 AI 投資顧問。請提供想分析的股票代號"
-                "（如 2330、2454），我會為您提供技術面、籌碼面及新聞面的綜合分析。"
-            ),
-            fallback_mode=False,
-        )
-
-    try:
-        data = await fetch_all(db, intent)
+        data = await fetch_all(intent)
     except Exception:
         logger.exception("Unexpected error in fetch_all")
         raise HTTPException(
@@ -142,18 +124,18 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if not data.prices and not data.indicators and not data.institutional:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"查無股票代號 {intent.symbols[0]} 的資料，請確認代號是否正確",
+            detail=f"查無股票代號 {symbol} 的資料，請確認代號是否正確",
         )
 
     intent_meta = dict(
-        symbol=intent.symbols[0] if intent.symbols else "",
+        symbol=symbol,
         date_start=intent.date_start.isoformat(),
         date_end=intent.date_end.isoformat(),
         focus=intent.focus,
     )
 
     try:
-        analysis_output = await analyze(llm, data, intent.focus, intent.original_query)
+        result = await analyze(llm, data, intent.focus, intent.original_query)
     except Exception:
         logger.exception("Unexpected error in analyze")
         return ChatResponse(
@@ -163,8 +145,4 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
             fallback_mode=True,
         )
 
-    if isinstance(analysis_output, tuple):
-        result, raw_answer = analysis_output
-        return _build_response(result, **intent_meta, raw_answer=raw_answer)
-
-    return _build_response(analysis_output, **intent_meta)
+    return _build_response(result, **intent_meta)

@@ -33,12 +33,13 @@ SQLALCHEMY_DATABASE_URL = (
     f"@{settings.DATABASE_HOST}:{settings.DATABASE_PORT}/{settings.DATABASE_NAME}"
 )
 
-# 創建資料庫引擎
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    pool_pre_ping=True,  # 自動檢測連接是否有效
-    pool_recycle=3600,   # 每小時回收連接
-    echo=settings.DEBUG  # 開發模式下列印 SQL 語句
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    pool_size=10,
+    max_overflow=20,
+    echo=settings.DEBUG,
 )
 
 # 創建會話

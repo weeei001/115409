@@ -1,16 +1,10 @@
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
-class ChatMessageItem(BaseModel):
-    role: Literal["user", "assistant"] = Field(..., description="訊息角色")
-    content: str = Field(..., description="訊息內容")
-
-
 class ChatRequest(BaseModel):
-    messages: List[ChatMessageItem] = Field(default_factory=list, description="對話紀錄（選填，空白時系統自動以投資顧問角度分析）")
-    symbols: Optional[List[str]] = Field(None, description="指定股票代號（選填）")
+    symbols: List[str] = Field(..., description="股票代號，例如 ['2330']")
     with_news: bool = Field(True, description="是否包含新聞分析")
 
 
@@ -34,7 +28,7 @@ class ChatResponse(BaseModel):
     symbol: str = Field("", description="Parser 解析出的股票代號")
     date_start: str = Field("", description="Parser 解析出的起始日期 (YYYY-MM-DD)")
     date_end: str = Field("", description="Parser 解析出的結束日期 (YYYY-MM-DD)")
-    focus: str = Field("general", description="Parser 解析出的查詢焦點 (technical/institutional/news/general/pattern)")
+    focus: str = Field("general", description="查詢焦點 (technical/institutional/news/general)")
     summary: str = Field("", description="總結摘要")
     sentiment_score: float = Field(0.0, description="情緒分值 -1 ~ 1")
     technical_highlights: List[str] = Field(default_factory=list, description="技術指標重點")
