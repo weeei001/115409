@@ -28,7 +28,6 @@ class ChatResponse(BaseModel):
     symbol: str = Field("", description="Parser 解析出的股票代號")
     date_start: str = Field("", description="Parser 解析出的起始日期 (YYYY-MM-DD)")
     date_end: str = Field("", description="Parser 解析出的結束日期 (YYYY-MM-DD)")
-    focus: str = Field("general", description="查詢焦點 (technical/institutional/news/general)")
     summary: str = Field("", description="總結摘要")
     sentiment_score: float = Field(0.0, description="情緒分值 -1 ~ 1")
     technical_highlights: List[str] = Field(default_factory=list, description="技術指標重點")

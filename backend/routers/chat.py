@@ -35,7 +35,6 @@ def _build_response(
     symbol: str = "",
     date_start: str = "",
     date_end: str = "",
-    focus: str = "general",
     raw_answer: str = "",
 ) -> ChatResponse:
     inst_rows = [
@@ -74,7 +73,6 @@ def _build_response(
         symbol=symbol,
         date_start=date_start,
         date_end=date_end,
-        focus=focus,
         summary=result.summary,
         sentiment_score=result.sentiment_score,
         technical_highlights=result.technical_highlights,
@@ -106,7 +104,6 @@ async def analyze_stock(req: ChatRequest):
         symbols=[symbol],
         date_start=today - timedelta(days=_LOOKBACK_DAYS),
         date_end=today,
-        focus="general",
         original_query=_QUERY_TEMPLATE.format(symbol=symbol),
     )
 
@@ -131,11 +128,10 @@ async def analyze_stock(req: ChatRequest):
         symbol=symbol,
         date_start=intent.date_start.isoformat(),
         date_end=intent.date_end.isoformat(),
-        focus=intent.focus,
     )
 
     try:
-        result = await analyze(llm, data, intent.focus, intent.original_query)
+        result = await analyze(llm, data, intent.original_query)
     except Exception:
         logger.exception("Unexpected error in analyze")
         return ChatResponse(

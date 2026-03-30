@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +10,6 @@ class ParsedIntent(BaseModel):
     symbols: list[str] = Field(default_factory=list)
     date_start: date
     date_end: date
-    focus: Literal["technical", "institutional", "news", "general"] = "general"
     original_query: str = ""
 
 

@@ -231,7 +231,7 @@ def _build_fallback(data: FetchedData) -> AnalysisResult:
     )
 
 
-async def analyze(llm: LLMClient, data: FetchedData, focus: str, original_query: str) -> AnalysisResult:
+async def analyze(llm: LLMClient, data: FetchedData, original_query: str) -> AnalysisResult:
     if not data.prices and not data.indicators:
         return _build_fallback(data)
 
@@ -239,7 +239,6 @@ async def analyze(llm: LLMClient, data: FetchedData, focus: str, original_query:
         symbol=data.symbol,
         date_start=data.date_start.isoformat(),
         date_end=data.date_end.isoformat(),
-        focus=focus,
         original_query=original_query,
         price_data=_format_prices(data.prices),
         indicator_data=_format_indicators(data.indicators, data.prices),

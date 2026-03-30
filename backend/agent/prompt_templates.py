@@ -64,7 +64,6 @@ ANALYSIS_SYSTEM = """\
 ANALYSIS_USER = """\
 分析標的：{symbol}
 分析期間：{date_start} 至 {date_end}
-使用者關注焦點：{focus}
 使用者原始問題：{original_query}
 
 === 收盤價（{date_start} 至 {date_end}） ===
