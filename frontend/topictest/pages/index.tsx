@@ -12,6 +12,7 @@ import {
   LogIn,
   ShoppingCart,
   Bot,
+  BrainCircuit,
 } from 'lucide-react';
 import { fetchSymbols, fetchLatestPrice } from '../lib/api/stock';
 import { fetchNews } from '../lib/api/news';
@@ -157,6 +158,14 @@ export default function Home() {
                 )}
               </div>
 
+              <button
+                onClick={() => router.push('/advisor')}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
+                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
+              >
+                <BrainCircuit size={15} />
+                投資顧問
+              </button>
               <button
                 onClick={() => router.push('/ai')}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
