@@ -19,6 +19,9 @@ export default function Document() {
     <Html suppressHydrationWarning>
       <Head />
       <body>
+        <a href="#main-content" className="skip-to-main">
+          跳至主要內容
+        </a>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Main />
         <NextScript />

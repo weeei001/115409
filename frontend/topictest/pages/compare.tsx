@@ -20,7 +20,7 @@ interface MetricsCacheEntry {
 }
 
 const MODE_BUTTONS: Array<{ key: CompareChartMode; label: string }> = [
-  { key: 'price', label: '股價' },
+  { key: 'price', label: '報價' },
   { key: 'index100', label: 'Index=100' },
   { key: 'cumulativeReturn', label: '累積報酬%' },
 ];
@@ -81,6 +81,7 @@ export default function ComparePage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '載入比較資料失敗');
+      setCompareData(null);
     } finally {
       setChartLoading(false);
     }
@@ -161,20 +162,22 @@ export default function ComparePage() {
         subtitle="同時比較多支股票的走勢與指標"
       />
 
-      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
         <motion.div
-          className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6 flex flex-col gap-5"
+          className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm p-5 sm:p-6 flex flex-col gap-4"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-end gap-4">
             <StockSearch
+              className="flex-1 min-w-0"
               symbols={availableSymbols}
               onSelect={addSymbol}
               placeholder="新增股票代號..."
             />
             <DateRangePicker
+              className="shrink-0 lg:pl-5 lg:ml-1 lg:border-l lg:border-gray-100 dark:lg:border-gray-600"
               startDate={startDate}
               endDate={endDate}
               onStartChange={setStartDate}
@@ -187,11 +190,16 @@ export default function ComparePage() {
               {selected.map((sym) => (
                 <span
                   key={sym}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#fff9e6] dark:bg-[#ffa95a]/10 border border-[#ffa95a]/20 text-sm font-mono text-[#b97a3a] dark:text-[#ffa95a]"
+                  className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-[#fff7ed] dark:bg-[#ffa95a]/15 border border-[#ffa95a]/50 text-sm font-mono font-medium text-[#ea580c] dark:text-[#ffa95a]"
                 >
                   {sym}
-                  <button onClick={() => removeSymbol(sym)} className="hover:text-red-500 transition-colors">
-                    <X size={14} />
+                  <button
+                    type="button"
+                    onClick={() => removeSymbol(sym)}
+                    className="rounded-full p-0.5 text-[#ea580c]/70 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                    aria-label={`移除 ${sym}`}
+                  >
+                    <X size={14} strokeWidth={2.5} />
                   </button>
                 </span>
               ))}
@@ -207,41 +215,52 @@ export default function ComparePage() {
           )}
 
           <button
+            type="button"
             onClick={handleCompare}
             disabled={chartLoading || metricsLoading || selected.length < 2}
-            className="self-start px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-medium
-                       hover:shadow-lg hover:shadow-[#ffa95a]/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto sm:self-start px-8 py-3 rounded-2xl bg-gradient-to-r from-[#ffa95a] to-[#ffb347] text-white text-[15px] font-semibold shadow-md shadow-[#ffa95a]/25
+                       hover:shadow-lg hover:shadow-[#ffa95a]/30 hover:brightness-[1.02] transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none"
           >
             {chartLoading || metricsLoading ? '載入中...' : '開始比較'}
           </button>
-        </motion.div>
 
-        {compareData && (
-          <div className="flex flex-col gap-4">
-            <div className="inline-flex self-start bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-1">
+          {compareData && (
+            <div
+              className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-600/80 w-full sm:w-fit"
+              role="tablist"
+              aria-label="圖表顯示模式"
+            >
               {MODE_BUTTONS.map((m) => (
                 <button
                   key={m.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={chartMode === m.key}
                   onClick={() => setChartMode(m.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
                     chartMode === m.key
-                      ? 'bg-[#fff0df] dark:bg-[#ffa95a]/20 text-[#b97a3a] dark:text-[#ffd45a]'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-[#b97a3a]'
+                      ? 'bg-white dark:bg-gray-800 text-[#c2410c] dark:text-[#ffa95a] shadow-sm ring-1 ring-[#ffa95a]/30'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-[#b45309] dark:hover:text-gray-200'
                   }`}
                 >
                   {m.label}
                 </button>
               ))}
             </div>
+          )}
+        </motion.div>
+
+        {compareData && (
+          <div className="flex flex-col gap-4">
             <ComparisonChart data={compareData} mode={chartMode} />
           </div>
         )}
         {!metricsLoading && metricsRows.length > 0 && (
-          <>
+          <div className="flex flex-col gap-6">
             <CompareMetricsTable rows={metricsRows} />
             <RiskReturnScatter rows={metricsRows} />
             <CorrelationHeatmap symbols={selected} matrix={correlationMatrix} />
-          </>
+          </div>
         )}
       </div>
     </div>

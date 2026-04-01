@@ -1,8 +1,12 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
+import '../sentry.client.config';
 import '../styles/main.css';
 import { ThemeProvider } from '../lib/ThemeContext';
 import { SiteFooter } from '../components/SiteFooter';
+import { ScrollToTop } from '../components/ScrollToTop';
+import { Toaster } from 'sonner';
+import { Analytics } from '@vercel/analytics/react';
 
 const DEFAULT_TITLE = '股海明燈｜即時股價與財經新聞';
 const DEFAULT_DESCRIPTION =
@@ -17,11 +21,14 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="min-h-screen flex flex-col">
-        <div className="flex-1 flex flex-col min-w-0">
+        <div id="main-content" className="flex-1 flex flex-col min-w-0 outline-none" tabIndex={-1}>
           <Component {...pageProps} />
         </div>
         <SiteFooter />
+        <ScrollToTop />
       </div>
+      <Toaster richColors position="top-center" closeButton />
+      <Analytics />
     </ThemeProvider>
   );
 }
