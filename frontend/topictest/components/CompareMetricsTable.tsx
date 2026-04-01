@@ -32,6 +32,14 @@ function fmtNum(v: number | null): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+/** 台股慣例：上漲紅、下跌綠 */
+function twReturnClass(v: number | null): string {
+  if (v == null || Number.isNaN(v)) return '';
+  if (v > 0) return 'text-red-600 dark:text-red-400 font-medium';
+  if (v < 0) return 'text-emerald-600 dark:text-emerald-400 font-medium';
+  return 'text-gray-800 dark:text-gray-200';
+}
+
 export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -47,11 +55,13 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">比較指標表</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/80">
+          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">比較指標表</h3>
+        </div>
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900/40">
+            <thead className="bg-gray-100/80 dark:bg-gray-900/50">
               <tr>
                 {headers.map((h) => (
                   <th key={h.key} className="px-4 py-3 text-left whitespace-nowrap">
@@ -85,8 +95,8 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
                   key={r.symbol}
                   className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50/70 dark:hover:bg-gray-700/30"
                 >
-                  <td className="px-4 py-3 font-mono font-semibold text-[#b97a3a] dark:text-[#ffa95a]">{r.symbol}</td>
-                  <td className="px-4 py-3">{fmtPct(r.totalReturnPct)}</td>
+                  <td className="px-4 py-3 font-mono font-semibold text-[#c2410c] dark:text-[#ffa95a]">{r.symbol}</td>
+                  <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.totalReturnPct)}`}>{fmtPct(r.totalReturnPct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.volatilityPct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.maxDrawdownPct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.winRatePct)}</td>

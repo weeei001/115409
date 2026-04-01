@@ -1,18 +1,21 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { motion } from 'motion/react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import type { DailyPriceResponse } from '../lib/types';
 
 interface Props {
   data: DailyPriceResponse;
-  onClick?: () => void;
+  /** 穩定引用時可搭配 React.memo 避免父層重 render 時不必要的子元件更新 */
+  onNavigate?: (symbol: string) => void;
   index?: number;
 }
 
 const STOCK_NAMES: Record<string, string> = {
   '2330': '台積電',
   '2317': '鴻海',
+  '2408': '南亞科',
   '2454': '聯發科',
+  '2615': '萬海',
   '2881': '富邦金',
   '2882': '國泰金',
   '2303': '聯電',
@@ -22,7 +25,11 @@ const STOCK_NAMES: Record<string, string> = {
   '2886': '兆豐金',
 };
 
-export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, onClick, index = 0 }) {
+export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, onNavigate, index = 0 }) {
+  const handleClick = useCallback(() => {
+    onNavigate?.(data.symbol);
+  }, [onNavigate, data.symbol]);
+
   const close = Number(data.close ?? 0);
   const change = Number(data.change ?? 0);
   const prevClose = close - change;
@@ -46,7 +53,8 @@ export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, 
 
   return (
     <motion.button
-      onClick={onClick}
+      type="button"
+      onClick={handleClick}
       className={`w-full text-left rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-5 py-4
                   transition-all cursor-pointer ${bgHover} shadow-sm hover:shadow-md`}
       initial={{ opacity: 0, y: 20 }}

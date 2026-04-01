@@ -36,8 +36,11 @@ export const RiskReturnScatter: React.FC<Props> = ({ rows }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">風險-報酬分布</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4" style={{ height: 320 }}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/80">
+          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">風險-報酬分佈</h3>
+        </div>
+        <div className="p-4" style={{ height: 300 }}>
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 16, right: 24, bottom: 16, left: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
@@ -69,6 +72,7 @@ export const RiskReturnScatter: React.FC<Props> = ({ rows }) => {
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
+        </div>
       </div>
     </motion.section>
   );

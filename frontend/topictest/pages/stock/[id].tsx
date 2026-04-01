@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
@@ -30,9 +30,12 @@ import { HistoryTable } from '../../components/HistoryTable';
 import { DateRangePicker } from '../../components/DateRangePicker';
 import { AITrendPanel } from '../../components/AITrendPanel';
 import { SubpageHeader } from '../../components/SubpageHeader';
+import { StockSectionNav } from '../../components/StockSectionNav';
 import { getDefaultDateRange } from '../../lib/utils/date';
 
 const HISTORY_PAGE_SIZE = 30;
+
+const sectionClass = 'scroll-mt-[9.5rem]';
 
 const mockAiAnalysis: AITrendAnalysis = {
   conclusion: '強力看多',
@@ -70,6 +73,27 @@ export default function StockDetail() {
 
   const chartReqIdRef = useRef(0);
   const historyReqIdRef = useRef(0);
+
+  /** 換股或初次有 symbol 時同步清空，避免 client 導航時短暫顯示上一檔股票資料 */
+  useLayoutEffect(() => {
+    if (!symbol) return;
+    setLoading(true);
+    setError(null);
+    setLatest(null);
+    setCandlestickMA(null);
+    setVolumeData(null);
+    setPriceChangeData(null);
+    setStatistics(null);
+    setHistory(null);
+    setHistoryPage(1);
+    setHistoryError(null);
+    setChartError(null);
+    chartReqIdRef.current += 1;
+    historyReqIdRef.current += 1;
+    const d = getDefaultDateRange();
+    setStartDate(d.start);
+    setEndDate(d.end);
+  }, [symbol]);
 
   const loadChartData = useCallback(async (sym: string, sd: string, ed: string) => {
     const id = ++chartReqIdRef.current;
@@ -222,7 +246,20 @@ export default function StockDetail() {
     );
   }
 
-  if (!latest) return <>{stockPageHead}</>;
+  if (!latest) {
+    return (
+      <>
+        {stockPageHead}
+        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+            className="w-8 h-8 border-4 border-[#ffd45a] border-t-[#ffa95a] rounded-full"
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
@@ -233,17 +270,26 @@ export default function StockDetail() {
         subtitle="個股走勢與分析"
       />
       <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
-        <StockHeader data={latest} />
-        <AITrendPanel analysis={mockAiAnalysis} />
+        <StockSectionNav />
 
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <DateRangePicker
-            startDate={startDate}
-            endDate={endDate}
-            onStartChange={setStartDate}
-            onEndChange={setEndDate}
-          />
-        </div>
+        <section id="stock-overview" className={sectionClass}>
+          <StockHeader data={latest} />
+        </section>
+
+        <section id="ai-trend" className={sectionClass}>
+          <AITrendPanel analysis={mockAiAnalysis} />
+        </section>
+
+        <section id="date-range" className={sectionClass}>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <DateRangePicker
+              startDate={startDate}
+              endDate={endDate}
+              onStartChange={setStartDate}
+              onEndChange={setEndDate}
+            />
+          </div>
+        </section>
 
         {chartLoading && (
           <div className="text-sm text-gray-500 dark:text-gray-400">載入圖表資料中…</div>
@@ -254,21 +300,31 @@ export default function StockDetail() {
           </div>
         )}
 
-        {statistics && <StatisticsPanel stats={statistics} />}
-        {candlestickMA && <CandlestickChart data={candlestickMA} />}
-        {volumeData && <VolumeChart data={volumeData} />}
-        {priceChangeData && <PriceChangeChart data={priceChangeData} />}
+        <section id="statistics" className={sectionClass}>
+          {statistics && <StatisticsPanel stats={statistics} />}
+        </section>
+        <section id="candlestick" className={sectionClass}>
+          {candlestickMA && <CandlestickChart data={candlestickMA} />}
+        </section>
+        <section id="volume" className={sectionClass}>
+          {volumeData && <VolumeChart data={volumeData} />}
+        </section>
+        <section id="price-change" className={sectionClass}>
+          {priceChangeData && <PriceChangeChart data={priceChangeData} />}
+        </section>
         {historyError && (
           <div className="text-red-500 text-sm py-2">{historyError}</div>
         )}
-        {history && (
-          <HistoryTable
-            data={history}
-            page={historyPage}
-            pageSize={HISTORY_PAGE_SIZE}
-            onPageChange={setHistoryPage}
-          />
-        )}
+        <section id="history" className={sectionClass}>
+          {history && (
+            <HistoryTable
+              data={history}
+              page={historyPage}
+              pageSize={HISTORY_PAGE_SIZE}
+              onPageChange={setHistoryPage}
+            />
+          )}
+        </section>
       </div>
     </div>
   );

@@ -7,9 +7,15 @@ interface Props {
   matrix: Record<string, Record<string, number | null>>;
 }
 
-function colorForValue(value: number | null, isDark: boolean): string {
+function colorForCell(
+  rowSym: string,
+  colSym: string,
+  value: number | null,
+  isDark: boolean
+): string {
   if (value == null) return isDark ? '#374151' : '#f3f4f6';
-  if (value >= 0.7) return '#ef4444';
+  if (rowSym === colSym) return '#ef4444';
+  if (value >= 0.7) return '#ea580c';
   if (value >= 0.3) return '#f97316';
   if (value > -0.3) return '#f59e0b';
   if (value > -0.7) return '#22c55e';
@@ -28,8 +34,11 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">報酬率相關性矩陣</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 overflow-auto">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/80">
+          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">報酬率相關性矩陣</h3>
+        </div>
+        <div className="p-4 overflow-auto">
         <table className="text-xs border-separate border-spacing-1 w-full min-w-[420px] sm:min-w-[540px]">
           <thead>
             <tr>
@@ -51,7 +60,7 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
                     <td
                       key={`${rowSym}-${colSym}`}
                       className="px-2 py-2 text-center rounded-md font-mono text-white"
-                      style={{ backgroundColor: colorForValue(val, isDark) }}
+                      style={{ backgroundColor: colorForCell(rowSym, colSym, val, isDark) }}
                       title={val == null ? '無資料' : `相關性: ${val.toFixed(4)}`}
                     >
                       {val == null ? '--' : val.toFixed(2)}
@@ -62,6 +71,7 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </motion.section>
   );

@@ -53,10 +53,13 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price' }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">{title}</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 h-[240px] sm:h-[320px] lg:h-[420px]">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-5 pt-4 pb-2 border-b border-gray-100 dark:border-gray-700/80">
+          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">{title}</h3>
+        </div>
+        <div className="p-4 h-[240px] sm:h-[320px] lg:h-[400px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+          <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 8, left: 4 }}>
             <XAxis
               dataKey="date"
               tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#aaa' }}
@@ -93,7 +96,9 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price' }) => {
               }}
             />
             <Legend
-              wrapperStyle={{ fontSize: '12px', paddingTop: '8px', color: isDark ? '#d1d5db' : undefined }}
+              verticalAlign="bottom"
+              align="center"
+              wrapperStyle={{ fontSize: '12px', paddingTop: '12px', color: isDark ? '#d1d5db' : '#4b5563' }}
             />
             {data.symbols.map((sym, i) => (
               <Line
@@ -109,6 +114,7 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price' }) => {
             ))}
           </LineChart>
         </ResponsiveContainer>
+        </div>
       </div>
     </motion.section>
   );
