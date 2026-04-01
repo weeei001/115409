@@ -21,6 +21,95 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+// ── Advisor Report Types ──
+
+export type AdvisorAction = 'buy' | 'sell' | 'wait';
+
+export interface AdvisorSource {
+  title: string;
+  url?: string | null;
+  publisher?: string | null;
+  published_at?: string | null;
+  type?: string | null;
+  /** 來自 /analyze news_sources */
+  summary?: string | null;
+}
+
+export interface AdvisorTechnicalSignal {
+  name: string;
+  value?: string | number | null;
+  interpretation: string;
+}
+
+export interface AdvisorInstitutionalFlowItem {
+  name: string;
+  net_amount: number | null;
+  trend?: string | null;
+}
+
+export interface AdvisorInstitutionalFlow {
+  summary?: string | null;
+  items: AdvisorInstitutionalFlowItem[];
+}
+
+export interface AdvisorReport {
+  symbol: string;
+  generated_at: string;
+  summary: string;
+  technical_signals: AdvisorTechnicalSignal[];
+  institutional_flow: AdvisorInstitutionalFlow;
+  recommendation: AdvisorAction;
+  reasoning: string;
+  risk_notes?: string | null;
+  sources: AdvisorSource[];
+  /** 分析資料起始日（來自 /analyze） */
+  date_start?: string;
+  /** 分析資料結束日（來自 /analyze） */
+  date_end?: string;
+  /** 多空情緒分數 -1～1（來自 /analyze） */
+  sentiment_score?: number;
+  /** 後端操作建議原文（與三態 badge 不同） */
+  recommendation_text?: string;
+  /** 三大法人逐日明細（與卡片最新一日並列） */
+  institutional_rows?: AnalyzeInstitutionalRow[];
+}
+
+// ── POST /analyze (ChatRequest / ChatResponse) ──
+
+export interface AnalyzeInstitutionalRow {
+  date: string;
+  foreign_net?: number;
+  trust_net?: number;
+  dealer_net?: number;
+  total_net?: number;
+}
+
+export interface AnalyzeNewsSourceItem {
+  id: string;
+  title: string;
+  summary?: string;
+  timestamp?: string;
+  url?: string | null;
+}
+
+export interface AnalyzeRequest {
+  symbols: string[];
+  with_news?: boolean;
+}
+
+export interface AnalyzeResponse {
+  symbol?: string;
+  date_start?: string;
+  date_end?: string;
+  summary?: string;
+  sentiment_score?: number;
+  technical_highlights?: string[];
+  institutional_data?: AnalyzeInstitutionalRow[];
+  recommendation?: string;
+  recommendation_basis?: string[];
+  news_sources?: AnalyzeNewsSourceItem[];
+}
+
 // ── Backend API Response Types (matching openapi.json schemas) ──
 
 export interface DailyPriceResponse {
