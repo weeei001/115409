@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import {
   ShoppingCart,
   ArrowUpCircle,
   ArrowDownCircle,
   ClipboardList,
-  CheckCircle,
   X,
   Copy,
   RefreshCw,
@@ -68,9 +68,18 @@ export default function OrderPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [showConfirm, setShowConfirm] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copyHint, setCopyHint] = useState(false);
+
+  const fieldInvalid = useMemo(() => {
+    if (!error) {
+      return { symbol: false, quantity: false, tradeDate: false };
+    }
+    return {
+      symbol: error.includes('代號') || error.includes('股票') || error.includes('無日線'),
+      quantity: error.includes('張數'),
+      tradeDate: error.includes('下單日'),
+    };
+  }, [error]);
 
   const todayStr = getLocalDateString();
 
@@ -108,10 +117,9 @@ export default function OrderPage() {
     if (!sessionId || typeof navigator === 'undefined' || !navigator.clipboard) return;
     try {
       await navigator.clipboard.writeText(sessionId);
-      setCopyHint(true);
-      setTimeout(() => setCopyHint(false), 2000);
+      toast.success('已複製會話 ID');
     } catch {
-      /* ignore */
+      toast.error('無法複製會話 ID');
     }
   };
 
@@ -164,17 +172,20 @@ export default function OrderPage() {
     try {
       await createSimulatedOrder(body);
       setShowConfirm(false);
-      setShowSuccess(true);
       setSymbol('');
       setQuantity('');
       setTradeDate('');
-      setTimeout(() => setShowSuccess(false), 3000);
+      toast.success('模擬下單成功');
       await loadOrdersAndProfit(sessionId);
     } catch (e) {
       if (e instanceof ApiRequestError && e.status === 404) {
-        setError('該股票在指定日期無日線收盤資料，請換日期或代號再試');
+        const msg = '該股票在指定日期無日線收盤資料，請換日期或代號再試';
+        setError(msg);
+        toast.error(msg);
       } else {
-        setError(e instanceof Error ? e.message : '下單失敗');
+        const msg = e instanceof Error ? e.message : '下單失敗';
+        setError(msg);
+        toast.error(msg);
       }
     } finally {
       setSubmitting(false);
@@ -199,18 +210,6 @@ export default function OrderPage() {
       />
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
-        {showSuccess && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl bg-green-50 dark:bg-green-900/40 border border-green-200 dark:border-green-800 shadow-lg"
-          >
-            <CheckCircle size={20} className="text-green-500" />
-            <span className="text-sm font-medium text-green-700 dark:text-green-300">模擬下單成功！</span>
-          </motion.div>
-        )}
-
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -245,22 +244,28 @@ export default function OrderPage() {
                   <RefreshCw size={14} />
                   重新產生會話
                 </button>
-                {copyHint && <span className="text-xs text-green-600 dark:text-green-400">已複製</span>}
               </div>
             </div>
           )}
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6">
             {error && (
-              <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+              <div
+                id="order-form-error"
+                role="alert"
+                className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400"
+              >
                 {error}
               </div>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">股票代號</label>
+                <label htmlFor="order-symbol" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  股票代號
+                </label>
                 <input
+                  id="order-symbol"
                   type="text"
                   value={symbol}
                   onChange={(e) => setSymbol(e.target.value)}
@@ -268,8 +273,15 @@ export default function OrderPage() {
                   autoComplete="off"
                   inputMode="text"
                   maxLength={12}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                  aria-invalid={fieldInvalid.symbol}
+                  aria-describedby={error ? 'order-form-error' : undefined}
+                  className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
+                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                             ${
+                               fieldInvalid.symbol
+                                 ? 'border-red-400 dark:border-red-500'
+                                 : 'border-gray-200 dark:border-gray-600'
+                             }`}
                 />
               </div>
 
@@ -311,30 +323,48 @@ export default function OrderPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="order-trade-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   模擬下單日
                   <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">（選填，預設今日）</span>
                 </label>
                 <input
+                  id="order-trade-date"
                   type="date"
                   value={tradeDate}
                   max={todayStr}
                   onChange={(e) => setTradeDate(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                  aria-invalid={fieldInvalid.tradeDate}
+                  aria-describedby={error ? 'order-form-error' : undefined}
+                  className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
+                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                             ${
+                               fieldInvalid.tradeDate
+                                 ? 'border-red-400 dark:border-red-500'
+                                 : 'border-gray-200 dark:border-gray-600'
+                             }`}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">委託數量（張）</label>
+                <label htmlFor="order-quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  委託數量（張）
+                </label>
                 <input
+                  id="order-quantity"
                   type="number"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                   placeholder="輸入張數"
                   min={1}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                  aria-invalid={fieldInvalid.quantity}
+                  aria-describedby={error ? 'order-form-error' : undefined}
+                  className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
+                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                             ${
+                               fieldInvalid.quantity
+                                 ? 'border-red-400 dark:border-red-500'
+                                 : 'border-gray-200 dark:border-gray-600'
+                             }`}
                 />
               </div>
 

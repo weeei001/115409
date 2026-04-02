@@ -1,6 +1,5 @@
 /**
- * AI 問答 Mock API
- * 之後可替換為實際 API 呼叫
+ * AI 問答 Mock（僅在未設定 RAG 時由 /ai 使用；正式環境請設定 NEXT_PUBLIC_RAG_API_BASE_URL 或 NEXT_PUBLIC_RAG_API_USE_PROXY）
  */
 export async function mockAiResponse(userMessage: string): Promise<string> {
   await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 400));

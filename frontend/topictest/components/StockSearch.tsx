@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search } from 'lucide-react';
+import { clsx } from 'clsx';
 
 interface Props {
   symbols: string[];
   onSelect: (symbol: string) => void;
   placeholder?: string;
   value?: string;
+  /** 外層容器 class；有傳入時不套用預設 max-w-md，方便在表單列拉滿寬度 */
+  className?: string;
 }
 
 export const StockSearch: React.FC<Props> = ({
@@ -13,6 +16,7 @@ export const StockSearch: React.FC<Props> = ({
   onSelect,
   placeholder = '輸入股票代號...',
   value = '',
+  className,
 }) => {
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
@@ -36,7 +40,7 @@ export const StockSearch: React.FC<Props> = ({
   }, [query, symbols]);
 
   return (
-    <div ref={ref} className="relative w-full max-w-md">
+    <div ref={ref} className={clsx('relative w-full', !className && 'max-w-md', className)}>
       <div className="relative">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
@@ -46,9 +50,17 @@ export const StockSearch: React.FC<Props> = ({
             setQuery(e.target.value);
             setOpen(true);
           }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || filtered.length === 0) return;
+            e.preventDefault();
+            const sym = filtered[0];
+            onSelect(sym);
+            setQuery('');
+            setOpen(false);
+          }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200
+          className="w-full pl-10 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200
                      focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
                      bg-white dark:bg-gray-700 text-base shadow-sm"
         />
@@ -60,7 +72,7 @@ export const StockSearch: React.FC<Props> = ({
               key={s}
               onClick={() => {
                 onSelect(s);
-                setQuery(s);
+                setQuery('');
                 setOpen(false);
               }}
               className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 hover:text-[#ffa95a] transition-colors font-mono cursor-pointer"

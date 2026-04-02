@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
@@ -12,6 +12,7 @@ import {
   LogIn,
   ShoppingCart,
   Bot,
+  BrainCircuit,
 } from 'lucide-react';
 import { fetchSymbols, fetchLatestPrice } from '../lib/api/stock';
 import { fetchNews } from '../lib/api/news';
@@ -22,6 +23,7 @@ import { NewsCard } from '../components/NewsCard';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 const FEATURED_COUNT = 6;
+const NEWS_PAGE_SIZE = 10;
 
 export default function Home() {
   const router = useRouter();
@@ -41,7 +43,13 @@ export default function Home() {
 
   const [newsKeyword, setNewsKeyword] = useState('');
   const [newsPage, setNewsPage] = useState(1);
-  const NEWS_PAGE_SIZE = 10;
+
+  const navigateToStock = useCallback(
+    (sym: string) => {
+      void router.push(`/stock/${sym}`);
+    },
+    [router],
+  );
 
   useEffect(() => {
     fetchSymbols()
@@ -70,7 +78,7 @@ export default function Home() {
       .finally(() => setLoadingPrices(false));
   }, [symbols]);
 
-  const loadNews = (page: number, searchTerm?: string) => {
+  const loadNews = useCallback((page: number, searchTerm?: string) => {
     const requestId = (newsRequestIdRef.current += 1);
     setLoadingNews(true);
     const trimmed = searchTerm?.trim();
@@ -96,11 +104,11 @@ export default function Home() {
         if (requestId !== newsRequestIdRef.current) return;
         setLoadingNews(false);
       });
-  };
+  }, []);
 
   useEffect(() => {
     loadNews(1);
-  }, []);
+  }, [loadNews]);
 
   const handleNewsSearch = () => {
     setNewsPage(1);
@@ -124,7 +132,7 @@ export default function Home() {
         />
       </Head>
       {/* ── Hero ── */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+      <header className="sticky top-0 z-50 border-b border-gray-100 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <motion.div
             className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6"
@@ -157,6 +165,14 @@ export default function Home() {
                 )}
               </div>
 
+              <button
+                onClick={() => router.push('/advisor')}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
+                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
+              >
+                <BrainCircuit size={15} />
+                投資顧問
+              </button>
               <button
                 onClick={() => router.push('/ai')}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
@@ -222,7 +238,7 @@ export default function Home() {
                   key={p.symbol}
                   data={p}
                   index={i}
-                  onClick={() => router.push(`/stock/${p.symbol}`)}
+                  onNavigate={navigateToStock}
                 />
               ))}
             </div>

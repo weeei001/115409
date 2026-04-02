@@ -1,6 +1,6 @@
 import React from 'react';
 import { useRouter } from 'next/router';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { ArrowLeft, type LucideIcon } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -19,24 +19,26 @@ export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
   rightExtra,
 }) => {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
 
   return (
-    <header className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+    <header className="sticky top-0 z-50 flex-shrink-0 border-b border-gray-100 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm shadow-sm">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <motion.div
           className="flex items-center justify-between gap-4"
-          initial={{ opacity: 0, y: -10 }}
+          initial={reduceMotion ? false : { opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.4 }}
         >
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => router.push('/')}
+              aria-label="返回首頁"
               className="flex-shrink-0 p-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400
                          hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors cursor-pointer"
             >
-              <ArrowLeft size={20} />
+              <ArrowLeft size={20} aria-hidden />
             </button>
             <div className="w-10 h-10 flex-shrink-0 rounded-xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20">
               <Icon size={20} className="text-white" />
