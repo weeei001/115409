@@ -4,8 +4,17 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import stock_router, news_router, indicator_router, simulated_order_router, institutional_trade_router, chat_router
+from routers import (
+    stock_router,
+    news_router,
+    indicator_router,
+    simulated_order_router,
+    institutional_trade_router,
+    chat_router,
+    auth_router,
+)
 from config import get_settings
+from models.user import User  # noqa: F401 — 註冊至 Base.metadata 供 create_all 建表
 
 settings = get_settings()
 
@@ -52,6 +61,13 @@ _OPENAPI_TAGS = [
         "name": "模擬下單",
         "description": "模擬委託、清單、分類損益（前綴 `/simulated-orders`）。",
     },
+    {
+        "name": "認證",
+        "description": (
+            "註冊、帳密登入、`POST /auth/google`（Google id_token）、`GET /auth/me`。"
+            "同一 email 可合併密碼帳與 Google 帳。"
+        ),
+    },
 ]
 
 # 創建 FastAPI 應用
@@ -85,6 +101,7 @@ app.include_router(indicator_router)
 app.include_router(simulated_order_router)
 app.include_router(institutional_trade_router)
 app.include_router(chat_router)
+app.include_router(auth_router)
 
 
 @app.get("/")

@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
     APP_RELOAD: bool = True
+
+    # JWT（生產環境請設定強隨機 JWT_SECRET）
+    JWT_SECRET: str = "change-me-in-production-use-long-random-string"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
+
+    # Google Sign-In：後端驗證 id_token 的 audience（可逗號分隔多個 client id）
+    GOOGLE_CLIENT_ID: str = ""
     
     model_config = SettingsConfigDict(
         env_file=_BACKEND_DIR / ".env",
