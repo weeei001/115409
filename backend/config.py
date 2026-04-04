@@ -14,10 +14,13 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = "topic_stock"
     DATABASE_PORT: int = 3306
     
-    # NVIDIA NIM LLM 配置
+    # NVIDIA NIM LLM 配置（.env 可不設定 NIM_MODEL 舊欄位，改以 PRIMARY／SECONDARY 為主）
     NIM_API_KEY: str = ""
     NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NIM_MODEL: str = "meta/llama-3.1-70b-instruct"
+    NIM_MODEL: str = ""  # 相容舊設定；非空時覆寫 primary（見 llm_client / chat router）
+    NIM_MODEL_PRIMARY: str = "qwen/qwen2.5-coder-32b-instruct"
+    NIM_MODEL_SECONDARY: str = "qwen/qwen2.5-7b-instruct"
+    NIM_DEFAULT_MODEL: str = "primary"
 
     # 新聞 RAG API 配置
     RAG_API_URL: str = ""

@@ -1,4 +1,4 @@
-"""Parallel data fetcher — runs DB queries and news retrieval concurrently."""
+"""Data fetcher — DB queries and news retrieval as independent async functions."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import asyncio
 import logging
 from datetime import date
 from functools import partial
+from typing import Tuple, List
 
 from agent.news_adapter import fetch_from_rag_api
-from agent.schemas import FetchedData, NormalizedNewsChunk, ParsedIntent
+from agent.schemas import DBData, NormalizedNewsChunk, ParsedIntent
 from config import get_settings
 from crud import daily_price as crud_price
 from crud import technical_indicator as crud_indicator
@@ -97,9 +98,109 @@ def _fetch_institutional(symbol: str, start: date, end: date) -> list[dict]:
         db.close()
 
 
-async def _fetch_news(
+async def fetch_db_data(intent: ParsedIntent) -> DBData:
+    """Fetch prices, indicators, and institutional data from DB in parallel threads."""
+    symbol = intent.symbols[0] if intent.symbols else ""
+    if not symbol:
+        return DBData(
+            symbol="",
+            date_start=intent.date_start,
+            date_end=intent.date_end,
+        )
+
+    start = intent.date_start
+    end = intent.date_end
+    loop = asyncio.get_running_loop()
+
+    prices, indicators, institutional = await asyncio.gather(
+        loop.run_in_executor(None, partial(_fetch_prices, symbol, start, end)),
+        loop.run_in_executor(None, partial(_fetch_indicators, symbol, start, end)),
+        loop.run_in_executor(None, partial(_fetch_institutional, symbol, start, end)),
+    )
+
+    return DBData(
+        symbol=symbol,
+        date_start=intent.date_start,
+        date_end=intent.date_end,
+        prices=prices,
+        indicators=indicators,
+        institutional=institutional,
+    )
+
+
+async def fetch_prices_only(intent: ParsedIntent) -> DBData:
+    """僅查價量（單一 API 用）。"""
+    symbol = intent.symbols[0] if intent.symbols else ""
+    if not symbol:
+        return DBData(
+            symbol="",
+            date_start=intent.date_start,
+            date_end=intent.date_end,
+        )
+    loop = asyncio.get_running_loop()
+    prices = await loop.run_in_executor(
+        None, partial(_fetch_prices, symbol, intent.date_start, intent.date_end)
+    )
+    return DBData(
+        symbol=symbol,
+        date_start=intent.date_start,
+        date_end=intent.date_end,
+        prices=prices,
+        indicators=[],
+        institutional=[],
+    )
+
+
+async def fetch_indicators_only(intent: ParsedIntent) -> DBData:
+    """僅查技術指標（單一 API 用）。"""
+    symbol = intent.symbols[0] if intent.symbols else ""
+    if not symbol:
+        return DBData(
+            symbol="",
+            date_start=intent.date_start,
+            date_end=intent.date_end,
+        )
+    loop = asyncio.get_running_loop()
+    indicators = await loop.run_in_executor(
+        None, partial(_fetch_indicators, symbol, intent.date_start, intent.date_end)
+    )
+    return DBData(
+        symbol=symbol,
+        date_start=intent.date_start,
+        date_end=intent.date_end,
+        prices=[],
+        indicators=indicators,
+        institutional=[],
+    )
+
+
+async def fetch_institutional_only(intent: ParsedIntent) -> DBData:
+    """僅查三大法人（單一 API 用）。"""
+    symbol = intent.symbols[0] if intent.symbols else ""
+    if not symbol:
+        return DBData(
+            symbol="",
+            date_start=intent.date_start,
+            date_end=intent.date_end,
+        )
+    loop = asyncio.get_running_loop()
+    institutional = await loop.run_in_executor(
+        None, partial(_fetch_institutional, symbol, intent.date_start, intent.date_end)
+    )
+    return DBData(
+        symbol=symbol,
+        date_start=intent.date_start,
+        date_end=intent.date_end,
+        prices=[],
+        indicators=[],
+        institutional=institutional,
+    )
+
+
+async def fetch_news(
     intent: ParsedIntent,
-) -> tuple[list[NormalizedNewsChunk], str, bool]:
+) -> Tuple[List[NormalizedNewsChunk], str, bool]:
+    """Fetch news from RAG API. Returns (chunks, rag_summary, is_fallback)."""
     settings = get_settings()
     return await fetch_from_rag_api(
         query=intent.original_query,
@@ -107,40 +208,4 @@ async def _fetch_news(
         rag_url=settings.RAG_API_URL,
         rag_key=settings.RAG_API_KEY,
         timeout=settings.RAG_API_TIMEOUT,
-    )
-
-
-async def fetch_all(intent: ParsedIntent) -> FetchedData:
-    symbol = intent.symbols[0] if intent.symbols else ""
-    if not symbol:
-        return FetchedData(
-            symbol="",
-            date_start=intent.date_start,
-            date_end=intent.date_end,
-            news_fallback=True,
-        )
-
-    start = intent.date_start
-    end = intent.date_end
-    loop = asyncio.get_running_loop()
-
-    prices_fut = loop.run_in_executor(None, partial(_fetch_prices, symbol, start, end))
-    indicators_fut = loop.run_in_executor(None, partial(_fetch_indicators, symbol, start, end))
-    inst_fut = loop.run_in_executor(None, partial(_fetch_institutional, symbol, start, end))
-    news_fut = asyncio.ensure_future(_fetch_news(intent))
-
-    prices, indicators, institutional, (news_chunks, rag_summary, is_fallback) = (
-        await asyncio.gather(prices_fut, indicators_fut, inst_fut, news_fut)
-    )
-
-    return FetchedData(
-        symbol=symbol,
-        date_start=intent.date_start,
-        date_end=intent.date_end,
-        prices=prices,
-        indicators=indicators,
-        institutional=institutional,
-        news=news_chunks,
-        rag_summary=rag_summary,
-        news_fallback=is_fallback,
     )

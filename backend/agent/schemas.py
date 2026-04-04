@@ -22,8 +22,8 @@ class NormalizedNewsChunk(BaseModel):
     relevance_score: float = 0.0
 
 
-class FetchedData(BaseModel):
-    """data_fetcher 回傳的彙整結構"""
+class DBData(BaseModel):
+    """DB 查詢回傳的三類量化資料"""
 
     symbol: str
     date_start: date
@@ -32,9 +32,6 @@ class FetchedData(BaseModel):
     prices: list[dict] = Field(default_factory=list)
     indicators: list[dict] = Field(default_factory=list)
     institutional: list[dict] = Field(default_factory=list)
-    news: list[NormalizedNewsChunk] = Field(default_factory=list)
-    rag_summary: str = Field("", description="RAG API 回傳的 raw_answer 新聞情緒摘要")
-    news_fallback: bool = False
 
 
 class AnalysisResult(BaseModel):
@@ -43,6 +40,5 @@ class AnalysisResult(BaseModel):
     technical_highlights: list[str] = Field(default_factory=list)
     institutional_data: list[dict] = Field(default_factory=list)
     recommendation: str = ""
-    recommendation_basis: list[str] = Field(default_factory=list)
     news_sources: list[NormalizedNewsChunk] = Field(default_factory=list)
     fallback_mode: bool = False

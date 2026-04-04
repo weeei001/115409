@@ -1,31 +1,32 @@
-"""Reasoning engine — aligns data on timeline and produces the final AnalysisResult."""
+"""Two-stage analysis engine.
+
+Stage 1: analyze_technical — LLM produces a technical/quantitative analysis from DB data.
+Stage 2: synthesize       — LLM merges technical analysis + RAG news analysis into final AnalysisResult.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 
 from agent.llm_client import LLMClient
-from agent.prompt_templates import ANALYSIS_SYSTEM, ANALYSIS_USER
-from agent.schemas import AnalysisResult, FetchedData, NormalizedNewsChunk
+from agent.prompt_templates import (
+    TECHNICAL_SYSTEM,
+    TECHNICAL_USER,
+    QUICK_INSIGHTS_SYSTEM,
+    QUICK_INSIGHTS_USER,
+    FINAL_INTEGRATE_SYSTEM,
+    FINAL_INTEGRATE_USER,
+    SYNTHESIS_SYSTEM,
+    SYNTHESIS_USER,
+)
+from agent.schemas import AnalysisResult, DBData, NormalizedNewsChunk
 
 logger = logging.getLogger(__name__)
 
 
-def _recency_weight(item_date_str: str, ref_date: date) -> float:
-    """Weight: 1.0 for today, decaying by age in days."""
-    try:
-        d = date.fromisoformat(item_date_str)
-    except (ValueError, TypeError):
-        return 0.4
-    delta = (ref_date - d).days
-    if delta <= 1:
-        return 1.0
-    if delta <= 3:
-        return 0.7
-    return 0.4
-
+# ── Data formatting helpers ──────────────────────────────────────────────────
 
 def _format_prices(prices: list[dict]) -> str:
     if not prices:
@@ -186,17 +187,103 @@ def _format_institutional(institutional: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _format_news(news: list[NormalizedNewsChunk]) -> str:
-    if not news:
-        return "（無相關新聞）"
+def _latest_indicator_json(data: DBData) -> str:
+    if not data.indicators:
+        return "{}"
+    return json.dumps(data.indicators[-1], ensure_ascii=False)
+
+
+def _price_compact_for_quick(data: DBData) -> str:
+    if not data.prices:
+        return "（無資料）"
     lines = []
-    for n in news[:5]:
-        url_part = f" ({n.url})" if n.url else " (來源不明)"
-        lines.append(f"- [{n.timestamp.strftime('%Y-%m-%d')}] {n.title}{url_part}\n  {n.content}")
+    for p in data.prices[-5:]:
+        lines.append(
+            f"{p.get('date', '')} 收:{p.get('close', 'N/A')} 量:{p.get('volume', 'N/A')} 漲跌:{p.get('change', 'N/A')}"
+        )
     return "\n".join(lines)
 
 
-def _build_fallback(data: FetchedData) -> AnalysisResult:
+def _normalize_quick_points(raw: dict) -> list[str]:
+    pts = raw.get("points")
+    if not isinstance(pts, list):
+        return []
+    out: list[str] = []
+    for p in pts:
+        s = str(p).strip()
+        if s:
+            out.append(s)
+    return out[:8]
+
+
+def _quick_insights_fallback(data: DBData) -> dict:
+    """規則化重點，供 LLM 失敗時快速回傳。"""
+    pts: list[str] = []
+    if data.indicators:
+        li = data.indicators[-1]
+        d = str(li.get("date") or "")
+        if li.get("rsi14") is not None:
+            pts.append(f"{d} RSI(14)={li['rsi14']}（規則化摘要）")
+        if li.get("k_value") is not None and li.get("d_value") is not None:
+            pts.append(f"{d} KD：K={li['k_value']} D={li['d_value']}（規則化摘要）")
+        if li.get("macd_hist") is not None:
+            pts.append(f"{d} MACD Histogram={li['macd_hist']}（規則化摘要）")
+    if data.institutional:
+        row = data.institutional[-1]
+        pts.append(
+            f"{row['date']} 三大法人合計淨額 {row.get('total_net', 0):,} 股（規則化摘要）"
+        )
+        if len(data.institutional) >= 2:
+            a, b = data.institutional[-2], data.institutional[-1]
+            da = int(a.get("total_net", 0))
+            db = int(b.get("total_net", 0))
+            if da != 0 and db != 0 and (da > 0) != (db > 0):
+                pts.append(
+                    f"{a['date']} 合計淨額 {da:,} → {b['date']} {db:,}，方向轉折（規則化摘要）"
+                )
+    if not pts:
+        pts = ["可分析之技術與籌碼資料不足（規則化摘要）"]
+    return {"points": pts[:5], "fallback_mode": True}
+
+
+async def analyze_quick_insights(llm: LLMClient, data: DBData) -> dict:
+    """以小型 LLM 快速掃描「最新技術指標＋法人」特別之處；失敗時規則化 fallback。"""
+    if not data.indicators and not data.institutional:
+        return {
+            "points": ["技術指標與法人資料均不足，無法產出觀察。"],
+            "fallback_mode": True,
+        }
+
+    user_prompt = QUICK_INSIGHTS_USER.format(
+        symbol=data.symbol,
+        date_start=data.date_start.isoformat(),
+        date_end=data.date_end.isoformat(),
+        latest_indicator_json=_latest_indicator_json(data),
+        institutional_compact=_format_institutional(data.institutional),
+        price_compact=_price_compact_for_quick(data),
+    )
+
+    try:
+        raw = await llm.complete_json(
+            QUICK_INSIGHTS_SYSTEM,
+            user_prompt,
+            temperature=0.2,
+            max_tokens=512,
+        )
+        if not isinstance(raw, dict):
+            raise ValueError("quick insights root must be object")
+        points = _normalize_quick_points(raw)
+        if not points:
+            return _quick_insights_fallback(data)
+        return {"points": points, "fallback_mode": False}
+    except Exception:
+        logger.exception("Quick insights LLM failed, using rule-based fallback")
+        return _quick_insights_fallback(data)
+
+
+# ── Fallback (no LLM available) ─────────────────────────────────────────────
+
+def _build_fallback(data: DBData, news: list[NormalizedNewsChunk] | None = None) -> AnalysisResult:
     """Template-based response when LLM is unavailable."""
     latest_price = data.prices[-1] if data.prices else {}
     latest_ind = data.indicators[-1] if data.indicators else {}
@@ -217,53 +304,170 @@ def _build_fallback(data: FetchedData) -> AnalysisResult:
 
     inst_summary: list[dict] = data.institutional[-5:] if data.institutional else []
 
-    fallback_note = "（目前僅參考量化指標，新聞來源暫時無法取得）" if data.news_fallback else ""
-
     return AnalysisResult(
-        summary=f"{data.symbol} 於 {data.date_start} 至 {data.date_end} 期間的量化數據摘要。{fallback_note}",
+        summary=f"{data.symbol} 於 {data.date_start} 至 {data.date_end} 期間的量化數據摘要。",
         sentiment_score=0.0,
         technical_highlights=highlights or ["目前無足夠的技術指標資料"],
         institutional_data=inst_summary,
-        recommendation="中性觀望",
-        recommendation_basis=["LLM 分析暫時無法使用，僅提供原始數據供參考"],
-        news_sources=data.news[:5],
+        recommendation="中性觀望（LLM 分析暫時無法使用，僅提供原始數據供參考）",
+        news_sources=(news or [])[:5],
         fallback_mode=True,
     )
 
 
-async def analyze(llm: LLMClient, data: FetchedData, original_query: str) -> AnalysisResult:
-    if not data.prices and not data.indicators:
-        return _build_fallback(data)
+# ── Stage 1: Technical / Quantitative Analysis ──────────────────────────────
 
-    user_prompt = ANALYSIS_USER.format(
+async def analyze_technical(llm: LLMClient, data: DBData) -> str:
+    """Call LLM to produce a text-based technical + institutional analysis.
+
+    Returns the analysis text, or a formatted summary if LLM fails.
+    """
+    if not data.prices and not data.indicators:
+        return "（無足夠的價量與技術指標資料可供分析）"
+
+    user_prompt = TECHNICAL_USER.format(
         symbol=data.symbol,
         date_start=data.date_start.isoformat(),
         date_end=data.date_end.isoformat(),
-        original_query=original_query,
         price_data=_format_prices(data.prices),
         indicator_data=_format_indicators(data.indicators, data.prices),
         institutional_data=_format_institutional(data.institutional),
-        rag_summary=data.rag_summary or "（無新聞情緒摘要）",
     )
 
     try:
-        result = await llm.complete_json(ANALYSIS_SYSTEM, user_prompt)
+        return await llm.complete(TECHNICAL_SYSTEM, user_prompt)
     except Exception:
-        logger.exception("Analysis LLM call failed, returning fallback")
-        return _build_fallback(data)
+        logger.exception("Stage-1 LLM (technical analysis) failed, returning formatted data")
+        parts = [
+            "【收盤價】\n" + _format_prices(data.prices),
+            "【技術指標】\n" + _format_indicators(data.indicators, data.prices),
+            "【三大法人】\n" + _format_institutional(data.institutional),
+        ]
+        return "\n\n".join(parts)
+
+
+# ── Recommendation formatting (merge LLM「依據」條列進單一 recommendation 字串) ─
+
+
+def _merge_recommendation_parens(recommendation: str, basis: list[str]) -> str:
+    """將方向與（可選）依據列表合併為單一「偏多（…）」格式；已含全形括號則保留。"""
+    rec = (recommendation or "").strip()
+    parts = [str(b).strip() for b in (basis or []) if str(b).strip()]
+    inner = "；".join(parts[:4]) if parts else ""
+
+    if "（" in rec and "）" in rec and rec.find("（") < rec.rfind("）"):
+        return rec
+
+    for word in ("偏多", "偏空", "中性觀望"):
+        if rec == word or (rec.startswith(word) and "（" not in rec):
+            fill = inner or "綜合前述技術與籌碼數據"
+            return f"{word}（{fill}）"
+    if inner:
+        return f"{rec}（{inner}）" if rec else f"中性觀望（{inner}）"
+    return rec or "中性觀望（綜合研判）"
+
+
+# ── Final integrate (raw DB ×3 + news, single large-LLM JSON) ────────────────
+
+
+async def analyze_final_integrated(
+    llm: LLMClient,
+    data: DBData,
+    news_analysis: str,
+    news: list[NormalizedNewsChunk] | None = None,
+) -> AnalysisResult:
+    """僅依價量／指標／法人原始整理與新聞摘要產出整合結果。
+
+    technical_highlights 固定為空，避免與 /analyze/quick-insights 的 points 語意重複。
+    """
+    user_prompt = FINAL_INTEGRATE_USER.format(
+        symbol=data.symbol,
+        date_start=data.date_start.isoformat(),
+        date_end=data.date_end.isoformat(),
+        price_data=_format_prices(data.prices),
+        indicator_data=_format_indicators(data.indicators, data.prices),
+        institutional_data=_format_institutional(data.institutional),
+        news_analysis=news_analysis or "（新聞情緒資料暫時無法取得）",
+    )
+
+    try:
+        result = await llm.complete_json(FINAL_INTEGRATE_SYSTEM, user_prompt)
+    except Exception:
+        logger.exception("Final integrate LLM failed, returning fallback")
+        fb = _build_fallback(data, news)
+        return AnalysisResult(
+            summary=fb.summary,
+            sentiment_score=fb.sentiment_score,
+            technical_highlights=[],
+            institutional_data=fb.institutional_data,
+            recommendation=fb.recommendation,
+            news_sources=fb.news_sources,
+            fallback_mode=True,
+        )
 
     inst_summary = data.institutional[-5:] if data.institutional else []
 
     sentiment = float(result.get("sentiment_score", 0.0))
     sentiment = max(-1.0, min(1.0, sentiment))
 
+    basis_in = result.get("recommendation_basis")
+    basis_list: list[str] = []
+    if isinstance(basis_in, list):
+        basis_list = [str(b).strip() for b in basis_in if str(b).strip()][:8]
+    rec = _merge_recommendation_parens(str(result.get("recommendation", "")), basis_list)
+
+    return AnalysisResult(
+        summary=result.get("summary", ""),
+        sentiment_score=sentiment,
+        technical_highlights=[],
+        institutional_data=inst_summary,
+        recommendation=rec,
+        news_sources=(news or [])[:5],
+        fallback_mode=False,
+    )
+
+
+# ── Stage 2: Synthesis ──────────────────────────────────────────────────────
+
+async def synthesize(
+    llm: LLMClient,
+    data: DBData,
+    technical_analysis: str,
+    news_analysis: str,
+    news: list[NormalizedNewsChunk] | None = None,
+) -> AnalysisResult:
+    """Call LLM to merge technical analysis + news analysis into final AnalysisResult."""
+    user_prompt = SYNTHESIS_USER.format(
+        symbol=data.symbol,
+        date_start=data.date_start.isoformat(),
+        date_end=data.date_end.isoformat(),
+        technical_analysis=technical_analysis,
+        news_analysis=news_analysis or "（新聞情緒資料暫時無法取得）",
+    )
+
+    try:
+        result = await llm.complete_json(SYNTHESIS_SYSTEM, user_prompt)
+    except Exception:
+        logger.exception("Stage-2 LLM (synthesis) failed, returning fallback")
+        return _build_fallback(data, news)
+
+    inst_summary = data.institutional[-5:] if data.institutional else []
+
+    sentiment = float(result.get("sentiment_score", 0.0))
+    sentiment = max(-1.0, min(1.0, sentiment))
+
+    basis_in = result.get("recommendation_basis")
+    basis_list: list[str] = []
+    if isinstance(basis_in, list):
+        basis_list = [str(b).strip() for b in basis_in if str(b).strip()][:8]
+    rec = _merge_recommendation_parens(str(result.get("recommendation", "")), basis_list)
+
     return AnalysisResult(
         summary=result.get("summary", ""),
         sentiment_score=sentiment,
         technical_highlights=result.get("technical_highlights", []),
         institutional_data=inst_summary,
-        recommendation=result.get("recommendation", "中性觀望"),
-        recommendation_basis=result.get("recommendation_basis", []),
-        news_sources=data.news[:5],
-        fallback_mode=data.news_fallback and len(data.news) == 0,
+        recommendation=rec,
+        news_sources=(news or [])[:5],
+        fallback_mode=False,
     )

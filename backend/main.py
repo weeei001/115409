@@ -22,12 +22,51 @@ async def lifespan(app: FastAPI):
     print("應用關閉")
 
 
+# OpenAPI：標籤說明（Swagger /docs 左側分組）
+_OPENAPI_TAGS = [
+    {
+        "name": "AI 分析",
+        "description": (
+            "股票 AI 分析相關端點。含單次整合 `POST /analyze`、分階 API（`raw/*`、`quick-insights`、`final`）。\n\n"
+            "**模型**：`primary`／`secondary` 由**後端環境設定**決定，**API 請求不得指定**。\n\n"
+            "**錯誤**：HTTP 4xx/5xx 時 body 通常為 `{\"detail\": \"...\"}`；參數驗證失敗時為 `422`，`detail` 可能為欄位錯誤陣列。"
+        ),
+    },
+    {
+        "name": "股價查詢",
+        "description": "個股日線、K 線、歷史價量等（路徑前綴 `/stocks`）。",
+    },
+    {
+        "name": "新聞查詢",
+        "description": "鉅亨新聞列表、單篇、筆數統計等（前綴 `/news`）。",
+    },
+    {
+        "name": "技術指標",
+        "description": "技術指標相關查詢（前綴 `/stocks`，與股價路由共用）。",
+    },
+    {
+        "name": "三大法人",
+        "description": "三大法人買賣超等（前綴 `/stocks`）。",
+    },
+    {
+        "name": "模擬下單",
+        "description": "模擬委託、清單、分類損益（前綴 `/simulated-orders`）。",
+    },
+]
+
 # 創建 FastAPI 應用
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="FastAPI + MySQL 後端應用",
-    lifespan=lifespan
+    description=(
+        "台股相關 **FastAPI + MySQL** 後端。\n\n"
+        "- **互動文件**：本頁 Swagger UI（`/docs`）或 ReDoc（`/redoc`）。\n"
+        "- **健康檢查**：`GET /health`。\n"
+        "- **AI 分析**：見標籤「AI 分析」；分階架構可並行呼叫 `raw` 三筆 + `quick-insights` + `final`。\n\n"
+        "實際部署網域與 CORS 請依環境調整。"
+    ),
+    openapi_tags=_OPENAPI_TAGS,
+    lifespan=lifespan,
 )
 
 # 配置 CORS
