@@ -17,6 +17,15 @@ export const DateRangePicker: React.FC<Props> = ({
   onEndChange,
   className,
 }) => {
+  const handleStartChange = (val: string) => {
+    onStartChange(val);
+    if (endDate && val > endDate) onEndChange(val);
+  };
+  const handleEndChange = (val: string) => {
+    onEndChange(val);
+    if (startDate && val < startDate) onStartChange(val);
+  };
+
   return (
     <div className={clsx('flex items-center gap-3 flex-wrap', className)}>
       <Calendar size={16} className="text-[#ffa95a] shrink-0" />
@@ -25,7 +34,7 @@ export const DateRangePicker: React.FC<Props> = ({
         <input
           type="date"
           value={startDate}
-          onChange={(e) => onStartChange(e.target.value)}
+          onChange={(e) => handleStartChange(e.target.value)}
           className="border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm text-gray-700 dark:text-gray-300
                      focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
                      bg-white dark:bg-gray-700 min-w-[10.5rem]"
@@ -36,7 +45,7 @@ export const DateRangePicker: React.FC<Props> = ({
         <input
           type="date"
           value={endDate}
-          onChange={(e) => onEndChange(e.target.value)}
+          onChange={(e) => handleEndChange(e.target.value)}
           className="border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm text-gray-700 dark:text-gray-300
                      focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
                      bg-white dark:bg-gray-700 min-w-[10.5rem]"

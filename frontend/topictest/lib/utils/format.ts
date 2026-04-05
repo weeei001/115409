@@ -1,11 +1,15 @@
 export function fmt(val: string | number | null | undefined, fallback = '--'): string {
   if (val == null || val === '') return fallback;
-  return Number(val).toLocaleString();
+  const n = Number(val);
+  if (!Number.isFinite(n)) return fallback;
+  return n.toLocaleString();
 }
 
 export function fmtPrice(v: string | null | undefined, fallback = '--'): string {
   if (v == null || v === '') return fallback;
-  return Number(v).toFixed(2);
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return n.toFixed(2);
 }
 
 export function fmtNum(v: number | null | undefined, fallback = '--'): string {

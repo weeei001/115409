@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ApiRequestError } from './client';
+import { pickDetailMessage } from './errorDetail';
 import { getRagApiTimeoutMs } from '../ragTimeout';
 
 function attachRagErrorInterceptor(instance: ReturnType<typeof axios.create>) {
@@ -8,14 +9,16 @@ function attachRagErrorInterceptor(instance: ReturnType<typeof axios.create>) {
     (error) => {
       if (error.response) {
         const { status, data } = error.response;
-        const raw = Array.isArray(data?.detail)
-          ? (data.detail[0]?.msg ?? data.detail)
-          : (data?.detail ?? `RAG API 錯誤 (${status})`);
-        const message = typeof raw === 'string' ? raw : JSON.stringify(raw);
-        return Promise.reject(new ApiRequestError(message, status));
+        const message =
+          data !== undefined && data !== null && typeof data === 'object'
+            ? pickDetailMessage(data, status)
+            : `RAG API 錯誤 (${status})`;
+        return Promise.reject(new ApiRequestError(message, status, { cause: error }));
       }
       if (error.request) {
-        return Promise.reject(new ApiRequestError('無法連接 RAG 服務，請稍後再試'));
+        return Promise.reject(
+          new ApiRequestError('無法連接 RAG 服務，請稍後再試', undefined, { cause: error })
+        );
       }
       return Promise.reject(error);
     }

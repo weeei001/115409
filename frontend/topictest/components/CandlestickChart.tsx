@@ -47,6 +47,7 @@ const CandlestickShape = (props: Record<string, unknown>) => {
     payload: ChartRow;
   };
   if (!payload) return null;
+  if (!payload.body || !Array.isArray(payload.body) || payload.body.length < 2) return null;
 
   const color = payload.isUp ? '#ef4444' : '#22c55e';
   const wickX = x + width / 2;

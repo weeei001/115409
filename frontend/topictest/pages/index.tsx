@@ -9,10 +9,6 @@ import {
   BarChart3,
   RefreshCw,
   Search,
-  LogIn,
-  ShoppingCart,
-  Bot,
-  BrainCircuit,
 } from 'lucide-react';
 import { fetchSymbols, fetchLatestPrice } from '../lib/api/stock';
 import { fetchNews } from '../lib/api/news';
@@ -20,7 +16,8 @@ import type { DailyPriceResponse, PaginatedNewsResponse } from '../lib/types';
 import { StockSearch } from '../components/StockSearch';
 import { StockPriceCard } from '../components/StockPriceCard';
 import { NewsCard } from '../components/NewsCard';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { AppNavDrawer } from '../components/AppNavDrawer';
+import { toast } from 'sonner';
 
 const FEATURED_COUNT = 6;
 const NEWS_PAGE_SIZE = 10;
@@ -69,11 +66,16 @@ export default function Home() {
     Promise.allSettled(featured.map((sym) => fetchLatestPrice(sym)))
       .then((results) => {
         const loaded: DailyPriceResponse[] = [];
-        results.forEach((r) => {
+        const failedSyms: string[] = [];
+        results.forEach((r, i) => {
           if (r.status === 'fulfilled') loaded.push(r.value);
+          else failedSyms.push(featured[i] ?? '');
         });
         setPrices(loaded);
         setErrorPrices(loaded.length === 0 ? '無法載入股價資料' : null);
+        if (failedSyms.length > 0) {
+          toast.warning(`部分股價未載入：${failedSyms.filter(Boolean).join('、')}`);
+        }
       })
       .finally(() => setLoadingPrices(false));
   }, [symbols]);
@@ -133,7 +135,7 @@ export default function Home() {
       </Head>
       {/* ── Hero ── */}
       <header className="sticky top-0 z-50 border-b border-gray-100 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5">
           <motion.div
             className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6"
             initial={{ opacity: 0, y: -20 }}
@@ -165,40 +167,7 @@ export default function Home() {
                 )}
               </div>
 
-              <button
-                onClick={() => router.push('/advisor')}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
-              >
-                <BrainCircuit size={15} />
-                投資顧問
-              </button>
-              <button
-                onClick={() => router.push('/ai')}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
-              >
-                <Bot size={15} />
-                AI 顧問
-              </button>
-              <button
-                onClick={() => router.push('/order')}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                           hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all bg-white dark:bg-gray-700 whitespace-nowrap cursor-pointer"
-              >
-                <ShoppingCart size={15} />
-                模擬下單
-              </button>
-              <button
-                onClick={() => router.push('/login')}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a]
-                           text-white text-sm font-semibold shadow-lg shadow-[#ffa95a]/20
-                           hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all whitespace-nowrap cursor-pointer"
-              >
-                <LogIn size={15} />
-                登入
-              </button>
-              <ThemeToggle />
+              <AppNavDrawer />
             </div>
           </motion.div>
         </div>
@@ -259,7 +228,7 @@ export default function Home() {
                     key={s}
                     onClick={() => router.push(`/stock/${s}`)}
                     className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-mono text-gray-500 dark:text-gray-400
-                               hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all"
+                               hover:border-[#ffa95a] hover:text-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 transition-all cursor-pointer"
                   >
                     {s}
                   </button>
