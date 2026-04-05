@@ -22,6 +22,7 @@ export const ChatArea: React.FC<Props> = ({
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
+  const scrollKey = messages.map((m) => `${m.id}:${m.content.length}`).join('|');
 
   useEffect(() => {
     if (messages.length === 0 && !loading) return;
@@ -36,7 +37,7 @@ export const ChatArea: React.FC<Props> = ({
     requestAnimationFrame(() => {
       requestAnimationFrame(scrollToBottom);
     });
-  }, [messages, loading, reduceMotion]);
+  }, [scrollKey, loading, reduceMotion, messages.length]);
 
   const emptyMotionProps = reduceMotion
     ? { initial: false, animate: { opacity: 1 } }
@@ -67,12 +68,12 @@ export const ChatArea: React.FC<Props> = ({
               role="group"
               aria-label="範例問題"
             >
-              {exampleQuestions.map((q) => (
+              {exampleQuestions.map((q, idx) => (
                 <button
-                  key={q}
+                  key={`${idx}-${q}`}
                   type="button"
                   onClick={() => onExampleSelect(q)}
-                  className="text-left text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/80 text-gray-700 dark:text-gray-200 hover:border-[#ffa95a] hover:bg-[#fff8f0] dark:hover:bg-gray-600 transition-colors max-w-full"
+                  className="text-left text-xs sm:text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/80 text-gray-700 dark:text-gray-200 hover:border-[#ffa95a] hover:bg-[#fff8f0] dark:hover:bg-gray-600 hover:shadow-sm transition-all max-w-full cursor-pointer"
                 >
                   {q}
                 </button>
@@ -89,6 +90,8 @@ export const ChatArea: React.FC<Props> = ({
       {loading && (
         <motion.div
           className="flex gap-3"
+          role="status"
+          aria-live="polite"
           initial={reduceMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={reduceMotion ? { duration: 0 } : undefined}

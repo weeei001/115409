@@ -2,6 +2,23 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* 互動元素預設 cursor */
+button,
+[role="button"],
+a[href],
+select,
+summary,
+input[type="checkbox"],
+input[type="radio"],
+input[type="submit"],
+input[type="button"] {
+  cursor: pointer;
+}
+button:disabled,
+[disabled] {
+  cursor: not-allowed;
+}
+
 /* 鍵盤使用者：跳至主要內容（僅 focus 時可見） */
 .skip-to-main {
   position: absolute;
@@ -39,6 +56,11 @@
 .dark .skip-to-main:focus {
   background: #1f2937;
   color: #f3f4f6;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 /* 螢幕閱讀器專用標籤（對應 ChatInput 等） */

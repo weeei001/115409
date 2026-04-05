@@ -16,7 +16,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="relative w-10 h-10 rounded-xl border border-gray-200 dark:border-gray-600
+      className="relative w-11.5 h-11.5 rounded-xl border border-gray-200 dark:border-gray-600
                  bg-white dark:bg-gray-700 flex items-center justify-center
                  hover:border-[#ffa95a] hover:bg-[#fff9e6] dark:hover:bg-gray-600
                  transition-colors cursor-pointer"
