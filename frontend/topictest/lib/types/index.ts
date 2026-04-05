@@ -85,7 +85,7 @@ export interface AnalyzeInstitutionalRow {
 }
 
 export interface AnalyzeNewsSourceItem {
-  id: string;
+  id?: string;
   title: string;
   summary?: string;
   timestamp?: string;
@@ -108,6 +108,77 @@ export interface AnalyzeResponse {
   recommendation?: string;
   recommendation_basis?: string[];
   news_sources?: AnalyzeNewsSourceItem[];
+}
+
+/** 拆分 analyze 共用請求（勿帶 model／lookback_days） */
+export interface AnalyzeSplitRequest {
+  symbols: string[];
+}
+
+/** POST /analyze/raw/prices */
+export interface AnalyzeRawPricesResponse {
+  status: 'prices_ready';
+  symbol?: string;
+  date_start?: string;
+  date_end?: string;
+  prices?: Record<string, unknown>[];
+}
+
+/** POST /analyze/raw/indicators */
+export interface AnalyzeRawIndicatorsResponse {
+  status: 'indicators_ready';
+  symbol?: string;
+  date_start?: string;
+  date_end?: string;
+  indicators?: Record<string, unknown>[];
+}
+
+/** POST /analyze/raw/institutional */
+export interface AnalyzeRawInstitutionalResponse {
+  status: 'institutional_ready';
+  symbol?: string;
+  date_start?: string;
+  date_end?: string;
+  institutional_data?: AnalyzeInstitutionalRow[];
+}
+
+/** POST /analyze/quick-insights */
+export interface AnalyzeQuickInsightsResponse {
+  symbol?: string;
+  date_start?: string;
+  date_end?: string;
+  points?: string[];
+  fallback_mode?: boolean;
+}
+
+/** POST /analyze/final（無 technical_highlights、institutional_data） */
+export interface AnalyzeFinalResponse {
+  symbol?: string;
+  date_start?: string;
+  date_end?: string;
+  summary?: string;
+  sentiment_score?: number;
+  recommendation?: string;
+  recommendation_basis?: string[];
+  news_sources?: AnalyzeNewsSourceItem[];
+  fallback_mode?: boolean;
+  raw_answer?: string;
+  status?: string;
+}
+
+// ── Auth (JWT) ──
+
+export interface UserPublic {
+  id: number;
+  email: string;
+  display_name: string | null;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: UserPublic;
 }
 
 // ── Backend API Response Types (matching openapi.json schemas) ──
