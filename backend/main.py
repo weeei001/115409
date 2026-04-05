@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from database import engine, Base
-from routers import stock_router, news_router, indicator_router, simulated_order_router
+from routers import stock_router, news_router, indicator_router, simulated_order_router, institutional_trade_router, chat_router
 from config import get_settings
 
 settings = get_settings()
@@ -44,6 +44,8 @@ app.include_router(stock_router)
 app.include_router(news_router)
 app.include_router(indicator_router)
 app.include_router(simulated_order_router)
+app.include_router(institutional_trade_router)
+app.include_router(chat_router)
 
 
 @app.get("/")
