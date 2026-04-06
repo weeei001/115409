@@ -4,12 +4,13 @@ import Link from 'next/link';
 const NAV_ITEMS = [
   { href: '/', label: '首頁' },
   { href: '/compare', label: '多股比較' },
+  { href: '/advisor', label: '投資顧問' },
   { href: '/ai', label: 'AI 投資顧問' },
   { href: '/order', label: '模擬下單' },
 ] as const;
 
 function SparkBars({ gradientId }: { gradientId: string }) {
-  const bars = [40, 55, 35, 65, 50, 72, 48, 80, 60, 90, 70, 95];
+  const bars = [40, 55, 35, 65, 50, 72, 48, 80, 60, 90, 70, 95, 60, 90, 70, 95];
   return (
     <svg
       viewBox={`0 0 ${bars.length * 10} 100`}

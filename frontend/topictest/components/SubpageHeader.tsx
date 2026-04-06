@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion, useReducedMotion } from 'motion/react';
 import { ArrowLeft, type LucideIcon } from 'lucide-react';
+import { AppNavDrawer } from './AppNavDrawer';
 import { ThemeToggle } from './ThemeToggle';
+import { AUTH_CHANGE_EVENT, getToken } from '../lib/auth/storage';
 
 export interface SubpageHeaderProps {
   icon: LucideIcon;
@@ -20,6 +22,14 @@ export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
 }) => {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
+  const [loggedIn, setLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setLoggedIn(!!getToken());
+    sync();
+    window.addEventListener(AUTH_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(AUTH_CHANGE_EVENT, sync);
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 flex-shrink-0 border-b border-gray-100 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm shadow-sm">
@@ -51,6 +61,7 @@ export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">
+            {loggedIn ? <AppNavDrawer /> : null}
             {rightExtra}
             <ThemeToggle />
           </div>

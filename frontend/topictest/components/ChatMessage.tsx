@@ -63,7 +63,7 @@ export const ChatMessage: React.FC<Props> = ({ message, reducedMotion }) => {
             <button
               type="button"
               onClick={() => void handleCopy()}
-              className="flex-shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-[#ffa95a] hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className="flex-shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-[#ffa95a] hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
               aria-label={copied ? '已複製' : '複製回覆'}
             >
               {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}

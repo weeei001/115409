@@ -34,6 +34,14 @@ export const StockSearch: React.FC<Props> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const filtered = useMemo(() => {
     if (!query.trim()) return symbols.slice(0, 20);
     return symbols.filter((s) => s.includes(query.trim())).slice(0, 20);
