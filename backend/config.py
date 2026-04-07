@@ -42,6 +42,17 @@ class Settings(BaseSettings):
 
     # Google Sign-In：後端驗證 id_token 的 audience（可逗號分隔多個 client id）
     GOOGLE_CLIENT_ID: str = ""
+
+    # Password reset（忘記密碼）：token 有效分鐘數；寄信可選 SMTP
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 60
+    # 前端重設頁完整 URL（不含 query），例：https://app.example.com/reset-password
+    FRONTEND_PASSWORD_RESET_URL: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_USE_TLS: bool = True
     
     model_config = SettingsConfigDict(
         env_file=_BACKEND_DIR / ".env",

@@ -15,6 +15,7 @@ from routers import (
 )
 from config import get_settings
 from models.user import User  # noqa: F401 — 註冊至 Base.metadata 供 create_all 建表
+from models.password_reset_token import PasswordResetToken  # noqa: F401
 
 settings = get_settings()
 

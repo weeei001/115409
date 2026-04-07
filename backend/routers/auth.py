@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,21 +9,31 @@ from sqlalchemy.orm import Session
 
 from auth.google_verify import verify_google_id_token
 from auth.jwt import create_access_token
-from auth.password import verify_password
+from auth.mail import send_password_reset_email
+from auth.password import hash_password, verify_password
+from auth.reset_link import build_password_reset_link
 from config import get_settings
+from crud import password_reset as reset_crud
 from crud import user as user_crud
 from database import get_db
 from deps import get_current_user
 from models.user import User
 from schemas.auth import (
+    ForgotPasswordRequest,
     GoogleAuthRequest,
     LoginRequest,
+    MessageResponse,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserPublic,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["認證"])
+
+_FORGOT_OK_MSG = "若此 email 已註冊且可重設密碼，您將收到重設連結。"
 
 
 def _google_audiences() -> list[str]:
@@ -163,3 +174,45 @@ def auth_google(body: GoogleAuthRequest, db: Session = Depends(get_db)) -> Token
 @router.get("/me", response_model=UserPublic)
 def me(user: Annotated[User, Depends(get_current_user)]) -> User:
     return user
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
+    """
+    不論 email 是否存在皆回 200，避免被用來探測註冊帳號。
+    僅對「已有密碼」的帳號建立重設 token；純 Google 帳（無密碼）不寄信。
+    """
+    settings = get_settings()
+    user = user_crud.get_by_email(db, str(body.email))
+    if user and user.password_hash and user.is_active:
+        raw = reset_crud.create_reset_token(db, user.id)
+        link = build_password_reset_link(settings.FRONTEND_PASSWORD_RESET_URL, raw)
+        if link:
+            send_password_reset_email(user.email, link)
+        elif settings.DEBUG:
+            logger.info(
+                "Password reset token (set FRONTEND_PASSWORD_RESET_URL for mail link): %s",
+                raw,
+            )
+    return MessageResponse(message=_FORGOT_OK_MSG)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
+    pair = reset_crud.find_user_by_raw_token(db, body.token.strip())
+    if pair is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="重設連結無效或已過期",
+        )
+    user, _row = pair
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User disabled",
+        )
+    user.password_hash = hash_password(body.new_password)
+    reset_crud.delete_all_for_user(db, user.id)
+    db.commit()
+    db.refresh(user)
+    return MessageResponse(message="密碼已重設，請使用新密碼登入。")
