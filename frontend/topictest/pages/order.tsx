@@ -26,43 +26,25 @@ import {
   createSimulatedOrder,
   fetchSimulatedOrders,
   fetchSimulatedProfitByCategory,
+  fetchAvailableLots,
 } from '../lib/api/simulatedOrder';
 import {
   getOrCreateSimulatedUserId,
   resetSimulatedUserId,
   getLocalDateString,
 } from '../lib/utils/session';
-
-function formatCreatedAt(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('zh-TW', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatPriceCell(price: SimulatedOrderResponse['price']): string {
-  if (price === null || price === undefined || price === '') return '—';
-  const n = typeof price === 'string' ? parseFloat(price) : price;
-  return Number.isFinite(n) ? n.toLocaleString() : '—';
-}
+import { getToken, getStoredUser, AUTH_CHANGE_EVENT } from '../lib/auth/storage';
 
 function formatSellPlanCell(o: SimulatedOrderResponse): string {
-  const plan = o.sell_plan ?? 'long_term';
-  if (plan === 'long_term') return '長期持有';
+  if (o.side === 'sell' || o.sell_plan == null) return '—';
+  if (o.sell_plan === 'long_term') return '長期持有';
   return o.planned_sell_date ?? '—';
 }
 
 export default function OrderPage() {
   const [userId, setUserId] = useState('');
+  /** 已登入時以帳號 email 作為 user_id，不顯示／不重置匿名 UUID */
+  const [identityFromLogin, setIdentityFromLogin] = useState(false);
   const [symbol, setSymbol] = useState('');
   const [side, setSide] = useState<OrderSide>('buy');
   const [tradeDate, setTradeDate] = useState('');
@@ -75,26 +57,45 @@ export default function OrderPage() {
   const [listLoading, setListLoading] = useState(false);
   const [profitLoading, setProfitLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [availableLots, setAvailableLots] = useState<number | null>(null);
+  const [availableLotsLoading, setAvailableLotsLoading] = useState(false);
+  const [lotsRefresh, setLotsRefresh] = useState(0);
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fieldInvalid = useMemo(() => {
     if (!error) {
-      return { symbol: false, quantity: false, tradeDate: false, sellPlan: false };
+      return { symbol: false, quantity: false, tradeDate: false, sellPlan: false, holding: false };
     }
     return {
       symbol: error.includes('代號') || error.includes('股票') || error.includes('無日線'),
       quantity: error.includes('張數'),
       tradeDate: error.includes('下單日'),
-      sellPlan: error.includes('賣出'),
+      sellPlan: error.includes('預計賣出') || error.includes('長期持有時'),
+      holding: error.includes('持有') || error.includes('可賣') || error.includes('載入'),
     };
   }, [error]);
 
   const todayStr = getLocalDateString();
 
   useEffect(() => {
-    setUserId(getOrCreateSimulatedUserId());
+    const resolveSimulatedIdentity = () => {
+      if (typeof window === 'undefined') return;
+      const token = getToken();
+      const user = getStoredUser();
+      const email = user?.email?.trim().toLowerCase();
+      if (token && email) {
+        setUserId(email);
+        setIdentityFromLogin(true);
+      } else {
+        setUserId(getOrCreateSimulatedUserId());
+        setIdentityFromLogin(false);
+      }
+    };
+    resolveSimulatedIdentity();
+    window.addEventListener(AUTH_CHANGE_EVENT, resolveSimulatedIdentity);
+    return () => window.removeEventListener(AUTH_CHANGE_EVENT, resolveSimulatedIdentity);
   }, []);
 
   const loadOrdersAndProfit = useCallback(async (uid: string) => {
@@ -109,6 +110,7 @@ export default function OrderPage() {
       ]);
       setOrders(listRes.data);
       setProfitSummary(profitRes);
+      setLotsRefresh((x) => x + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : '載入資料失敗');
       setOrders([]);
@@ -123,17 +125,50 @@ export default function OrderPage() {
     if (userId) void loadOrdersAndProfit(userId);
   }, [userId, loadOrdersAndProfit]);
 
+  useEffect(() => {
+    if (side !== 'sell' || !userId) {
+      setAvailableLots(null);
+      setAvailableLotsLoading(false);
+      return;
+    }
+    const sym = symbol.trim().toUpperCase();
+    if (!sym || !/^[0-9A-Z.]+$/.test(sym)) {
+      setAvailableLots(null);
+      setAvailableLotsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAvailableLotsLoading(true);
+    void fetchAvailableLots(userId, sym)
+      .then((res) => {
+        if (!cancelled) setAvailableLots(res.available_lots);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableLots(0);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailableLotsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, symbol, side, lotsRefresh]);
+
   const handleCopyUserId = async () => {
     if (!userId || typeof navigator === 'undefined' || !navigator.clipboard) return;
     try {
       await navigator.clipboard.writeText(userId);
-      toast.success('已複製使用者 ID');
+      toast.success(identityFromLogin ? '已複製帳號 Email' : '已複製使用者 ID');
     } catch {
-      toast.error('無法複製使用者 ID');
+      toast.error(identityFromLogin ? '無法複製 Email' : '無法複製使用者 ID');
     }
   };
 
   const handleResetUserId = () => {
+    if (identityFromLogin) {
+      toast.info('已登入時以帳號 Email 識別模擬資料，無法重新產生匿名 ID');
+      return;
+    }
     const next = resetSimulatedUserId();
     setUserId(next);
     setOrders([]);
@@ -149,6 +184,12 @@ export default function OrderPage() {
     if (!qty || qty <= 0) return '請輸入有效的委託張數';
     if (tradeDate) {
       if (tradeDate > todayStr) return '模擬下單日不可晚於今天';
+    }
+    if (side === 'sell') {
+      if (availableLotsLoading || availableLots === null) return '可賣張數載入中，請稍候再試';
+      if (availableLots <= 0) return '尚未持有此股票，無法賣出（請先以買進建立持股）';
+      if (qty > availableLots) return `賣出張數不可超過持有 ${availableLots} 張`;
+      return null;
     }
     const effectiveTrade = tradeDate.trim() || todayStr;
     if (sellPlan === 'by_date') {
@@ -177,13 +218,14 @@ export default function OrderPage() {
       user_id: userId,
       symbol: normalizedSymbol,
       side,
-      order_type: 'market',
       quantity: qty,
-      sell_plan: sellPlan,
     };
     const td = tradeDate.trim();
     if (td) body.trade_date = td;
-    if (sellPlan === 'by_date') body.planned_sell_date = plannedSellDate.trim();
+    if (side === 'buy') {
+      body.sell_plan = sellPlan;
+      if (sellPlan === 'by_date') body.planned_sell_date = plannedSellDate.trim();
+    }
 
     setSubmitting(true);
     setError(null);
@@ -200,6 +242,10 @@ export default function OrderPage() {
     } catch (e) {
       if (e instanceof ApiRequestError && e.status === 404) {
         const msg = '該股票在指定日期無日線收盤資料，請換日期或代號再試';
+        setError(msg);
+        toast.error(msg);
+      } else if (e instanceof ApiRequestError && e.status === 400) {
+        const msg = e.message || '請求無效';
         setError(msg);
         toast.error(msg);
       } else {
@@ -223,13 +269,17 @@ export default function OrderPage() {
 
   const profitRows = profitSummary?.data ?? [];
 
+  const symbolTrimmed = symbol.trim();
+  const symbolValidForLots =
+    symbolTrimmed.length > 0 && /^[0-9A-Z.]+$/.test(symbolTrimmed);
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50/60 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <Head>
         <title>股海明燈｜模擬下單</title>
         <meta
           name="description"
-          content="模擬市價委託、檢視委託紀錄與依股票彙總損益（展示／專題用途）。"
+          content="模擬委託、檢視委託紀錄與依股票彙總損益（展示／專題用途）。"
         />
       </Head>
       <SubpageHeader
@@ -247,12 +297,14 @@ export default function OrderPage() {
           <div className="flex items-center gap-2 mb-5">
             <ShoppingCart size={18} className="text-[#ffa95a]" />
             <h2 className="text-lg font-bold">委託下單</h2>
-            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">（市價模擬，連線後端）</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">（連線後端）</span>
           </div>
 
           {userId && (
             <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm">
-              <span className="text-gray-500 dark:text-gray-400 shrink-0">使用者 ID</span>
+              <span className="text-gray-500 dark:text-gray-400 shrink-0">
+                {identityFromLogin ? '帳號識別（Email）' : '匿名使用者 ID'}
+              </span>
               <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <code className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700/80 font-mono text-xs break-all">
                   {userId}
@@ -265,14 +317,16 @@ export default function OrderPage() {
                   <Copy size={14} />
                   複製
                 </button>
-                <button
-                  type="button"
-                  onClick={handleResetUserId}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
-                >
-                  <RefreshCw size={14} />
-                  重新產生 ID
-                </button>
+                {!identityFromLogin && (
+                  <button
+                    type="button"
+                    onClick={handleResetUserId}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw size={14} />
+                    重新產生 ID
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -345,13 +399,6 @@ export default function OrderPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">委託類型</label>
-                <div className="px-4 py-2.5 rounded-lg border border-[#ffa95a]/40 bg-[#fff9e6] dark:bg-[#ffa95a]/10 text-sm text-[#b97a3a] dark:text-[#ffa95a]">
-                  市價（後端目前僅支援 market）
-                </div>
-              </div>
-
-              <div>
                 <label htmlFor="order-trade-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   模擬下單日
                   <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">（選填，預設今日）</span>
@@ -374,84 +421,123 @@ export default function OrderPage() {
                 />
               </div>
 
-              <div className="md:col-span-2">
-                <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">賣出時間</span>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">長期持有，或指定預計賣出日（紀錄用）</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSellPlan('long_term');
-                        setPlannedSellDate('');
-                      }}
-                      className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
-                        sellPlan === 'long_term'
-                          ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
-                          : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                      }`}
-                    >
-                      長期持有
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSellPlan('by_date')}
-                      className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
-                        sellPlan === 'by_date'
-                          ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
-                          : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                      }`}
-                    >
-                      指定賣出日
-                    </button>
-                  </div>
-                  {sellPlan === 'by_date' && (
-                    <div>
-                      <label htmlFor="order-planned-sell" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                        預計賣出日
-                      </label>
-                      <input
-                        id="order-planned-sell"
-                        type="date"
-                        value={plannedSellDate}
-                        min={tradeDate.trim() || todayStr}
-                        onChange={(e) => setPlannedSellDate(e.target.value)}
-                        aria-invalid={fieldInvalid.sellPlan}
-                        aria-describedby={error ? 'order-form-error' : undefined}
-                        className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                                   focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
-                                   ${
-                                     fieldInvalid.sellPlan
-                                       ? 'border-red-400 dark:border-red-500'
-                                       : 'border-gray-200 dark:border-gray-600'
-                                   }`}
-                      />
+              {side === 'buy' && (
+                <div className="md:col-span-2">
+                  <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">賣出時間</span>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">買進時可記錄未來預計賣出日（僅紀錄用）</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSellPlan('long_term');
+                          setPlannedSellDate('');
+                        }}
+                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
+                          sellPlan === 'long_term'
+                            ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
+                            : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                        }`}
+                      >
+                        長期持有
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSellPlan('by_date')}
+                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
+                          sellPlan === 'by_date'
+                            ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
+                            : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                        }`}
+                      >
+                        指定賣出日
+                      </button>
                     </div>
-                  )}
+                    {sellPlan === 'by_date' && (
+                      <div>
+                        <label htmlFor="order-planned-sell" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          預計賣出日
+                        </label>
+                        <input
+                          id="order-planned-sell"
+                          type="date"
+                          value={plannedSellDate}
+                          min={tradeDate.trim() || todayStr}
+                          onChange={(e) => setPlannedSellDate(e.target.value)}
+                          aria-invalid={fieldInvalid.sellPlan}
+                          aria-describedby={error ? 'order-form-error' : undefined}
+                          className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
+                                     focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                                     ${
+                                       fieldInvalid.sellPlan
+                                         ? 'border-red-400 dark:border-red-500'
+                                         : 'border-gray-200 dark:border-gray-600'
+                                     }`}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label htmlFor="order-quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   委託數量（張）
                 </label>
                 <input
+                  key={`order-qty-${side}`}
                   id="order-quantity"
                   type="number"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="輸入張數"
+                  placeholder={
+                    side === 'sell'
+                      ? !symbolValidForLots
+                        ? '請先輸入有效代號'
+                        : availableLotsLoading || availableLots === null
+                          ? '可賣張數載入中…'
+                          : `最多 ${availableLots > 0 ? availableLots : '—'} 張`
+                      : '輸入張數'
+                  }
                   min={1}
-                  aria-invalid={fieldInvalid.quantity}
+                  {...(side === 'sell' && symbolValidForLots && availableLots !== null && availableLots > 0
+                    ? { max: availableLots }
+                    : {})}
+                  aria-invalid={fieldInvalid.quantity || fieldInvalid.holding}
                   aria-describedby={error ? 'order-form-error' : undefined}
                   className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
                              focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
                              ${
-                               fieldInvalid.quantity
+                               fieldInvalid.quantity || fieldInvalid.holding
                                  ? 'border-red-400 dark:border-red-500'
                                  : 'border-gray-200 dark:border-gray-600'
                              }`}
                 />
+                {side === 'sell' && symbolTrimmed.length > 0 && (
+                  <p
+                    className={`mt-1.5 text-xs ${
+                      !symbolValidForLots
+                        ? 'text-amber-700 dark:text-amber-300'
+                        : availableLotsLoading || availableLots === null
+                          ? 'text-gray-500 dark:text-gray-400'
+                          : availableLots <= 0
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-gray-500 dark:text-gray-400'
+                    }`}
+                  >
+                    可賣張數（後端依委託推算）：
+                    {!symbolValidForLots ? (
+                      <span>請輸入有效股票代號後顯示</span>
+                    ) : availableLotsLoading || availableLots === null ? (
+                      <span className="font-mono">載入中…</span>
+                    ) : (
+                      <>
+                        <span className="font-mono font-semibold">{availableLots}</span> 張
+                        {availableLots <= 0 ? ' — 請先買進' : ''}
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-end">
@@ -467,7 +553,13 @@ export default function OrderPage() {
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                disabled={submitting || !userId}
+                disabled={
+                  submitting ||
+                  !userId ||
+                  (side === 'sell' &&
+                    symbolValidForLots &&
+                    (availableLotsLoading || availableLots === null || availableLots <= 0))
+                }
                 onClick={handleSubmit}
                 className={`px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   side === 'buy'
@@ -522,19 +614,17 @@ export default function OrderPage() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400 dark:text-gray-500">類型</span>
-                  <span>市價</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-gray-400 dark:text-gray-500">模擬下單日</span>
                   <span className="font-mono">{tradeDate.trim() || todayStr}</span>
                 </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-gray-400 dark:text-gray-500 shrink-0">賣出時間</span>
-                  <span className="text-right font-medium">
-                    {sellPlan === 'long_term' ? '長期持有' : plannedSellDate.trim() || '—'}
-                  </span>
-                </div>
+                {side === 'buy' && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-400 dark:text-gray-500 shrink-0">賣出時間</span>
+                    <span className="text-right font-medium">
+                      {sellPlan === 'long_term' ? '長期持有' : plannedSellDate.trim() || '—'}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-gray-400 dark:text-gray-500">數量</span>
                   <span className="font-mono">{parseInt(quantity, 10)} 張</span>
@@ -674,20 +764,18 @@ export default function OrderPage() {
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">委託編號</th>
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">股票</th>
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">方向</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">類型</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">價格</th>
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">下單日</th>
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">賣出時間</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">數量</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">預估金額</th>
-                    <th className="text-center px-5 py-3 font-medium text-gray-500 dark:text-gray-400">狀態</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">時間</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">試算損益</th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">收益率</th>
                   </tr>
                 </thead>
                 <tbody>
                   {listLoading ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={9} className="text-center py-12 text-gray-400 dark:text-gray-500">
                         <span className="inline-flex items-center gap-2">
                           <Loader2 size={18} className="animate-spin" />
                           載入中…
@@ -696,7 +784,7 @@ export default function OrderPage() {
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={9} className="text-center py-12 text-gray-400 dark:text-gray-500">
                         尚無委託紀錄
                       </td>
                     </tr>
@@ -718,10 +806,6 @@ export default function OrderPage() {
                             {o.side === 'buy' ? '買' : '賣'}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-xs text-gray-500 dark:text-gray-400">
-                          {o.order_type === 'limit' ? '限價' : '市價'}
-                        </td>
-                        <td className="px-5 py-3 text-right font-mono text-xs">{formatPriceCell(o.price)}</td>
                         <td className="px-5 py-3 font-mono text-xs whitespace-nowrap">{o.trade_date}</td>
                         <td className="px-5 py-3 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
                           {formatSellPlanCell(o)}
@@ -730,21 +814,37 @@ export default function OrderPage() {
                         <td className="px-5 py-3 text-right font-mono text-xs">
                           {o.estimated_amount.toLocaleString()}
                         </td>
-                        <td className="px-5 py-3 text-center">
-                          <span
-                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${
-                              o.status === 'filled'
-                                ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                                : o.status === 'cancelled'
-                                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
-                                  : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-                            }`}
-                          >
-                            {o.status === 'filled' ? '已成交' : o.status === 'cancelled' ? '已取消' : '委託中'}
-                          </span>
+                        <td className="px-5 py-3 text-right">
+                          {o.markup_amount != null ? (
+                            <span
+                              className={`font-mono text-xs font-medium ${
+                                o.markup_amount >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                              }`}
+                            >
+                              {o.markup_amount >= 0 ? '+' : ''}
+                              {o.markup_amount.toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400 dark:text-gray-500">
+                              {o.sell_plan === 'by_date' && o.planned_sell_date && o.planned_sell_date > todayStr
+                                ? '預計賣出日未到'
+                                : '—'}
+                            </span>
+                          )}
                         </td>
-                        <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                          {formatCreatedAt(o.created_at)}
+                        <td className="px-5 py-3 text-right font-mono text-xs">
+                          {o.markup_rate != null ? (
+                            <span
+                              className={
+                                o.markup_rate >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                              }
+                            >
+                              {o.markup_rate >= 0 ? '+' : ''}
+                              {o.markup_rate.toFixed(2)}%
+                            </span>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                       </tr>
                     ))

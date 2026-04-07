@@ -4,6 +4,7 @@ import type {
   SimulatedOrderResponse,
   SimulatedOrderListResponse,
   SimulatedOrderCategoryProfitResponse,
+  AvailableLotsResponse,
 } from '../types';
 
 export async function createSimulatedOrder(body: SimulatedOrderCreate): Promise<SimulatedOrderResponse> {
@@ -28,5 +29,15 @@ export async function fetchSimulatedProfitByCategory(
     '/simulated-orders/profit-by-category',
     { params: { user_id } }
   );
+  return data;
+}
+
+export async function fetchAvailableLots(
+  user_id: string,
+  symbol: string
+): Promise<AvailableLotsResponse> {
+  const { data } = await apiClient.get<AvailableLotsResponse>('/simulated-orders/available-lots', {
+    params: { user_id, symbol },
+  });
   return data;
 }
