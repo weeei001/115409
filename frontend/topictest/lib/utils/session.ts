@@ -1,26 +1,36 @@
-export const SIMULATED_ORDER_SESSION_KEY = 'simulated_order_session_id';
+/** localStorage 鍵：模擬下單使用者識別 */
+export const SIMULATED_ORDER_USER_KEY = 'simulated_order_user_id';
 
-function randomSessionId(): string {
+const LEGACY_SIMULATED_ORDER_SESSION_KEY = 'simulated_order_session_id';
+
+function randomUserId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-export function getOrCreateSimulatedSessionId(): string {
+export function getOrCreateSimulatedUserId(): string {
   if (typeof window === 'undefined') return '';
-  let id = window.localStorage.getItem(SIMULATED_ORDER_SESSION_KEY);
+  let id = window.localStorage.getItem(SIMULATED_ORDER_USER_KEY);
   if (!id || id.trim().length === 0) {
-    id = randomSessionId();
-    window.localStorage.setItem(SIMULATED_ORDER_SESSION_KEY, id);
+    id = window.localStorage.getItem(LEGACY_SIMULATED_ORDER_SESSION_KEY);
+    if (id && id.trim().length > 0) {
+      window.localStorage.setItem(SIMULATED_ORDER_USER_KEY, id.trim());
+      window.localStorage.removeItem(LEGACY_SIMULATED_ORDER_SESSION_KEY);
+    } else {
+      id = randomUserId();
+      window.localStorage.setItem(SIMULATED_ORDER_USER_KEY, id);
+    }
   }
   return id;
 }
 
-export function resetSimulatedSessionId(): string {
+export function resetSimulatedUserId(): string {
   if (typeof window === 'undefined') return '';
-  const id = randomSessionId();
-  window.localStorage.setItem(SIMULATED_ORDER_SESSION_KEY, id);
+  const id = randomUserId();
+  window.localStorage.setItem(SIMULATED_ORDER_USER_KEY, id);
+  window.localStorage.removeItem(LEGACY_SIMULATED_ORDER_SESSION_KEY);
   return id;
 }
 

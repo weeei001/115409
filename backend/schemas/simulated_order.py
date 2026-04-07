@@ -7,20 +7,28 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SimulatedOrderCreate(BaseModel):
-    session_id: str = Field(..., min_length=1, max_length=36, description="前端匿名會話ID")
+    user_id: str = Field(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）")
     symbol: str = Field(..., min_length=1, max_length=12, description="股票代號")
     side: Literal["buy", "sell"] = Field(..., description="買賣方向")
     order_type: Literal["market", "limit"] = Field(..., description="委託類型（目前僅支援 market）")
     price: Optional[Decimal] = Field(None, gt=0, description="限價委託價格")
     trade_date: Optional[date] = Field(None, description="模擬下單日期（可指定過去日期）")
     quantity: int = Field(..., gt=0, description="委託數量（張）")
+    sell_plan: Literal["long_term", "by_date"] = Field(
+        default="long_term",
+        description="賣出時間：長期持有或指定賣出日",
+    )
+    planned_sell_date: Optional[date] = Field(
+        None,
+        description="預計賣出日（sell_plan=by_date 時必填）",
+    )
 
-    @field_validator("session_id")
+    @field_validator("user_id")
     @classmethod
-    def validate_session_id(cls, value: str) -> str:
+    def validate_user_id(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError("session_id 不可為空")
+            raise ValueError("user_id 不可為空")
         return normalized
 
     @field_validator("symbol")
@@ -41,25 +49,36 @@ class SimulatedOrderCreate(BaseModel):
             raise ValueError("market 單不可提供 price")
         if self.trade_date is not None and self.trade_date > date.today():
             raise ValueError("trade_date 不可晚於今天")
+        effective_trade = self.trade_date or date.today()
+        if self.sell_plan == "long_term":
+            if self.planned_sell_date is not None:
+                raise ValueError("長期持有時不可指定 planned_sell_date")
+        else:
+            if self.planned_sell_date is None:
+                raise ValueError("指定賣出日時必須提供 planned_sell_date")
+            if self.planned_sell_date < effective_trade:
+                raise ValueError("預計賣出日不可早於模擬下單日")
         return self
 
 
 class SimulatedOrderResponse(BaseModel):
     id: str = Field(..., description="委託編號")
-    session_id: str = Field(..., description="前端匿名會話ID")
+    user_id: str = Field(..., max_length=128, description="使用者識別（前端匿名 user id）")
     symbol: str = Field(..., description="股票代號")
     side: Literal["buy", "sell"] = Field(..., description="買賣方向")
     order_type: Literal["market", "limit"] = Field(..., description="委託類型")
     price: Optional[Decimal] = Field(None, description="限價價格")
     trade_date: date = Field(..., description="模擬下單日期")
     quantity: int = Field(..., description="委託數量（張）")
+    sell_plan: Literal["long_term", "by_date"] = Field(..., description="賣出計畫")
+    planned_sell_date: Optional[date] = Field(None, description="預計賣出日")
     status: Literal["pending", "filled", "cancelled"] = Field(..., description="委託狀態")
     estimated_amount: int = Field(..., description="預估成交金額（元）")
     created_at: datetime = Field(..., description="建立時間")
 
 
 class SimulatedOrderListResponse(BaseModel):
-    session_id: str
+    user_id: str
     total: int
     data: List[SimulatedOrderResponse]
 
@@ -75,7 +94,7 @@ class SimulatedOrderCategoryProfitItem(BaseModel):
 
 
 class SimulatedOrderCategoryProfitResponse(BaseModel):
-    session_id: str = Field(..., description="前端匿名會話ID")
+    user_id: str = Field(..., max_length=128, description="使用者識別（前端匿名 user id）")
     total_orders: int = Field(..., description="總委託筆數")
     priced_orders: int = Field(..., description="可估值委託筆數")
     unpriced_orders: int = Field(..., description="無最新行情委託筆數")

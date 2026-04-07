@@ -381,8 +381,10 @@ export interface OrderRecord {
 
 // ── Simulated Order API (openapi: /simulated-orders) ──
 
+export type SimulatedSellPlan = 'long_term' | 'by_date';
+
 export interface SimulatedOrderCreate {
-  session_id: string;
+  user_id: string;
   symbol: string;
   side: OrderSide;
   order_type: OrderType;
@@ -390,24 +392,29 @@ export interface SimulatedOrderCreate {
   /** 市價單勿送；限價時使用 */
   price?: number | string | null;
   trade_date?: string | null;
+  /** 預設長期持有；指定賣出日時需帶 planned_sell_date */
+  sell_plan?: SimulatedSellPlan;
+  planned_sell_date?: string | null;
 }
 
 export interface SimulatedOrderResponse {
   id: string;
-  session_id: string;
+  user_id: string;
   symbol: string;
   side: OrderSide;
   order_type: OrderType;
   price: string | number | null;
   trade_date: string;
   quantity: number;
+  sell_plan: SimulatedSellPlan;
+  planned_sell_date: string | null;
   status: OrderStatus;
   estimated_amount: number;
   created_at: string;
 }
 
 export interface SimulatedOrderListResponse {
-  session_id: string;
+  user_id: string;
   total: number;
   data: SimulatedOrderResponse[];
 }
@@ -423,7 +430,7 @@ export interface SimulatedOrderCategoryProfitItem {
 }
 
 export interface SimulatedOrderCategoryProfitResponse {
-  session_id: string;
+  user_id: string;
   total_orders: number;
   priced_orders: number;
   unpriced_orders: number;

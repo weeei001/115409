@@ -25,13 +25,15 @@ def _format_order_id(order_id: int) -> str:
 def _serialize_order(order: SimulatedOrder) -> SimulatedOrderResponse:
     return SimulatedOrderResponse(
         id=_format_order_id(order.id),
-        session_id=order.session_id,
+        user_id=order.user_id,
         symbol=order.symbol,
         side=order.side,
         order_type=order.order_type,
         price=order.limit_price,
         trade_date=order.trade_date,
         quantity=order.quantity,
+        sell_plan=order.sell_plan,
+        planned_sell_date=order.planned_sell_date,
         status=order.status,
         estimated_amount=order.estimated_amount,
         created_at=order.created_at,
@@ -74,13 +76,13 @@ def create_simulated_order(payload: SimulatedOrderCreate, db: Session = Depends(
     summary="查詢模擬委託列表",
 )
 def get_simulated_orders(
-    session_id: str = Query(..., min_length=1, max_length=36, description="前端匿名會話ID"),
+    user_id: str = Query(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）"),
     limit: int = Query(100, ge=1, le=200, description="查詢筆數上限"),
     db: Session = Depends(get_db),
 ):
-    records = crud_order.list_simulated_orders(db=db, session_id=session_id.strip(), limit=limit)
+    records = crud_order.list_simulated_orders(db=db, user_id=user_id.strip(), limit=limit)
     return {
-        "session_id": session_id.strip(),
+        "user_id": user_id.strip(),
         "total": len(records),
         "data": [_serialize_order(order) for order in records],
     }
@@ -92,15 +94,15 @@ def get_simulated_orders(
     summary="依股票代號彙總模擬收益",
 )
 def get_profit_by_category(
-    session_id: str = Query(..., min_length=1, max_length=36, description="前端匿名會話ID"),
+    user_id: str = Query(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）"),
     db: Session = Depends(get_db),
 ):
-    normalized_session_id = session_id.strip()
+    normalized_user_id = user_id.strip()
     total_orders, priced_orders, unpriced_orders, data = crud_order.summarize_profit_by_category(
-        db=db, session_id=normalized_session_id
+        db=db, user_id=normalized_user_id
     )
     return {
-        "session_id": normalized_session_id,
+        "user_id": normalized_user_id,
         "total_orders": total_orders,
         "priced_orders": priced_orders,
         "unpriced_orders": unpriced_orders,

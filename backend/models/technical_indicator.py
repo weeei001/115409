@@ -29,8 +29,7 @@ class TechnicalIndicator(Base):
     volume_ma5 = Column(DECIMAL(20, 2), nullable=True, comment="5日均量")
 
     __table_args__ = (
-        Index("idx_ti_symbol", "symbol"),
-        Index("idx_ti_date", "date"),
+        Index("idx_ti_symbol_date", "symbol", "date"),
     )
 
     def __repr__(self) -> str:
