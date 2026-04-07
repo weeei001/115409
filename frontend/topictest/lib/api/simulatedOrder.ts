@@ -12,21 +12,21 @@ export async function createSimulatedOrder(body: SimulatedOrderCreate): Promise<
 }
 
 export async function fetchSimulatedOrders(
-  session_id: string,
+  user_id: string,
   limit?: number
 ): Promise<SimulatedOrderListResponse> {
   const { data } = await apiClient.get<SimulatedOrderListResponse>('/simulated-orders/', {
-    params: { session_id, ...(limit != null ? { limit } : {}) },
+    params: { user_id, ...(limit != null ? { limit } : {}) },
   });
   return data;
 }
 
 export async function fetchSimulatedProfitByCategory(
-  session_id: string
+  user_id: string
 ): Promise<SimulatedOrderCategoryProfitResponse> {
   const { data } = await apiClient.get<SimulatedOrderCategoryProfitResponse>(
     '/simulated-orders/profit-by-category',
-    { params: { session_id } }
+    { params: { user_id } }
   );
   return data;
 }
