@@ -138,9 +138,8 @@ def _build_final_response(
     symbol: str = "",
     date_start: str = "",
     date_end: str = "",
-    raw_answer: str = "",
 ) -> AnalyzeFinalResponse:
-    """組 /analyze/final 回應（不含 technical_highlights、institutional_data）。"""
+    """組 /analyze/final 回應（不含 technical_highlights、institutional_data、raw_answer）。"""
     news_items = [
         NewsSourceItem(
             id=n.id,
@@ -152,12 +151,6 @@ def _build_final_response(
         for n in result.news_sources
     ]
 
-    if not raw_answer:
-        raw_parts = [result.summary]
-        if result.recommendation:
-            raw_parts.append(f"【建議】{result.recommendation}")
-        raw_answer = "\n\n".join(p for p in raw_parts if p)
-
     return AnalyzeFinalResponse(
         symbol=symbol,
         date_start=date_start,
@@ -167,7 +160,6 @@ def _build_final_response(
         recommendation=result.recommendation,
         news_sources=news_items,
         fallback_mode=result.fallback_mode,
-        raw_answer=raw_answer,
         status="done",
     )
 
@@ -419,11 +411,11 @@ async def analyze_quick_insights_endpoint(req: AnalyzeSymbolsRequest):
     description=(
         "**並行**自 DB 取得價量／指標／法人（供模型內部推理），並取得新聞／RAG 摘要後，以 **primary 大模型**（由後端固定）"
         "產出單一 JSON：**摘要**、**sentiment_score**、**recommendation**（建議含全形括號理由）、**news_sources** 等。\n\n"
-        "**不含** `technical_highlights` 與 **`institutional_data`**；條列數據觀察請 **`POST /analyze/quick-insights`** 的 `points`；法人表請用 **`/analyze/raw/*`** 三筆。\n\n"
+        "**不含** `technical_highlights`、`institutional_data`、`raw_answer`；條列數據觀察請 **`POST /analyze/quick-insights`** 的 `points`；法人表請用 **`/analyze/raw/*`** 三筆。\n\n"
         "**耗時**：LLM 推理較長，建議客戶端 **timeout ≥ 90～120 秒**。\n\n"
         "`fallback_mode=true` 表示模型失敗改走規則化輸出。"
     ),
-    response_description="結構見 **AnalyzeFinalResponse**（無 `technical_highlights`、`institutional_data`）。",
+    response_description="結構見 **AnalyzeFinalResponse**（無 `technical_highlights`、`institutional_data`、`raw_answer`）。",
     responses=_ANALYZE_RESPONSES,
 )
 async def analyze_final_only(req: AnalyzeSymbolsRequest):

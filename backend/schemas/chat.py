@@ -106,7 +106,7 @@ class ChatResponse(BaseModel):
 
 
 class AnalyzeFinalResponse(BaseModel):
-    """`POST /analyze/final` 回應：摘要／情緒／建議／新聞等。**不含** `technical_highlights`（請用 `POST /analyze/quick-insights` 的 `points`）；**不含** `institutional_data`（法人表請用 `POST /analyze/raw/*`）。"""
+    """`POST /analyze/final` 回應：摘要／情緒／建議／新聞等。**不含** `technical_highlights`、`institutional_data`、`raw_answer`（法人表請用 `POST /analyze/raw/*`；條列觀察請用 `POST /analyze/quick-insights`）。"""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -119,7 +119,6 @@ class AnalyzeFinalResponse(BaseModel):
                 "recommendation": "偏多（理由）",
                 "news_sources": [],
                 "fallback_mode": False,
-                "raw_answer": "",
                 "status": "done",
             }
         }
@@ -136,7 +135,6 @@ class AnalyzeFinalResponse(BaseModel):
     )
     news_sources: List[NewsSourceItem] = Field(default_factory=list, description="資料來源")
     fallback_mode: bool = Field(False, description="是否為降級模式")
-    raw_answer: str = Field("", description="完整文字回覆")
     status: Optional[AnalysisStatus] = Field(
         None,
         description="完整分析時為 done",
