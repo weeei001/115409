@@ -1,5 +1,13 @@
 import apiClient, { ApiRequestError } from './client';
-import type { AdvisorAction, AdvisorReport, AnalyzeResponse } from '../types';
+import type {
+  AdvisorAction,
+  AdvisorReport,
+  AnalyzeFinalResponse,
+  AnalyzeQuickInsightsResponse,
+  AnalyzeRawInstitutionalResponse,
+  AnalyzeResponse,
+  AnalyzeSplitRequest,
+} from '../types';
 
 export interface FetchAdvisorReportParams {
   symbol: string;
@@ -9,7 +17,26 @@ export interface FetchAdvisorReportOptions {
   fallbackToMock?: boolean;
 }
 
-const ANALYZE_TIMEOUT_MS = 120_000;
+/** 各區塊是否仍在等待 API 回應（完成或失敗後為 false） */
+export interface AdvisorFetchProgress {
+  pendingInstitutional: boolean;
+  pendingQuick: boolean;
+  pendingFinal: boolean;
+}
+
+export interface FetchAdvisorReportProgressiveOptions extends FetchAdvisorReportOptions {
+  onPartial?: (report: AdvisorReport) => void;
+  onProgress?: (progress: AdvisorFetchProgress) => void;
+}
+
+export interface MapAnalyzeOptions {
+  /** 預設「技術面重點 n」；拆分 API 用「觀察 n」 */
+  technicalSignalLabel?: (index: number) => string;
+}
+
+const TIMEOUT_RAW_MS = 45_000;
+const TIMEOUT_QUICK_MS = 90_000;
+const TIMEOUT_FINAL_MS = 120_000;
 
 function mapRecommendationToAction(
   sentiment: number | undefined,
@@ -26,7 +53,10 @@ function mapRecommendationToAction(
   return 'wait';
 }
 
-export function mapAnalyzeResponseToAdvisorReport(res: AnalyzeResponse): AdvisorReport {
+export function mapAnalyzeResponseToAdvisorReport(
+  res: AnalyzeResponse,
+  options?: MapAnalyzeOptions
+): AdvisorReport {
   const symbol = (res.symbol ?? '').trim().toUpperCase() || '—';
   const dateEnd = res.date_end?.trim();
   const dateStart = res.date_start?.trim();
@@ -34,8 +64,9 @@ export function mapAnalyzeResponseToAdvisorReport(res: AnalyzeResponse): Advisor
     ? new Date(`${dateEnd}T12:00:00+08:00`).toISOString()
     : new Date().toISOString();
 
+  const labelFn = options?.technicalSignalLabel ?? ((i: number) => `技術面重點 ${i + 1}`);
   const technical_signals = (res.technical_highlights ?? []).map((text, i) => ({
-    name: `技術面重點 ${i + 1}`,
+    name: labelFn(i),
     interpretation: text,
   }));
 
@@ -96,6 +127,32 @@ export function mapAnalyzeResponseToAdvisorReport(res: AnalyzeResponse): Advisor
   };
 }
 
+/**
+ * 合併 POST /analyze/final、/analyze/quick-insights、/analyze/raw/institutional 為單一 AdvisorReport。
+ */
+export function mapSplitAnalyzeToAdvisorReport(
+  final: AnalyzeFinalResponse | undefined,
+  quick: AnalyzeQuickInsightsResponse | undefined,
+  institutional: AnalyzeRawInstitutionalResponse | undefined
+): AdvisorReport {
+  const synthetic = {
+    symbol: final?.symbol,
+    date_start: final?.date_start ?? quick?.date_start ?? institutional?.date_start,
+    date_end: final?.date_end ?? quick?.date_end ?? institutional?.date_end,
+    summary: final?.summary,
+    sentiment_score: final?.sentiment_score,
+    recommendation: final?.recommendation,
+    recommendation_basis: final?.recommendation_basis,
+    news_sources: final?.news_sources,
+    technical_highlights: quick?.points ?? [],
+    institutional_data: institutional?.institutional_data ?? [],
+  } as AnalyzeResponse;
+
+  return mapAnalyzeResponseToAdvisorReport(synthetic, {
+    technicalSignalLabel: (i) => `觀察 ${i + 1}`,
+  });
+}
+
 function buildMockReport(symbol: string): AdvisorReport {
   const normalized = symbol.trim().toUpperCase();
   return {
@@ -152,28 +209,119 @@ function buildMockReport(symbol: string): AdvisorReport {
   };
 }
 
-export async function fetchAdvisorReport(
+/**
+ * 並行呼叫拆分 API；任一回應就合併並觸發 `onPartial`，全部結束後回傳與舊版 `fetchAdvisorReport` 相同語意之結果。
+ */
+export async function fetchAdvisorReportProgressive(
   params: FetchAdvisorReportParams,
-  options: FetchAdvisorReportOptions = {}
+  options: FetchAdvisorReportProgressiveOptions = {}
 ): Promise<AdvisorReport> {
   const symbol = params.symbol.trim();
   if (!symbol) {
     throw new ApiRequestError('請輸入股票代號');
   }
 
-  const { fallbackToMock = true } = options;
+  const { fallbackToMock = process.env.NODE_ENV === 'development', onPartial, onProgress } = options;
+  const upper = symbol.toUpperCase();
+  const body: AnalyzeSplitRequest = { symbols: [upper] };
+
+  let partialFinal: AnalyzeFinalResponse | undefined;
+  let partialQuick: AnalyzeQuickInsightsResponse | undefined;
+  let partialInstitutional: AnalyzeRawInstitutionalResponse | undefined;
+  let finalRequestError: unknown;
+
+  let pendingInstitutional = true;
+  let pendingQuick = true;
+  let pendingFinal = true;
+
+  const emitProgress = () => {
+    onProgress?.({
+      pendingInstitutional,
+      pendingQuick,
+      pendingFinal,
+    });
+  };
+
+  const emitPartial = () => {
+    const report = mapSplitAnalyzeToAdvisorReport(partialFinal, partialQuick, partialInstitutional);
+    onPartial?.(report);
+  };
+
+  emitProgress();
+
+  const runInstitutional = apiClient
+    .post('/analyze/raw/institutional', body, { timeout: TIMEOUT_RAW_MS })
+    .then((res) => {
+      partialInstitutional = res.data as AnalyzeRawInstitutionalResponse;
+    })
+    .catch(() => {
+      /* 略過，合併時以空陣列處理 */
+    })
+    .finally(() => {
+      pendingInstitutional = false;
+      emitPartial();
+      emitProgress();
+    });
+
+  const runQuick = apiClient
+    .post('/analyze/quick-insights', body, { timeout: TIMEOUT_QUICK_MS })
+    .then((res) => {
+      partialQuick = res.data as AnalyzeQuickInsightsResponse;
+    })
+    .catch(() => {})
+    .finally(() => {
+      pendingQuick = false;
+      emitPartial();
+      emitProgress();
+    });
+
+  const runFinal = apiClient
+    .post('/analyze/final', body, { timeout: TIMEOUT_FINAL_MS })
+    .then((res) => {
+      partialFinal = res.data as AnalyzeFinalResponse;
+    })
+    .catch((err) => {
+      finalRequestError = err;
+    })
+    .finally(() => {
+      pendingFinal = false;
+      emitPartial();
+      emitProgress();
+    });
+
+  const runPrices = apiClient
+    .post('/analyze/raw/prices', body, { timeout: TIMEOUT_RAW_MS })
+    .catch(() => undefined);
+
+  const runIndicators = apiClient
+    .post('/analyze/raw/indicators', body, { timeout: TIMEOUT_RAW_MS })
+    .catch(() => undefined);
 
   try {
-    const { data } = await apiClient.post<AnalyzeResponse>(
-      '/analyze',
-      { symbols: [symbol.toUpperCase()], with_news: true },
-      { timeout: ANALYZE_TIMEOUT_MS }
-    );
-    return mapAnalyzeResponseToAdvisorReport(data);
+    await Promise.all([runInstitutional, runQuick, runFinal, runPrices, runIndicators]);
+
+    if (!partialFinal) {
+      if (fallbackToMock) {
+        return buildMockReport(symbol);
+      }
+      if (finalRequestError instanceof Error) {
+        throw finalRequestError;
+      }
+      throw new ApiRequestError('分析失敗');
+    }
+
+    return mapSplitAnalyzeToAdvisorReport(partialFinal, partialQuick, partialInstitutional);
   } catch (error) {
     if (fallbackToMock) {
       return buildMockReport(symbol);
     }
     throw error;
   }
+}
+
+export async function fetchAdvisorReport(
+  params: FetchAdvisorReportParams,
+  options: FetchAdvisorReportOptions = {}
+): Promise<AdvisorReport> {
+  return fetchAdvisorReportProgressive(params, options);
 }

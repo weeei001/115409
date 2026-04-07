@@ -12,7 +12,8 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
   const change = Number(data.change ?? 0);
   const close = Number(data.close ?? 0);
   const prevClose = close - change;
-  const changePct = prevClose !== 0 ? ((change / prevClose) * 100).toFixed(2) : '0.00';
+  const validPrev = prevClose > 0;
+  const changePct = validPrev ? ((change / prevClose) * 100).toFixed(2) : null;
   const isUp = change >= 0;
 
   const infoItems = [
@@ -31,21 +32,21 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="flex justify-between items-end mb-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-baseline gap-3">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-baseline gap-3">
             {data.symbol}
-            <span className="text-base text-gray-400 dark:text-gray-500">{data.date}</span>
+            <span className="text-sm sm:text-base text-gray-400 dark:text-gray-500">{data.date}</span>
           </h1>
         </div>
-        <div className="text-right">
-          <div className="text-4xl font-mono font-bold text-gray-900 dark:text-gray-100">
+        <div className="sm:text-right">
+          <div className="text-2xl sm:text-4xl font-mono font-bold text-gray-900 dark:text-gray-100">
             {fmtPrice(data.close)}
           </div>
-          <div className={`flex items-center justify-end gap-1 text-sm font-medium ${isUp ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+          <div className={`flex items-center sm:justify-end gap-1 text-sm font-medium ${isUp ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
             {isUp ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
             <span>{isUp ? '+' : ''}{change.toFixed(2)}</span>
-            <span>({isUp ? '+' : ''}{changePct}%)</span>
+            <span>({changePct != null ? `${isUp ? '+' : ''}${changePct}%` : '--'})</span>
           </div>
         </div>
       </div>

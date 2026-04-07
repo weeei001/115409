@@ -45,9 +45,10 @@ function extractAnswer(data: unknown): string {
     if (typeof v === 'string' && v.trim()) return v;
   }
   try {
-    return JSON.stringify(data);
+    const s = JSON.stringify(data);
+    return s.length > 200 ? '（回應格式無法解析，請稍後再試）' : s;
   } catch {
-    return String(data);
+    return '（回應格式無法解析）';
   }
 }
 

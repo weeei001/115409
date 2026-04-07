@@ -78,22 +78,6 @@ export default function AiPage() {
         icon={Bot}
         title="AI 投資顧問"
         subtitle="與 AI 溝通，獲取投資建議"
-        rightExtra={
-          <span
-            className={`text-xs font-medium px-2.5 py-1 rounded-full border shrink-0 ${
-              ragConfigured
-                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
-                : 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200'
-            }`}
-            title={
-              ragConfigured
-                ? '已連線財經新聞 RAG 後端'
-                : '未設定 RAG，回覆為本機模擬（非即時新聞庫）'
-            }
-          >
-            {ragConfigured ? '財經新聞 RAG' : '本機模擬'}
-          </span>
-        }
       />
 
       <div className="flex-1 flex flex-col min-h-0 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">

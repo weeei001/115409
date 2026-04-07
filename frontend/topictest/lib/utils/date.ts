@@ -1,10 +1,17 @@
+function toYmdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function getDefaultDateRange(monthsBack = 3) {
   const end = new Date();
   const start = new Date();
   start.setMonth(start.getMonth() - monthsBack);
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: toYmdLocal(start),
+    end: toYmdLocal(end),
   };
 }
 

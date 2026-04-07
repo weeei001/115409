@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import { BrainCircuit, Search, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { SubpageHeader } from '../components/SubpageHeader';
-import { fetchAdvisorReport } from '../lib/api/advisor';
+import { fetchAdvisorReportProgressive, type AdvisorFetchProgress } from '../lib/api/advisor';
 import type { AdvisorAction, AdvisorReport } from '../lib/types';
 
 function recommendationText(action: AdvisorAction): string {
@@ -31,6 +32,8 @@ export default function AdvisorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AdvisorReport | null>(null);
+  const [progress, setProgress] = useState<AdvisorFetchProgress | null>(null);
+  const requestSeq = useRef(0);
 
   const generatedAtLabel = useMemo(() => {
     if (!report?.generated_at) return '--';
@@ -45,16 +48,43 @@ export default function AdvisorPage() {
       return;
     }
 
+    const seq = ++requestSeq.current;
     setLoading(true);
     setError(null);
+    setReport(null);
+    setProgress({
+      pendingInstitutional: true,
+      pendingQuick: true,
+      pendingFinal: true,
+    });
+
     try {
-      const data = await fetchAdvisorReport({ symbol: trimmed });
+      const data = await fetchAdvisorReportProgressive(
+        { symbol: trimmed },
+        {
+          onPartial: (r) => {
+            if (seq !== requestSeq.current) return;
+            setReport(r);
+          },
+          onProgress: (p) => {
+            if (seq !== requestSeq.current) return;
+            setProgress(p);
+          },
+        }
+      );
+      if (seq !== requestSeq.current) return;
       setReport(data);
     } catch (err) {
+      if (seq !== requestSeq.current) return;
       setReport(null);
-      setError(err instanceof Error ? err.message : '取得投資顧問結果失敗');
+      setProgress(null);
+      const msg = err instanceof Error ? err.message : '取得投資顧問結果失敗';
+      setError(msg);
+      toast.error(msg);
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -82,10 +112,13 @@ export default function AdvisorPage() {
               <input
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !loading) void handleGenerate();
+                }}
                 placeholder="輸入股票代號（例如：2330）"
+                disabled={loading}
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700
-                           text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                           text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60"
               />
             </div>
             <button
@@ -103,7 +136,9 @@ export default function AdvisorPage() {
             {loading && symbol.trim() ? (
               <p className="text-[#ffa95a] text-sm font-medium flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin shrink-0" />
-                正在分析 {symbol.trim().toUpperCase()}…（AI 整理中，約需數十秒）
+                {report && progress?.pendingFinal
+                  ? `部分內容已顯示，完整分析載入中…（${symbol.trim().toUpperCase()}）`
+                  : `正在分析 ${symbol.trim().toUpperCase()}…（AI 整理中，約需數十秒）`}
               </p>
             ) : null}
             <div className="flex flex-wrap gap-2">
@@ -151,7 +186,7 @@ export default function AdvisorPage() {
           </section>
         ) : null}
 
-        {loading ? (
+        {loading && !report ? (
           <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8 sm:p-10">
             <div className="flex flex-col items-center justify-center gap-4 text-center">
               <Loader2 size={40} className="text-[#ffa95a] animate-spin" aria-hidden />
@@ -180,24 +215,51 @@ export default function AdvisorPage() {
           </section>
         ) : null}
 
-        {!loading && report ? (
+        {report ? (
           <>
             <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h2 className="text-base sm:text-lg font-bold">總結摘要</h2>
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
-                >
-                  {recommendationText(report.recommendation)}
-                </span>
+                {loading && progress?.pendingFinal ? (
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 inline-flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin shrink-0" />
+                    載入中
+                  </span>
+                ) : (
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
+                  >
+                    {recommendationText(report.recommendation)}
+                  </span>
+                )}
               </div>
-              <p className="mt-3 text-sm leading-6 text-gray-700 dark:text-gray-300">{report.summary}</p>
+              {loading && progress?.pendingFinal ? (
+                <div className="mt-3 flex flex-col gap-2 text-sm text-gray-500 dark:text-gray-400">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin shrink-0 text-[#ffa95a]" />
+                    摘要與新聞來源載入中…
+                  </span>
+                  <div className="h-3 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse max-w-lg" />
+                  <div className="h-3 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse max-w-md" />
+                </div>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-gray-700 dark:text-gray-300">{report.summary}</p>
+              )}
             </section>
 
             <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
               <h2 className="text-base sm:text-lg font-bold">技術指標重點</h2>
               <div className="mt-3 space-y-3">
-                {report.technical_signals?.length ? (
+                {loading && progress?.pendingQuick ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 inline-flex items-center gap-2">
+                      <Loader2 size={14} className="animate-spin shrink-0 text-[#ffa95a]" />
+                      技術觀察載入中…
+                    </p>
+                    <div className="h-16 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
+                    <div className="h-16 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse max-w-[95%]" />
+                  </div>
+                ) : report.technical_signals?.length ? (
                   report.technical_signals.map((signal) => (
                     <div
                       key={`${signal.name}-${String(signal.value ?? '')}`}
@@ -222,30 +284,49 @@ export default function AdvisorPage() {
 
             <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
               <h2 className="text-base sm:text-lg font-bold">三大法人資訊</h2>
-              <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-                {report.institutional_flow?.summary || '暫無法人綜合說明'}
-              </p>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {report.institutional_flow?.items?.length ? (
-                  report.institutional_flow.items.map((item) => (
-                    <div
-                      key={item.name}
-                      className="rounded-xl border border-gray-100 dark:border-gray-700 p-3"
-                    >
-                      <p className="text-sm font-semibold">{item.name}</p>
-                      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
-                        淨買賣：{formatNetShares(item.net_amount)}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {item.trend || '無趨勢補充'}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">法人資料不足</p>
-                )}
-              </div>
-              {report.institutional_rows && report.institutional_rows.length > 0 ? (
+              {loading && progress?.pendingInstitutional ? (
+                <div className="mt-2 space-y-2">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 inline-flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin shrink-0 text-[#ffa95a]" />
+                    法人資料載入中…
+                  </p>
+                  <div className="h-4 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse max-w-xl" />
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="h-24 rounded-xl bg-gray-100 dark:bg-gray-700 animate-pulse" />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                    {report.institutional_flow?.summary || '暫無法人綜合說明'}
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {report.institutional_flow?.items?.length ? (
+                      report.institutional_flow.items.map((item) => (
+                        <div
+                          key={item.name}
+                          className="rounded-xl border border-gray-100 dark:border-gray-700 p-3"
+                        >
+                          <p className="text-sm font-semibold">{item.name}</p>
+                          <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                            淨買賣：{formatNetShares(item.net_amount)}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {item.trend || '無趨勢補充'}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">法人資料不足</p>
+                    )}
+                  </div>
+                </>
+              )}
+              {(!loading || !progress?.pendingInstitutional) &&
+              report.institutional_rows &&
+              report.institutional_rows.length > 0 ? (
                 <div className="mt-5 overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-700">
                   <table className="min-w-full text-sm text-left">
                     <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">
@@ -283,33 +364,51 @@ export default function AdvisorPage() {
 
             <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
               <h2 className="text-base sm:text-lg font-bold">最終建議</h2>
-              <div className="mt-3 flex items-center gap-2 flex-wrap">
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
-                >
-                  {recommendationText(report.recommendation)}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">標的：{report.symbol}</span>
-              </div>
-              {report.recommendation_text ? (
-                <p className="mt-3 text-sm leading-6 text-gray-800 dark:text-gray-200 font-medium">
-                  操作建議：{report.recommendation_text}
-                </p>
-              ) : null}
-              <p className="mt-3 text-sm leading-6 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                {report.reasoning}
-              </p>
-              {report.risk_notes ? (
-                <p className="mt-3 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-3">
-                  風險提醒：{report.risk_notes}
-                </p>
-              ) : null}
+              {loading && progress?.pendingFinal ? (
+                <div className="mt-3 space-y-2 text-sm text-gray-500 dark:text-gray-400">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin shrink-0 text-[#ffa95a]" />
+                    最終建議與論述載入中，請先參考上方法人與技術觀察…
+                  </span>
+                  <div className="h-3 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse max-w-lg" />
+                  <div className="h-3 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse max-w-md" />
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
+                    >
+                      {recommendationText(report.recommendation)}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">標的：{report.symbol}</span>
+                  </div>
+                  {report.recommendation_text ? (
+                    <p className="mt-3 text-sm leading-6 text-gray-800 dark:text-gray-200 font-medium">
+                      操作建議：{report.recommendation_text}
+                    </p>
+                  ) : null}
+                  <p className="mt-3 text-sm leading-6 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                    {report.reasoning}
+                  </p>
+                  {report.risk_notes ? (
+                    <p className="mt-3 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-3">
+                      風險提醒：{report.risk_notes}
+                    </p>
+                  ) : null}
+                </>
+              )}
             </section>
 
             <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-5">
               <h2 className="text-base sm:text-lg font-bold">資料來源</h2>
               <div className="mt-3 space-y-2">
-                {report.sources?.length ? (
+                {loading && progress?.pendingFinal ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                    <Loader2 size={14} className="animate-spin shrink-0 text-[#ffa95a]" />
+                    新聞與參考來源載入中…
+                  </div>
+                ) : report.sources?.length ? (
                   report.sources.map((source, index) => (
                     <div
                       key={`${source.title}-${index}`}

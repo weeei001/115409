@@ -192,6 +192,15 @@ export default function OrderPage() {
     }
   };
 
+  useEffect(() => {
+    if (!showConfirm) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) setShowConfirm(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showConfirm, submitting]);
+
   const profitRows = profitSummary?.data ?? [];
 
   return (
@@ -231,7 +240,7 @@ export default function OrderPage() {
                 <button
                   type="button"
                   onClick={() => void handleCopySession()}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors cursor-pointer"
                 >
                   <Copy size={14} />
                   複製
@@ -239,7 +248,7 @@ export default function OrderPage() {
                 <button
                   type="button"
                   onClick={handleResetSession}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
                 >
                   <RefreshCw size={14} />
                   重新產生會話
@@ -291,7 +300,7 @@ export default function OrderPage() {
                   <button
                     type="button"
                     onClick={() => setSide('buy')}
-                    className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all ${
+                    className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
                       side === 'buy'
                         ? 'border-red-400 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'
                         : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
@@ -303,7 +312,7 @@ export default function OrderPage() {
                   <button
                     type="button"
                     onClick={() => setSide('sell')}
-                    className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all ${
+                    className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
                       side === 'sell'
                         ? 'border-green-400 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
                         : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
@@ -397,18 +406,22 @@ export default function OrderPage() {
         </motion.section>
 
         {showConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50"
+            onClick={() => { if (!submitting) setShowConfirm(false); }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl p-6 w-full max-w-sm mx-4"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold">確認委託</h3>
                 <button
                   type="button"
                   onClick={() => setShowConfirm(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
                 >
                   <X size={20} />
                 </button>
@@ -453,7 +466,7 @@ export default function OrderPage() {
                   type="button"
                   onClick={() => setShowConfirm(false)}
                   disabled={submitting}
-                  className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                  className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   取消
                 </button>
@@ -461,7 +474,7 @@ export default function OrderPage() {
                   type="button"
                   onClick={() => void confirmOrder()}
                   disabled={submitting}
-                  className={`py-2.5 rounded-xl text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${
+                  className={`py-2.5 rounded-xl text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
                     side === 'buy' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
                   }`}
                 >
@@ -499,6 +512,7 @@ export default function OrderPage() {
           )}
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden mb-8">
+            <p className="px-5 pt-3 pb-0 text-[11px] text-gray-400 dark:text-gray-500 sm:hidden">← 左右滑動查看完整表格 →</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -569,6 +583,7 @@ export default function OrderPage() {
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <p className="px-5 pt-3 pb-0 text-[11px] text-gray-400 dark:text-gray-500 sm:hidden">← 左右滑動查看完整表格 →</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>

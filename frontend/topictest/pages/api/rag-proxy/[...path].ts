@@ -3,11 +3,13 @@ import { getRagApiTimeoutMs } from '../../../lib/ragTimeout';
 
 /**
  * 同源代理 RAG API（取代 next.config rewrites 之外部轉發，避免 dev 長連線出現 ECONNRESET / socket hang up）。
+ * 上游基底僅允許環境變數設定，避免 repo 內硬編碼測試網域。
  */
-const RAG_BASE =
-  process.env.NEXT_PUBLIC_RAG_API_BASE_URL?.replace(/\/$/, '') ||
-  process.env.RAG_API_BASE_URL?.replace(/\/$/, '') ||
-  'https://ragggggggg.bobhsu.dpdns.org/X9k2mR_rag';
+function getRagBase(): string | null {
+  const a = process.env.NEXT_PUBLIC_RAG_API_BASE_URL?.trim().replace(/\/$/, '');
+  const b = process.env.RAG_API_BASE_URL?.trim().replace(/\/$/, '');
+  return a || b || null;
+}
 
 /** 僅允許轉發至上游的固定端點，避免任意路徑被當開放代理濫用 */
 const ALLOWED_UPSTREAM_PATHS = new Set(['api/ask']);
@@ -28,11 +30,13 @@ function normalizeAndValidateProxyPath(raw: string): string | null {
 }
 
 const timeoutMs = getRagApiTimeoutMs();
-/** 秒；與 getRagApiTimeoutMs() 對齊（部署至 Vercel 等 Serverless 時避免函式先於上游被砍）。本機若見約 60s 的 504，多為上游／Nginx／CDN 逾時。 */
-const maxDurationSec = Math.ceil(timeoutMs / 1000);
-
+/**
+ * Next.js 16 建置會靜態分析並提取 `export const config`；不可使用執行期運算或非常數識別（否則 hadUnsupportedValue → 建置失敗）。
+ * 此處秒數須與實際逾時策略一致：執行期仍用上方 `timeoutMs`；若調高 RAG 逾時請同步調整此常數與部署平台的函式上限。
+ * 預設與 lib/ragTimeout 的 DEFAULT_MS（120s）對齊。
+ */
 export const config = {
-  maxDuration: maxDurationSec,
+  maxDuration: 120,
   api: {
     bodyParser: {
       sizeLimit: '2mb',
@@ -54,10 +58,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
 
+  const base = getRagBase();
+  if (!base) {
+    res.status(503).json({
+      detail: [
+        {
+          type: 'config_error',
+          msg: '未設定 RAG 上游基底 URL：請設定 NEXT_PUBLIC_RAG_API_BASE_URL 或 RAG_API_BASE_URL',
+        },
+      ],
+    });
+    return;
+  }
+
   const rawUrl = req.url ?? '';
   const qIdx = rawUrl.indexOf('?');
   const qs = qIdx >= 0 ? rawUrl.slice(qIdx) : '';
-  const targetUrl = `${RAG_BASE}/${safePath}${qs}`;
+  const targetUrl = `${base}/${safePath}${qs}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

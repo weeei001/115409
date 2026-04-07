@@ -28,7 +28,7 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
           <button
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
-            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors cursor-pointer"
           >
             <ChevronLeft size={16} />
           </button>
@@ -38,7 +38,7 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
           <button
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
-            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-30 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors cursor-pointer"
           >
             <ChevronRight size={16} />
           </button>
@@ -60,7 +60,7 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
             </tr>
           </thead>
           <tbody>
-            {data.data.map((row) => {
+            {data.data.map((row, rowIdx) => {
               const change = Number(row.change ?? 0);
               const isUp = change > 0;
               const isDown = change < 0;
@@ -70,7 +70,10 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
                   ? 'text-green-600 dark:text-green-400'
                   : 'text-gray-400';
               return (
-                <tr key={row.date} className="border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors">
+                <tr
+                  key={`${row.date}-${row.close}-${row.volume_shares ?? ''}-${rowIdx}`}
+                  className="border-t border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors"
+                >
                   <td className="px-4 py-2.5 font-mono text-gray-600 dark:text-gray-400">{row.date}</td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtPrice(row.open)}</td>
                   <td className="px-4 py-2.5 text-right font-mono text-red-500">{fmtPrice(row.high)}</td>

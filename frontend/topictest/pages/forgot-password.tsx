@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { KeyRound, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
+import { KeyRound, Mail, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 
 export default function ForgotPasswordPage() {
@@ -62,7 +62,7 @@ export default function ForgotPasswordPage() {
                 <button
                   onClick={() => router.push('/login')}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a]
-                             text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all"
+                             text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all cursor-pointer"
                 >
                   <ArrowLeft size={16} />
                   返回登入
@@ -107,10 +107,10 @@ export default function ForgotPasswordPage() {
                     disabled={loading}
                     className="w-full py-3 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold
                                shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30
-                               transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                               transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {loading ? (
-                      <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <Loader2 size={18} className="animate-spin" />
                     ) : (
                       <>
                         <Mail size={18} />
@@ -123,7 +123,7 @@ export default function ForgotPasswordPage() {
                 <div className="mt-6 text-center">
                   <button
                     onClick={() => router.push('/login')}
-                    className="text-sm text-[#ffa95a] hover:text-[#e8953a] font-medium transition-colors flex items-center gap-1 mx-auto"
+                    className="text-sm text-[#ffa95a] hover:text-[#e8953a] font-medium transition-colors flex items-center gap-1 mx-auto cursor-pointer"
                   >
                     <ArrowLeft size={14} />
                     返回登入

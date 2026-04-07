@@ -1,10 +1,17 @@
 export const SIMULATED_ORDER_SESSION_KEY = 'simulated_order_session_id';
 
+function randomSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 export function getOrCreateSimulatedSessionId(): string {
   if (typeof window === 'undefined') return '';
   let id = window.localStorage.getItem(SIMULATED_ORDER_SESSION_KEY);
   if (!id || id.trim().length === 0) {
-    id = crypto.randomUUID();
+    id = randomSessionId();
     window.localStorage.setItem(SIMULATED_ORDER_SESSION_KEY, id);
   }
   return id;
@@ -12,7 +19,7 @@ export function getOrCreateSimulatedSessionId(): string {
 
 export function resetSimulatedSessionId(): string {
   if (typeof window === 'undefined') return '';
-  const id = crypto.randomUUID();
+  const id = randomSessionId();
   window.localStorage.setItem(SIMULATED_ORDER_SESSION_KEY, id);
   return id;
 }

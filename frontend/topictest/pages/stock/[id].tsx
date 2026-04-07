@@ -1,8 +1,8 @@
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion } from 'motion/react';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   fetchLatestPrice,
   fetchCandlestickMA,
@@ -32,6 +32,7 @@ import { AITrendPanel } from '../../components/AITrendPanel';
 import { SubpageHeader } from '../../components/SubpageHeader';
 import { StockSectionNav } from '../../components/StockSectionNav';
 import { getDefaultDateRange } from '../../lib/utils/date';
+import { isValidDailyPrice } from '../../lib/utils/stockValidation';
 
 const HISTORY_PAGE_SIZE = 30;
 
@@ -73,10 +74,17 @@ export default function StockDetail() {
 
   const chartReqIdRef = useRef(0);
   const historyReqIdRef = useRef(0);
+  /** init 與 fetchDateRange 失敗時的後備區間，不依賴可能過期的 startDate/endDate 閉包 */
+  const rangeFallbackRef = useRef(getDefaultDateRange());
+  /** 換股後須等 init 寫入日期再載入圖表，避免 loading 結束與 setStartDate 各觸發一次圖表請求 */
+  const [chartRangeReady, setChartRangeReady] = useState(false);
 
   /** 換股或初次有 symbol 時同步清空，避免 client 導航時短暫顯示上一檔股票資料 */
   useLayoutEffect(() => {
     if (!symbol) return;
+    const d = getDefaultDateRange();
+    rangeFallbackRef.current = d;
+    setChartRangeReady(false);
     setLoading(true);
     setError(null);
     setLatest(null);
@@ -90,7 +98,6 @@ export default function StockDetail() {
     setChartError(null);
     chartReqIdRef.current += 1;
     historyReqIdRef.current += 1;
-    const d = getDefaultDateRange();
     setStartDate(d.start);
     setEndDate(d.end);
   }, [symbol]);
@@ -124,10 +131,13 @@ export default function StockDetail() {
             ? firstRejected.reason.message
             : '圖表資料載入失敗';
         setChartError(msg);
+        toast.error(msg);
       }
     } catch (err) {
       if (id !== chartReqIdRef.current) return;
-      setChartError(err instanceof Error ? err.message : '圖表資料載入失敗');
+      const msg = err instanceof Error ? err.message : '圖表資料載入失敗';
+      setChartError(msg);
+      toast.error(msg);
     } finally {
       if (id === chartReqIdRef.current) setChartLoading(false);
     }
@@ -145,8 +155,9 @@ export default function StockDetail() {
       setHistory(res);
     } catch (err) {
       if (id !== historyReqIdRef.current) return;
-      console.error('loadHistory failed:', err);
-      setHistoryError(err instanceof Error ? err.message : '無法載入歷史資料');
+      const msg = err instanceof Error ? err.message : '無法載入歷史資料';
+      setHistoryError(msg);
+      toast.error(msg);
       setHistory(null);
     }
   }, []);
@@ -158,13 +169,24 @@ export default function StockDetail() {
     const init = async () => {
       setLoading(true);
       setError(null);
+      setChartRangeReady(false);
       try {
         const latestRes = await fetchLatestPrice(symbol);
         if (cancelled) return;
+
+        if (!isValidDailyPrice(latestRes)) {
+          if (!cancelled) {
+            setLatest(null);
+            setError('無法取得報價資料');
+            setChartRangeReady(false);
+          }
+          return;
+        }
         setLatest(latestRes);
 
-        let sd = startDate;
-        let ed = endDate;
+        const { start: sd0, end: ed0 } = rangeFallbackRef.current;
+        let sd = sd0;
+        let ed = ed0;
         try {
           const range = await fetchDateRange(symbol);
           if (range.latest_date) ed = range.latest_date;
@@ -176,24 +198,32 @@ export default function StockDetail() {
             setEndDate(ed);
           }
         } catch {
-          /* use defaults */
+          /* use rangeFallbackRef defaults */
         }
-        if (!cancelled) setHistoryPage(1);
+        if (!cancelled) {
+          setHistoryPage(1);
+          setChartRangeReady(true);
+        }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : '載入失敗');
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : '載入失敗');
+          setChartRangeReady(false);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
-    init();
-    return () => { cancelled = true; };
+    void init();
+    return () => {
+      cancelled = true;
+    };
   }, [symbol, router.isReady]);
 
   useEffect(() => {
-    if (!symbol || loading) return;
+    if (!symbol || loading || !chartRangeReady) return;
     loadChartData(symbol, startDate, endDate);
-  }, [symbol, loading, startDate, endDate, loadChartData]);
+  }, [symbol, loading, chartRangeReady, startDate, endDate, loadChartData]);
 
   useEffect(() => {
     if (!symbol || loading) return;
@@ -219,11 +249,7 @@ export default function StockDetail() {
       <>
         {stockPageHead}
         <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-            className="w-8 h-8 border-4 border-[#ffd45a] border-t-[#ffa95a] rounded-full"
-          />
+          <Loader2 size={40} className="text-[#ffa95a] animate-spin" />
         </div>
       </>
     );
@@ -233,11 +259,13 @@ export default function StockDetail() {
     return (
       <>
         {stockPageHead}
-        <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4">
-          <div className="text-red-500 text-lg">{error}</div>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4 px-4">
+          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 max-w-md text-center">
+            {error}
+          </div>
           <button
             onClick={() => router.push('/')}
-            className="px-4 py-2 bg-[#ffa95a] text-white rounded-lg hover:bg-[#ff9a3a] transition-colors"
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all cursor-pointer"
           >
             返回首頁
           </button>
@@ -250,12 +278,17 @@ export default function StockDetail() {
     return (
       <>
         {stockPageHead}
-        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-            className="w-8 h-8 border-4 border-[#ffd45a] border-t-[#ffa95a] rounded-full"
-          />
+        <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4 px-4">
+          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 max-w-md text-center">
+            無法取得報價資料
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all cursor-pointer"
+          >
+            返回首頁
+          </button>
         </div>
       </>
     );
@@ -277,7 +310,7 @@ export default function StockDetail() {
         </section>
 
         <section id="ai-trend" className={sectionClass}>
-          <AITrendPanel analysis={mockAiAnalysis} />
+          <AITrendPanel analysis={mockAiAnalysis} sourcesSectionTitle="示範引用來源" />
         </section>
 
         <section id="date-range" className={sectionClass}>
@@ -295,7 +328,7 @@ export default function StockDetail() {
           <div className="text-sm text-gray-500 dark:text-gray-400">載入圖表資料中…</div>
         )}
         {chartError && (
-          <div className="text-red-500 text-sm py-2 rounded-xl border border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-900/20 px-4">
+          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
             {chartError}
           </div>
         )}
@@ -313,7 +346,9 @@ export default function StockDetail() {
           {priceChangeData && <PriceChangeChart data={priceChangeData} />}
         </section>
         {historyError && (
-          <div className="text-red-500 text-sm py-2">{historyError}</div>
+          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+            {historyError}
+          </div>
         )}
         <section id="history" className={sectionClass}>
           {history && (
