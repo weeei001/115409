@@ -24,13 +24,15 @@ def create_simulated_order(
     estimated_amount: int,
 ) -> SimulatedOrder:
     db_order = SimulatedOrder(
-        session_id=order.session_id,
+        user_id=order.user_id,
         symbol=order.symbol,
         side=order.side,
         order_type=order.order_type,
         limit_price=order.price if order.order_type == "limit" else None,
         trade_date=order.trade_date or date.today(),
         quantity=order.quantity,
+        sell_plan=order.sell_plan,
+        planned_sell_date=order.planned_sell_date if order.sell_plan == "by_date" else None,
         # Current behavior: simulated orders are treated as immediately filled.
         # Pending/partial-fill workflows can be introduced later if needed.
         status="filled",
@@ -42,10 +44,10 @@ def create_simulated_order(
     return db_order
 
 
-def list_simulated_orders(db: Session, session_id: str, limit: int = 100) -> List[SimulatedOrder]:
+def list_simulated_orders(db: Session, user_id: str, limit: int = 100) -> List[SimulatedOrder]:
     return (
         db.query(SimulatedOrder)
-        .filter(SimulatedOrder.session_id == session_id)
+        .filter(SimulatedOrder.user_id == user_id)
         .order_by(desc(SimulatedOrder.created_at))
         .limit(limit)
         .all()
@@ -70,11 +72,11 @@ def _get_latest_close_map(db: Session, symbols: Set[str]) -> Dict[str, Decimal]:
 
 
 def summarize_profit_by_category(
-    db: Session, session_id: str
+    db: Session, user_id: str
 ) -> Tuple[int, int, int, List[dict]]:
     orders = (
         db.query(SimulatedOrder)
-        .filter(SimulatedOrder.session_id == session_id)
+        .filter(SimulatedOrder.user_id == user_id)
         .order_by(desc(SimulatedOrder.created_at))
         .all()
     )
