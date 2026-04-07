@@ -356,14 +356,11 @@ export interface ForgotPasswordRequest {
 // ── Order Types ──
 
 export type OrderSide = 'buy' | 'sell';
-export type OrderType = 'market' | 'limit';
 export type OrderStatus = 'pending' | 'filled' | 'cancelled';
 
 export interface OrderRequest {
   symbol: string;
   side: OrderSide;
-  type: OrderType;
-  price: number | null;
   quantity: number;
 }
 
@@ -371,8 +368,6 @@ export interface OrderRecord {
   id: string;
   symbol: string;
   side: OrderSide;
-  type: OrderType;
-  price: number | null;
   quantity: number;
   status: OrderStatus;
   estimatedAmount: number;
@@ -387,10 +382,7 @@ export interface SimulatedOrderCreate {
   user_id: string;
   symbol: string;
   side: OrderSide;
-  order_type: OrderType;
   quantity: number;
-  /** 市價單勿送；限價時使用 */
-  price?: number | string | null;
   trade_date?: string | null;
   /** 預設長期持有；指定賣出日時需帶 planned_sell_date */
   sell_plan?: SimulatedSellPlan;
@@ -402,14 +394,21 @@ export interface SimulatedOrderResponse {
   user_id: string;
   symbol: string;
   side: OrderSide;
-  order_type: OrderType;
-  price: string | number | null;
   trade_date: string;
   quantity: number;
-  sell_plan: SimulatedSellPlan;
+  /** 買進才有；賣出為 null */
+  sell_plan: SimulatedSellPlan | null;
   planned_sell_date: string | null;
   status: OrderStatus;
   estimated_amount: number;
+  /** 試算依據：latest=最新收盤；planned_sell=預計賣出日收盤；fifo_realized=賣出實現損益（FIFO 配對買進） */
+  markup_basis?: 'latest' | 'planned_sell' | 'fifo_realized' | null;
+  reference_date?: string | null;
+  reference_close?: number | null;
+  /** 試算損益（元） */
+  markup_amount?: number | null;
+  /** 試算收益率（%） */
+  markup_rate?: number | null;
   created_at: string;
 }
 
@@ -417,6 +416,12 @@ export interface SimulatedOrderListResponse {
   user_id: string;
   total: number;
   data: SimulatedOrderResponse[];
+}
+
+export interface AvailableLotsResponse {
+  user_id: string;
+  symbol: string;
+  available_lots: number;
 }
 
 export interface SimulatedOrderCategoryProfitItem {
