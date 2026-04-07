@@ -3,29 +3,6 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ChatRequest(BaseModel):
-    """單次完整分析請求（對應 `POST /analyze`）。"""
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "symbols": ["2330"],
-                "with_news": True,
-            }
-        }
-    )
-
-    symbols: List[str] = Field(
-        ...,
-        description="股票代號列表；後端僅使用**第一個**有效代號（會轉大寫）。",
-        examples=[["2330"], ["2330", "2454"]],
-    )
-    with_news: bool = Field(
-        True,
-        description="是否納入新聞／RAG 摘要；若後端新聞服務不可用仍可能回傳分析，但新聞欄位可能為空。",
-    )
-
-
 class InstitutionalRow(BaseModel):
     date: str = Field(..., description="交易日期")
     foreign_net: int = Field(0, description="外資淨買超（股）")
@@ -43,66 +20,6 @@ class NewsSourceItem(BaseModel):
 
 
 AnalysisStatus = Literal["data_ready", "highlights_ready", "done"]
-
-
-class ChatResponse(BaseModel):
-    """`POST /analyze` 成功回應；兩階段：技術／籌碼分析 + 新聞綜合（synthesize）。"""
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "symbol": "2330",
-                "date_start": "2026-03-01",
-                "date_end": "2026-04-01",
-                "summary": "（摘要文字）",
-                "sentiment_score": 0.15,
-                "technical_highlights": ["（條列）"],
-                "institutional_data": [],
-                "recommendation": "中性觀望（理由請見全形括號內）",
-                "news_sources": [],
-                "fallback_mode": False,
-                "raw_answer": "",
-                "status": "done",
-            }
-        }
-    )
-
-    symbol: str = Field("", description="股票代號（大寫）")
-    date_start: str = Field("", description="Parser 解析出的起始日期 (YYYY-MM-DD)")
-    date_end: str = Field("", description="Parser 解析出的結束日期 (YYYY-MM-DD)")
-    summary: str = Field("", description="總結摘要（技術＋籌碼＋新聞綜合）")
-    sentiment_score: float = Field(
-        0.0,
-        description="多空情緒：-1（極空）～ 1（極多），0 為中性。",
-    )
-    technical_highlights: List[str] = Field(
-        default_factory=list,
-        description="技術／籌碼條列重點（字串陣列）。",
-    )
-    institutional_data: List[InstitutionalRow] = Field(
-        default_factory=list,
-        description="區間內三大法人買賣超列資料（依後端截取）。",
-    )
-    recommendation: str = Field(
-        "",
-        description="最終建議，格式為「偏多／偏空／中性觀望」＋全形括號內簡述理由",
-    )
-    news_sources: List[NewsSourceItem] = Field(
-        default_factory=list,
-        description="相關新聞來源列表（RAG／摘要）。",
-    )
-    fallback_mode: bool = Field(
-        False,
-        description="若為 true：LLM 失敗或降級，僅規則化／部分資料，請審慎使用。",
-    )
-    raw_answer: str = Field(
-        "",
-        description="將摘要、技術面、建議等拼接之完整文字，便於直接顯示。",
-    )
-    status: Optional[AnalysisStatus] = Field(
-        None,
-        description="`done`：完整分析；其餘值多為內部或相容用。",
-    )
 
 
 class AnalyzeFinalResponse(BaseModel):

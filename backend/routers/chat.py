@@ -8,8 +8,6 @@ from fastapi import APIRouter, HTTPException, status
 from agent.analyzer import (
     analyze_final_integrated,
     analyze_quick_insights,
-    analyze_technical,
-    synthesize,
 )
 from agent.data_fetcher import (
     fetch_db_data,
@@ -28,8 +26,6 @@ from schemas.chat import (
     AnalyzeInstitutionalSliceResponse,
     AnalyzePricesResponse,
     QuickInsightsResponse,
-    ChatRequest,
-    ChatResponse,
     InstitutionalRow,
     NewsSourceItem,
 )
@@ -76,60 +72,6 @@ def _get_llm(model_key: str) -> LLMClient:
         client = LLMClient(get_settings(), model=_model_name_from_key(model_key))
         _llm_clients[model_key] = client
     return client
-
-
-def _build_response(
-    result,
-    *,
-    symbol: str = "",
-    date_start: str = "",
-    date_end: str = "",
-    raw_answer: str = "",
-) -> ChatResponse:
-    inst_rows = [
-        InstitutionalRow(
-            date=row.get("date", ""),
-            foreign_net=row.get("foreign_net", 0),
-            trust_net=row.get("trust_net", 0),
-            dealer_net=row.get("dealer_net", 0),
-            total_net=row.get("total_net", 0),
-        )
-        for row in result.institutional_data
-    ]
-
-    news_items = [
-        NewsSourceItem(
-            id=n.id,
-            title=n.title,
-            summary=n.content,
-            timestamp=n.timestamp.isoformat() if n.timestamp else "",
-            url=n.url,
-        )
-        for n in result.news_sources
-    ]
-
-    if not raw_answer:
-        raw_parts = [result.summary]
-        if result.technical_highlights:
-            raw_parts.append("【技術面】" + "；".join(result.technical_highlights))
-        if result.recommendation:
-            raw_parts.append(f"【建議】{result.recommendation}")
-        raw_answer = "\n\n".join(p for p in raw_parts if p)
-
-    return ChatResponse(
-        symbol=symbol,
-        date_start=date_start,
-        date_end=date_end,
-        summary=result.summary,
-        sentiment_score=result.sentiment_score,
-        technical_highlights=result.technical_highlights,
-        institutional_data=inst_rows,
-        recommendation=result.recommendation,
-        news_sources=news_items,
-        fallback_mode=result.fallback_mode,
-        raw_answer=raw_answer,
-        status="done",
-    )
 
 
 def _build_final_response(
@@ -208,13 +150,6 @@ _ANALYZE_RESPONSES = {
 
 
 # ── Parallel branch helpers ──────────────────────────────────────────────────
-
-async def _branch_technical(llm: LLMClient, intent: ParsedIntent) -> tuple[DBData, str]:
-    """Branch A: fetch DB data → Stage-1 LLM technical analysis."""
-    data = await fetch_db_data(intent)
-    analysis = await analyze_technical(llm, data)
-    return data, analysis
-
 
 async def _branch_news(intent: ParsedIntent) -> tuple[list[NormalizedNewsChunk], str, bool]:
     """Fetch news from RAG；連線失敗或例外時略過新聞，不讓整段分析失敗。"""
@@ -484,87 +419,3 @@ async def analyze_final_only(req: AnalyzeSymbolsRequest):
         date_start=intent.date_start.isoformat(),
         date_end=intent.date_end.isoformat(),
     )
-
-
-# ── Main endpoint ────────────────────────────────────────────────────────────
-
-@router.post(
-    "/analyze",
-    response_model=ChatResponse,
-    summary="單次完整 AI 分析（技術＋新聞綜合）",
-    description=(
-        "兩階段管線：**(1)** 並行取得 DB 資料並做技術／籌碼文字分析，以及新聞／RAG；"
-        "**(2)** `synthesize` 將兩路合併為結構化 **ChatResponse**（含 `technical_highlights`、"
-        "`summary`、`recommendation`、`news_sources` 等）。\n\n"
-        "`with_news`：是否納入新聞分支（若新聞服務不可用仍可能回傳，但新聞內容可能為空）。\n"
-        "LLM 主／副模型由**後端設定**（`NIM_DEFAULT_MODEL` 等），**不接受**請求參數指定。\n\n"
-        "若需**分階與並行載入**，請改用 `raw/*` + `quick-insights` + `final`。"
-    ),
-    response_description="完整分析結果；見 **ChatResponse**。",
-    responses={
-        200: {"description": _DOC_OK_JSON},
-        400: {"description": _DOC_400},
-        500: {"description": _DOC_500},
-    },
-)
-async def analyze_stock(req: ChatRequest):
-    symbol = _first_symbol(req.symbols)
-
-    today = date.today()
-    intent = ParsedIntent(
-        symbols=[symbol],
-        date_start=today - timedelta(days=_LOOKBACK_DAYS),
-        date_end=today,
-        original_query=_QUERY_TEMPLATE.format(symbol=symbol),
-    )
-
-    llm = _get_llm(_resolve_model_key(None, fallback_default=None))
-
-    # ── Stage 1: parallel branches ──
-    try:
-        (data, tech_analysis), (news_chunks, rag_summary, is_fallback) = (
-            await asyncio.gather(
-                _branch_technical(llm, intent),
-                _branch_news(intent),
-            )
-        )
-    except Exception:
-        logger.exception("Unexpected error in Stage-1 parallel fetch+analyze")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="資料取得或初步分析過程發生錯誤，請稍後再試",
-        )
-
-    if not data.prices and not data.indicators and not data.institutional:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"查無股票代號 {symbol} 的資料，請確認代號是否正確",
-        )
-
-    intent_meta = dict(
-        symbol=symbol,
-        date_start=intent.date_start.isoformat(),
-        date_end=intent.date_end.isoformat(),
-    )
-
-    news_analysis = rag_summary if rag_summary else ""
-
-    # ── Stage 2: synthesis ──
-    try:
-        result = await synthesize(
-            llm,
-            data,
-            technical_analysis=tech_analysis,
-            news_analysis=news_analysis,
-            news=news_chunks,
-        )
-    except Exception:
-        logger.exception("Unexpected error in Stage-2 synthesis")
-        return ChatResponse(
-            **intent_meta,
-            summary="",
-            raw_answer="分析過程發生非預期錯誤，請稍後再試。",
-            fallback_mode=True,
-        )
-
-    return _build_response(result, **intent_meta)

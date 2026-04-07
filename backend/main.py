@@ -37,7 +37,7 @@ _OPENAPI_TAGS = [
     {
         "name": "AI 分析",
         "description": (
-            "股票 AI 分析相關端點。含單次整合 `POST /analyze`、分階 API（`raw/*`、`quick-insights`、`final`）。\n\n"
+            "股票 AI 分析相關端點：`raw/*`、`quick-insights`、`final`。\n\n"
             "**模型**：`primary`／`secondary` 由**後端環境設定**決定，**API 請求不得指定**。\n\n"
             "**錯誤**：HTTP 4xx/5xx 時 body 通常為 `{\"detail\": \"...\"}`；參數驗證失敗時為 `422`，`detail` 可能為欄位錯誤陣列。"
         ),

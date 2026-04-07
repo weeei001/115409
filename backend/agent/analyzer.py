@@ -1,8 +1,4 @@
-"""Two-stage analysis engine.
-
-Stage 1: analyze_technical — LLM produces a technical/quantitative analysis from DB data.
-Stage 2: synthesize       — LLM merges technical analysis + RAG news analysis into final AnalysisResult.
-"""
+"""LLM analysis: quick-insights (points) and final integrate (summary + recommendation + news)."""
 
 from __future__ import annotations
 
@@ -12,14 +8,10 @@ from datetime import date
 
 from agent.llm_client import LLMClient
 from agent.prompt_templates import (
-    TECHNICAL_SYSTEM,
-    TECHNICAL_USER,
     QUICK_INSIGHTS_SYSTEM,
     QUICK_INSIGHTS_USER,
     FINAL_INTEGRATE_SYSTEM,
     FINAL_INTEGRATE_USER,
-    SYNTHESIS_SYSTEM,
-    SYNTHESIS_USER,
 )
 from agent.schemas import AnalysisResult, DBData, NormalizedNewsChunk
 
@@ -315,37 +307,6 @@ def _build_fallback(data: DBData, news: list[NormalizedNewsChunk] | None = None)
     )
 
 
-# ── Stage 1: Technical / Quantitative Analysis ──────────────────────────────
-
-async def analyze_technical(llm: LLMClient, data: DBData) -> str:
-    """Call LLM to produce a text-based technical + institutional analysis.
-
-    Returns the analysis text, or a formatted summary if LLM fails.
-    """
-    if not data.prices and not data.indicators:
-        return "（無足夠的價量與技術指標資料可供分析）"
-
-    user_prompt = TECHNICAL_USER.format(
-        symbol=data.symbol,
-        date_start=data.date_start.isoformat(),
-        date_end=data.date_end.isoformat(),
-        price_data=_format_prices(data.prices),
-        indicator_data=_format_indicators(data.indicators, data.prices),
-        institutional_data=_format_institutional(data.institutional),
-    )
-
-    try:
-        return await llm.complete(TECHNICAL_SYSTEM, user_prompt)
-    except Exception:
-        logger.exception("Stage-1 LLM (technical analysis) failed, returning formatted data")
-        parts = [
-            "【收盤價】\n" + _format_prices(data.prices),
-            "【技術指標】\n" + _format_indicators(data.indicators, data.prices),
-            "【三大法人】\n" + _format_institutional(data.institutional),
-        ]
-        return "\n\n".join(parts)
-
-
 # ── Recommendation formatting (merge LLM「依據」條列進單一 recommendation 字串) ─
 
 
@@ -420,52 +381,6 @@ async def analyze_final_integrated(
         summary=result.get("summary", ""),
         sentiment_score=sentiment,
         technical_highlights=[],
-        institutional_data=inst_summary,
-        recommendation=rec,
-        news_sources=(news or [])[:5],
-        fallback_mode=False,
-    )
-
-
-# ── Stage 2: Synthesis ──────────────────────────────────────────────────────
-
-async def synthesize(
-    llm: LLMClient,
-    data: DBData,
-    technical_analysis: str,
-    news_analysis: str,
-    news: list[NormalizedNewsChunk] | None = None,
-) -> AnalysisResult:
-    """Call LLM to merge technical analysis + news analysis into final AnalysisResult."""
-    user_prompt = SYNTHESIS_USER.format(
-        symbol=data.symbol,
-        date_start=data.date_start.isoformat(),
-        date_end=data.date_end.isoformat(),
-        technical_analysis=technical_analysis,
-        news_analysis=news_analysis or "（新聞情緒資料暫時無法取得）",
-    )
-
-    try:
-        result = await llm.complete_json(SYNTHESIS_SYSTEM, user_prompt)
-    except Exception:
-        logger.exception("Stage-2 LLM (synthesis) failed, returning fallback")
-        return _build_fallback(data, news)
-
-    inst_summary = data.institutional[-5:] if data.institutional else []
-
-    sentiment = float(result.get("sentiment_score", 0.0))
-    sentiment = max(-1.0, min(1.0, sentiment))
-
-    basis_in = result.get("recommendation_basis")
-    basis_list: list[str] = []
-    if isinstance(basis_in, list):
-        basis_list = [str(b).strip() for b in basis_in if str(b).strip()][:8]
-    rec = _merge_recommendation_parens(str(result.get("recommendation", "")), basis_list)
-
-    return AnalysisResult(
-        summary=result.get("summary", ""),
-        sentiment_score=sentiment,
-        technical_highlights=result.get("technical_highlights", []),
         institutional_data=inst_summary,
         recommendation=rec,
         news_sources=(news or [])[:5],
