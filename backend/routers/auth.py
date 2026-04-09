@@ -19,6 +19,7 @@ from database import get_db
 from deps import get_current_user
 from models.user import User
 from schemas.auth import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     GoogleAuthRequest,
     LoginRequest,
@@ -174,6 +175,38 @@ def auth_google(body: GoogleAuthRequest, db: Session = Depends(get_db)) -> Token
 @router.get("/me", response_model=UserPublic)
 def me(user: Annotated[User, Depends(get_current_user)]) -> User:
     return user
+
+
+@router.post("/change-password", response_model=MessageResponse)
+def change_password(
+    body: ChangePasswordRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """
+    已登入且帳號已有本地密碼時，驗證目前密碼後更新為新密碼。
+    純 Google 註冊（無本地密碼）請先透過忘記密碼流程建立密碼。
+    """
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="此帳號尚未設定本地密碼，無法由此變更",
+        )
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="目前密碼錯誤",
+        )
+    if body.new_password == body.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密碼不可與目前密碼相同",
+        )
+    user.password_hash = hash_password(body.new_password)
+    reset_crud.delete_all_for_user(db, user.id)
+    db.commit()
+    db.refresh(user)
+    return MessageResponse(message="密碼已更新。")
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
