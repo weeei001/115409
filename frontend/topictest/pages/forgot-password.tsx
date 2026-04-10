@@ -4,6 +4,8 @@ import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
 import { KeyRound, Mail, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
+import { authForgotPassword } from '../lib/api/auth';
+import { ApiRequestError } from '../lib/api/client';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -11,31 +13,41 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!email.trim()) {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
       setError('請輸入電子郵件');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
       setError('請輸入有效的電子郵件格式');
       return;
     }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setLoading(false);
-    setSent(true);
+    try {
+      const data = await authForgotPassword({ email: normalized });
+      setSuccessMessage(data.message);
+      setSent(true);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError ? err.message : err instanceof Error ? err.message : '申請失敗，請稍後再試'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 flex flex-col">
       <Head>
         <title>股海明燈｜重設密碼</title>
-        <meta name="description" content="重設密碼流程（模擬功能，展示／專題用途）。" />
+        <meta name="description" content="申請重設密碼連結至您的電子郵件。" />
       </Head>
       <SubpageHeader icon={KeyRound} title="股海明燈" subtitle="重設密碼" />
 
@@ -52,12 +64,9 @@ export default function ForgotPasswordPage() {
                 <div className="w-14 h-14 rounded-2xl bg-green-50 dark:bg-green-900/30 flex items-center justify-center mb-4">
                   <CheckCircle size={30} className="text-green-500" />
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">郵件已發送</h1>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mb-6">
-                  重設密碼的連結已發送至 <span className="font-medium text-gray-600 dark:text-gray-300">{email}</span>，請至信箱查看。
-                </p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mb-6">
-                  （目前為模擬功能，實際上尚未發送郵件）
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">申請已送出</h1>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 leading-relaxed">
+                  {successMessage ?? '若此 email 已註冊且可重設密碼，您將收到重設連結。'}
                 </p>
                 <button
                   onClick={() => router.push('/login')}

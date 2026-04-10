@@ -41,6 +41,34 @@ function formatSellPlanCell(o: SimulatedOrderResponse): string {
   return o.planned_sell_date ?? '—';
 }
 
+function formatMarkupBasis(basis: SimulatedOrderResponse['markup_basis']): string {
+  if (basis === 'latest') return '最新收盤';
+  if (basis === 'planned_sell') return '預計賣出日';
+  if (basis === 'fifo_realized') return '實現損益';
+  return '—';
+}
+
+function formatReferenceCell(o: SimulatedOrderResponse): React.ReactNode {
+  if (!o.reference_date && o.reference_close == null) {
+    return <span className="text-gray-400 dark:text-gray-500">—</span>;
+  }
+  return (
+    <div className="text-right space-y-0.5">
+      {o.reference_date && (
+        <div className="font-mono text-xs whitespace-nowrap text-gray-700 dark:text-gray-200">{o.reference_date}</div>
+      )}
+      {o.reference_close != null && (
+        <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+          {o.reference_close.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrderPage() {
   const [userId, setUserId] = useState('');
   /** 已登入時以帳號 email 作為 user_id，不顯示／不重置匿名 UUID */
@@ -288,7 +316,7 @@ export default function OrderPage() {
         subtitle="模擬交易與損益紀錄"
       />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -398,7 +426,7 @@ export default function OrderPage() {
                 </div>
               </div>
 
-              <div>
+              <div className={side === 'sell' ? 'md:col-span-2' : undefined}>
                 <label htmlFor="order-trade-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   模擬下單日
                   <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">（選填，預設今日）</span>
@@ -422,65 +450,48 @@ export default function OrderPage() {
               </div>
 
               {side === 'buy' && (
-                <div className="md:col-span-2">
-                  <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">賣出時間</span>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">買進時可記錄未來預計賣出日（僅紀錄用）</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSellPlan('long_term');
-                          setPlannedSellDate('');
-                        }}
-                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
-                          sellPlan === 'long_term'
-                            ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
-                            : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                        }`}
-                      >
-                        長期持有
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSellPlan('by_date')}
-                        className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
-                          sellPlan === 'by_date'
-                            ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
-                            : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
-                        }`}
-                      >
-                        指定賣出日
-                      </button>
-                    </div>
-                    {sellPlan === 'by_date' && (
-                      <div>
-                        <label htmlFor="order-planned-sell" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                          預計賣出日
-                        </label>
-                        <input
-                          id="order-planned-sell"
-                          type="date"
-                          value={plannedSellDate}
-                          min={tradeDate.trim() || todayStr}
-                          onChange={(e) => setPlannedSellDate(e.target.value)}
-                          aria-invalid={fieldInvalid.sellPlan}
-                          aria-describedby={error ? 'order-form-error' : undefined}
-                          className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                                     focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
-                                     ${
-                                       fieldInvalid.sellPlan
-                                         ? 'border-red-400 dark:border-red-500'
-                                         : 'border-gray-200 dark:border-gray-600'
-                                     }`}
-                        />
-                      </div>
-                    )}
+                <div className="min-w-0">
+                  <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    賣出時間
+                    <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">
+                      （買進時可記錄未來預計賣出日，僅紀錄用）
+                    </span>
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSellPlan('long_term');
+                        setPlannedSellDate('');
+                      }}
+                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                        sellPlan === 'long_term'
+                          ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
+                          : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                      }`}
+                    >
+                      長期持有
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSellPlan('by_date')}
+                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                        sellPlan === 'by_date'
+                          ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
+                          : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                      }`}
+                    >
+                      指定賣出日
+                    </button>
                   </div>
                 </div>
               )}
 
-              <div>
+              <div
+                className={
+                  side === 'sell' || (side === 'buy' && sellPlan === 'long_term') ? 'md:col-span-2' : undefined
+                }
+              >
                 <label htmlFor="order-quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   委託數量（張）
                 </label>
@@ -540,17 +551,38 @@ export default function OrderPage() {
                 )}
               </div>
 
-              <div className="flex items-end">
-                <div className="w-full px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-600">
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">預估金額</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    送出後依該日<strong className="font-medium">日線收盤價</strong>× 張數 × 1000 計算
-                  </p>
+              {side === 'buy' && sellPlan === 'by_date' && (
+                <div className="min-w-0">
+                  <label htmlFor="order-planned-sell" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    預計賣出日
+                  </label>
+                  <input
+                    id="order-planned-sell"
+                    type="date"
+                    value={plannedSellDate}
+                    min={tradeDate.trim() || todayStr}
+                    onChange={(e) => setPlannedSellDate(e.target.value)}
+                    aria-invalid={fieldInvalid.sellPlan}
+                    aria-describedby={error ? 'order-form-error' : undefined}
+                    className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
+                               focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                               ${
+                                 fieldInvalid.sellPlan
+                                   ? 'border-red-400 dark:border-red-500'
+                                   : 'border-gray-200 dark:border-gray-600'
+                               }`}
+                  />
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+              <div className="min-w-0 flex-1 px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-600">
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">預估金額與試算</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed max-sm:whitespace-normal sm:whitespace-nowrap">
+                  金額依<strong className="font-medium">成交日收盤</strong>試算；列表中的試算損益由後端標示依據（最新收盤、預計賣出日或賣出實現）。
+                </p>
+              </div>
               <button
                 type="button"
                 disabled={
@@ -561,7 +593,7 @@ export default function OrderPage() {
                     (availableLotsLoading || availableLots === null || availableLots <= 0))
                 }
                 onClick={handleSubmit}
-                className={`px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`shrink-0 self-end sm:self-auto px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   side === 'buy'
                     ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20'
                     : 'bg-green-500 hover:bg-green-600 text-white shadow-green-500/20'
@@ -629,8 +661,8 @@ export default function OrderPage() {
                   <span className="text-gray-400 dark:text-gray-500">數量</span>
                   <span className="font-mono">{parseInt(quantity, 10)} 張</span>
                 </div>
-                <div className="border-t border-gray-100 dark:border-gray-700 pt-3 text-xs text-gray-500 dark:text-gray-400">
-                  預估金額將於送出後由後端依收盤價計算
+                <div className="border-t border-gray-100 dark:border-gray-700 pt-3 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  送出後由後端依收盤計算金額；委託列表會顯示試算依據與參考行情。
                 </div>
               </div>
 
@@ -768,6 +800,12 @@ export default function OrderPage() {
                     <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">賣出時間</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">數量</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">預估金額</th>
+                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      試算依據
+                    </th>
+                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      參考行情
+                    </th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">試算損益</th>
                     <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">收益率</th>
                   </tr>
@@ -775,7 +813,7 @@ export default function OrderPage() {
                 <tbody>
                   {listLoading ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={11} className="text-center py-12 text-gray-400 dark:text-gray-500">
                         <span className="inline-flex items-center gap-2">
                           <Loader2 size={18} className="animate-spin" />
                           載入中…
@@ -784,7 +822,7 @@ export default function OrderPage() {
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={11} className="text-center py-12 text-gray-400 dark:text-gray-500">
                         尚無委託紀錄
                       </td>
                     </tr>
@@ -814,6 +852,16 @@ export default function OrderPage() {
                         <td className="px-5 py-3 text-right font-mono text-xs">
                           {o.estimated_amount.toLocaleString()}
                         </td>
+                        <td className="px-5 py-3 text-xs text-gray-600 dark:text-gray-300 align-top">
+                          {o.markup_basis ? (
+                            <span className="inline-flex items-center rounded-md bg-gray-100/90 dark:bg-gray-700/80 px-2 py-0.5 font-medium">
+                              {formatMarkupBasis(o.markup_basis)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 dark:text-gray-500">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 align-top">{formatReferenceCell(o)}</td>
                         <td className="px-5 py-3 text-right">
                           {o.markup_amount != null ? (
                             <span

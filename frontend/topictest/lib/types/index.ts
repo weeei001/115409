@@ -181,6 +181,10 @@ export interface AuthTokenResponse {
   user: UserPublic;
 }
 
+export interface MessageResponse {
+  message: string;
+}
+
 // ── Backend API Response Types (matching openapi.json schemas) ──
 
 export interface DailyPriceResponse {

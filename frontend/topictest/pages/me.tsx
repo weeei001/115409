@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { LogOut, Loader2, RefreshCw, UserRound } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Loader2, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { SubpageHeader } from '../components/SubpageHeader';
-import { authMe } from '../lib/api/auth';
+import { authChangePassword, authMe } from '../lib/api/auth';
 import { ApiRequestError } from '../lib/api/client';
 import { clearAuth, getStoredUser, getToken, updateStoredUser } from '../lib/auth/storage';
 import type { UserPublic } from '../lib/types';
@@ -16,6 +16,15 @@ export default function MePage() {
   const [checked, setChecked] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirmNew, setShowConfirmNew] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -50,6 +59,55 @@ export default function MePage() {
     setUser(null);
     void router.push('/');
   }, [router]);
+
+  const validatePasswordChange = (): string | null => {
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      return '請填寫所有欄位';
+    }
+    if (newPassword.length < 8) {
+      return '新密碼至少需要 8 個字元';
+    }
+    if (newPassword.length > 128) {
+      return '新密碼長度過長';
+    }
+    if (newPassword !== confirmNewPassword) {
+      return '兩次輸入的新密碼不一致';
+    }
+    return null;
+  };
+
+  const handleChangePassword = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setPasswordError(null);
+      const msg = validatePasswordChange();
+      if (msg) {
+        setPasswordError(msg);
+        return;
+      }
+      setPasswordLoading(true);
+      try {
+        const data = await authChangePassword({
+          current_password: currentPassword,
+          new_password: newPassword,
+        });
+        toast.success(data.message);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+      } catch (err) {
+        const m =
+          err instanceof ApiRequestError ? err.message : err instanceof Error ? err.message : '變更密碼失敗';
+        setPasswordError(m);
+      } finally {
+        setPasswordLoading(false);
+      }
+    },
+    [currentPassword, newPassword, confirmNewPassword]
+  );
+
+  const pwdInputClass =
+    'w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60';
 
   if (!checked) {
     return (
@@ -117,15 +175,105 @@ export default function MePage() {
             </div>
           </dl>
 
+          <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#ffa95a]/90 to-[#ffd45a]/90 flex items-center justify-center">
+                <KeyRound size={18} className="text-white" />
+              </div>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">變更密碼</h3>
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-4 leading-relaxed">
+              僅適用於以電子郵件註冊並已設定密碼的帳號。若僅以 Google 登入且尚未設定本地密碼，將無法由此變更。
+            </p>
+
+            {passwordError && (
+              <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+                {passwordError}
+              </div>
+            )}
+
+            <form onSubmit={(e) => void handleChangePassword(e)} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">目前密碼</label>
+                <div className="relative">
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type={showCurrent ? 'text' : 'password'}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    autoComplete="current-password"
+                    className={pwdInputClass}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowCurrent((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                    aria-label={showCurrent ? '隱藏密碼' : '顯示密碼'}
+                  >
+                    {showCurrent ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">新密碼</label>
+                <div className="relative">
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type={showNew ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    className={pwdInputClass}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowNew((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                    aria-label={showNew ? '隱藏密碼' : '顯示密碼'}
+                  >
+                    {showNew ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">確認新密碼</label>
+                <div className="relative">
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type={showConfirmNew ? 'text' : 'password'}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    className={pwdInputClass}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowConfirmNew((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                    aria-label={showConfirmNew ? '隱藏密碼' : '顯示密碼'}
+                  >
+                    {showConfirmNew ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={passwordLoading}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white text-sm font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {passwordLoading ? <Loader2 size={18} className="animate-spin" /> : '更新密碼'}
+              </button>
+            </form>
+          </div>
+
           {error && (
             <div className="mt-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
               {error}
             </div>
           )}
-
-          <p className="mt-6 text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
-            帳號安全相關功能（例如變更密碼）將於後端就緒後開放。
-          </p>
 
           <div className="mt-8 flex flex-col sm:flex-row gap-3">
             <button
