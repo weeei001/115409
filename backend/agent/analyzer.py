@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 
 from agent.llm_client import LLMClient
@@ -13,9 +14,17 @@ from agent.prompt_templates import (
     FINAL_INTEGRATE_SYSTEM,
     FINAL_INTEGRATE_USER,
 )
-from agent.schemas import AnalysisResult, DBData, NormalizedNewsChunk
+from agent.scoring import (
+    build_recommendation_basis,
+    compute_score_breakdown,
+    recommendation_from_weighted_score,
+)
+from agent.schemas import AnalysisResult, DBData, NormalizedNewsChunk, ScoreBreakdown
 
 logger = logging.getLogger(__name__)
+
+_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 # ── Data formatting helpers ──────────────────────────────────────────────────
@@ -201,11 +210,31 @@ def _normalize_quick_points(raw: dict) -> list[str]:
     if not isinstance(pts, list):
         return []
     out: list[str] = []
+    seen: set[str] = set()
     for p in pts:
-        s = str(p).strip()
-        if s:
-            out.append(s)
-    return out[:8]
+        s = str(p).strip().lstrip("-• ").strip()
+        if not s:
+            continue
+        if not _DATE_RE.search(s):
+            continue
+        if not _NUMBER_RE.search(s):
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= 5:
+            break
+    return out
+
+
+def _normalize_summary(summary: str) -> str:
+    s = " ".join((summary or "").strip().split())
+    if not s:
+        return "資料不足，無法產生摘要。"
+    if len(s) > 320:
+        s = s[:320].rstrip("，,。.；; ") + "。"
+    return s
 
 
 def _quick_insights_fallback(data: DBData) -> dict:
@@ -265,6 +294,14 @@ async def analyze_quick_insights(llm: LLMClient, data: DBData) -> dict:
         if not isinstance(raw, dict):
             raise ValueError("quick insights root must be object")
         points = _normalize_quick_points(raw)
+        if len(points) < 3:
+            fb = _quick_insights_fallback(data)
+            for point in fb["points"]:
+                if point not in points:
+                    points.append(point)
+                if len(points) >= 5:
+                    break
+            return {"points": points, "fallback_mode": True}
         if not points:
             return _quick_insights_fallback(data)
         return {"points": points, "fallback_mode": False}
@@ -275,57 +312,46 @@ async def analyze_quick_insights(llm: LLMClient, data: DBData) -> dict:
 
 # ── Fallback (no LLM available) ─────────────────────────────────────────────
 
-def _build_fallback(data: DBData, news: list[NormalizedNewsChunk] | None = None) -> AnalysisResult:
+def _build_fallback(
+    data: DBData,
+    score_breakdown: ScoreBreakdown,
+    recommendation: str,
+    news: list[NormalizedNewsChunk] | None = None,
+) -> AnalysisResult:
     """Template-based response when LLM is unavailable."""
-    latest_price = data.prices[-1] if data.prices else {}
-    latest_ind = data.indicators[-1] if data.indicators else {}
-
-    ind_date = latest_ind.get("date", "N/A")
-    price_date = latest_price.get("date", "N/A")
-
-    highlights: list[str] = []
-    if latest_ind.get("k_value") is not None and latest_ind.get("d_value") is not None:
-        highlights.append(f"{ind_date} KD 值：K={latest_ind['k_value']}, D={latest_ind['d_value']}")
-    if latest_ind.get("rsi14") is not None:
-        highlights.append(f"{ind_date} RSI(14)：{latest_ind['rsi14']}")
-    if latest_ind.get("macd") is not None:
-        highlights.append(f"{ind_date} MACD：{latest_ind['macd']}")
-    if latest_price.get("close") is not None and latest_ind.get("ma20") is not None:
-        relation = "在" if float(latest_price["close"]) >= float(latest_ind["ma20"]) else "低於"
-        highlights.append(f"{price_date} 收盤價 {latest_price['close']} {relation} 20日均線 {latest_ind['ma20']}")
-
     inst_summary: list[dict] = data.institutional[-5:] if data.institutional else []
+    weighted = score_breakdown.weighted_score
+    basis = build_recommendation_basis(score_breakdown)
 
     return AnalysisResult(
-        summary=f"{data.symbol} 於 {data.date_start} 至 {data.date_end} 期間的量化數據摘要。",
-        sentiment_score=0.0,
-        technical_highlights=highlights or ["目前無足夠的技術指標資料"],
+        summary=(
+            f"{data.symbol} 於 {data.date_start} 至 {data.date_end} 的加權分數為 {weighted:.2f}。"
+            "LLM 解釋暫時不可用，改由後端規則化輸出。"
+        ),
+        sentiment_score=weighted,
+        technical_highlights=[],
         institutional_data=inst_summary,
-        recommendation="中性觀望（LLM 分析暫時無法使用，僅提供原始數據供參考）",
+        recommendation=recommendation,
+        recommendation_basis=basis,
         news_sources=(news or [])[:5],
+        score_breakdown=score_breakdown,
         fallback_mode=True,
     )
 
 
-# ── Recommendation formatting (merge LLM「依據」條列進單一 recommendation 字串) ─
+def _normalize_recommendation_basis(
+    basis_in: object,
+    score_breakdown: ScoreBreakdown,
+) -> list[str]:
+    fallback = build_recommendation_basis(score_breakdown)
+    if not isinstance(basis_in, list):
+        return fallback
 
-
-def _merge_recommendation_parens(recommendation: str, basis: list[str]) -> str:
-    """將方向與（可選）依據列表合併為單一「偏多（…）」格式；已含全形括號則保留。"""
-    rec = (recommendation or "").strip()
-    parts = [str(b).strip() for b in (basis or []) if str(b).strip()]
-    inner = "；".join(parts[:4]) if parts else ""
-
-    if "（" in rec and "）" in rec and rec.find("（") < rec.rfind("）"):
-        return rec
-
-    for word in ("偏多", "偏空", "中性觀望"):
-        if rec == word or (rec.startswith(word) and "（" not in rec):
-            fill = inner or "綜合前述技術與籌碼數據"
-            return f"{word}（{fill}）"
-    if inner:
-        return f"{rec}（{inner}）" if rec else f"中性觀望（{inner}）"
-    return rec or "中性觀望（綜合研判）"
+    parsed = [str(item).strip() for item in basis_in if str(item).strip()]
+    parsed = parsed[:4]
+    if len(parsed) < 4:
+        parsed.extend(fallback[len(parsed):4])
+    return parsed[:4]
 
 
 # ── Final integrate (raw DB ×3 + news, single large-LLM JSON) ────────────────
@@ -341,6 +367,23 @@ async def analyze_final_integrated(
 
     technical_highlights 固定為空，避免與 /analyze/quick-insights 的 points 語意重複。
     """
+    score_breakdown = compute_score_breakdown(data, news_analysis or "", news)
+    recommendation = recommendation_from_weighted_score(score_breakdown.weighted_score)
+
+    score_breakdown_payload = json.dumps(
+        {
+            "technical_score": score_breakdown.technical_score,
+            "institutional_score": score_breakdown.institutional_score,
+            "news_score": score_breakdown.news_score,
+            "momentum_score": score_breakdown.momentum_score,
+            "weighted_score": score_breakdown.weighted_score,
+            "weights": score_breakdown.weights.model_dump(),
+            "backend_recommendation": recommendation,
+            "backend_explanations": score_breakdown.explanations.model_dump(),
+        },
+        ensure_ascii=False,
+    )
+
     user_prompt = FINAL_INTEGRATE_USER.format(
         symbol=data.symbol,
         date_start=data.date_start.isoformat(),
@@ -349,40 +392,28 @@ async def analyze_final_integrated(
         indicator_data=_format_indicators(data.indicators, data.prices),
         institutional_data=_format_institutional(data.institutional),
         news_analysis=news_analysis or "（新聞情緒資料暫時無法取得）",
+        score_breakdown=score_breakdown_payload,
     )
 
     try:
         result = await llm.complete_json(FINAL_INTEGRATE_SYSTEM, user_prompt)
     except Exception:
         logger.exception("Final integrate LLM failed, returning fallback")
-        fb = _build_fallback(data, news)
-        return AnalysisResult(
-            summary=fb.summary,
-            sentiment_score=fb.sentiment_score,
-            technical_highlights=[],
-            institutional_data=fb.institutional_data,
-            recommendation=fb.recommendation,
-            news_sources=fb.news_sources,
-            fallback_mode=True,
-        )
+        return _build_fallback(data, score_breakdown, recommendation, news)
 
     inst_summary = data.institutional[-5:] if data.institutional else []
 
-    sentiment = float(result.get("sentiment_score", 0.0))
-    sentiment = max(-1.0, min(1.0, sentiment))
-
-    basis_in = result.get("recommendation_basis")
-    basis_list: list[str] = []
-    if isinstance(basis_in, list):
-        basis_list = [str(b).strip() for b in basis_in if str(b).strip()][:8]
-    rec = _merge_recommendation_parens(str(result.get("recommendation", "")), basis_list)
+    summary = _normalize_summary(result.get("summary", ""))
+    basis_list = _normalize_recommendation_basis(result.get("recommendation_basis"), score_breakdown)
 
     return AnalysisResult(
-        summary=result.get("summary", ""),
-        sentiment_score=sentiment,
+        summary=summary,
+        sentiment_score=score_breakdown.weighted_score,
         technical_highlights=[],
         institutional_data=inst_summary,
-        recommendation=rec,
+        recommendation=recommendation,
+        recommendation_basis=basis_list,
         news_sources=(news or [])[:5],
+        score_breakdown=score_breakdown,
         fallback_mode=False,
     )

@@ -1,9 +1,13 @@
 import asyncio
+import json
 import logging
 import time
+import uuid
+from collections.abc import AsyncIterator
 from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from agent.analyzer import (
     analyze_final_integrated,
@@ -35,6 +39,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["AI 分析"])
 
 _llm_clients: dict[str, LLMClient] = {}
+
+_STEP_LABELS = {
+    "institutional": "抓取近 30 日法人籌碼",
+    "news": "檢索相關新聞與情緒摘要",
+    "cross_check": "交叉比對股價與技術指標",
+    "final": "生成綜合報告",
+}
 
 
 def _resolve_model_key(
@@ -100,7 +111,9 @@ def _build_final_response(
         summary=result.summary,
         sentiment_score=result.sentiment_score,
         recommendation=result.recommendation,
+        recommendation_basis=result.recommendation_basis,
         news_sources=news_items,
+        score_breakdown=result.score_breakdown.model_dump(),
         fallback_mode=result.fallback_mode,
         status="done",
     )
@@ -117,6 +130,33 @@ def _institutional_rows_from_dicts(rows: list[dict]) -> list[InstitutionalRow]:
         )
         for row in rows
     ]
+
+
+def _sse_event(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _step_payload(
+    request_id: str,
+    step_key: str,
+    status_text: str,
+    message: str,
+) -> dict:
+    return {
+        "request_id": request_id,
+        "step_key": step_key,
+        "step_label": _STEP_LABELS.get(step_key, step_key),
+        "status": status_text,
+        "message": message,
+    }
+
+
+def _preview_prices(prices: list[dict]) -> list[dict]:
+    return prices[-10:] if prices else []
+
+
+def _preview_indicators(indicators: list[dict]) -> list[dict]:
+    return indicators[-10:] if indicators else []
 
 
 def _first_symbol(symbols: list[str]) -> str:
@@ -418,4 +458,298 @@ async def analyze_final_only(req: AnalyzeSymbolsRequest):
         symbol=symbol,
         date_start=intent.date_start.isoformat(),
         date_end=intent.date_end.isoformat(),
+    )
+
+
+@router.post(
+    "/analyze/stream",
+    summary="分析流程追蹤（SSE）",
+    description=(
+        "回傳 `text/event-stream`，依序推送 `step_start`、`partial_data`、`step_done`、`final_report`、`completed`。"
+        "若某步驟失敗，會先推送 `error`；已成功步驟資料仍保留。"
+    ),
+)
+async def analyze_stream(req: AnalyzeSymbolsRequest):
+    symbol = _first_symbol(req.symbols)
+    today = date.today()
+    intent = ParsedIntent(
+        symbols=[symbol],
+        date_start=today - timedelta(days=_LOOKBACK_DAYS),
+        date_end=today,
+        original_query=_QUERY_TEMPLATE.format(symbol=symbol),
+    )
+    request_id = uuid.uuid4().hex
+    llm_primary = _get_llm(_resolve_model_key(None, fallback_default="primary"))
+    llm_secondary = _get_llm(_resolve_model_key(None, fallback_default="secondary"))
+
+    async def _event_stream() -> AsyncIterator[str]:
+        data = DBData(
+            symbol=symbol,
+            date_start=intent.date_start,
+            date_end=intent.date_end,
+            prices=[],
+            indicators=[],
+            institutional=[],
+        )
+        news_chunks: list[NormalizedNewsChunk] = []
+        rag_summary = ""
+        quick_payload: dict = {"points": [], "fallback_mode": True}
+
+        # Step 1: institutional
+        step_key = "institutional"
+        yield _sse_event(
+            "step_start",
+            _step_payload(request_id, step_key, "running", f"[Step 1] {_STEP_LABELS[step_key]}..."),
+        )
+        try:
+            inst = await fetch_institutional_only(intent)
+            data.institutional = inst.institutional
+            inst_rows = [r.model_dump() for r in _institutional_rows_from_dicts(data.institutional)]
+            preview = inst_rows[-10:]
+            latest = preview[-1] if preview else None
+            yield _sse_event(
+                "partial_data",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "dataset": "institutional",
+                    "summary": {
+                        "symbol": symbol,
+                        "date_start": intent.date_start.isoformat(),
+                        "date_end": intent.date_end.isoformat(),
+                        "rows": len(inst_rows),
+                        "latest_date": latest.get("date") if latest else None,
+                        "latest_total_net": latest.get("total_net") if latest else None,
+                    },
+                    "preview": preview,
+                },
+            )
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "done", f"[Step 1] {_STEP_LABELS[step_key]}... (Done)"),
+            )
+        except Exception:
+            logger.exception("stream step institutional failed for symbol=%s", symbol)
+            yield _sse_event(
+                "error",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "message": "法人資料抓取失敗，將以其餘資料繼續分析",
+                    "recoverable": True,
+                },
+            )
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "error", f"[Step 1] {_STEP_LABELS[step_key]}... (Failed)"),
+            )
+
+        # Step 2: news
+        step_key = "news"
+        yield _sse_event(
+            "step_start",
+            _step_payload(request_id, step_key, "running", f"[Step 2] {_STEP_LABELS[step_key]}..."),
+        )
+        news_chunks, rag_summary, news_is_fallback = await _branch_news(intent)
+        news_preview = [
+            {
+                "id": n.id,
+                "title": n.title,
+                "timestamp": n.timestamp.isoformat() if n.timestamp else "",
+                "url": n.url,
+            }
+            for n in news_chunks[:5]
+        ]
+        yield _sse_event(
+            "partial_data",
+            {
+                "request_id": request_id,
+                "step_key": step_key,
+                "dataset": "news",
+                "summary": {
+                    "rows": len(news_chunks),
+                    "fallback_mode": news_is_fallback,
+                },
+                "preview": news_preview,
+            },
+        )
+        yield _sse_event(
+            "step_done",
+            _step_payload(request_id, step_key, "done", f"[Step 2] {_STEP_LABELS[step_key]}... (Done)"),
+        )
+
+        # Step 3: cross-check
+        step_key = "cross_check"
+        yield _sse_event(
+            "step_start",
+            _step_payload(request_id, step_key, "running", f"[Step 3] {_STEP_LABELS[step_key]}..."),
+        )
+        try:
+            price_data, indicator_data = await asyncio.gather(
+                fetch_prices_only(intent),
+                fetch_indicators_only(intent),
+            )
+            data.prices = price_data.prices
+            data.indicators = indicator_data.indicators
+
+            price_preview = _preview_prices(data.prices)
+            latest_price = price_preview[-1] if price_preview else None
+            yield _sse_event(
+                "partial_data",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "dataset": "prices",
+                    "summary": {
+                        "rows": len(data.prices),
+                        "latest_date": latest_price.get("date") if latest_price else None,
+                        "latest_close": latest_price.get("close") if latest_price else None,
+                        "latest_change": latest_price.get("change") if latest_price else None,
+                    },
+                    "preview": price_preview,
+                },
+            )
+
+            indicator_preview = _preview_indicators(data.indicators)
+            latest_indicator = indicator_preview[-1] if indicator_preview else None
+            yield _sse_event(
+                "partial_data",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "dataset": "indicators",
+                    "summary": {
+                        "rows": len(data.indicators),
+                        "latest_date": latest_indicator.get("date") if latest_indicator else None,
+                        "latest_rsi14": latest_indicator.get("rsi14") if latest_indicator else None,
+                        "latest_macd_hist": latest_indicator.get("macd_hist") if latest_indicator else None,
+                    },
+                    "preview": indicator_preview,
+                },
+            )
+
+            quick_payload = await analyze_quick_insights(llm_secondary, data)
+            yield _sse_event(
+                "partial_data",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "dataset": "quick_insights",
+                    "summary": {
+                        "rows": len(quick_payload.get("points", [])),
+                        "fallback_mode": bool(quick_payload.get("fallback_mode")),
+                        "points": quick_payload.get("points", []),
+                    },
+                    "preview": [{"point": p} for p in quick_payload.get("points", [])[:5]],
+                },
+            )
+
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "done", f"[Step 3] {_STEP_LABELS[step_key]}... (Done)"),
+            )
+        except Exception:
+            logger.exception("stream step cross_check failed for symbol=%s", symbol)
+            yield _sse_event(
+                "error",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "message": "股價/技術指標交叉比對失敗，將以可用資料繼續",
+                    "recoverable": True,
+                },
+            )
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "error", f"[Step 3] {_STEP_LABELS[step_key]}... (Failed)"),
+            )
+
+        # Step 4: final report
+        step_key = "final"
+        yield _sse_event(
+            "step_start",
+            _step_payload(request_id, step_key, "running", f"[Final] {_STEP_LABELS[step_key]}。"),
+        )
+        if not data.prices and not data.indicators and not data.institutional:
+            message = f"查無股票代號 {symbol} 的資料，請確認代號是否正確"
+            yield _sse_event(
+                "error",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "message": message,
+                    "recoverable": False,
+                },
+            )
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "error", f"[Final] {_STEP_LABELS[step_key]}。 (Failed)"),
+            )
+            yield _sse_event("completed", {"request_id": request_id, "ok": False})
+            return
+
+        try:
+            result = await analyze_final_integrated(
+                llm_primary,
+                data,
+                rag_summary or "",
+                news_chunks,
+            )
+            final_resp = _build_final_response(
+                result,
+                symbol=symbol,
+                date_start=intent.date_start.isoformat(),
+                date_end=intent.date_end.isoformat(),
+            )
+            yield _sse_event(
+                "final_report",
+                {
+                    "request_id": request_id,
+                    "report": final_resp.model_dump(),
+                    "quick_insights": {
+                        "symbol": symbol,
+                        "date_start": intent.date_start.isoformat(),
+                        "date_end": intent.date_end.isoformat(),
+                        "points": quick_payload.get("points", []),
+                        "fallback_mode": bool(quick_payload.get("fallback_mode")),
+                    },
+                    "institutional": {
+                        "status": "institutional_ready",
+                        "symbol": symbol,
+                        "date_start": intent.date_start.isoformat(),
+                        "date_end": intent.date_end.isoformat(),
+                        "institutional_data": [r.model_dump() for r in _institutional_rows_from_dicts(data.institutional)],
+                    },
+                },
+            )
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "done", f"[Final] {_STEP_LABELS[step_key]}。 (Done)"),
+            )
+            yield _sse_event("completed", {"request_id": request_id, "ok": True})
+        except Exception:
+            logger.exception("stream final analyze failed for symbol=%s", symbol)
+            yield _sse_event(
+                "error",
+                {
+                    "request_id": request_id,
+                    "step_key": step_key,
+                    "message": "最終報告生成失敗，請稍後再試",
+                    "recoverable": False,
+                },
+            )
+            yield _sse_event(
+                "step_done",
+                _step_payload(request_id, step_key, "error", f"[Final] {_STEP_LABELS[step_key]}。 (Failed)"),
+            )
+            yield _sse_event("completed", {"request_id": request_id, "ok": False})
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

@@ -19,6 +19,30 @@ class NewsSourceItem(BaseModel):
     url: Optional[str] = Field(None, description="原文連結；無則 null")
 
 
+class ScoreWeightsItem(BaseModel):
+    technical: float = Field(0.35, description="技術面權重")
+    institutional: float = Field(0.25, description="籌碼面權重")
+    news: float = Field(0.25, description="新聞/RAG 權重")
+    momentum: float = Field(0.15, description="量價動能權重")
+
+
+class ScoreExplanationsItem(BaseModel):
+    technical: str = Field("", description="技術面計分解釋")
+    institutional: str = Field("", description="籌碼面計分解釋")
+    news: str = Field("", description="新聞面計分解釋")
+    momentum: str = Field("", description="量價動能計分解釋")
+
+
+class ScoreBreakdownItem(BaseModel):
+    technical_score: float = Field(0.0, description="技術面分數（-1 ~ 1）")
+    institutional_score: float = Field(0.0, description="籌碼面分數（-1 ~ 1）")
+    news_score: float = Field(0.0, description="新聞面分數（-1 ~ 1）")
+    momentum_score: float = Field(0.0, description="量價動能分數（-1 ~ 1）")
+    weighted_score: float = Field(0.0, description="加權總分（-1 ~ 1）")
+    weights: ScoreWeightsItem = Field(default_factory=ScoreWeightsItem)
+    explanations: ScoreExplanationsItem = Field(default_factory=ScoreExplanationsItem)
+
+
 AnalysisStatus = Literal["data_ready", "highlights_ready", "done"]
 
 
@@ -34,7 +58,32 @@ class AnalyzeFinalResponse(BaseModel):
                 "summary": "（整合摘要）",
                 "sentiment_score": 0.2,
                 "recommendation": "偏多（理由）",
+                "recommendation_basis": [
+                    "技術面解釋",
+                    "籌碼面解釋",
+                    "新聞面解釋",
+                    "量價動能解釋",
+                ],
                 "news_sources": [],
+                "score_breakdown": {
+                    "technical_score": 0.4,
+                    "institutional_score": 0.3,
+                    "news_score": 0.2,
+                    "momentum_score": 0.1,
+                    "weighted_score": 0.28,
+                    "weights": {
+                        "technical": 0.35,
+                        "institutional": 0.25,
+                        "news": 0.25,
+                        "momentum": 0.15,
+                    },
+                    "explanations": {
+                        "technical": "技術面解釋",
+                        "institutional": "籌碼面解釋",
+                        "news": "新聞面解釋",
+                        "momentum": "量價動能解釋",
+                    },
+                },
                 "fallback_mode": False,
                 "status": "done",
             }
@@ -50,7 +99,15 @@ class AnalyzeFinalResponse(BaseModel):
         "",
         description="最終建議，格式為「偏多／偏空／中性觀望」＋全形括號內簡述理由",
     )
+    recommendation_basis: List[str] = Field(
+        default_factory=list,
+        description="四個面向（技術／籌碼／新聞／量價動能）的解釋條列",
+    )
     news_sources: List[NewsSourceItem] = Field(default_factory=list, description="資料來源")
+    score_breakdown: ScoreBreakdownItem = Field(
+        default_factory=ScoreBreakdownItem,
+        description="後端固定權重計分明細",
+    )
     fallback_mode: bool = Field(False, description="是否為降級模式")
     status: Optional[AnalysisStatus] = Field(
         None,
