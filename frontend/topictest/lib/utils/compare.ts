@@ -1,5 +1,8 @@
-import type {
+﻿import type {
+  CompareInsightCard,
   CompareMetricsRow,
+  CompareQualityMeta,
+  CompareViewModel,
   MultiStockResponse,
   PriceChangeResponse,
   VolumeAnalysisResponse,
@@ -16,6 +19,21 @@ export interface CompareSortState {
   key: keyof CompareMetricsRow;
   direction: SortDirection;
 }
+
+interface BuildCompareViewModelInput {
+  symbols: string[];
+  startDate: string;
+  endDate: string;
+  priceChangeMap: Record<string, PriceChangeResponse | null>;
+  volumeMap: Record<string, VolumeAnalysisResponse | null>;
+  generatedAt?: string;
+}
+
+export const COMPARE_COLOR_PALETTE = [
+  '#f97316', '#2563eb', '#ef4444', '#16a34a', '#7c3aed', '#0891b2',
+  '#db2777', '#65a30d', '#d97706', '#4f46e5', '#059669', '#dc2626',
+  '#0284c7', '#9333ea', '#0d9488', '#b45309',
+];
 
 export function toPriceChartData(data: MultiStockResponse): CompareChartPoint[] {
   return data.data.map((d) => ({ date: d.date, ...d.prices }));
@@ -93,10 +111,205 @@ function firstAndLastClose(data: PriceChangeResponse): { first: number; last: nu
   return { first, last };
 }
 
+function fmtPct(v: number): string {
+  return `${v.toFixed(2)}%`;
+}
+
+function hashSymbol(symbol: string): number {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i += 1) {
+    hash = (hash << 5) - hash + symbol.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function validDailyDateSet(change: PriceChangeResponse | null): Set<string> {
+  const dateSet = new Set<string>();
+  if (!change) return dateSet;
+
+  for (const d of change.data) {
+    if (!Number.isFinite(d.change_percent)) continue;
+    if (typeof d.date !== 'string' || !d.date) continue;
+    dateSet.add(d.date);
+  }
+
+  return dateSet;
+}
+
+function buildQualityMeta(
+  symbols: string[],
+  startDate: string,
+  endDate: string,
+  priceChangeMap: Record<string, PriceChangeResponse | null>,
+  generatedAt: string,
+): CompareQualityMeta {
+  const samplesBySymbol: Record<string, number> = {};
+  const missingRatioBySymbol: Record<string, number> = {};
+  const qualityWarnings: string[] = [];
+
+  const unionDates = new Set<string>();
+  const symbolDateSets: Array<{ symbol: string; set: Set<string> }> = [];
+
+  for (const symbol of symbols) {
+    const dateSet = validDailyDateSet(priceChangeMap[symbol] ?? null);
+    symbolDateSets.push({ symbol, set: dateSet });
+
+    for (const date of dateSet) {
+      unionDates.add(date);
+    }
+
+    samplesBySymbol[symbol] = dateSet.size;
+  }
+
+  const unionDays = unionDates.size;
+
+  for (const symbol of symbols) {
+    const sampleCount = samplesBySymbol[symbol] ?? 0;
+    const missingRatio = unionDays > 0 ? Math.max(0, 1 - sampleCount / unionDays) : 0;
+    missingRatioBySymbol[symbol] = missingRatio;
+
+    if (sampleCount === 0) {
+      qualityWarnings.push(`${symbol} 缺少有效漲跌資料，部分指標以 -- 顯示。`);
+      continue;
+    }
+
+    if (missingRatio >= 0.2) {
+      qualityWarnings.push(`${symbol} 在比較區間缺值 ${(missingRatio * 100).toFixed(1)}%，結果需審慎解讀。`);
+    }
+  }
+
+  let alignedDays = 0;
+  if (symbolDateSets.length > 0) {
+    const [first, ...rest] = symbolDateSets;
+    let commonDates = new Set(first.set);
+    for (const item of rest) {
+      commonDates = new Set([...commonDates].filter((d) => item.set.has(d)));
+    }
+    alignedDays = commonDates.size;
+  }
+
+  if (symbols.length >= 2) {
+    if (alignedDays === 0) {
+      qualityWarnings.push('標的之間沒有共同交易日，相關係數無法計算。');
+    } else if (alignedDays < 20) {
+      qualityWarnings.push(`共同交易日僅 ${alignedDays} 天，相關係數穩定性較低。`);
+    }
+  }
+
+  return {
+    analysisRange: { startDate, endDate },
+    alignedDays,
+    samplesBySymbol,
+    missingRatioBySymbol,
+    generatedAt,
+    qualityWarnings,
+  };
+}
+
+function fallbackInsight(
+  id: CompareInsightCard['id'],
+  title: string,
+  reason: string,
+): CompareInsightCard {
+  return {
+    id,
+    title,
+    symbol: '--',
+    value: '--',
+    reason,
+  };
+}
+
+function buildInsightCards(
+  rows: CompareMetricsRow[],
+  symbols: string[],
+  matrix: Record<string, Record<string, number | null>>,
+): CompareInsightCard[] {
+  const bestReturn = rows
+    .filter((r) => r.totalReturnPct != null)
+    .sort((a, b) => (b.totalReturnPct as number) - (a.totalReturnPct as number))[0];
+
+  const minDrawdown = rows
+    .filter((r) => r.maxDrawdownPct != null)
+    .sort((a, b) => (b.maxDrawdownPct as number) - (a.maxDrawdownPct as number))[0];
+
+  const minVolatility = rows
+    .filter((r) => r.volatilityPct != null)
+    .sort((a, b) => (a.volatilityPct as number) - (b.volatilityPct as number))[0];
+
+  let lowestPair: { a: string; b: string; value: number } | null = null;
+  for (let i = 0; i < symbols.length; i += 1) {
+    for (let j = i + 1; j < symbols.length; j += 1) {
+      const a = symbols[i];
+      const b = symbols[j];
+      const value = matrix[a]?.[b];
+      if (value == null) continue;
+
+      if (!lowestPair || value < lowestPair.value) {
+        lowestPair = { a, b, value };
+      }
+    }
+  }
+
+  return [
+    bestReturn
+      ? {
+          id: 'bestReturn',
+          title: '最佳區間報酬',
+          symbol: bestReturn.symbol,
+          value: fmtPct(bestReturn.totalReturnPct as number),
+          reason: '在同區間內累積報酬最高。',
+        }
+      : fallbackInsight('bestReturn', '最佳區間報酬', '尚無可計算資料。'),
+    minDrawdown
+      ? {
+          id: 'minDrawdown',
+          title: '最大回撤最小',
+          symbol: minDrawdown.symbol,
+          value: fmtPct(minDrawdown.maxDrawdownPct as number),
+          reason: '最大回撤最淺，區間抗跌性相對較好。',
+        }
+      : fallbackInsight('minDrawdown', '最大回撤最小', '尚無可計算資料。'),
+    minVolatility
+      ? {
+          id: 'minVolatility',
+          title: '波動最低',
+          symbol: minVolatility.symbol,
+          value: fmtPct(minVolatility.volatilityPct as number),
+          reason: '日報酬標準差最低，波動相對較小。',
+        }
+      : fallbackInsight('minVolatility', '波動最低', '尚無可計算資料。'),
+    lowestPair
+      ? {
+          id: 'lowestCorrelationPair',
+          title: '最低相關係數組合',
+          symbol: `${lowestPair.a} × ${lowestPair.b}`,
+          value: `ρ ${lowestPair.value.toFixed(2)}`,
+          reason: lowestPair.value < 0
+            ? '呈現負相關，具分散風險效果。'
+            : '為目前最低相關組合，可做分散配置參考。',
+        }
+      : fallbackInsight('lowestCorrelationPair', '最低相關係數組合', '共同交易日不足，無法計算。'),
+  ];
+}
+
+export function buildSymbolColorMap(symbols: string[]): Record<string, string> {
+  const uniqueSymbols = [...new Set(symbols)];
+  const map: Record<string, string> = {};
+
+  for (const symbol of uniqueSymbols) {
+    const idx = hashSymbol(symbol) % COMPARE_COLOR_PALETTE.length;
+    map[symbol] = COMPARE_COLOR_PALETTE[idx];
+  }
+
+  return map;
+}
+
 export function buildMetricsRow(
   symbol: string,
   change: PriceChangeResponse | null,
-  volume: VolumeAnalysisResponse | null
+  volume: VolumeAnalysisResponse | null,
 ): CompareMetricsRow {
   if (!change || change.data.length === 0) {
     return {
@@ -183,7 +396,7 @@ function pearson(x: number[], y: number[]): number | null {
 
 export function buildCorrelationMatrix(
   symbols: string[],
-  priceChangeMap: Record<string, PriceChangeResponse | null>
+  priceChangeMap: Record<string, PriceChangeResponse | null>,
 ): Record<string, Record<string, number | null>> {
   const returnsByDateBySymbol: Record<string, Map<string, number>> = {};
   for (const sym of symbols) {
@@ -225,4 +438,45 @@ export function buildCorrelationMatrix(
     }
   }
   return matrix;
+}
+
+export function toggleHiddenSymbol(hiddenSymbols: string[], symbol: string): string[] {
+  const hiddenSet = new Set(hiddenSymbols);
+  if (hiddenSet.has(symbol)) {
+    hiddenSet.delete(symbol);
+  } else {
+    hiddenSet.add(symbol);
+  }
+  return [...hiddenSet];
+}
+
+export function visibleSymbolsFromHidden(symbols: string[], hiddenSymbols: string[]): string[] {
+  const hiddenSet = new Set(hiddenSymbols);
+  return symbols.filter((symbol) => !hiddenSet.has(symbol));
+}
+
+export function buildCompareViewModel({
+  symbols,
+  startDate,
+  endDate,
+  priceChangeMap,
+  volumeMap,
+  generatedAt = new Date().toISOString(),
+}: BuildCompareViewModelInput): CompareViewModel {
+  const metricsRows = symbols.map((symbol) =>
+    buildMetricsRow(symbol, priceChangeMap[symbol] ?? null, volumeMap[symbol] ?? null),
+  );
+
+  const correlationMatrix = buildCorrelationMatrix(symbols, priceChangeMap);
+  const qualityMeta = buildQualityMeta(symbols, startDate, endDate, priceChangeMap, generatedAt);
+  const insights = buildInsightCards(metricsRows, symbols, correlationMatrix);
+  const symbolColors = buildSymbolColorMap(symbols);
+
+  return {
+    metricsRows,
+    correlationMatrix,
+    insights,
+    qualityMeta,
+    symbolColors,
+  };
 }
