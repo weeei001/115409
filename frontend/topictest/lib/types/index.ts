@@ -52,6 +52,30 @@ export interface AdvisorInstitutionalFlow {
   items: AdvisorInstitutionalFlowItem[];
 }
 
+export interface ScoreWeights {
+  technical: number;
+  institutional: number;
+  news: number;
+  momentum: number;
+}
+
+export interface ScoreExplanations {
+  technical: string;
+  institutional: string;
+  news: string;
+  momentum: string;
+}
+
+export interface ScoreBreakdown {
+  technical_score: number;
+  institutional_score: number;
+  news_score: number;
+  momentum_score: number;
+  weighted_score: number;
+  weights: ScoreWeights;
+  explanations: ScoreExplanations;
+}
+
 export interface AdvisorReport {
   symbol: string;
   generated_at: string;
@@ -70,8 +94,36 @@ export interface AdvisorReport {
   sentiment_score?: number;
   /** 後端操作建議原文（與三態 badge 不同） */
   recommendation_text?: string;
+  /** 後端加權模型分數明細 */
+  score_breakdown?: ScoreBreakdown;
   /** 三大法人逐日明細（與卡片最新一日並列） */
   institutional_rows?: AnalyzeInstitutionalRow[];
+}
+
+export type AdvisorStepKey = 'institutional' | 'news' | 'cross_check' | 'final';
+export type AdvisorStepStatus = 'pending' | 'running' | 'done' | 'error';
+
+export interface AdvisorStepUpdate {
+  request_id: string;
+  step_key: AdvisorStepKey;
+  step_label?: string;
+  status: AdvisorStepStatus;
+  message?: string;
+}
+
+export type AdvisorPartialDataset =
+  | 'institutional'
+  | 'prices'
+  | 'indicators'
+  | 'quick_insights'
+  | 'news';
+
+export interface AdvisorPartialDataEvent {
+  request_id: string;
+  step_key: AdvisorStepKey;
+  dataset: AdvisorPartialDataset;
+  summary?: Record<string, unknown>;
+  preview?: Record<string, unknown>[];
 }
 
 // ── POST /analyze (ChatRequest / ChatResponse) ──
@@ -107,6 +159,7 @@ export interface AnalyzeResponse {
   institutional_data?: AnalyzeInstitutionalRow[];
   recommendation?: string;
   recommendation_basis?: string[];
+  score_breakdown?: ScoreBreakdown;
   news_sources?: AnalyzeNewsSourceItem[];
 }
 
@@ -160,10 +213,18 @@ export interface AnalyzeFinalResponse {
   sentiment_score?: number;
   recommendation?: string;
   recommendation_basis?: string[];
+  score_breakdown?: ScoreBreakdown;
   news_sources?: AnalyzeNewsSourceItem[];
   fallback_mode?: boolean;
   raw_answer?: string;
   status?: string;
+}
+
+/** POST /analyze/report */
+export interface AnalyzeReportResponse extends AnalyzeFinalResponse {
+  quick_points?: string[];
+  quick_fallback_mode?: boolean;
+  institutional_data?: AnalyzeInstitutionalRow[];
 }
 
 // ── Auth (JWT) ──
@@ -294,6 +355,13 @@ export interface MultiStockResponse {
   data: MultiStockData[];
 }
 
+export interface BulkSelectResult {
+  added: string[];
+  duplicates: string[];
+  invalid: string[];
+  overflow: string[];
+}
+
 export type CompareChartMode = 'price' | 'index100' | 'cumulativeReturn';
 
 export interface CompareMetricsRow {
@@ -306,6 +374,36 @@ export interface CompareMetricsRow {
   maxDailyLossPct: number | null;
   avgVolume: number | null;
   avgAmount: number | null;
+}
+
+export interface CompareInsightCard {
+  id: 'bestReturn' | 'minDrawdown' | 'minVolatility' | 'lowestCorrelationPair';
+  title: string;
+  symbol: string;
+  value: string;
+  reason: string;
+}
+
+export interface CompareAnalysisRange {
+  startDate: string;
+  endDate: string;
+}
+
+export interface CompareQualityMeta {
+  analysisRange: CompareAnalysisRange;
+  alignedDays: number;
+  samplesBySymbol: Record<string, number>;
+  missingRatioBySymbol: Record<string, number>;
+  generatedAt: string;
+  qualityWarnings: string[];
+}
+
+export interface CompareViewModel {
+  metricsRows: CompareMetricsRow[];
+  correlationMatrix: Record<string, Record<string, number | null>>;
+  insights: CompareInsightCard[];
+  qualityMeta: CompareQualityMeta;
+  symbolColors: Record<string, string>;
 }
 
 export interface DateRangeResponse {
