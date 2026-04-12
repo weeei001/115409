@@ -5,10 +5,10 @@ from statistics import mean
 from agent.schemas import DBData, NormalizedNewsChunk, ScoreBreakdown, ScoreExplanations, ScoreWeights
 
 WEIGHTS = ScoreWeights(
-    technical=0.35,
-    institutional=0.25,
-    news=0.25,
-    momentum=0.15,
+    technical=0.25,
+    institutional=0.30,
+    news=0.20,
+    momentum=0.25,
 )
 
 _TECHNICAL_SUB_WEIGHTS = {
@@ -29,6 +29,7 @@ _POSITIVE_KEYWORDS = (
     "買超",
     "樂觀",
     "看好",
+    "上漲",
     "positive",
     "bullish",
     "beat",
@@ -45,6 +46,7 @@ _NEGATIVE_KEYWORDS = (
     "賣超",
     "悲觀",
     "看淡",
+    "下跌",
     "negative",
     "bearish",
     "miss",

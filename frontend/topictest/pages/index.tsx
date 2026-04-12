@@ -18,6 +18,7 @@ import { StockPriceCard } from '../components/StockPriceCard';
 import { NewsCard } from '../components/NewsCard';
 import { AppNavDrawer } from '../components/AppNavDrawer';
 import { toast } from 'sonner';
+import { parseBulkSymbolInput } from '../lib/utils/stockSelection';
 
 const FEATURED_COUNT = 6;
 const NEWS_PAGE_SIZE = 10;
@@ -162,6 +163,19 @@ export default function Home() {
                   <StockSearch
                     symbols={symbols}
                     onSelect={(sym) => router.push(`/stock/${sym}`)}
+                    onBulkSelect={(input) => {
+                      const parsed = parseBulkSymbolInput(input);
+                      const first = parsed.find((symbol) => symbols.includes(symbol));
+                      if (first) router.push(`/stock/${first}`);
+                      return {
+                        added: first ? [first] : [],
+                        duplicates: [],
+                        invalid: first ? [] : parsed,
+                        overflow: [],
+                      };
+                    }}
+                    maxSelection={1}
+                    selectedCount={0}
                     placeholder="搜尋股票代號 (例如: 2330)"
                   />
                 )}

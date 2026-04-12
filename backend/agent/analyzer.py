@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -23,8 +24,10 @@ from agent.schemas import AnalysisResult, DBData, NormalizedNewsChunk, ScoreBrea
 
 logger = logging.getLogger(__name__)
 
-_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_DATE_RE = re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b")
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_QUICK_INSIGHTS_TIMEOUT_SEC = 10.0
+_QUICK_INSIGHTS_MAX_TOKENS = 256
 
 
 # ── Data formatting helpers ──────────────────────────────────────────────────
@@ -205,8 +208,17 @@ def _price_compact_for_quick(data: DBData) -> str:
     return "\n".join(lines)
 
 
-def _normalize_quick_points(raw: dict) -> list[str]:
+def _latest_reference_date(data: DBData) -> str:
+    for rows in (data.indicators, data.prices, data.institutional):
+        if rows and rows[-1].get("date"):
+            return str(rows[-1]["date"])
+    return data.date_end.isoformat()
+
+
+def _normalize_quick_points(raw: dict, *, default_date: str) -> list[str]:
     pts = raw.get("points")
+    if isinstance(pts, str):
+        pts = [s for s in (line.strip() for line in pts.splitlines()) if s]
     if not isinstance(pts, list):
         return []
     out: list[str] = []
@@ -215,9 +227,15 @@ def _normalize_quick_points(raw: dict) -> list[str]:
         s = str(p).strip().lstrip("-• ").strip()
         if not s:
             continue
-        if not _DATE_RE.search(s):
-            continue
-        if not _NUMBER_RE.search(s):
+        s = " ".join(s.split())
+
+        has_date = bool(_DATE_RE.search(s))
+        has_number = bool(_NUMBER_RE.search(s))
+        if not has_date and has_number:
+            s = f"{default_date} {s}"
+            has_date = True
+
+        if not has_date and not has_number:
             continue
         if s in seen:
             continue
@@ -237,22 +255,23 @@ def _normalize_summary(summary: str) -> str:
     return s
 
 
-def _quick_insights_fallback(data: DBData) -> dict:
+def _quick_insights_fallback(data: DBData, *, include_rule_tag: bool = True) -> dict:
     """規則化重點，供 LLM 失敗時快速回傳。"""
+    rule_tag = "（規則化摘要）" if include_rule_tag else ""
     pts: list[str] = []
     if data.indicators:
         li = data.indicators[-1]
         d = str(li.get("date") or "")
         if li.get("rsi14") is not None:
-            pts.append(f"{d} RSI(14)={li['rsi14']}（規則化摘要）")
+            pts.append(f"{d} RSI(14)={li['rsi14']}{rule_tag}")
         if li.get("k_value") is not None and li.get("d_value") is not None:
-            pts.append(f"{d} KD：K={li['k_value']} D={li['d_value']}（規則化摘要）")
+            pts.append(f"{d} KD：K={li['k_value']} D={li['d_value']}{rule_tag}")
         if li.get("macd_hist") is not None:
-            pts.append(f"{d} MACD Histogram={li['macd_hist']}（規則化摘要）")
+            pts.append(f"{d} MACD Histogram={li['macd_hist']}{rule_tag}")
     if data.institutional:
         row = data.institutional[-1]
         pts.append(
-            f"{row['date']} 三大法人合計淨額 {row.get('total_net', 0):,} 股（規則化摘要）"
+            f"{row['date']} 三大法人合計淨額 {row.get('total_net', 0):,} 股{rule_tag}"
         )
         if len(data.institutional) >= 2:
             a, b = data.institutional[-2], data.institutional[-1]
@@ -260,10 +279,10 @@ def _quick_insights_fallback(data: DBData) -> dict:
             db = int(b.get("total_net", 0))
             if da != 0 and db != 0 and (da > 0) != (db > 0):
                 pts.append(
-                    f"{a['date']} 合計淨額 {da:,} → {b['date']} {db:,}，方向轉折（規則化摘要）"
+                    f"{a['date']} 合計淨額 {da:,} → {b['date']} {db:,}，方向轉折{rule_tag}"
                 )
     if not pts:
-        pts = ["可分析之技術與籌碼資料不足（規則化摘要）"]
+        pts = [f"可分析之技術與籌碼資料不足{rule_tag}"]
     return {"points": pts[:5], "fallback_mode": True}
 
 
@@ -285,26 +304,34 @@ async def analyze_quick_insights(llm: LLMClient, data: DBData) -> dict:
     )
 
     try:
-        raw = await llm.complete_json(
-            QUICK_INSIGHTS_SYSTEM,
-            user_prompt,
-            temperature=0.2,
-            max_tokens=512,
+        raw = await asyncio.wait_for(
+            llm.complete_json(
+                QUICK_INSIGHTS_SYSTEM,
+                user_prompt,
+                temperature=0.2,
+                max_tokens=_QUICK_INSIGHTS_MAX_TOKENS,
+                retries=2,
+            ),
+            timeout=_QUICK_INSIGHTS_TIMEOUT_SEC,
         )
         if not isinstance(raw, dict):
             raise ValueError("quick insights root must be object")
-        points = _normalize_quick_points(raw)
+        points = _normalize_quick_points(raw, default_date=_latest_reference_date(data))
+        if not points:
+            return _quick_insights_fallback(data)
         if len(points) < 3:
-            fb = _quick_insights_fallback(data)
+            fb = _quick_insights_fallback(data, include_rule_tag=False)
             for point in fb["points"]:
-                if point not in points:
-                    points.append(point)
+                if point in points:
+                    continue
+                points.append(point)
                 if len(points) >= 5:
                     break
             return {"points": points, "fallback_mode": True}
-        if not points:
-            return _quick_insights_fallback(data)
         return {"points": points, "fallback_mode": False}
+    except asyncio.TimeoutError:
+        logger.warning("Quick insights LLM timed out, using rule-based fallback")
+        return _quick_insights_fallback(data)
     except Exception:
         logger.exception("Quick insights LLM failed, using rule-based fallback")
         return _quick_insights_fallback(data)

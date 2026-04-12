@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import {
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
   fetchAdvisorReportProgressive,
   type AdvisorFetchProgress,
 } from '../lib/api/advisor';
+import { fetchSymbols } from '../lib/api/stock';
 import type {
   AdvisorAction,
   AdvisorPartialDataEvent,
@@ -38,8 +39,8 @@ interface StepView {
 
 const STEP_DEFS: Array<{ key: AdvisorStepKey; title: string }> = [
   { key: 'institutional', title: '抓取近 30 日法人籌碼' },
-  { key: 'news', title: '檢索相關新聞與情緒摘要' },
   { key: 'cross_check', title: '交叉比對股價與技術指標' },
+  { key: 'news', title: '檢索相關新聞與情緒摘要' },
   { key: 'final', title: '生成綜合報告' },
 ];
 
@@ -157,6 +158,8 @@ function StepIcon({ status }: { status: AdvisorStepStatus }) {
 
 export default function AdvisorPage() {
   const [symbol, setSymbol] = useState('');
+  const [symbolOptions, setSymbolOptions] = useState<string[]>([]);
+  const [symbolsLoading, setSymbolsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AdvisorReport | null>(null);
@@ -173,6 +176,36 @@ export default function AdvisorPage() {
     indicators: false,
   });
   const requestSeq = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    setSymbolsLoading(true);
+
+    fetchSymbols()
+      .then((symbols) => {
+        if (!active) return;
+        const normalized = Array.from(
+          new Set(
+            symbols
+              .map((item) => item.trim().toUpperCase())
+              .filter(Boolean)
+          )
+        );
+        setSymbolOptions(normalized);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSymbolOptions([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setSymbolsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const generatedAtLabel = useMemo(() => {
     if (!report?.generated_at) return '--';
@@ -359,6 +392,31 @@ export default function AdvisorPage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
         <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 sm:p-5">
           <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative sm:w-48">
+              <select
+                value={symbolOptions.includes(symbol.trim().toUpperCase()) ? symbol.trim().toUpperCase() : ''}
+                onChange={(e) => {
+                  setSymbol(e.target.value);
+                  setError(null);
+                }}
+                disabled={loading || symbolsLoading || symbolOptions.length === 0}
+                className="w-full appearance-none pl-3 pr-9 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700
+                           text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60"
+              >
+                <option value="">
+                  {symbolsLoading ? 'Loading symbols...' : symbolOptions.length > 0 ? 'Select symbol' : 'No symbols'}
+                </option>
+                {symbolOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+            </div>
             <div className="relative flex-1">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -367,7 +425,7 @@ export default function AdvisorPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !loading) void handleGenerate();
                 }}
-                placeholder="輸入股票代號（例如：2330）"
+                placeholder="Or type a symbol (e.g. 2330)"
                 disabled={loading}
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700
                            text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60"
@@ -384,6 +442,10 @@ export default function AdvisorPage() {
               {loading ? '分析中...' : '產生建議'}
             </button>
           </div>
+          {!symbolsLoading && symbolOptions.length === 0 ? (
+            <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
+              Symbol dropdown is unavailable right now. You can still type a symbol manually.</p>
+          ) : null}
           <div className="mt-3 space-y-2">
             {loading && symbol.trim() ? (
               <p className="text-[#ffa95a] text-sm font-medium flex items-center gap-2">

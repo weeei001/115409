@@ -220,6 +220,13 @@ export interface AnalyzeFinalResponse {
   status?: string;
 }
 
+/** POST /analyze/report */
+export interface AnalyzeReportResponse extends AnalyzeFinalResponse {
+  quick_points?: string[];
+  quick_fallback_mode?: boolean;
+  institutional_data?: AnalyzeInstitutionalRow[];
+}
+
 // ── Auth (JWT) ──
 
 export interface UserPublic {
@@ -348,6 +355,13 @@ export interface MultiStockResponse {
   data: MultiStockData[];
 }
 
+export interface BulkSelectResult {
+  added: string[];
+  duplicates: string[];
+  invalid: string[];
+  overflow: string[];
+}
+
 export type CompareChartMode = 'price' | 'index100' | 'cumulativeReturn';
 
 export interface CompareMetricsRow {
@@ -360,6 +374,36 @@ export interface CompareMetricsRow {
   maxDailyLossPct: number | null;
   avgVolume: number | null;
   avgAmount: number | null;
+}
+
+export interface CompareInsightCard {
+  id: 'bestReturn' | 'minDrawdown' | 'minVolatility' | 'lowestCorrelationPair';
+  title: string;
+  symbol: string;
+  value: string;
+  reason: string;
+}
+
+export interface CompareAnalysisRange {
+  startDate: string;
+  endDate: string;
+}
+
+export interface CompareQualityMeta {
+  analysisRange: CompareAnalysisRange;
+  alignedDays: number;
+  samplesBySymbol: Record<string, number>;
+  missingRatioBySymbol: Record<string, number>;
+  generatedAt: string;
+  qualityWarnings: string[];
+}
+
+export interface CompareViewModel {
+  metricsRows: CompareMetricsRow[];
+  correlationMatrix: Record<string, Record<string, number | null>>;
+  insights: CompareInsightCard[];
+  qualityMeta: CompareQualityMeta;
+  symbolColors: Record<string, string>;
 }
 
 export interface DateRangeResponse {
