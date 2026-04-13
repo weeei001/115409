@@ -1,19 +1,25 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { clsx } from 'clsx';
+import type { BulkSelectResult } from '../lib/types';
 
 interface Props {
   symbols: string[];
   onSelect: (symbol: string) => void;
+  onBulkSelect: (input: string) => BulkSelectResult;
+  maxSelection: number;
+  selectedCount: number;
   placeholder?: string;
   value?: string;
-  /** 外層容器 class；有傳入時不套用預設 max-w-md，方便在表單列拉滿寬度 */
   className?: string;
 }
 
 export const StockSearch: React.FC<Props> = ({
   symbols,
   onSelect,
+  onBulkSelect,
+  maxSelection,
+  selectedCount,
   placeholder = '輸入股票代號...',
   value = '',
   className,
@@ -47,6 +53,14 @@ export const StockSearch: React.FC<Props> = ({
     return symbols.filter((s) => s.includes(query.trim())).slice(0, 20);
   }, [query, symbols]);
 
+  const commitBulkInput = (rawInput: string) => {
+    const text = rawInput.trim();
+    if (!text) return;
+    onBulkSelect(text);
+    setQuery('');
+    setOpen(false);
+  };
+
   return (
     <div ref={ref} className={clsx('relative w-full', !className && 'max-w-md', className)}>
       <div className="relative">
@@ -59,12 +73,23 @@ export const StockSearch: React.FC<Props> = ({
             setOpen(true);
           }}
           onKeyDown={(e) => {
-            if (e.key !== 'Enter' || filtered.length === 0) return;
+            if (e.key !== 'Enter') return;
             e.preventDefault();
-            const sym = filtered[0];
-            onSelect(sym);
-            setQuery('');
+
+            if (query.trim()) {
+              commitBulkInput(query);
+              return;
+            }
+
+            if (filtered.length === 0) return;
+            onSelect(filtered[0]);
             setOpen(false);
+          }}
+          onPaste={(e) => {
+            const pastedText = e.clipboardData.getData('text');
+            if (!/[\s,，;；|]/.test(pastedText)) return;
+            e.preventDefault();
+            commitBulkInput(pastedText);
           }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
@@ -73,6 +98,7 @@ export const StockSearch: React.FC<Props> = ({
                      bg-white dark:bg-gray-700 text-base shadow-sm"
         />
       </div>
+
       {open && filtered.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 shadow-lg z-50 max-h-60 overflow-y-auto">
           {filtered.map((s) => (

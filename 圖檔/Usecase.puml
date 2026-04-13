@@ -1,0 +1,66 @@
+@startuml 股海明燈系統Use Case Diagram
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+' 定義左邊的主動參與者
+actor "訪客" as Guest
+actor "會員" as Member
+actor "系統管理員" as Admin
+
+' 會員繼承訪客權限
+Guest <|-- Member 
+
+' 定義右邊的被動參與者(外部系統)
+rectangle "<<system>>\n外部大型語言模型" as LLM
+rectangle "<<system>>\n外部財經新聞網站" as NewsSource
+
+rectangle "股海明燈系統" {
+  ' 前台基礎功能
+  usecase "註冊與登入" as UC_Login
+  usecase "基本股票價格查詢" as UC_Price
+  usecase "股票新聞" as UC_News
+  usecase "個股資訊" as UC_Info
+  usecase "開關燈(主題切換)" as UC_Theme
+  
+  usecase "模擬下單" as UC_Trade
+  usecase "AI投資顧問" as UC_AI
+  usecase "多股比較" as UC_Compare
+
+  ' 前台延伸功能
+  usecase "忘記密碼" as UC_ForgotPwd
+  usecase "檢視參考新聞來源" as UC_Source
+
+  ' 後台管理功能
+  usecase "管理使用者帳號" as UC_ManageUsers
+  usecase "新聞資料管理" as UC_ManageNews
+  usecase "API使用量與狀態監控" as UC_MonitorAPI
+}
+
+' 訪客連線
+Guest --> UC_Login
+Guest --> UC_Price
+Guest --> UC_News
+Guest --> UC_Info
+Guest --> UC_Theme
+
+' 會員連線
+Member --> UC_Trade
+Member --> UC_AI
+Member --> UC_Compare
+
+' 管理員連線
+Admin --> UC_ManageUsers
+Admin --> UC_ManageNews
+Admin --> UC_MonitorAPI
+
+' 延伸關係
+UC_ForgotPwd .> UC_Login : <<extend>>
+UC_Source .> UC_AI : <<extend>>
+
+' 外部系統連線
+UC_AI --> LLM : 呼叫 API 生成摘要
+UC_MonitorAPI --> LLM : 撈取用量與連線狀態
+UC_ManageNews --> NewsSource : 手動觸發爬蟲更新
+
+@enduml
