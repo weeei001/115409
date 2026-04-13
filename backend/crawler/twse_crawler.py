@@ -109,57 +109,10 @@ def init_db() -> pymysql.connections.Connection:
                 INDEX idx_date   (date)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
-        # 斷點續抓 checkpoint 表
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS crawl_checkpoint (
-                symbol  VARCHAR(10) NOT NULL,
-                yyyymm  CHAR(6)     NOT NULL,
-                PRIMARY KEY (symbol, yyyymm)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        """)
     conn.commit()
     return conn
 
 
-# ─────────────────────────────────────────────
-# Checkpoint 機制
-# ─────────────────────────────────────────────
-def is_done(conn: pymysql.connections.Connection, symbol: str, yyyymm: str) -> bool:
-    """回傳 True 代表此 (symbol, yyyymm) 已完成，不須重抓。
-       如果是「當前月份」，為了排程每天能抓到最新的日資料，永遠回傳 False"""
-    now = datetime.now(tz=TZ_TAIPEI)
-    current_yyyymm = f"{now.year}{now.month:02d}"
-    
-    # 排程抓取時，當月從未「完成」，必須天天抓
-    if yyyymm == current_yyyymm:
-        return False
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM crawl_checkpoint WHERE symbol=%s AND yyyymm=%s",
-            (symbol, yyyymm),
-        )
-        return cur.fetchone() is not None
-
-
-def mark_done(conn: pymysql.connections.Connection, symbol: str, yyyymm: str) -> None:
-    """將 (symbol, yyyymm) 標記為已完成。當前月份不標記。"""
-    now = datetime.now(tz=TZ_TAIPEI)
-    current_yyyymm = f"{now.year}{now.month:02d}"
-    
-    if yyyymm == current_yyyymm:
-        # 當前月份隨時都有新資料，不要將其標記為已完成 (Checkpoint)
-        return
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT IGNORE INTO crawl_checkpoint(symbol, yyyymm) VALUES(%s, %s)",
-            (symbol, yyyymm),
-        )
-    conn.commit()
-
-
-# ─────────────────────────────────────────────
 # HTTP Session（帶連線層重試）
 # ─────────────────────────────────────────────
 def build_session() -> requests.Session:
@@ -336,18 +289,11 @@ def crawl_stock(
     months = list(iter_months(start_year, start_month, end_year, end_month))
 
     for i, (year, month) in enumerate(months, 1):
-        yyyymm = f"{year}{month:02d}"
-
-        if is_done(conn, symbol, yyyymm):
-            print(f"  [{symbol}] {year}-{month:02d}  ⏭  已完成，略過")
-            continue
-
         print(f"  [{symbol}] {year}-{month:02d}  ({i}/{len(months)})  抓取中...", end="", flush=True)
         raw = fetch_month(session, symbol, year, month, verify=verify)
 
         if raw is None:
             print("  ✗ 無資料或失敗")
-            mark_done(conn, symbol, yyyymm)
             time.sleep(random.uniform(SLEEP_MIN, SLEEP_MAX))
             continue
 
@@ -362,7 +308,6 @@ def crawl_stock(
         else:
             print("  ✓ 解析後無有效資料")
 
-        mark_done(conn, symbol, yyyymm)
         time.sleep(random.uniform(SLEEP_MIN, SLEEP_MAX))
 
     return total_written
@@ -418,7 +363,6 @@ def main() -> None:
     parser.add_argument("--password", default=DB_CONFIG["password"])
     parser.add_argument("--dbname",   default=DB_CONFIG["database"])
     parser.add_argument("--no-verify", action="store_false", dest="verify", help="跳過 SSL 憑證驗證")
-    parser.add_argument("--clean",     action="store_true", help="清除所有斷點記錄，重新抓取")
     parser.set_defaults(verify=False)
     args = parser.parse_args()
 
@@ -494,12 +438,6 @@ def main() -> None:
     print()
 
     conn    = init_db()
-    
-    if args.clean:
-        print("🧹 正在清除斷點記錄 (crawl_checkpoint)...")
-        with conn.cursor() as cur:
-            cur.execute("TRUNCATE TABLE crawl_checkpoint")
-        conn.commit()
 
     session = build_session()
     grand_total = 0

@@ -3,6 +3,7 @@ import logging
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import schedule
@@ -26,6 +27,7 @@ RUN_TECHNICAL_INDICATOR_AFTER_CRAWL = True
 RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = True
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
+TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
 def _python_executable() -> str:
@@ -34,6 +36,17 @@ def _python_executable() -> str:
 
 def _subprocess_text_encoding() -> str:
     return locale.getpreferredencoding(False) or "utf-8"
+
+
+def _twse_backfill_range_yyyymm() -> tuple[str, str]:
+    """Return (start, end) as YYYYMM for a rolling 2-month window in Asia/Taipei."""
+    now = datetime.now(tz=TZ_TAIPEI)
+    end_yyyymm = f"{now.year}{now.month:02d}"
+    if now.month == 1:
+        start_yyyymm = f"{now.year - 1}12"
+    else:
+        start_yyyymm = f"{now.year}{now.month - 1:02d}"
+    return start_yyyymm, end_yyyymm
 
 def run_crawler_job():
     """
@@ -53,8 +66,18 @@ def run_crawler_job():
 
     try:
         # 加上 --batch 參數，關閉所有互動式輸入
-        command = [python_cmd, str(script_path), "--batch"]
+        start_yyyymm, end_yyyymm = _twse_backfill_range_yyyymm()
+        command = [
+            python_cmd,
+            str(script_path),
+            "--batch",
+            "--start",
+            start_yyyymm,
+            "--end",
+            end_yyyymm,
+        ]
         output_encoding = _subprocess_text_encoding()
+        log.info("TWSE backfill window: %s -> %s", start_yyyymm, end_yyyymm)
         
         log.info(f"執行指令: {' '.join(command)}")
         
