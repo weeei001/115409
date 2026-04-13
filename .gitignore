@@ -1,12 +1,24 @@
-### Windows
-# Windows thumbnail cache files
-Thumbs.db
+# 1. 系統或編輯器自己產生的隱藏檔 (Mac 必加)
+.DS_Store
+.vscode/
 
-# Folder config file
-[Dd]esktop.ini
+# 2. 超級肥大的外部套件庫 (剛剛害你卡住的元凶)
+node_modules/
 
-# Recycle Bin used on file shares
-$RECYCLE.BIN/
+# 3. Next.js 每次執行時自動產生的編譯與暫存檔
+.next/
+/out/
+build/
 
-# Windows shortcuts
-*.lnk
+# 4. 存放密碼或 API 鑰匙的機密檔案 (絕對不能上傳給別人看！)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 5. 各種當機或除錯紀錄檔
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
