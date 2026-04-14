@@ -39,24 +39,24 @@ export const CompareInsightsPanel: React.FC<Props> = ({ insights, symbolColors =
         const primarySymbol = extractPrimarySymbol(card.symbol);
         const color = primarySymbol
           ? (symbolColors[primarySymbol] ?? fallbackColor(primarySymbol))
-          : '#94a3b8';
+          : 'var(--color-text-muted)';
 
         return (
           <article
             key={card.id}
-            className="rounded-2xl border border-gray-200/80 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
+            className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 shadow-sm"
           >
-            <p className="text-xs text-gray-500 dark:text-gray-400">{card.title}</p>
+            <p className="text-xs text-[var(--color-text-muted)]">{card.title}</p>
             <div className="mt-2 flex items-center gap-2">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-full"
                 style={{ backgroundColor: color }}
                 aria-hidden
               />
-              <p className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-200">{card.symbol}</p>
+              <p className="text-sm font-mono font-semibold text-[var(--color-text-primary)]">{card.symbol}</p>
             </div>
-            <p className="mt-2 text-xl font-bold tracking-tight text-[#c2410c] dark:text-[#fb923c]">{card.value}</p>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{card.reason}</p>
+            <p className="mt-2 text-xl font-bold tracking-tight text-brand-deep dark:text-brand">{card.value}</p>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-muted)]">{card.reason}</p>
           </article>
         );
       })}

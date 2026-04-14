@@ -19,6 +19,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  /** RAG 串流：後端 `type: "status"` 的即時狀態列（思考／搜尋中等） */
+  streamStatus?: string;
 }
 
 // ── Advisor Report Types ──
@@ -240,6 +242,10 @@ export interface AuthTokenResponse {
   token_type: string;
   expires_in: number;
   user: UserPublic;
+}
+
+export interface MessageResponse {
+  message: string;
 }
 
 // ── Backend API Response Types (matching openapi.json schemas) ──

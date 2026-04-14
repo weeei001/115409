@@ -34,16 +34,16 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
     >
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-baseline gap-3">
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-baseline gap-3">
             {data.symbol}
-            <span className="text-sm sm:text-base text-gray-400 dark:text-gray-500">{data.date}</span>
+            <span className="text-sm sm:text-base text-[var(--color-text-muted)] tabular-nums">{data.date}</span>
           </h1>
         </div>
         <div className="sm:text-right">
-          <div className="text-2xl sm:text-4xl font-mono font-bold text-gray-900 dark:text-gray-100">
+          <div className="text-2xl sm:text-4xl font-mono font-bold tabular-nums">
             {fmtPrice(data.close)}
           </div>
-          <div className={`flex items-center sm:justify-end gap-1 text-sm font-medium ${isUp ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+          <div className={`flex items-center sm:justify-end gap-1 text-sm font-medium font-mono tabular-nums ${isUp ? 'text-up' : 'text-down'}`}>
             {isUp ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
             <span>{isUp ? '+' : ''}{change.toFixed(2)}</span>
             <span>({changePct != null ? `${isUp ? '+' : ''}${changePct}%` : '--'})</span>
@@ -55,10 +55,10 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
         {infoItems.map((item) => (
           <div
             key={item.label}
-            className="bg-gray-50 dark:bg-gray-800 rounded-xl px-4 py-3 border border-gray-100 dark:border-gray-700"
+            className="bg-[var(--color-bg-elevated)] rounded-xl px-4 py-3 border border-[var(--color-border)]"
           >
-            <div className="text-xs text-gray-400 dark:text-gray-500 mb-1">{item.label}</div>
-            <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 font-mono">{item.value}</div>
+            <div className="text-xs text-[var(--color-text-muted)] mb-1">{item.label}</div>
+            <div className="text-sm font-semibold font-mono tabular-nums">{item.value}</div>
           </div>
         ))}
       </div>

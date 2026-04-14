@@ -278,7 +278,7 @@ export default function ComparePage() {
   const availableSymbols = allSymbols.filter((s) => !selected.includes(s));
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen flex flex-col text-[var(--color-text-primary)]">
       <Head>
         <title>股海明燈｜多股比較</title>
         <meta
@@ -293,9 +293,9 @@ export default function ComparePage() {
         subtitle="前端運算比較，後端提供原始行情資料"
       />
 
-      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
-        <motion.section
-          className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm p-5 sm:p-6 flex flex-col gap-4"
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
+        <motion.div
+          className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-5 sm:p-6 flex flex-col gap-4"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -311,7 +311,7 @@ export default function ComparePage() {
               placeholder="新增股票代號..."
             />
             <DateRangePicker
-              className="shrink-0 lg:pl-5 lg:ml-1 lg:border-l lg:border-gray-100 dark:lg:border-gray-600"
+              className="shrink-0 lg:pl-5 lg:ml-1 lg:border-l lg:border-[var(--color-border)]"
               startDate={startDate}
               endDate={endDate}
               onStartChange={setStartDate}
@@ -319,13 +319,13 @@ export default function ComparePage() {
             />
           </div>
 
-          <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-text-muted)]">
             <p>已選 {selected.length}/{MAX_COMPARE_STOCKS}；至少 2 檔才可比較。</p>
             {selected.length > 0 && (
               <button
                 type="button"
                 onClick={clearSymbols}
-                className="px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-red-300 text-gray-500 hover:text-red-500 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-up/50 hover:text-up cursor-pointer"
               >
                 清空全部
               </button>
@@ -337,13 +337,13 @@ export default function ComparePage() {
               {selected.map((sym) => (
                 <span
                   key={sym}
-                  className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-[#fff7ed] dark:bg-[#ffa95a]/15 border border-[#ffa95a]/50 text-sm font-mono font-medium text-[#ea580c] dark:text-[#ffa95a]"
+                  className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-brand/5 dark:bg-brand/15 border border-brand/40 text-sm font-mono font-medium text-brand-deep dark:text-brand"
                 >
                   {sym}
                   <button
                     type="button"
                     onClick={() => removeSymbol(sym)}
-                    className="rounded-full p-0.5 text-[#ea580c]/70 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors cursor-pointer"
+                    className="rounded-full p-0.5 text-brand-deep/70 hover:text-up hover:bg-up-muted transition-colors cursor-pointer"
                     aria-label={`移除 ${sym}`}
                   >
                     <X size={14} strokeWidth={2.5} />
@@ -354,19 +354,19 @@ export default function ComparePage() {
           )}
 
           {error && (
-            <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+            <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
               {error}
             </div>
           )}
 
           {metricsError && (
-            <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+            <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
               {metricsError}
             </div>
           )}
 
           {warnings.length > 0 && (
-            <div className="px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+            <div className="px-4 py-3 rounded-xl bg-amber-50/90 dark:bg-amber-900/20 border border-amber-200/90 dark:border-amber-800/80 text-xs text-amber-800 dark:text-amber-300 space-y-1">
               {warnings.map((warning) => (
                 <p key={warning}>• {warning}</p>
               ))}
@@ -377,14 +377,15 @@ export default function ComparePage() {
             type="button"
             onClick={handleCompare}
             disabled={chartLoading || metricsLoading || selected.length < 2}
-            className="w-full sm:w-auto sm:self-start px-8 py-3 rounded-2xl bg-gradient-to-r from-[#ffa95a] to-[#ffb347] text-white text-[15px] font-semibold shadow-md shadow-[#ffa95a]/25
-                       hover:shadow-lg hover:shadow-[#ffa95a]/30 hover:brightness-[1.02] transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none"
+            className="w-full sm:w-auto sm:self-start px-8 py-3 rounded-2xl text-white text-[15px] font-semibold shadow-md shadow-brand/25
+                       hover:shadow-lg hover:brightness-[1.02] transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none"
+            style={{ background: 'var(--brand-gradient)' }}
           >
             {chartLoading ? '載入主圖資料...' : metricsLoading ? '計算比較指標...' : '開始比較'}
           </button>
 
           {(chartLoading || metricsLoading) && (
-            <div className="text-xs text-gray-500 dark:text-gray-400">
+            <div className="text-xs text-[var(--color-text-muted)]">
               {chartLoading && <p>主圖資料載入中...</p>}
               {metricsLoading && metricsProgress && (
                 <p>指標資料載入中：{metricsProgress.done}/{metricsProgress.total}</p>
@@ -394,21 +395,53 @@ export default function ComparePage() {
 
           {compareData && (
             <div
-              className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-600/80 w-full sm:w-fit"
+              className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] w-full sm:w-fit"
               role="tablist"
               aria-label="圖表顯示模式"
+              onKeyDown={(e) => {
+                const keys = MODE_BUTTONS.map((m) => m.key);
+                const idx = keys.indexOf(chartMode);
+                let next = idx;
+                switch (e.key) {
+                  case 'ArrowRight':
+                  case 'ArrowDown':
+                    e.preventDefault();
+                    next = (idx + 1) % keys.length;
+                    break;
+                  case 'ArrowLeft':
+                  case 'ArrowUp':
+                    e.preventDefault();
+                    next = (idx - 1 + keys.length) % keys.length;
+                    break;
+                  case 'Home':
+                    e.preventDefault();
+                    next = 0;
+                    break;
+                  case 'End':
+                    e.preventDefault();
+                    next = keys.length - 1;
+                    break;
+                  default:
+                    return;
+                }
+                setChartMode(keys[next]);
+                const btn = e.currentTarget.querySelector<HTMLElement>(`[data-tab="${keys[next]}"]`);
+                btn?.focus();
+              }}
             >
               {MODE_BUTTONS.map((m) => (
                 <button
                   key={m.key}
+                  data-tab={m.key}
                   type="button"
                   role="tab"
                   aria-selected={chartMode === m.key}
+                  tabIndex={chartMode === m.key ? 0 : -1}
                   onClick={() => setChartMode(m.key)}
                   className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                     chartMode === m.key
-                      ? 'bg-white dark:bg-gray-800 text-[#c2410c] dark:text-[#ffa95a] shadow-sm ring-1 ring-[#ffa95a]/30'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-[#b45309] dark:hover:text-gray-200'
+                      ? 'bg-[var(--color-bg-card)] text-brand-deep dark:text-brand shadow-sm ring-1 ring-brand/30'
+                      : 'text-[var(--color-text-muted)] hover:text-brand-deep dark:hover:text-[var(--color-text-primary)]'
                   }`}
                 >
                   {m.label}
@@ -416,7 +449,7 @@ export default function ComparePage() {
               ))}
             </div>
           )}
-        </motion.section>
+        </motion.div>
 
         {viewModel && <CompareInsightsPanel insights={viewModel.insights} symbolColors={viewModel.symbolColors} />}
 
