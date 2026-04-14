@@ -1,14 +1,16 @@
 ﻿import React from 'react';
 import { motion } from 'motion/react';
 import { useTheme } from '../lib/ThemeContext';
+import type { ChartPalette } from '../lib/chartTheme';
+import { getChartPalette } from '../lib/chartTheme';
 
 interface Props {
   symbols: string[];
   matrix: Record<string, Record<string, number | null>>;
 }
 
-function colorForCorrelation(value: number | null, isDark: boolean): string {
-  if (value == null) return isDark ? '#334155' : '#f1f5f9';
+function colorForCorrelation(value: number | null, isDark: boolean, nullBg: string): string {
+  if (value == null) return nullBg;
 
   const clamped = Math.max(-1, Math.min(1, value));
   const normalized = (clamped + 1) / 2; // -1 -> 0, +1 -> 1
@@ -21,16 +23,16 @@ function colorForCorrelation(value: number | null, isDark: boolean): string {
   return `hsl(${hue} ${saturation}% ${lightness}%)`;
 }
 
-function textColorForCorrelation(value: number | null, isDark: boolean): string {
-  if (value == null) return isDark ? '#e2e8f0' : '#334155';
+function textColorForCorrelation(value: number | null, p: ChartPalette): string {
+  if (value == null) return p.heatmapTextStrong;
   const abs = Math.abs(value);
-  if (isDark) return abs >= 0.45 ? '#f8fafc' : '#e2e8f0';
-  return abs >= 0.45 ? '#111827' : '#1f2937';
+  return abs >= 0.45 ? p.heatmapTextStrong : p.heatmapTextWeak;
 }
 
 export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const c = getChartPalette(isDark);
 
   if (symbols.length < 2) return null;
 
@@ -40,10 +42,10 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/80 space-y-1">
-          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">報酬率相關性矩陣</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+      <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--color-border)] space-y-1">
+          <h3 className="text-base font-bold text-[var(--color-text-primary)]">報酬率相關性矩陣</h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
             色階範圍為 -1 至 +1；數值越接近 -1，分散效果通常越高。
           </p>
         </div>
@@ -54,7 +56,7 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
               <tr>
                 <th className="w-14" />
                 {symbols.map((sym) => (
-                  <th key={`head-${sym}`} className="px-2 py-1 text-gray-500 dark:text-gray-300 font-mono">
+                  <th key={`head-${sym}`} className="px-2 py-1 text-[var(--color-text-secondary)] font-mono">
                     {sym}
                   </th>
                 ))}
@@ -63,11 +65,12 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
             <tbody>
               {symbols.map((rowSym) => (
                 <tr key={`row-${rowSym}`}>
-                  <th className="px-2 py-1 text-left text-gray-500 dark:text-gray-300 font-mono">{rowSym}</th>
+                  <th className="px-2 py-1 text-left text-[var(--color-text-secondary)] font-mono">{rowSym}</th>
                   {symbols.map((colSym) => {
                     const val = matrix[rowSym]?.[colSym] ?? null;
-                    const backgroundColor = colorForCorrelation(val, isDark);
-                    const textColor = textColorForCorrelation(val, isDark);
+                    const isDiagonal = rowSym === colSym;
+                    const backgroundColor = isDiagonal ? c.up : colorForCorrelation(val, isDark, c.heatmapNullBg);
+                    const textColor = isDiagonal ? '#ffffff' : textColorForCorrelation(val, c);
                     return (
                       <td
                         key={`${rowSym}-${colSym}`}
@@ -94,12 +97,12 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
               }}
               aria-hidden
             />
-            <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-between text-[11px] text-[var(--color-text-muted)]">
               <span>負相關 (-1)</span>
               <span>低相關 (0)</span>
               <span>正相關 (+1)</span>
             </div>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            <p className="text-[11px] text-[var(--color-text-muted)]">
               解讀建議：|ρ| ≥ 0.7 為高相關、0.3~0.7 為中度相關、&lt; 0.3 為低相關。
             </p>
           </div>

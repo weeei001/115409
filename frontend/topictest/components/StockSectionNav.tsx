@@ -145,7 +145,7 @@ export function StockSectionNav() {
       aria-label="個股區塊導覽"
     >
       <div
-        className="rounded-2xl border border-gray-200/90 dark:border-gray-600/80 bg-gradient-to-b from-white via-white to-gray-50/95 dark:from-gray-800 dark:via-gray-800/98 dark:to-gray-900/95 shadow-[0_1px_0_0_rgba(0,0,0,0.04)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)] p-2 sm:p-2.5"
+        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[var(--shadow-card)] p-2 sm:p-2.5"
       >
         <div
           ref={navScrollRef}
@@ -167,11 +167,11 @@ export function StockSectionNav() {
                   armSuppressFromNavClick();
                 }}
                 className={clsx(
-                  'group flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-2 sm:px-3.5 sm:py-2.5 text-xs sm:text-[13px] font-medium transition-all duration-200',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ffa95a]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900',
+                  'group flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 min-h-[44px] sm:min-h-0 py-2 sm:px-3.5 sm:py-2.5 text-xs sm:text-[13px] font-medium transition-all duration-200',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg-card)]',
                   isActive
-                    ? 'border-[#ffa95a]/55 bg-gradient-to-br from-[#ffa95a]/18 via-[#ffd45a]/12 to-transparent text-amber-950 shadow-sm dark:border-[#ffd45a]/45 dark:text-[#ffe7a8] dark:from-[#ffa95a]/25 dark:via-[#ffd45a]/12'
-                    : 'border-transparent bg-gray-100/80 text-gray-600 hover:border-[#ffa95a]/35 hover:bg-amber-50/90 hover:text-amber-900 dark:bg-gray-700/50 dark:text-gray-300 dark:hover:border-[#ffd45a]/30 dark:hover:bg-gray-600/80 dark:hover:text-[#ffd45a]',
+                    ? 'border-brand/55 bg-gradient-to-br from-brand/18 via-brand-light/12 to-transparent text-[var(--color-text-primary)] shadow-sm dark:border-brand-light/45 dark:text-brand-light dark:from-brand/25 dark:via-brand-light/12'
+                    : 'border-transparent bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:border-brand/35 hover:bg-brand/5 hover:text-brand-deep dark:hover:border-brand-light/30 dark:hover:text-brand-light',
                 )}
                 aria-current={isActive ? 'location' : undefined}
               >
@@ -179,8 +179,8 @@ export function StockSectionNav() {
                   className={clsx(
                     'h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4 transition-colors',
                     isActive
-                      ? 'text-[#c76b1a] dark:text-[#ffd45a]'
-                      : 'text-gray-400 group-hover:text-[#c76b1a] dark:text-gray-500 dark:group-hover:text-[#ffd45a]',
+                      ? 'text-brand-deep dark:text-brand-light'
+                      : 'text-[var(--color-text-muted)] group-hover:text-brand-deep dark:group-hover:text-brand-light',
                   )}
                   aria-hidden
                 />

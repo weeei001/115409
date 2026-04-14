@@ -50,15 +50,15 @@ function formatMarkupBasis(basis: SimulatedOrderResponse['markup_basis']): strin
 
 function formatReferenceCell(o: SimulatedOrderResponse): React.ReactNode {
   if (!o.reference_date && o.reference_close == null) {
-    return <span className="text-gray-400 dark:text-gray-500">—</span>;
+    return <span className="text-[var(--color-text-muted)]">—</span>;
   }
   return (
     <div className="text-right space-y-0.5">
       {o.reference_date && (
-        <div className="font-mono text-xs whitespace-nowrap text-gray-700 dark:text-gray-200">{o.reference_date}</div>
+        <div className="font-mono text-xs whitespace-nowrap text-[var(--color-text-secondary)]">{o.reference_date}</div>
       )}
       {o.reference_close != null && (
-        <div className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+        <div className="font-mono text-[11px] text-[var(--color-text-muted)]">
           {o.reference_close.toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -302,7 +302,7 @@ export default function OrderPage() {
     symbolTrimmed.length > 0 && /^[0-9A-Z.]+$/.test(symbolTrimmed);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50/60 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen flex flex-col text-[var(--color-text-primary)]">
       <Head>
         <title>股海明燈｜模擬下單</title>
         <meta
@@ -316,31 +316,31 @@ export default function OrderPage() {
         subtitle="模擬交易與損益紀錄"
       />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
           <div className="flex items-center gap-2 mb-5">
-            <ShoppingCart size={18} className="text-[#ffa95a]" />
+            <ShoppingCart size={18} className="text-brand" />
             <h2 className="text-lg font-bold">委託下單</h2>
-            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">（連線後端）</span>
+            <span className="text-xs text-[var(--color-text-muted)] ml-1">（連線後端）</span>
           </div>
 
           {userId && (
             <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm">
-              <span className="text-gray-500 dark:text-gray-400 shrink-0">
+              <span className="text-[var(--color-text-muted)] shrink-0">
                 {identityFromLogin ? '帳號識別（Email）' : '匿名使用者 ID'}
               </span>
               <div className="flex flex-wrap items-center gap-2 min-w-0">
-                <code className="px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700/80 font-mono text-xs break-all">
+                <code className="px-2 py-1 rounded-lg bg-[var(--color-bg-elevated)]/80 font-mono text-xs break-all">
                   {userId}
                 </code>
                 <button
                   type="button"
                   onClick={() => void handleCopyUserId()}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-[#ffa95a] hover:text-[#ffa95a] transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-[var(--color-border)] text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] hover:border-brand/40 hover:text-brand transition-colors cursor-pointer"
                 >
                   <Copy size={14} />
                   複製
@@ -349,7 +349,7 @@ export default function OrderPage() {
                   <button
                     type="button"
                     onClick={handleResetUserId}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-brand/30 dark:border-brand/25 text-xs text-brand-deep dark:text-brand-light hover:bg-brand/5 dark:hover:bg-brand/10 transition-colors cursor-pointer"
                   >
                     <RefreshCw size={14} />
                     重新產生 ID
@@ -359,12 +359,12 @@ export default function OrderPage() {
             </div>
           )}
 
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-6">
             {error && (
               <div
                 id="order-form-error"
                 role="alert"
-                className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400"
+                className="mb-5 px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up"
               >
                 {error}
               </div>
@@ -372,7 +372,7 @@ export default function OrderPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="order-symbol" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="order-symbol" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                   股票代號
                 </label>
                 <input
@@ -386,26 +386,26 @@ export default function OrderPage() {
                   maxLength={12}
                   aria-invalid={fieldInvalid.symbol}
                   aria-describedby={error ? 'order-form-error' : undefined}
-                  className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                  className={`w-full px-4 py-2.5 rounded-lg border bg-[var(--color-bg-elevated)] text-sm font-mono text-[var(--color-text-primary)]
+                             focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
                              ${
                                fieldInvalid.symbol
-                                 ? 'border-red-400 dark:border-red-500'
-                                 : 'border-gray-200 dark:border-gray-600'
+                                 ? 'border-up'
+                                 : 'border-[var(--color-border)]'
                              }`}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">買賣方向</label>
+                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">買賣方向</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setSide('buy')}
                     className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
                       side === 'buy'
-                        ? 'border-red-400 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                        : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                        ? 'border-up bg-up-muted text-up'
+                        : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
                     }`}
                   >
                     <ArrowUpCircle size={16} />
@@ -416,8 +416,8 @@ export default function OrderPage() {
                     onClick={() => setSide('sell')}
                     className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
                       side === 'sell'
-                        ? 'border-green-400 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                        : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                        ? 'border-down bg-down-muted text-down'
+                        : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
                     }`}
                   >
                     <ArrowDownCircle size={16} />
@@ -427,9 +427,9 @@ export default function OrderPage() {
               </div>
 
               <div className={side === 'sell' ? 'md:col-span-2' : undefined}>
-                <label htmlFor="order-trade-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="order-trade-date" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                   模擬下單日
-                  <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">（選填，預設今日）</span>
+                  <span className="text-[var(--color-text-muted)] font-normal ml-1">（選填，預設今日）</span>
                 </label>
                 <input
                   id="order-trade-date"
@@ -439,21 +439,21 @@ export default function OrderPage() {
                   onChange={(e) => setTradeDate(e.target.value)}
                   aria-invalid={fieldInvalid.tradeDate}
                   aria-describedby={error ? 'order-form-error' : undefined}
-                  className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                  className={`w-full px-4 py-2.5 rounded-lg border bg-[var(--color-bg-elevated)] text-sm font-mono text-[var(--color-text-primary)]
+                             focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
                              ${
                                fieldInvalid.tradeDate
-                                 ? 'border-red-400 dark:border-red-500'
-                                 : 'border-gray-200 dark:border-gray-600'
+                                 ? 'border-up'
+                                 : 'border-[var(--color-border)]'
                              }`}
                 />
               </div>
 
               {side === 'buy' && (
                 <div className="min-w-0">
-                  <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  <span className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                     賣出時間
-                    <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">
+                    <span className="text-[var(--color-text-muted)] font-normal ml-1">
                       （買進時可記錄未來預計賣出日，僅紀錄用）
                     </span>
                   </span>
@@ -466,8 +466,8 @@ export default function OrderPage() {
                       }}
                       className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                         sellPlan === 'long_term'
-                          ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
-                          : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                          ? 'border-brand bg-brand/5 dark:bg-brand/15 text-brand-deep dark:text-brand'
+                          : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
                       }`}
                     >
                       長期持有
@@ -477,8 +477,8 @@ export default function OrderPage() {
                       onClick={() => setSellPlan('by_date')}
                       className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                         sellPlan === 'by_date'
-                          ? 'border-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/15 text-[#b97a3a] dark:text-[#ffa95a]'
-                          : 'border-gray-200 dark:border-gray-600 text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+                          ? 'border-brand bg-brand/5 dark:bg-brand/15 text-brand-deep dark:text-brand'
+                          : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
                       }`}
                     >
                       指定賣出日
@@ -492,7 +492,7 @@ export default function OrderPage() {
                   side === 'sell' || (side === 'buy' && sellPlan === 'long_term') ? 'md:col-span-2' : undefined
                 }
               >
-                <label htmlFor="order-quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="order-quantity" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                   委託數量（張）
                 </label>
                 <input
@@ -516,24 +516,24 @@ export default function OrderPage() {
                     : {})}
                   aria-invalid={fieldInvalid.quantity || fieldInvalid.holding}
                   aria-describedby={error ? 'order-form-error' : undefined}
-                  className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                             focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                  className={`w-full px-4 py-2.5 rounded-lg border bg-[var(--color-bg-elevated)] text-sm font-mono text-[var(--color-text-primary)]
+                             focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
                              ${
                                fieldInvalid.quantity || fieldInvalid.holding
-                                 ? 'border-red-400 dark:border-red-500'
-                                 : 'border-gray-200 dark:border-gray-600'
+                                 ? 'border-up'
+                                 : 'border-[var(--color-border)]'
                              }`}
                 />
                 {side === 'sell' && symbolTrimmed.length > 0 && (
                   <p
                     className={`mt-1.5 text-xs ${
                       !symbolValidForLots
-                        ? 'text-amber-700 dark:text-amber-300'
+                        ? 'text-brand-deep dark:text-brand-light'
                         : availableLotsLoading || availableLots === null
-                          ? 'text-gray-500 dark:text-gray-400'
+                          ? 'text-[var(--color-text-muted)]'
                           : availableLots <= 0
-                            ? 'text-amber-700 dark:text-amber-300'
-                            : 'text-gray-500 dark:text-gray-400'
+                            ? 'text-brand-deep dark:text-brand-light'
+                            : 'text-[var(--color-text-muted)]'
                     }`}
                   >
                     可賣張數（後端依委託推算）：
@@ -553,7 +553,7 @@ export default function OrderPage() {
 
               {side === 'buy' && sellPlan === 'by_date' && (
                 <div className="min-w-0">
-                  <label htmlFor="order-planned-sell" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  <label htmlFor="order-planned-sell" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                     預計賣出日
                   </label>
                   <input
@@ -564,12 +564,12 @@ export default function OrderPage() {
                     onChange={(e) => setPlannedSellDate(e.target.value)}
                     aria-invalid={fieldInvalid.sellPlan}
                     aria-describedby={error ? 'order-form-error' : undefined}
-                    className={`w-full px-4 py-2.5 rounded-lg border bg-white dark:bg-gray-700 text-sm font-mono dark:text-gray-200
-                               focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+                    className={`w-full px-4 py-2.5 rounded-lg border bg-[var(--color-bg-elevated)] text-sm font-mono text-[var(--color-text-primary)]
+                               focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
                                ${
                                  fieldInvalid.sellPlan
-                                   ? 'border-red-400 dark:border-red-500'
-                                   : 'border-gray-200 dark:border-gray-600'
+                                   ? 'border-up'
+                                   : 'border-[var(--color-border)]'
                                }`}
                   />
                 </div>
@@ -577,9 +577,9 @@ export default function OrderPage() {
             </div>
 
             <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-              <div className="min-w-0 flex-1 px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-600">
-                <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">預估金額與試算</p>
-                <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed max-sm:whitespace-normal sm:whitespace-nowrap">
+              <div className="min-w-0 flex-1 px-4 py-2.5 rounded-lg bg-[var(--color-bg-elevated)]/50 border border-[var(--color-border)]">
+                <p className="text-xs text-[var(--color-text-muted)] mb-0.5">預估金額與試算</p>
+                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed max-sm:whitespace-normal sm:whitespace-nowrap">
                   金額依<strong className="font-medium">成交日收盤</strong>試算；列表中的試算損益由後端標示依據（最新收盤、預計賣出日或賣出實現）。
                 </p>
               </div>
@@ -595,8 +595,8 @@ export default function OrderPage() {
                 onClick={handleSubmit}
                 className={`shrink-0 self-end sm:self-auto px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   side === 'buy'
-                    ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20'
-                    : 'bg-green-500 hover:bg-green-600 text-white shadow-green-500/20'
+                    ? 'bg-up hover:bg-up/90 text-white shadow-up/20'
+                    : 'bg-down hover:bg-down/90 text-white shadow-down/20'
                 }`}
               >
                 {submitting ? <Loader2 size={18} className="animate-spin" /> : <ShoppingCart size={18} />}
@@ -614,7 +614,7 @@ export default function OrderPage() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl p-6 w-full max-w-sm mx-4"
+              className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-2xl p-6 w-full max-w-sm mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
@@ -622,7 +622,7 @@ export default function OrderPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirm(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
                 >
                   <X size={20} />
                 </button>
@@ -630,38 +630,38 @@ export default function OrderPage() {
 
               <div className="flex flex-col gap-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-400 dark:text-gray-500">股票代號</span>
+                  <span className="text-[var(--color-text-muted)]">股票代號</span>
                   <span className="font-mono font-semibold">{symbol.trim().toUpperCase()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400 dark:text-gray-500">方向</span>
+                  <span className="text-[var(--color-text-muted)]">方向</span>
                   <span
                     className={
                       side === 'buy'
-                        ? 'text-red-600 dark:text-red-400 font-semibold'
-                        : 'text-green-600 dark:text-green-400 font-semibold'
+                        ? 'text-up font-semibold'
+                        : 'text-down font-semibold'
                     }
                   >
                     {side === 'buy' ? '買進' : '賣出'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400 dark:text-gray-500">模擬下單日</span>
+                  <span className="text-[var(--color-text-muted)]">模擬下單日</span>
                   <span className="font-mono">{tradeDate.trim() || todayStr}</span>
                 </div>
                 {side === 'buy' && (
                   <div className="flex justify-between gap-2">
-                    <span className="text-gray-400 dark:text-gray-500 shrink-0">賣出時間</span>
+                    <span className="text-[var(--color-text-muted)] shrink-0">賣出時間</span>
                     <span className="text-right font-medium">
                       {sellPlan === 'long_term' ? '長期持有' : plannedSellDate.trim() || '—'}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-gray-400 dark:text-gray-500">數量</span>
+                  <span className="text-[var(--color-text-muted)]">數量</span>
                   <span className="font-mono">{parseInt(quantity, 10)} 張</span>
                 </div>
-                <div className="border-t border-gray-100 dark:border-gray-700 pt-3 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                <div className="border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-text-muted)] leading-relaxed">
                   送出後由後端依收盤計算金額；委託列表會顯示試算依據與參考行情。
                 </div>
               </div>
@@ -671,7 +671,7 @@ export default function OrderPage() {
                   type="button"
                   onClick={() => setShowConfirm(false)}
                   disabled={submitting}
-                  className="py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  className="py-2.5 rounded-xl border border-[var(--color-border)] text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-bg-elevated)] transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   取消
                 </button>
@@ -680,7 +680,7 @@ export default function OrderPage() {
                   onClick={() => void confirmOrder()}
                   disabled={submitting}
                   className={`py-2.5 rounded-xl text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                    side === 'buy' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
+                    side === 'buy' ? 'bg-up hover:bg-up/90' : 'bg-down hover:bg-down/90'
                   }`}
                 >
                   {submitting && <Loader2 size={16} className="animate-spin" />}
@@ -697,13 +697,13 @@ export default function OrderPage() {
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           <div className="flex items-center gap-2 mb-5">
-            <PieChart size={18} className="text-[#ffa95a]" />
+            <PieChart size={18} className="text-brand" />
             <h2 className="text-lg font-bold">依股票彙總（模擬收益）</h2>
-            {profitLoading && <Loader2 size={16} className="animate-spin text-gray-400" />}
+            {profitLoading && <Loader2 size={16} className="animate-spin text-[var(--color-text-muted)]" />}
           </div>
 
           {profitSummary && (
-            <div className="mb-4 flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-300">
+            <div className="mb-4 flex flex-wrap gap-4 text-sm text-[var(--color-text-secondary)]">
               <span>
                 總委託 <strong className="font-mono">{profitSummary.total_orders}</strong> 筆
               </span>
@@ -716,24 +716,24 @@ export default function OrderPage() {
             </div>
           )}
 
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden mb-8">
-            <p className="px-5 pt-3 pb-0 text-[11px] text-gray-400 dark:text-gray-500 sm:hidden">← 左右滑動查看完整表格 →</p>
+          <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden mb-8">
+            <p className="px-5 pt-3 pb-0 text-[11px] text-[var(--color-text-muted)] sm:hidden">← 左右滑動查看完整表格 →</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50/80 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">股票</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">筆數</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">成本（元）</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">市值（元）</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">損益（元）</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">收益率</th>
+                  <tr className="bg-[var(--color-bg-elevated)]/80 border-b border-[var(--color-border)]">
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)]">股票</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">筆數</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">成本（元）</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">市值（元）</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">損益（元）</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">收益率</th>
                   </tr>
                 </thead>
                 <tbody>
                   {profitLoading ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={6} className="text-center py-12 text-[var(--color-text-muted)]">
                         <span className="inline-flex items-center gap-2">
                           <Loader2 size={18} className="animate-spin" />
                           載入中…
@@ -742,7 +742,7 @@ export default function OrderPage() {
                     </tr>
                   ) : profitRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={6} className="text-center py-12 text-[var(--color-text-muted)]">
                         尚無彙總資料
                       </td>
                     </tr>
@@ -750,7 +750,7 @@ export default function OrderPage() {
                     profitRows.map((row) => (
                       <tr
                         key={row.category}
-                        className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors"
+                        className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50 transition-colors"
                       >
                         <td className="px-5 py-3 font-mono font-semibold">{row.category}</td>
                         <td className="px-5 py-3 text-right font-mono text-xs">{row.order_count}</td>
@@ -758,7 +758,7 @@ export default function OrderPage() {
                         <td className="px-5 py-3 text-right font-mono text-xs">{row.market_amount.toLocaleString()}</td>
                         <td
                           className={`px-5 py-3 text-right font-mono text-xs font-medium ${
-                            row.profit_amount >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                            row.profit_amount >= 0 ? 'text-up' : 'text-down'
                           }`}
                         >
                           {row.profit_amount >= 0 ? '+' : ''}
@@ -782,38 +782,38 @@ export default function OrderPage() {
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <div className="flex items-center gap-2 mb-5">
-            <ClipboardList size={18} className="text-[#ffa95a]" />
+            <ClipboardList size={18} className="text-brand" />
             <h2 className="text-lg font-bold">委託紀錄</h2>
-            {listLoading && <Loader2 size={16} className="animate-spin text-gray-400" />}
+            {listLoading && <Loader2 size={16} className="animate-spin text-[var(--color-text-muted)]" />}
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-            <p className="px-5 pt-3 pb-0 text-[11px] text-gray-400 dark:text-gray-500 sm:hidden">← 左右滑動查看完整表格 →</p>
+          <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+            <p className="px-5 pt-3 pb-0 text-[11px] text-[var(--color-text-muted)] sm:hidden">← 左右滑動查看完整表格 →</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50/80 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">委託編號</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">股票</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">方向</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">下單日</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400">賣出時間</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">數量</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">預估金額</th>
-                    <th className="text-left px-5 py-3 font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  <tr className="bg-[var(--color-bg-elevated)]/80 border-b border-[var(--color-border)]">
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)]">委託編號</th>
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)]">股票</th>
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)]">方向</th>
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)]">下單日</th>
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)]">賣出時間</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">數量</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">預估金額</th>
+                    <th className="text-left px-5 py-3 font-medium text-[var(--color-text-muted)] whitespace-nowrap">
                       試算依據
                     </th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)] whitespace-nowrap">
                       參考行情
                     </th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">試算損益</th>
-                    <th className="text-right px-5 py-3 font-medium text-gray-500 dark:text-gray-400">收益率</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">試算損益</th>
+                    <th className="text-right px-5 py-3 font-medium text-[var(--color-text-muted)]">收益率</th>
                   </tr>
                 </thead>
                 <tbody>
                   {listLoading ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={11} className="text-center py-12 text-[var(--color-text-muted)]">
                         <span className="inline-flex items-center gap-2">
                           <Loader2 size={18} className="animate-spin" />
                           載入中…
@@ -822,7 +822,7 @@ export default function OrderPage() {
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-12 text-gray-400 dark:text-gray-500">
+                      <td colSpan={11} className="text-center py-12 text-[var(--color-text-muted)]">
                         尚無委託紀錄
                       </td>
                     </tr>
@@ -830,14 +830,14 @@ export default function OrderPage() {
                     orders.map((o) => (
                       <tr
                         key={o.id}
-                        className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors"
+                        className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50 transition-colors"
                       >
-                        <td className="px-5 py-3 font-mono text-xs text-gray-400 dark:text-gray-500">{o.id}</td>
+                        <td className="px-5 py-3 font-mono text-xs text-[var(--color-text-muted)]">{o.id}</td>
                         <td className="px-5 py-3 font-mono font-semibold">{o.symbol}</td>
                         <td className="px-5 py-3">
                           <span
                             className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                              o.side === 'buy' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                              o.side === 'buy' ? 'text-up' : 'text-down'
                             }`}
                           >
                             {o.side === 'buy' ? <ArrowUpCircle size={12} /> : <ArrowDownCircle size={12} />}
@@ -845,20 +845,20 @@ export default function OrderPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs whitespace-nowrap">{o.trade_date}</td>
-                        <td className="px-5 py-3 text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                        <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
                           {formatSellPlanCell(o)}
                         </td>
                         <td className="px-5 py-3 text-right font-mono text-xs">{o.quantity}</td>
                         <td className="px-5 py-3 text-right font-mono text-xs">
                           {o.estimated_amount.toLocaleString()}
                         </td>
-                        <td className="px-5 py-3 text-xs text-gray-600 dark:text-gray-300 align-top">
+                        <td className="px-5 py-3 text-xs text-[var(--color-text-secondary)] align-top">
                           {o.markup_basis ? (
-                            <span className="inline-flex items-center rounded-md bg-gray-100/90 dark:bg-gray-700/80 px-2 py-0.5 font-medium">
+                            <span className="inline-flex items-center rounded-md bg-[var(--color-bg-elevated)] px-2 py-0.5 font-medium">
                               {formatMarkupBasis(o.markup_basis)}
                             </span>
                           ) : (
-                            <span className="text-gray-400 dark:text-gray-500">—</span>
+                            <span className="text-[var(--color-text-muted)]">—</span>
                           )}
                         </td>
                         <td className="px-5 py-3 align-top">{formatReferenceCell(o)}</td>
@@ -866,14 +866,14 @@ export default function OrderPage() {
                           {o.markup_amount != null ? (
                             <span
                               className={`font-mono text-xs font-medium ${
-                                o.markup_amount >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                                o.markup_amount >= 0 ? 'text-up' : 'text-down'
                               }`}
                             >
                               {o.markup_amount >= 0 ? '+' : ''}
                               {o.markup_amount.toLocaleString()}
                             </span>
                           ) : (
-                            <span className="text-xs text-gray-400 dark:text-gray-500">
+                            <span className="text-xs text-[var(--color-text-muted)]">
                               {o.sell_plan === 'by_date' && o.planned_sell_date && o.planned_sell_date > todayStr
                                 ? '預計賣出日未到'
                                 : '—'}
@@ -884,7 +884,7 @@ export default function OrderPage() {
                           {o.markup_rate != null ? (
                             <span
                               className={
-                                o.markup_rate >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                                o.markup_rate >= 0 ? 'text-up' : 'text-down'
                               }
                             >
                               {o.markup_rate >= 0 ? '+' : ''}
