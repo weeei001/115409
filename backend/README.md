@@ -1,252 +1,482 @@
-# FastAPI + MySQL 股價查詢後端 API
+﻿# Backend API README
 
-使用 FastAPI 與 MySQL 的後端服務，提供股價查詢、K 線與圖表資料、統計與多股比較、技術指標、鉅亨新聞查詢，以及模擬下單相關 API。
+本文件為 `backend` 服務的單一事實來源（single source of truth），內容依據目前程式碼與 runtime OpenAPI 生成結果整理。
 
-啟動應用時，`main.py` 會透過 SQLAlchemy 對尚未存在的資料表執行 `create_all`；若你偏好手動建庫，可參考下方 SQL。
+- Base URL: `http://localhost:8000`
+- OpenAPI/Swagger: `/docs`
+- ReDoc: `/redoc`
+- Health Check: `/health`
+- API 規模: **39 條 path、40 個 operation（method + path）**
 
-## 專案結構
+---
 
-```text
-backend/
-├── main.py                 # 應用入口（註冊路由、生命週期、Uvicorn）
-├── config.py               # 環境變數與設定
-├── database.py             # SQLAlchemy 連線與 Session
-├── requirements.txt        # Python 依賴
-├── .env.example            # 環境變數範本
-├── API_DOCS.md             # 給前端的較完整 API 說明（股價／圖表等）
-├── models/                 # SQLAlchemy 模型
-├── schemas/                # Pydantic 資料模型
-├── crud/                   # 資料查詢與業務邏輯
-├── routers/                # API 路由（股價、新聞、技術指標、模擬下單）
-└── crawler/                # 爬蟲與批次作業（TWSE 日線、新聞、技術指標等）
-```
+## 1. 專案簡介與技術棧
 
-## 快速開始
+此服務提供台股資料查詢、技術指標、三大法人、新聞、模擬交易與 AI 分析 API。
 
-### 1. 建立虛擬環境
+核心技術：
 
-在 `backend/` 目錄下執行：
+- FastAPI
+- SQLAlchemy
+- MySQL（`mysql+pymysql`）
+- Pydantic v2
+- JWT（Bearer Token）
+- NVIDIA NIM（AI 分析）
+
+主要模組：
+
+- `routers/`：HTTP 路由
+- `crud/`：資料查詢/彙整邏輯
+- `models/`：SQLAlchemy Model
+- `schemas/`：Pydantic request/response schema
+- `agent/`：AI pipeline（raw/quick/final/report/stream）
+
+---
+
+## 2. 快速啟動
+
+### 2.1 前置需求
+
+- Python 3.12+
+- MySQL 8+
+- 可連線的資料庫（預設 `topic_stock`）
+
+### 2.2 建立虛擬環境與安裝套件（PowerShell）
 
 ```powershell
+cd backend
 python -m venv env
-```
-
-啟用虛擬環境：
-
-```powershell
 .\env\Scripts\Activate.ps1
-```
-
-若使用 CMD：
-
-```cmd
-env\Scripts\activate.bat
-```
-
-### 2. 安裝依賴
-
-```powershell
 pip install -r requirements.txt
 ```
 
-### 3. 設定環境變數
-
-複製 `.env.example` 成 `.env`：
+### 2.3 建立設定檔
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-編輯 `.env`，至少設定資料庫連線：
+至少確認下列欄位：
 
-```env
-DATABASE_HOST=localhost
-DATABASE_USER=root
-DATABASE_PASSWORD=your_password
-DATABASE_NAME=topic_stock
-DATABASE_PORT=3306
+- `DATABASE_HOST`
+- `DATABASE_USER`
+- `DATABASE_PASSWORD`
+- `DATABASE_NAME`
+- `DATABASE_PORT`
+- `JWT_SECRET`（正式環境務必更換）
 
-APP_NAME=FastAPI MySQL Application
-APP_VERSION=1.0.0
-DEBUG=True
+### 2.4 啟動服務
 
-# Uvicorn 啟動參數（python main.py 時使用）
-APP_HOST=0.0.0.0
-APP_PORT=8000
-APP_RELOAD=True
-```
-
-## MySQL 建庫與建表 SQL
-
-```sql
-CREATE DATABASE IF NOT EXISTS topic_stock
-	CHARACTER SET utf8mb4
-	COLLATE utf8mb4_unicode_ci;
-
-USE topic_stock;
-
-CREATE TABLE IF NOT EXISTS `daily_prices` (
-	`date` DATE NOT NULL COMMENT '日期',
-	`symbol` VARCHAR(10) NOT NULL COMMENT '股票代號',
-	`open` DECIMAL(10,2) DEFAULT NULL COMMENT '開盤價',
-	`high` DECIMAL(10,2) DEFAULT NULL COMMENT '最高價',
-	`low` DECIMAL(10,2) DEFAULT NULL COMMENT '最低價',
-	`close` DECIMAL(10,2) DEFAULT NULL COMMENT '收盤價',
-	`volume_shares` BIGINT DEFAULT NULL COMMENT '成交股數',
-	`amount` BIGINT DEFAULT NULL COMMENT '成交金額',
-	`change` DECIMAL(10,2) DEFAULT NULL COMMENT '漲跌價差',
-	`trades` INT DEFAULT NULL COMMENT '成交筆數',
-	PRIMARY KEY (`date`, `symbol`),
-	KEY `idx_symbol` (`symbol`),
-	KEY `idx_date` (`date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `crawl_checkpoint` (
-	`symbol` VARCHAR(10) NOT NULL COMMENT '股票代號',
-	`yyyymm` CHAR(6) NOT NULL COMMENT '完成月份(YYYYMM)',
-	PRIMARY KEY (`symbol`, `yyyymm`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `cnyes_tw_stock_news` (
-  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主鍵 ID',
-  `news_id` BIGINT NOT NULL COMMENT '來源新聞編號（唯一）',
-  `title` VARCHAR(500) NOT NULL COMMENT '新聞標題',
-  `content` LONGTEXT COMMENT '新聞內文',
-  `related_stocks` VARCHAR(500) DEFAULT NULL COMMENT '關聯股票（逗號分隔）',
-  `publish_time` DATETIME DEFAULT NULL COMMENT '發布時間',
-  `url` VARCHAR(1000) DEFAULT NULL COMMENT '原始新聞網址',
-  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '建立時間',
-  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新時間',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_news_id` (`news_id`),
-  KEY `idx_publish_time` (`publish_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
-CREATE TABLE IF NOT EXISTS `technical_indicators` (
-  `date` DATE NOT NULL COMMENT '日期',
-  `symbol` VARCHAR(10) NOT NULL COMMENT '股票代號',
-  `ma5` DECIMAL(10,2) DEFAULT NULL COMMENT '5日均線',
-  `ma10` DECIMAL(10,2) DEFAULT NULL COMMENT '10日均線',
-  `ma20` DECIMAL(10,2) DEFAULT NULL COMMENT '20日均線',
-  `ma60` DECIMAL(10,2) DEFAULT NULL COMMENT '60日均線',
-  `k_value` DECIMAL(6,2) DEFAULT NULL COMMENT 'KD K值',
-  `d_value` DECIMAL(6,2) DEFAULT NULL COMMENT 'KD D值',
-  `rsi14` DECIMAL(6,2) DEFAULT NULL COMMENT '14日RSI',
-  `macd` DECIMAL(10,4) DEFAULT NULL COMMENT 'MACD線',
-  `macd_signal` DECIMAL(10,4) DEFAULT NULL COMMENT 'MACD訊號線',
-  `macd_hist` DECIMAL(10,4) DEFAULT NULL COMMENT 'MACD柱狀圖',
-  `bb_upper` DECIMAL(10,2) DEFAULT NULL COMMENT '布林上軌',
-  `bb_middle` DECIMAL(10,2) DEFAULT NULL COMMENT '布林中軌',
-  `bb_lower` DECIMAL(10,2) DEFAULT NULL COMMENT '布林下軌',
-  `volume_ma5` DECIMAL(20,2) DEFAULT NULL COMMENT '5日均量',
-  PRIMARY KEY (`date`, `symbol`),
-  KEY `idx_ti_symbol` (`symbol`),
-  KEY `idx_ti_date` (`date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `simulated_orders` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '內部主鍵',
-  `session_id` VARCHAR(36) NOT NULL COMMENT '匿名使用者會話ID',
-  `symbol` VARCHAR(12) NOT NULL COMMENT '股票代號',
-  `side` VARCHAR(8) NOT NULL COMMENT '買賣方向 buy|sell',
-  `order_type` VARCHAR(16) NOT NULL COMMENT '委託類型 limit|market',
-  `limit_price` DECIMAL(12,4) DEFAULT NULL COMMENT '限價，市價單為 NULL',
-  `trade_date` DATE NOT NULL COMMENT '模擬下單日期',
-  `quantity` INT NOT NULL COMMENT '委託數量（張）',
-  `status` VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT '委託狀態',
-  `estimated_amount` BIGINT NOT NULL COMMENT '預估成交金額（元）',
-  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '建立時間',
-  PRIMARY KEY (`id`),
-  KEY `idx_session_created` (`session_id`, `created_at`),
-  KEY `idx_session_trade_created` (`session_id`, `trade_date`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-說明：
-
-- `crawl_checkpoint` 供 TWSE 日線爬蟲斷點續抓；`twse_crawler.py` 啟動時也會確保此表存在。
-- `technical_indicators` 資料通常由 `crawler/technical_indicator_job.py` 等批次寫入。
-- 若未先手動建表，啟動 API 時仍會依模型建立 `technical_indicators` 與 `simulated_orders`（以及其他已註冊於 `Base` 的表）。
-
-## 啟動 API
-
-### 方式 A: 使用 uvicorn 指令
+方式 A（建議開發用）：
 
 ```powershell
-uvicorn main:app --reload --port=8000 --host=0.0.0.0
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 方式 B: 從 `.env` 讀取 host/port/reload
-
-`main.py` 會讀取 `APP_HOST`、`APP_PORT`、`APP_RELOAD`，可直接執行：
+方式 B（讀取 `APP_HOST/APP_PORT/APP_RELOAD`）：
 
 ```powershell
 python main.py
 ```
 
-## 常用網址
+### 2.5 啟動後檢查
 
-- Swagger 文件: http://localhost:8000/docs
-- ReDoc 文件: http://localhost:8000/redoc
-- 健康檢查: http://localhost:8000/health
+```text
+GET http://localhost:8000/health
+```
 
-更細的請求/回應範例見同目錄下的 [API_DOCS.md](./API_DOCS.md)。
+預期：
 
-## Crawler 與資料庫連線
+```json
+{"status": "healthy"}
+```
 
-`config.py` 會從 **`backend/.env` 的絕對路徑** 讀取設定（不論從哪個工作目錄執行爬蟲）。
+---
 
-需要連 MySQL 的爬蟲會透過 **`database.get_pymysql_connect_kwargs()`** 取得與 SQLAlchemy `engine` **相同來源**的連線參數（`DATABASE_*` 與 API 一致）：
+## 3. 環境變數表
 
-- `crawler/twse_crawler.py`
-- `crawler/cnyes_crawlwer.py`（檔名拼字如此）
-- `crawler/institutional_trades_job.py`
+> `config.py` 內所有設定皆有預設值，但正式環境建議明確配置敏感與外部服務參數。
 
-`crawler/technical_indicator_job.py` 則直接使用 `database.SessionLocal` / `engine`。
+### 3.1 資料庫 / 基礎服務
 
-`crawler/scheduler_utils.py` 僅以 subprocess 呼叫上述腳本，本身不連資料庫。
+| 變數 | 預設值 | 說明 | 建議 |
+|---|---|---|---|
+| `DATABASE_HOST` | `localhost` | MySQL 主機 | 正式環境必填 |
+| `DATABASE_USER` | `root` | MySQL 帳號 | 正式環境必填 |
+| `DATABASE_PASSWORD` | `""` | MySQL 密碼 | 正式環境必填 |
+| `DATABASE_NAME` | `topic_stock` | DB 名稱 | 依環境設定 |
+| `DATABASE_PORT` | `3306` | DB Port | 依環境設定 |
+| `APP_NAME` | `FastAPI MySQL Application` | OpenAPI 標題 | 可選 |
+| `APP_VERSION` | `1.0.0` | API 版本文字 | 可選 |
+| `DEBUG` | `True` | 除錯模式 | 正式環境建議 `False` |
+| `APP_HOST` | `0.0.0.0` | 服務綁定 Host | 依部署設定 |
+| `APP_PORT` | `8000` | 服務 Port | 依部署設定 |
+| `APP_RELOAD` | `True` | 自動重載 | 正式環境建議 `False` |
 
-排程與批次行為（每日幾點跑、接續跑技術指標／三大法人、預設股票清單、鉅亨每幾分鐘同步等）都寫在對應 `.py` 檔頂部常數，例如：
+### 3.2 JWT / 認證
 
-- `crawler/scheduler_utils.py`：`SCHEDULE_TIME`、`RUN_TECHNICAL_INDICATOR_AFTER_CRAWL`、`RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL`
-- `crawler/twse_crawler.py`：`DEFAULT_STOCKS`、`DEFAULT_YEARS`
-- `crawler/cnyes_crawlwer.py`：`SCHEDULE_INTERVAL_MINUTES`、`SCHEDULE_LOOKBACK_DAYS` 等
+| 變數 | 預設值 | 說明 | 建議 |
+|---|---|---|---|
+| `JWT_SECRET` | `change-me-in-production-use-long-random-string` | JWT 簽章密鑰 | **正式環境必改** |
+| `JWT_ALGORITHM` | `HS256` | JWT 演算法 | 通常維持預設 |
+| `JWT_EXPIRE_MINUTES` | `10080` | Token 有效期（分鐘） | 依安全政策調整 |
+| `GOOGLE_CLIENT_ID` | `""` | Google Sign-In audience（可逗號多組） | 用 Google 登入時必填 |
 
-## 主要 API 端點（摘要）
+### 3.3 AI / RAG
 
-### 股價與圖表（前綴 `/stocks`）
+| 變數 | 預設值 | 說明 | 建議 |
+|---|---|---|---|
+| `NIM_API_KEY` | `""` | NVIDIA NIM API Key | 使用 AI 分析時必填 |
+| `NIM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NIM Base URL | 依供應商設定 |
+| `NIM_MODEL` | `""` | 單一模型覆寫 | 可選 |
+| `NIM_MODEL_PRIMARY` | `meta/llama-3.1-8b-instruct` | 主要模型 | 可調整 |
+| `NIM_MODEL_SECONDARY` | `meta/llama-3.1-8b-instruct` | 次要模型 | 可調整 |
+| `NIM_DEFAULT_MODEL` | `primary` | 預設模型鍵 | `primary` 或 `secondary` |
+| `RAG_API_URL` | `""` | RAG 服務位址 | 有整合時填寫 |
+| `RAG_API_KEY` | `""` | RAG API Key | 有整合時填寫 |
+| `RAG_API_TIMEOUT` | `10` | RAG timeout 秒數 | 視網路調整 |
 
-- `GET /stocks/symbols`：所有股票代號
-- `GET /stocks/{symbol}/latest`：最新一筆日線
-- `GET /stocks/{symbol}/price/{date}`：指定日期股價
-- `GET /stocks/{symbol}/date-range`：資料庫內該股日期範圍
-- `GET /stocks/{symbol}/history`：歷史列表（分頁）
-- `GET /stocks/{symbol}/candlestick`：K 線
-- `GET /stocks/{symbol}/chart/candlestick-ma`：K 線 + MA
-- `GET /stocks/{symbol}/chart/volume`、`/chart/price-change`、`/chart/ohlc`：圖表用資料
-- `GET /stocks/{symbol}/statistics`：區間統計
-- `GET /stocks/compare/multiple`：多股同區間比較
+### 3.4 忘記密碼 / SMTP
 
-### 技術指標（前綴 `/stocks`）
+| 變數 | 預設值 | 說明 | 建議 |
+|---|---|---|---|
+| `PASSWORD_RESET_EXPIRE_MINUTES` | `60` | 重設 token 有效期（分鐘） | 視安全需求調整 |
+| `FRONTEND_PASSWORD_RESET_URL` | `""` | 前端重設頁完整 URL（不含 query） | 啟用重設信時必填 |
+| `SMTP_HOST` | `""` | SMTP Host | 要寄信時必填 |
+| `SMTP_PORT` | `587` | SMTP Port | 依服務商設定 |
+| `SMTP_USER` | `""` | SMTP 帳號 | 要寄信時必填 |
+| `SMTP_PASSWORD` | `""` | SMTP 密碼 | 要寄信時必填 |
+| `SMTP_FROM` | `""` | 寄件者信箱（可用 `SMTP_USER`） | 建議填寫 |
+| `SMTP_USE_TLS` | `True` | 是否啟用 TLS | 建議開啟 |
 
-- `GET /stocks/{symbol}/indicators`：`start_date`、`end_date` 區間
-- `GET /stocks/{symbol}/indicators/latest`：最新一筆
+---
 
-### 新聞（`cnyes_tw_stock_news`）
+## 4. 認證說明
 
-- `GET /news`：列表與篩選（`keyword`、`stock`、時間區間、分頁等）
-- `GET /news/{id}`：依主鍵 `id`
-- `GET /news/by-news-id/{news_id}`：依來源 `news_id`
-- `GET /news/stats/count`：符合條件筆數
+### 4.1 Token 取得
 
-### 模擬下單（前綴 `/simulated-orders`）
+可由以下端點取得 `access_token`：
 
-- `POST /simulated-orders/`：建立模擬委託（需該交易日有日線資料）
-- `GET /simulated-orders/?session_id=...`：依會話查列表
-- `GET /simulated-orders/profit-by-category?session_id=...`：依股票彙總模擬收益
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/google`
 
-## 注意事項
+回傳格式（節錄）：
 
-- 請確認 MySQL 帳號有建立資料庫與資料表權限。
-- 生產環境請關閉 `APP_RELOAD`，並將 CORS `allow_origins` 改為實際前端網域（見 `main.py`）。
-- `.env` 含敏感資訊，請勿提交到版本控制。
+```json
+{
+  "access_token": "<JWT>",
+  "token_type": "bearer",
+  "expires_in": 604800,
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "display_name": "Demo"
+  }
+}
+```
+
+### 4.2 Bearer Header
+
+```http
+Authorization: Bearer <access_token>
+```
+
+### 4.3 需要登入的端點（僅 2 個）
+
+- `GET /auth/me`
+- `POST /auth/change-password`
+
+其餘端點目前為公開存取。
+
+---
+
+## 5. API 全量清單
+
+> 來源：`main.py` + `routers/*.py` + runtime OpenAPI。  
+> 說明：`Auth` 欄位 `Yes` 表示需要 Bearer Token。
+
+### 5.1 System（2）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| GET | `/` | No | - | 根路徑資訊 | `200` |
+| GET | `/health` | No | - | 健康檢查 | `200` |
+
+### 5.2 Auth（7）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| POST | `/auth/register` | No | body: `email`, `password`, `display_name?` | 註冊並回傳 token | `200`, `400`, `422` |
+| POST | `/auth/login` | No | body: `email`, `password` | 帳密登入 | `200`, `401`, `403`, `422` |
+| POST | `/auth/google` | No | body: `id_token` | Google 登入/綁定 | `200`, `400`, `401`, `403`, `409`, `503`, `422` |
+| GET | `/auth/me` | Yes | Header: Bearer Token | 取得當前使用者 | `200`, `401`, `403` |
+| POST | `/auth/change-password` | Yes | body: `current_password`, `new_password` | 變更密碼 | `200`, `400`, `401`, `403`, `422` |
+| POST | `/auth/forgot-password` | No | body: `email` | 發送重設密碼流程（統一訊息） | `200`, `422` |
+| POST | `/auth/reset-password` | No | body: `token`, `new_password` | 用 token 重設密碼 | `200`, `400`, `403`, `422` |
+
+### 5.3 Analyze / AI（7）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| POST | `/analyze/raw/prices` | No | body: `symbols[]` | 僅回傳原始價格資料 | `200`, `400`, `422`, `500` |
+| POST | `/analyze/raw/indicators` | No | body: `symbols[]` | 僅回傳原始技術指標 | `200`, `400`, `422`, `500` |
+| POST | `/analyze/raw/institutional` | No | body: `symbols[]` | 僅回傳原始法人資料 | `200`, `400`, `422`, `500` |
+| POST | `/analyze/quick-insights` | No | body: `symbols[]` | 快速重點摘要（短格式） | `200`, `400`, `422`, `500` |
+| POST | `/analyze/final` | No | body: `symbols[]` | 最終分析結果 | `200`, `400`, `422`, `500` |
+| POST | `/analyze/report` | No | body: `symbols[]` | 非串流整包報告（含 quick/institutional） | `200`, `400`, `422`, `500` |
+| POST | `/analyze/stream` | No | body: `symbols[]` | SSE 串流分析 | `200`, `422` |
+
+Analyze 請求 body：
+
+```json
+{
+  "symbols": ["2330"]
+}
+```
+
+注意事項：
+
+- 目前後端只會取 `symbols` 的第一個有效值做分析。
+- 回看區間固定使用近 30 天（程式常數 `_LOOKBACK_DAYS = 30`）。
+
+### 5.4 News（4）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| GET | `/news` | No | `page`, `page_size`, `news_id`, `id`, `keyword`, `stock`, `start_time`, `end_time`, `sort_by`, `sort_order` | 查詢新聞列表 | `200`, `422` |
+| GET | `/news/{id}` | No | path: `id` | 依主鍵查單筆 | `200`, `404`, `422` |
+| GET | `/news/by-news-id/{news_id}` | No | path: `news_id` | 依 business id 查單筆 | `200`, `404`, `422` |
+| GET | `/news/stats/count` | No | 與 `/news` 同條件（不含分頁排序） | 查符合條件總數 | `200`, `422` |
+
+### 5.5 Simulated Orders（4）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| POST | `/simulated-orders/` | No | body: `user_id`, `symbol`, `side`, `quantity`, `trade_date?`, `sell_plan?`, `planned_sell_date?` | 建立模擬委託 | `200`, `400`, `404`, `422` |
+| GET | `/simulated-orders/` | No | query: `user_id`, `limit?` | 查委託列表 | `200`, `422` |
+| GET | `/simulated-orders/available-lots` | No | query: `user_id`, `symbol` | 查可賣張數 | `200`, `400`, `422` |
+| GET | `/simulated-orders/profit-by-category` | No | query: `user_id` | 依股票彙總損益 | `200`, `422` |
+
+重要：`SimulatedOrderCreate` 使用的是 **`user_id`**（舊欄位命名已不適用）。
+
+### 5.6 Stocks（16）
+
+#### A. 價格與圖表（12）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| GET | `/stocks/symbols` | No | - | 取得可用股票代號 | `200` |
+| GET | `/stocks/{symbol}/latest` | No | path: `symbol` | 最新股價 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/price/{date}` | No | path: `symbol`, `date` | 指定日期股價 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/history` | No | path: `symbol`; query: `start_date?`, `end_date?`, `skip?`, `limit?` | 歷史價格（可分頁） | `200`, `422` |
+| GET | `/stocks/{symbol}/date-range` | No | path: `symbol` | 可查資料日期範圍 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/candlestick` | No | path: `symbol`; query: `start_date`, `end_date` | K 線資料 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/statistics` | No | path: `symbol`; query: `start_date`, `end_date` | 區間統計 | `200`, `404`, `422` |
+| GET | `/stocks/compare/multiple` | No | query: `symbols`, `start_date`, `end_date` | 多股比較（最多 10 檔） | `200`, `400`, `404`, `422` |
+| GET | `/stocks/{symbol}/chart/candlestick-ma` | No | path: `symbol`; query: `start_date`, `end_date`, `ma_periods?` | K 線 + MA | `200`, `400`, `404`, `422` |
+| GET | `/stocks/{symbol}/chart/volume` | No | path: `symbol`; query: `start_date`, `end_date` | 量價資料 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/chart/price-change` | No | path: `symbol`; query: `start_date`, `end_date` | 漲跌幅資料 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/chart/ohlc` | No | path: `symbol`; query: `start_date`, `end_date` | OHLC 陣列輸出 | `200`, `404`, `422` |
+
+#### B. 技術指標（2）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| GET | `/stocks/{symbol}/indicators` | No | path: `symbol`; query: `start_date`, `end_date` | 指標區間資料 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/indicators/latest` | No | path: `symbol` | 最新指標 | `200`, `404`, `422` |
+
+#### C. 三大法人（2）
+
+| Method | Path | Auth | 主要參數 | 用途 | 主要狀態碼 |
+|---|---|---|---|---|---|
+| GET | `/stocks/{symbol}/institutional` | No | path: `symbol`; query: `start_date`, `end_date` | 法人區間資料 | `200`, `404`, `422` |
+| GET | `/stocks/{symbol}/institutional/latest` | No | path: `symbol` | 最新法人資料 | `200`, `404`, `422` |
+
+---
+
+## 6. 關鍵 Request / Response 範例
+
+以下範例以 `http://localhost:8000` 為 base URL。
+
+### 6.1 Auth
+
+註冊：
+
+```bash
+curl -X POST http://localhost:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "demo@example.com",
+    "password": "Passw0rd!",
+    "display_name": "Demo"
+  }'
+```
+
+登入：
+
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "demo@example.com",
+    "password": "Passw0rd!"
+  }'
+```
+
+查自己（需要 token）：
+
+```bash
+curl http://localhost:8000/auth/me \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### 6.2 Analyze（`/analyze/report`）
+
+```bash
+curl -X POST http://localhost:8000/analyze/report \
+  -H "Content-Type: application/json" \
+  -d '{"symbols": ["2330"]}'
+```
+
+回應節錄：
+
+```json
+{
+  "symbol": "2330",
+  "date_start": "2026-03-01",
+  "date_end": "2026-04-01",
+  "summary": "...",
+  "sentiment_score": 0.28,
+  "recommendation": "...",
+  "recommendation_basis": ["...", "...", "...", "..."],
+  "score_breakdown": {
+    "technical_score": 0.4,
+    "institutional_score": 0.3,
+    "news_score": 0.2,
+    "momentum_score": 0.1,
+    "weighted_score": 0.28
+  },
+  "quick_points": ["..."],
+  "institutional_data": [
+    {
+      "date": "2026-04-01",
+      "foreign_net": 100,
+      "trust_net": 50,
+      "dealer_net": 20,
+      "total_net": 170
+    }
+  ],
+  "status": "done"
+}
+```
+
+### 6.3 Stocks（`/stocks/{symbol}/history`）
+
+```bash
+curl "http://localhost:8000/stocks/2330/history?start_date=2026-03-01&end_date=2026-04-01&skip=0&limit=50"
+```
+
+### 6.4 News（`/news`）
+
+```bash
+curl "http://localhost:8000/news?page=1&page_size=20&keyword=台積電&sort_by=publish_time&sort_order=desc"
+```
+
+### 6.5 Simulated Orders（建立委託）
+
+```bash
+curl -X POST http://localhost:8000/simulated-orders/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "u123",
+    "symbol": "2330",
+    "side": "buy",
+    "quantity": 2,
+    "trade_date": "2026-04-10",
+    "sell_plan": "long_term"
+  }'
+```
+
+---
+
+## 7. SSE 說明（`/analyze/stream`）
+
+### 7.1 請求
+
+- Method: `POST`
+- URL: `/analyze/stream`
+- Body:
+
+```json
+{"symbols": ["2330"]}
+```
+
+### 7.2 cURL 範例
+
+```bash
+curl -N -X POST http://localhost:8000/analyze/stream \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"symbols": ["2330"]}'
+```
+
+### 7.3 事件類型
+
+- `step_start`
+- `partial_data`
+- `step_done`
+- `final_report`
+- `error`
+- `completed`
+
+典型流程：
+
+1. `step_start`（institutional）
+2. `partial_data`（institutional）
+3. `step_done`
+4. `step_start`（cross_check）
+5. `partial_data`（prices / indicators / quick_insights）
+6. `step_done`
+7. `step_start`（news）
+8. `partial_data`（news）
+9. `step_done`
+10. `step_start`（final）
+11. `final_report`
+12. `step_done`
+13. `completed`
+
+### 7.4 前端處理重點
+
+- 需逐事件解析 `event:` 與 `data:`。
+- `final_report.report` 即最終報告主體。
+- `completed.ok=false` 表示流程失敗；應顯示錯誤並結束串流。
+- 伺服器已設定 `Cache-Control: no-cache`、`X-Accel-Buffering: no`，代理層也需關閉緩衝。
+
+---
+
+## 8. 錯誤碼對照與排錯建議
+
+| HTTP | 常見情境 | 排查方向 |
+|---|---|---|
+| `400 Bad Request` | 業務規則不符（如超過股票數上限、無核心資料、賣出張數不足） | 檢查 query/body 規則與資料存在性 |
+| `401 Unauthorized` | token 無效、過期、登入憑證錯誤 | 重新登入、確認 `Authorization` Header |
+| `403 Forbidden` | 帳號停用 | 確認使用者 `is_active` 狀態 |
+| `404 Not Found` | 查無指定資源（股價/新聞/指標/法人） | 確認 symbol、日期、id 是否存在 |
+| `422 Unprocessable Entity` | 參數格式驗證失敗 | 對照 schema（日期格式、必填欄位、型別） |
+| `500 Internal Server Error` | 後端整合失敗（資料抓取/AI 服務） | 檢查 server log、NIM/RAG 設定、外部連線 |
+
+常見注意事項：
+
+- `POST /analyze/*` 請求必須提供 `symbols` 陣列。
+- `POST /simulated-orders/` 建立委託必填 `user_id`（請使用目前 schema 欄位）。
+- `/auth/me` 與 `/auth/change-password` 以外端點目前不需 Bearer Token。
+- 忘記密碼流程若未設定 SMTP，開發模式僅寫入 log，不會寄出郵件。
+
+---
+
+## 文件維護規則
+
+- 本 README 以程式碼與 runtime OpenAPI 為準。
+- 若調整 router path、schema、auth 策略，請同步更新本檔。
+- 不再以舊版 `API_DOCS.md` 作為主文件來源。
