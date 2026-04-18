@@ -1,3 +1,4 @@
+﻿from datetime import date
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,10 +21,10 @@ class NewsSourceItem(BaseModel):
 
 
 class ScoreWeightsItem(BaseModel):
-    technical: float = Field(0.35, description="技術面權重")
-    institutional: float = Field(0.25, description="籌碼面權重")
-    news: float = Field(0.25, description="新聞/RAG 權重")
-    momentum: float = Field(0.15, description="量價動能權重")
+    technical: float = Field(0.38, description="技術面權重")
+    institutional: float = Field(0.30, description="籌碼面權重")
+    news: float = Field(0.15, description="新聞/RAG 權重")
+    momentum: float = Field(0.17, description="量價動能權重")
 
 
 class ScoreExplanationsItem(BaseModel):
@@ -72,10 +73,10 @@ class AnalyzeFinalResponse(BaseModel):
                     "momentum_score": 0.1,
                     "weighted_score": 0.28,
                     "weights": {
-                        "technical": 0.35,
-                        "institutional": 0.25,
-                        "news": 0.25,
-                        "momentum": 0.15,
+                        "technical": 0.38,
+                        "institutional": 0.30,
+                        "news": 0.15,
+                        "momentum": 0.17,
                     },
                     "explanations": {
                         "technical": "技術面解釋",
@@ -118,12 +119,23 @@ class AnalyzeFinalResponse(BaseModel):
 class AnalyzeSymbolsRequest(BaseModel):
     """僅股票代號。回溯區間（自然日）由後端常數固定，**請求不得帶入** `lookback_days`。"""
 
-    model_config = ConfigDict(json_schema_extra={"example": {"symbols": ["2330"]}})
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "symbols": ["2330"],
+                "as_of_date": "2026-04-01",
+            }
+        }
+    )
 
     symbols: List[str] = Field(
         ...,
         description="股票代號；後端使用第一個有效代號（轉大寫）。",
         examples=[["2330"]],
+    )
+    as_of_date: Optional[date] = Field(
+        default=None,
+        description="Optional historical anchor date for analysis (YYYY-MM-DD).",
     )
 
 

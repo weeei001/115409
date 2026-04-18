@@ -3,6 +3,7 @@ import Head from 'next/head';
 import {
   AlertTriangle,
   BrainCircuit,
+  BarChart3,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -10,19 +11,31 @@ import {
   CircleDashed,
   ExternalLink,
   Loader2,
+  RefreshCw,
   Search,
 } from 'lucide-react';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { toast } from 'sonner';
 import { SubpageHeader } from '../components/SubpageHeader';
 import {
   fetchAdvisorReportProgressive,
   type AdvisorFetchProgress,
 } from '../lib/api/advisor';
+import { runBacktest } from '../lib/api/backtest';
 import { fetchSymbols } from '../lib/api/stock';
 import type {
   AdvisorAction,
   AdvisorPartialDataEvent,
   AdvisorReport,
+  BacktestRunResult,
   AdvisorStepKey,
   AdvisorStepStatus,
   AdvisorStepUpdate,
@@ -100,6 +113,25 @@ function toDisplayString(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   return String(value);
 }
+
+function toIsoDateString(d: Date): string {
+  const year = d.getFullYear();
+  const month = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatPctFromUnit(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+const ADVISOR_MODEL_WEIGHTS = {
+  technical: 0.38,
+  institutional: 0.3,
+  news: 0.15,
+  momentum: 0.17,
+} as const;
 
 function getSummaryRows(dataset: DisplayDataset, card: AdvisorPartialDataEvent | null) {
   const summary = card?.summary ?? {};
@@ -180,7 +212,11 @@ export default function AdvisorPage() {
     prices: false,
     indicators: false,
   });
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [backtestResult, setBacktestResult] = useState<BacktestRunResult | null>(null);
   const requestSeq = useRef(0);
+  const backtestReqKeyRef = useRef('');
 
   useEffect(() => {
     let active = true;
@@ -222,6 +258,67 @@ export default function AdvisorPage() {
   const showPartialCards =
     loading || Object.values(partialCards).some((card) => card?.preview?.length || card?.summary);
   const snapshotDatasets: DisplayDataset[] = ['institutional', 'prices', 'indicators'];
+  const backtestWindow = useMemo(() => {
+    const dateText = report?.date_end || report?.date_start;
+    const anchor = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
+    if (Number.isNaN(anchor.getTime())) return null;
+    const end = new Date(anchor);
+    end.setDate(end.getDate() - 25);
+    const start = new Date(end);
+    start.setFullYear(start.getFullYear() - 1);
+    return {
+      start: toIsoDateString(start),
+      end: toIsoDateString(end),
+    };
+  }, [report?.date_end, report?.date_start]);
+  const backtestChartData = useMemo(() => {
+    return (backtestResult?.segments ?? []).map((seg) => ({
+      segment: seg.segment_id,
+      accuracy: Number((seg.metrics.accuracy * 100).toFixed(2)),
+      f1: Number((seg.metrics.f1_buy * 100).toFixed(2)),
+      samples: seg.metrics.sample_count,
+    }));
+  }, [backtestResult?.segments]);
+
+  const loadBacktestTrend = async (symbolInput: string, start: string, end: string) => {
+    setBacktestLoading(true);
+    setBacktestError(null);
+    try {
+      const data = await runBacktest({
+        symbol: symbolInput.toUpperCase(),
+        start_date: start,
+        end_date: end,
+        horizon: 20,
+        lookback_days: 30,
+        mode: 'score_only',
+        llm_sample_size: 0,
+        walk_forward: 'monthly',
+      });
+      setBacktestResult(data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '取得回測趨勢失敗';
+      setBacktestError(message);
+      setBacktestResult(null);
+    } finally {
+      setBacktestLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!report?.symbol || !backtestWindow) return;
+    if (loading || progress?.pendingFinal) return;
+
+    const key = `${report.symbol}-${backtestWindow.start}-${backtestWindow.end}`;
+    if (backtestReqKeyRef.current === key) return;
+    backtestReqKeyRef.current = key;
+    void loadBacktestTrend(report.symbol, backtestWindow.start, backtestWindow.end);
+  }, [
+    report?.symbol,
+    backtestWindow?.start,
+    backtestWindow?.end,
+    loading,
+    progress?.pendingFinal,
+  ]);
 
   const renderSnapshotCards = () => (
     <div className="mt-4 grid grid-cols-1 gap-4">
@@ -665,7 +762,7 @@ export default function AdvisorPage() {
                         {report.score_breakdown.technical_score.toFixed(2)}
                       </p>
                       <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {report.score_breakdown.weights.technical.toFixed(2)}
+                        權重 {ADVISOR_MODEL_WEIGHTS.technical.toFixed(2)}
                       </p>
                     </div>
                     <div className="rounded-xl border border-[var(--color-border)] p-3">
@@ -674,7 +771,7 @@ export default function AdvisorPage() {
                         {report.score_breakdown.institutional_score.toFixed(2)}
                       </p>
                       <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {report.score_breakdown.weights.institutional.toFixed(2)}
+                        權重 {ADVISOR_MODEL_WEIGHTS.institutional.toFixed(2)}
                       </p>
                     </div>
                     <div className="rounded-xl border border-[var(--color-border)] p-3">
@@ -683,7 +780,7 @@ export default function AdvisorPage() {
                         {report.score_breakdown.news_score.toFixed(2)}
                       </p>
                       <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {report.score_breakdown.weights.news.toFixed(2)}
+                        權重 {ADVISOR_MODEL_WEIGHTS.news.toFixed(2)}
                       </p>
                     </div>
                     <div className="rounded-xl border border-[var(--color-border)] p-3">
@@ -692,7 +789,7 @@ export default function AdvisorPage() {
                         {report.score_breakdown.momentum_score.toFixed(2)}
                       </p>
                       <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {report.score_breakdown.weights.momentum.toFixed(2)}
+                        權重 {ADVISOR_MODEL_WEIGHTS.momentum.toFixed(2)}
                       </p>
                     </div>
                   </div>
@@ -722,82 +819,167 @@ export default function AdvisorPage() {
             </section>
 
             <section className="bento-cell p-5">
-              <h2 className="text-base sm:text-lg font-bold">三大法人資訊</h2>
-              {loading && progress?.pendingInstitutional ? (
-                <div className="mt-2 space-y-2">
-                  <p className="text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
-                    <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-                    法人資料載入中…
-                  </p>
-                  <div className="h-4 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-xl" />
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="h-24 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" />
-                    ))}
-                  </div>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <h2 className="text-base sm:text-lg font-bold">歷史回測趨勢（近一年）</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!report?.symbol || !backtestWindow) return;
+                    void loadBacktestTrend(report.symbol, backtestWindow.start, backtestWindow.end);
+                  }}
+                  disabled={backtestLoading || !report?.symbol || !backtestWindow}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand disabled:opacity-50"
+                >
+                  {backtestLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                  重新計算
+                </button>
+              </div>
+
+              {backtestWindow ? (
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  區間：{backtestWindow.start} ～ {backtestWindow.end}（horizon=20，mode=score_only）
+                </p>
+              ) : null}
+
+              {backtestLoading ? (
+                <div className="mt-4 text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-brand" />
+                  回測計算中…
                 </div>
-              ) : (
+              ) : null}
+
+              {backtestError ? (
+                <div className="mt-4 rounded-xl border border-up/20 bg-up-muted p-3 text-sm text-up inline-flex items-center gap-2">
+                  <AlertTriangle size={14} />
+                  {backtestError}
+                </div>
+              ) : null}
+
+              {backtestResult ? (
                 <>
-                  <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-                    {report.institutional_flow?.summary || '暫無法人綜合說明'}
-                  </p>
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {report.institutional_flow?.items?.length ? (
-                      report.institutional_flow.items.map((item) => (
-                        <div
-                          key={item.name}
-                          className="rounded-xl border border-[var(--color-border)] p-3"
-                        >
-                          <p className="text-sm font-semibold">{item.name}</p>
-                          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-                            淨買賣：{formatNetShares(item.net_amount)}
-                          </p>
-                          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                            {item.trend || '無趨勢補充'}
-                          </p>
-                        </div>
-                      ))
+                  <div className="mt-4 grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">樣本數</p>
+                      <p className="text-lg font-semibold tabular-nums">{backtestResult.overall.sample_count}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">Accuracy</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.accuracy)}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">F1 (buy)</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.f1_buy)}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">Precision (buy)</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.precision_buy)}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">Recall (buy)</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.recall_buy)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-[var(--color-border)] p-3">
+                    <h3 className="text-sm font-semibold inline-flex items-center gap-1.5">
+                      <BarChart3 size={14} className="text-brand" />
+                      每月趨勢（Accuracy / F1）
+                    </h3>
+                    {backtestChartData.length > 0 ? (
+                      <div className="mt-3 h-72">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={backtestChartData} margin={{ top: 10, right: 16, left: -4, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                            <XAxis dataKey="segment" tick={{ fontSize: 12 }} />
+                            <YAxis
+                              domain={[0, 100]}
+                              tickFormatter={(v) => `${v}%`}
+                              tick={{ fontSize: 12 }}
+                            />
+                            <Tooltip
+                              formatter={(value: unknown, name: unknown) => {
+                                const numeric = typeof value === 'number' ? value : Number(value ?? 0);
+                                const label = name === 'accuracy' ? 'Accuracy' : 'F1';
+                                return [`${numeric}%`, label];
+                              }}
+                              labelFormatter={(label) => `分段 ${label}`}
+                            />
+                            <Line type="monotone" dataKey="accuracy" stroke="#f59e0b" strokeWidth={2.5} dot={false} />
+                            <Line type="monotone" dataKey="f1" stroke="#14b8a6" strokeWidth={2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
                     ) : (
-                      <p className="text-sm text-[var(--color-text-muted)]">法人資料不足</p>
+                      <p className="mt-3 text-sm text-[var(--color-text-muted)]">此區間沒有可用回測分段資料。</p>
                     )}
                   </div>
+
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">TP</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tp}</p>
+                    </div>
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">FP</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fp}</p>
+                    </div>
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">FN</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fn}</p>
+                    </div>
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">TN</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tn}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-[var(--color-border)] p-4 text-sm">
+                    <h3 className="font-semibold">指標公式與依據（新手版）</h3>
+                    <div className="mt-2 space-y-1 text-[var(--color-text-secondary)]">
+                      <p><strong>Accuracy</strong> = (TP + TN) / (TP + FP + FN + TN)</p>
+                      <p><strong>Precision</strong> = TP / (TP + FP)</p>
+                      <p><strong>Recall</strong> = TP / (TP + FN)</p>
+                      <p><strong>F1</strong> = 2 × Precision × Recall / (Precision + Recall)</p>
+                      <p className="text-xs text-[var(--color-text-muted)]">
+                        這裡把「buy」當正類：TP=預測買且實際漲、FP=預測買但實際跌、FN=預測賣但實際漲、TN=預測賣且實際跌。
+                      </p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                      <a
+                        href="https://developers.google.com/machine-learning/crash-course/classification/accuracy-precision-recall"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        Google ML Crash Course（Accuracy/F1）
+                      </a>
+                      <a
+                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.accuracy_score.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        scikit-learn: accuracy_score
+                      </a>
+                      <a
+                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        scikit-learn: f1_score
+                      </a>
+                      <a
+                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        scikit-learn: confusion_matrix（TP/FP/FN/TN）
+                      </a>
+                    </div>
+                  </div>
                 </>
-              )}
-              {(!loading || !progress?.pendingInstitutional) &&
-              report.institutional_rows &&
-              report.institutional_rows.length > 0 ? (
-                <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--color-border)]">
-                  <table className="min-w-full text-sm text-left">
-                    <thead className="bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap">日期</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap text-right">外資</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap text-right">投信</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap text-right">自營商</th>
-                        <th className="px-3 py-2 font-semibold whitespace-nowrap text-right">合計</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--color-border)]">
-                      {report.institutional_rows.map((row) => (
-                        <tr key={row.date} className="text-[var(--color-text-secondary)]">
-                          <td className="px-3 py-2 whitespace-nowrap">{row.date}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {formatNetShares(row.foreign_net ?? null)}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {formatNetShares(row.trust_net ?? null)}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {formatNetShares(row.dealer_net ?? null)}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums font-medium">
-                            {formatNetShares(row.total_net ?? null)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               ) : null}
             </section>
 

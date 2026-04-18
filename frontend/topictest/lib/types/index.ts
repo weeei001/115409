@@ -412,6 +412,63 @@ export interface CompareViewModel {
   symbolColors: Record<string, string>;
 }
 
+// Backtest
+
+export type BacktestMode = 'hybrid' | 'score_only' | 'llm_full';
+export type BacktestWalkForward = 'quarterly' | 'monthly';
+
+export interface BacktestRunRequest {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  horizon: number;
+  lookback_days: number;
+  mode: BacktestMode;
+  llm_sample_size: number;
+  walk_forward: BacktestWalkForward;
+}
+
+export interface BacktestMetrics {
+  sample_count: number;
+  correct_count: number;
+  accuracy: number;
+  precision_buy: number;
+  recall_buy: number;
+  f1_buy: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+  coverage: number;
+}
+
+export interface BacktestSegmentResult {
+  segment_id: string;
+  start_date: string;
+  end_date: string;
+  metrics: BacktestMetrics;
+}
+
+export interface LLMConsistencyResult {
+  sampled_count: number;
+  compared_count: number;
+  matched_count: number;
+  consistency_rate: number;
+  llm_coverage: number;
+}
+
+export interface BacktestRunResult {
+  run_id: string;
+  status: 'completed' | 'running' | 'failed';
+  config: BacktestRunRequest;
+  started_at: string;
+  finished_at: string | null;
+  overall: BacktestMetrics;
+  segments: BacktestSegmentResult[];
+  llm_consistency?: LLMConsistencyResult | null;
+  notes: string[];
+}
+
 export interface DateRangeResponse {
   symbol: string;
   earliest_date: string;

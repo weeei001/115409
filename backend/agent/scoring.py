@@ -5,10 +5,10 @@ from statistics import mean
 from agent.schemas import DBData, NormalizedNewsChunk, ScoreBreakdown, ScoreExplanations, ScoreWeights
 
 WEIGHTS = ScoreWeights(
-    technical=0.25,
+    technical=0.38,
     institutional=0.30,
-    news=0.20,
-    momentum=0.25,
+    news=0.15,
+    momentum=0.17,
 )
 ANALYSIS_WINDOW_DAYS = 20
 
