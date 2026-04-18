@@ -28,6 +28,7 @@ _DATE_RE = re.compile(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b")
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 _QUICK_INSIGHTS_TIMEOUT_SEC = 10.0
 _QUICK_INSIGHTS_MAX_TOKENS = 256
+_LLM_ANALYSIS_WINDOW_DAYS = 20
 
 
 # ── Data formatting helpers ──────────────────────────────────────────────────
@@ -36,7 +37,7 @@ def _format_prices(prices: list[dict]) -> str:
     if not prices:
         return "（無資料）"
     lines = []
-    for p in prices[-10:]:
+    for p in prices[-_LLM_ANALYSIS_WINDOW_DAYS:]:
         lines.append(
             f"{p['date']}  收:{p.get('close','N/A')}  "
             f"量:{p.get('volume','N/A')}  漲跌:{p.get('change','N/A')}"
@@ -70,11 +71,11 @@ def _format_indicators(indicators: list[dict], prices: list[dict] | None = None)
         oversold = [(dt, v) for dt, v in rsi_series if v < 30]
         rsi_lines.append("超買（>70）：" + ("、".join(f"{dt} RSI={v}" for dt, v in overbought) if overbought else "無"))
         rsi_lines.append("超賣（<30）：" + ("、".join(f"{dt} RSI={v}" for dt, v in oversold) if oversold else "無"))
-        recent_5 = rsi_series[-5:]
-        if len(recent_5) >= 2:
-            trend = "上升" if recent_5[-1][1] > recent_5[0][1] else "下降"
-            trail = " → ".join(f"{v}" for _, v in recent_5)
-            rsi_lines.append(f"近 {len(recent_5)} 日走勢（{trend}）：{trail}")
+        recent = rsi_series[-_LLM_ANALYSIS_WINDOW_DAYS:]
+        if len(recent) >= 2:
+            trend = "上升" if recent[-1][1] > recent[0][1] else "下降"
+            trail = " → ".join(f"{v}" for _, v in recent)
+            rsi_lines.append(f"近 {len(recent)} 日走勢（{trend}）：{trail}")
         sections.append("【RSI(14) 月內走勢】\n" + "\n".join(rsi_lines))
 
     # ── MACD 月內走勢 ──
@@ -98,7 +99,7 @@ def _format_indicators(indicators: list[dict], prices: list[dict] | None = None)
                 macd_lines.append(f"{cur_d} MACD 死叉（{pos}）：MACD={cur_m} 下穿 Signal={cur_s}")
         if not macd_lines:
             macd_lines.append("本月無金叉/死叉交叉")
-        hist_recent = [(dt, h) for dt, _, _, h in macd_series[-5:] if h is not None]
+        hist_recent = [(dt, h) for dt, _, _, h in macd_series[-_LLM_ANALYSIS_WINDOW_DAYS:] if h is not None]
         if hist_recent:
             trail = " → ".join(f"{h}" for _, h in hist_recent)
             macd_lines.append(f"Histogram 近 {len(hist_recent)} 日：{trail}")
@@ -182,7 +183,7 @@ def _format_institutional(institutional: list[dict]) -> str:
     if not institutional:
         return "（無資料）"
     lines = ["日期 | 外資淨買超 | 投信淨買超 | 自營商淨買超 | 三大法人合計"]
-    for row in institutional[-5:]:
+    for row in institutional[-_LLM_ANALYSIS_WINDOW_DAYS:]:
         lines.append(
             f"{row['date']} | {row.get('foreign_net', 0):,} | "
             f"{row.get('trust_net', 0):,} | {row.get('dealer_net', 0):,} | "
@@ -201,7 +202,7 @@ def _price_compact_for_quick(data: DBData) -> str:
     if not data.prices:
         return "（無資料）"
     lines = []
-    for p in data.prices[-5:]:
+    for p in data.prices[-_LLM_ANALYSIS_WINDOW_DAYS:]:
         lines.append(
             f"{p.get('date', '')} 收:{p.get('close', 'N/A')} 量:{p.get('volume', 'N/A')} 漲跌:{p.get('change', 'N/A')}"
         )
@@ -346,7 +347,7 @@ def _build_fallback(
     news: list[NormalizedNewsChunk] | None = None,
 ) -> AnalysisResult:
     """Template-based response when LLM is unavailable."""
-    inst_summary: list[dict] = data.institutional[-5:] if data.institutional else []
+    inst_summary: list[dict] = data.institutional[-_LLM_ANALYSIS_WINDOW_DAYS:] if data.institutional else []
     weighted = score_breakdown.weighted_score
     basis = build_recommendation_basis(score_breakdown)
 
@@ -428,7 +429,7 @@ async def analyze_final_integrated(
         logger.exception("Final integrate LLM failed, returning fallback")
         return _build_fallback(data, score_breakdown, recommendation, news)
 
-    inst_summary = data.institutional[-5:] if data.institutional else []
+    inst_summary = data.institutional[-_LLM_ANALYSIS_WINDOW_DAYS:] if data.institutional else []
 
     summary = _normalize_summary(result.get("summary", ""))
     basis_list = _normalize_recommendation_basis(result.get("recommendation_basis"), score_breakdown)
