@@ -4,7 +4,15 @@ import type { CompareMetricsRow } from '../lib/types';
 import type { CompareSortState } from '../lib/utils/compare';
 import { COMPARE_COLOR_PALETTE, sortMetricsRows } from '../lib/utils/compare';
 import { fmtVolume } from '../lib/utils/format';
-import { useTheme } from '../lib/ThemeContext';
+
+function fallbackSymbolColor(symbol: string): string {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i += 1) {
+    hash = (hash << 5) - hash + symbol.charCodeAt(i);
+    hash |= 0;
+  }
+  return COMPARE_COLOR_PALETTE[Math.abs(hash) % COMPARE_COLOR_PALETTE.length];
+}
 
 interface Props {
   rows: CompareMetricsRow[];
@@ -37,27 +45,12 @@ function fmtNum(v: number | null): string {
 /** 台股慣例：上漲紅、下跌綠 */
 function twReturnClass(v: number | null): string {
   if (v == null || Number.isNaN(v)) return '';
-  if (v > 0) return 'text-red-600 dark:text-red-400 font-medium';
-  if (v < 0) return 'text-emerald-600 dark:text-emerald-400 font-medium';
-  return 'text-gray-800 dark:text-gray-200';
+  if (v > 0) return 'text-up font-medium';
+  if (v < 0) return 'text-down font-medium';
+  return 'text-[var(--color-text-primary)]';
 }
 
-function fallbackColor(symbol: string): string {
-  let hash = 0;
-  for (let i = 0; i < symbol.length; i += 1) {
-    hash = (hash << 5) - hash + symbol.charCodeAt(i);
-    hash |= 0;
-  }
-  return COMPARE_COLOR_PALETTE[Math.abs(hash) % COMPARE_COLOR_PALETTE.length];
-}
-
-export const CompareMetricsTable: React.FC<Props> = ({
-  rows,
-  symbolColors = {},
-  calcVersion = 'frontend-calc-v1.0',
-}) => {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }) => {
   const [sort, setSort] = useState<CompareSortState>({ key: 'totalReturnPct', direction: 'desc' });
 
   const sortedRows = useMemo(() => sortMetricsRows(rows, sort), [rows, sort]);
@@ -66,26 +59,25 @@ export const CompareMetricsTable: React.FC<Props> = ({
 
   return (
     <motion.section
+      role="region"
+      aria-label="股票比較指標表"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/80 space-y-1">
-          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">比較指標表</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            前端運算公式：區間報酬=(末日收盤/首日收盤-1)、波動度=日報酬標準差、最大回撤=區間 NAV 峰值回落。
-          </p>
+      <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--color-border)]">
+          <h3 className="text-base font-bold text-[var(--color-text-primary)]">比較指標表</h3>
         </div>
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100/80 dark:bg-gray-900/50">
+        <div className="overflow-x-auto touch-pan-x overscroll-x-contain">
+          <table className="w-full text-sm min-w-[720px]">
+            <thead className="bg-[var(--color-bg-elevated)]">
               <tr>
                 {headers.map((h) => (
-                  <th key={h.key} className="px-4 py-3 text-left whitespace-nowrap">
+                  <th key={h.key} scope="col" className="px-4 py-3 text-left whitespace-nowrap">
                     <button
                       type="button"
-                      className="font-semibold text-gray-600 dark:text-gray-300 hover:text-[#ea580c] transition-colors cursor-pointer"
+                      className="font-semibold text-[var(--color-text-secondary)] hover:text-brand transition-colors cursor-pointer"
                       onClick={() =>
                         setSort((prev) => ({
                           key: h.key,
@@ -108,39 +100,32 @@ export const CompareMetricsTable: React.FC<Props> = ({
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((r) => {
-                const color = symbolColors[r.symbol] ?? fallbackColor(r.symbol);
-                return (
-                  <tr
-                    key={r.symbol}
-                    className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50/70 dark:hover:bg-gray-700/30"
+              {sortedRows.map((r) => (
+                <tr
+                  key={r.symbol}
+                  className="border-t border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-bg-elevated)_85%,transparent)]"
+                >
+                  <td
+                    className="px-4 py-3 font-mono font-semibold"
+                    style={{ color: symbolColors[r.symbol] ?? fallbackSymbolColor(r.symbol) }}
                   >
-                    <td className="px-4 py-3 font-mono font-semibold text-[#c2410c] dark:text-[#fdba74]">
-                      <span className="inline-flex items-center gap-2">
-                        <span
-                          className="inline-block h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: color }}
-                          aria-hidden
-                        />
-                        {r.symbol}
-                      </span>
-                    </td>
-                    <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.totalReturnPct)}`}>{fmtPct(r.totalReturnPct)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtPct(r.volatilityPct)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtPct(r.maxDrawdownPct)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtPct(r.winRatePct)}</td>
-                    <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.maxDailyGainPct)}`}>{fmtPct(r.maxDailyGainPct)}</td>
-                    <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.maxDailyLossPct)}`}>{fmtPct(r.maxDailyLossPct)}</td>
-                    <td className="px-4 py-3 tabular-nums">{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
-                    <td className="px-4 py-3 tabular-nums">{fmtNum(r.avgAmount)}</td>
-                  </tr>
-                );
-              })}
+                    {r.symbol}
+                  </td>
+                  <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.totalReturnPct)}`}>{fmtPct(r.totalReturnPct)}</td>
+                  <td className="px-4 py-3">{fmtPct(r.volatilityPct)}</td>
+                  <td className="px-4 py-3">{fmtPct(r.maxDrawdownPct)}</td>
+                  <td className="px-4 py-3">{fmtPct(r.winRatePct)}</td>
+                  <td className="px-4 py-3 text-up">{fmtPct(r.maxDailyGainPct)}</td>
+                  <td className="px-4 py-3 text-down">{fmtPct(r.maxDailyLossPct)}</td>
+                  <td className="px-4 py-3">{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
+                  <td className="px-4 py-3">{fmtNum(r.avgAmount)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-        <div className={`px-4 py-3 text-xs space-y-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-          <p>點擊欄位標題可排序；空值以 -- 顯示。</p>
+        <div className="px-4 py-2 text-xs text-[var(--color-text-muted)]">
+          點擊欄位標題可排序，空值以 -- 顯示。
         </div>
       </div>
     </motion.section>

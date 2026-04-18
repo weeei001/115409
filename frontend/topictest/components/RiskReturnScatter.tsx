@@ -15,6 +15,7 @@ import {
 import type { CompareMetricsRow } from '../lib/types';
 import { COMPARE_COLOR_PALETTE } from '../lib/utils/compare';
 import { useTheme } from '../lib/ThemeContext';
+import { getChartPalette } from '../lib/chartTheme';
 
 interface Props {
   rows: CompareMetricsRow[];
@@ -33,6 +34,7 @@ function fallbackColor(symbol: string): string {
 export const RiskReturnScatter: React.FC<Props> = ({ rows, symbolColors = {} }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const c = getChartPalette(isDark);
   const data = rows
     .filter((r) => r.volatilityPct != null && r.totalReturnPct != null)
     .map((r) => ({
@@ -53,42 +55,52 @@ export const RiskReturnScatter: React.FC<Props> = ({ rows, symbolColors = {} }) 
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/80 space-y-1">
-          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">風險-報酬分佈</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+      <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--color-border)] space-y-1">
+          <h3 className="text-base font-bold text-[var(--color-text-primary)]">風險-報酬分佈</h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
             X 軸為波動度、Y 軸為區間報酬；右上角代表高報酬且高波動。
           </p>
         </div>
         <div className="p-4" style={{ height: 320 }}>
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 16, right: 24, bottom: 16, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+              <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
               <ReferenceLine
                 x={avgX}
-                stroke={isDark ? '#64748b' : '#94a3b8'}
+                stroke={c.referenceLine}
                 strokeDasharray="4 4"
+                strokeOpacity={0.85}
               />
               <ReferenceLine
                 y={avgY}
-                stroke={isDark ? '#64748b' : '#94a3b8'}
+                stroke={c.referenceLine}
                 strokeDasharray="4 4"
+                strokeOpacity={0.85}
               />
               <XAxis
                 type="number"
                 dataKey="x"
                 name="波動度"
                 unit="%"
-                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                tick={{ fontSize: 11, fill: c.tick }}
               />
               <YAxis
                 type="number"
                 dataKey="y"
                 name="區間報酬"
                 unit="%"
-                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                tick={{ fontSize: 11, fill: c.tick }}
               />
               <Tooltip
+                contentStyle={{
+                  borderRadius: '12px',
+                  border: '1px solid var(--color-border)',
+                  boxShadow: c.tooltipShadow,
+                  fontSize: '12px',
+                  backgroundColor: c.tooltipBg,
+                  color: c.tooltipText,
+                }}
                 cursor={{ strokeDasharray: '3 3' }}
                 formatter={(value: unknown, name?: string | number) =>
                   typeof value === 'number'

@@ -1,4 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { getRagApiTimeoutMs } from '../../../lib/ragTimeout';
 
 /**
@@ -32,17 +34,24 @@ function normalizeAndValidateProxyPath(raw: string): string | null {
 const timeoutMs = getRagApiTimeoutMs();
 /**
  * Next.js 16 建置會靜態分析並提取 `export const config`；不可使用執行期運算或非常數識別（否則 hadUnsupportedValue → 建置失敗）。
- * 此處秒數須與實際逾時策略一致：執行期仍用上方 `timeoutMs`；若調高 RAG 逾時請同步調整此常數與部署平台的函式上限。
- * 預設與 lib/ragTimeout 的 DEFAULT_MS（120s）對齊。
+ * 與 NEXT_PUBLIC_RAG_API_TIMEOUT_MS 上限對齊（預設 120s，若設 300000ms 則改為 300）。
+ * 實際執行仍以下方 `timeoutMs` 為準。
  */
 export const config = {
-  maxDuration: 120,
+  maxDuration: 300,
   api: {
     bodyParser: {
       sizeLimit: '2mb',
     },
   },
 };
+
+function copyHopByHopSafeHeaders(upstream: Response, res: NextApiResponse): void {
+  const ct = upstream.headers.get('content-type');
+  if (ct) res.setHeader('Content-Type', ct);
+  const cc = upstream.headers.get('cache-control');
+  if (cc) res.setHeader('Cache-Control', cc);
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const segments = req.query.path;
@@ -79,39 +88,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const headers: Record<string, string> = {
+    Accept: (req.headers.accept as string) || 'application/json',
+  };
+
+  const init: RequestInit = {
+    method: req.method,
+    signal: controller.signal,
+    headers,
+  };
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    headers['Content-Type'] =
+      (req.headers['content-type'] as string) || 'application/json';
+    init.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+  }
+
   try {
-    const headers: Record<string, string> = {
-      Accept: (req.headers.accept as string) || 'application/json',
-    };
-
-    const init: RequestInit = {
-      method: req.method,
-      signal: controller.signal,
-      headers,
-    };
-
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      headers['Content-Type'] =
-        (req.headers['content-type'] as string) || 'application/json';
-      init.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
-    }
-
     const upstream = await fetch(targetUrl, init);
-    clearTimeout(timer);
 
-    const ct = upstream.headers.get('content-type');
-    if (ct) {
-      res.setHeader('Content-Type', ct);
+    res.status(upstream.status);
+    copyHopByHopSafeHeaders(upstream, res);
+    /** 盡量避免反向代理把 chunked response 緩衝成整包（須蓋過上游可能帶的 Cache-Control） */
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+
+    if (upstream.body) {
+      type ResWithFlush = NextApiResponse & { flushHeaders?: () => void };
+      const rw = res as ResWithFlush;
+      if (typeof rw.flushHeaders === 'function') {
+        rw.flushHeaders();
+      }
+      const nodeStream = Readable.fromWeb(upstream.body as import('stream/web').ReadableStream);
+      await pipeline(nodeStream, res);
+      return;
     }
 
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.status(upstream.status).send(buf);
+    res.end();
   } catch (err) {
-    clearTimeout(timer);
     const message = err instanceof Error ? err.message : String(err);
     console.error('[rag-proxy]', targetUrl, err);
-    res.status(502).json({
-      detail: [{ type: 'proxy_error', msg: `RAG 代理失敗：${message}` }],
-    });
+    if (!res.headersSent) {
+      res.status(502).json({
+        detail: [{ type: 'proxy_error', msg: `RAG 代理失敗：${message}` }],
+      });
+    } else {
+      res.destroy(err instanceof Error ? err : new Error(message));
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }

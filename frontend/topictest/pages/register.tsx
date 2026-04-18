@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { UserPlus, Mail, Lock, Eye, EyeOff, User, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
@@ -99,44 +99,61 @@ export default function RegisterPage() {
   };
 
   const inputClass =
-    'w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60';
+    'w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand focus:shadow-[0_0_16px_rgba(255,169,90,0.12)] transition-shadow disabled:opacity-60';
+
+  const reduceMotion = useReducedMotion();
 
   return (
-    <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 flex flex-col">
+    <div className="min-h-screen flex flex-col relative">
       <Head>
         <title>股海明燈｜註冊</title>
         <meta name="description" content="建立股海明燈帳號。" />
       </Head>
-      <SubpageHeader icon={UserPlus} title="股海明燈" subtitle="建立帳號" />
 
-      <main className="flex-1 flex items-center justify-center px-4 py-12">
-        <motion.div
-          className="w-full max-w-md"
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8">
-            <div className="flex flex-col items-center mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20 mb-4">
-                <UserPlus size={26} className="text-white" />
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <SubpageHeader icon={UserPlus} title="股海明燈" subtitle="建立帳號" />
+
+        <main className="flex-1 flex items-center justify-center px-4 py-12">
+          <motion.div
+            className="w-full max-w-md"
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+            transition={
+              reduceMotion ? { duration: 0 } : { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }
+            }
+          >
+            <div className="glass rounded-2xl shadow-xl shadow-black/10 dark:shadow-brand/5 p-8">
+              <div className="flex flex-col items-center mb-8">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand to-brand-light flex items-center justify-center shadow-lg shadow-brand/20 mb-4" style={{ animation: 'glow-pulse 3s ease-in-out infinite' }}>
+                  <UserPlus size={26} className="text-white" />
+                </div>
+                <h2 className="text-2xl font-bold gradient-text">建立帳號</h2>
+                <p className="text-sm text-[var(--color-text-muted)] mt-1">開始您的投資旅程</p>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">建立帳號</h1>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">開始您的投資旅程</p>
-            </div>
 
             {error && (
-              <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+              <div
+                id="register-form-error"
+                role="alert"
+                className="mb-5 px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up"
+              >
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+            <form
+              onSubmit={handleSubmit}
+              className="flex flex-col gap-5"
+              aria-describedby={error ? 'register-form-error' : undefined}
+            >
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">姓名</label>
+                <label htmlFor="register-name" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+                  姓名
+                </label>
                 <div className="relative">
-                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <User size={16} aria-hidden className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                   <input
+                    id="register-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -150,10 +167,13 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">電子郵件</label>
+                <label htmlFor="register-email" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+                  電子郵件
+                </label>
                 <div className="relative">
-                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Mail size={16} aria-hidden className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                   <input
+                    id="register-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -168,10 +188,13 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">密碼</label>
+                <label htmlFor="register-password" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+                  密碼
+                </label>
                 <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Lock size={16} aria-hidden className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                   <input
+                    id="register-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -179,23 +202,27 @@ export default function RegisterPage() {
                     autoComplete="new-password"
                     maxLength={128}
                     disabled={loading}
-                    className="w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60"
+                    className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                    aria-label={showPassword ? '隱藏密碼' : '顯示密碼'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">確認密碼</label>
+                <label htmlFor="register-confirm" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+                  確認密碼
+                </label>
                 <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Lock size={16} aria-hidden className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                   <input
+                    id="register-confirm"
                     type={showConfirm ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -203,14 +230,15 @@ export default function RegisterPage() {
                     autoComplete="new-password"
                     maxLength={128}
                     disabled={loading}
-                    className="w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a] disabled:opacity-60"
+                    className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirm(!showConfirm)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+                    aria-label={showConfirm ? '隱藏確認密碼' : '顯示確認密碼'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
                   >
-                    {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showConfirm ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
                   </button>
                 </div>
               </div>
@@ -218,9 +246,10 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold
-                           shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30
-                           transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                aria-busy={loading}
+                className="relative w-full py-3 rounded-xl bg-gradient-to-r from-brand to-brand-light text-white font-semibold
+                           shadow-lg shadow-brand/20 hover:shadow-[0_0_24px_var(--glow-brand-strong)]
+                           transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
               >
                 {loading ? (
                   <Loader2 size={18} className="animate-spin" />
@@ -235,27 +264,29 @@ export default function RegisterPage() {
 
             <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200 dark:border-gray-600" />
+                <div className="w-full border-t border-[var(--color-border)]" />
               </div>
               <div className="relative flex justify-center text-xs">
-                <span className="px-3 bg-white dark:bg-gray-800 text-gray-400">或使用</span>
+                <span className="px-3 bg-[var(--color-bg-elevated)]/60 rounded text-[var(--color-text-muted)] backdrop-blur-sm">或使用</span>
               </div>
             </div>
 
             <GoogleSignInButton onCredential={handleGoogleCredential} />
 
-            <div className="mt-6 text-center text-sm text-gray-400 dark:text-gray-500">
+            <div className="mt-6 text-center text-sm text-[var(--color-text-muted)]">
               已有帳號？{' '}
               <button
+                type="button"
                 onClick={() => router.push('/login')}
-                className="text-[#ffa95a] hover:text-[#e8953a] font-medium transition-colors cursor-pointer"
+                className="text-brand hover:text-brand-deep font-medium transition-colors cursor-pointer"
               >
                 返回登入
               </button>
             </div>
           </div>
         </motion.div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

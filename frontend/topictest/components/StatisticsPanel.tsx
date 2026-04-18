@@ -14,43 +14,43 @@ export const StatisticsPanel: React.FC<Props> = ({ stats }) => {
       label: '最高價',
       value: fmtPrice(stats.highest_price),
       icon: <ArrowUpRight size={18} />,
-      color: 'text-red-500',
-      bg: 'bg-red-50 dark:bg-red-900/30',
+      color: 'text-up',
+      bg: 'bg-up-muted',
     },
     {
       label: '最低價',
       value: fmtPrice(stats.lowest_price),
       icon: <ArrowDownRight size={18} />,
-      color: 'text-green-600 dark:text-green-400',
-      bg: 'bg-green-50 dark:bg-green-900/30',
+      color: 'text-down',
+      bg: 'bg-down-muted',
     },
     {
       label: '平均收盤價',
       value: fmtPrice(stats.average_close),
       icon: <BarChart3 size={18} />,
-      color: 'text-blue-500',
-      bg: 'bg-blue-50 dark:bg-blue-900/30',
+      color: 'text-[#7B9EB8]',
+      bg: 'bg-[#7B9EB8]/8 dark:bg-[#7B9EB8]/15',
     },
     {
       label: '總成交量',
       value: fmtVolume(stats.total_volume),
       icon: <BarChart3 size={18} />,
-      color: 'text-purple-500',
-      bg: 'bg-purple-50 dark:bg-purple-900/30',
+      color: 'text-[#9B8EC4]',
+      bg: 'bg-[#9B8EC4]/8 dark:bg-[#9B8EC4]/15',
     },
     {
       label: '總成交金額',
       value: fmtVolume(stats.total_amount),
       icon: <BarChart3 size={18} />,
-      color: 'text-amber-500',
-      bg: 'bg-amber-50 dark:bg-amber-900/30',
+      color: 'text-brand',
+      bg: 'bg-brand/8 dark:bg-brand/15',
     },
     {
       label: '交易天數',
       value: `${stats.trading_days} 天`,
       icon: <Calendar size={18} />,
-      color: 'text-gray-500',
-      bg: 'bg-gray-50 dark:bg-gray-700',
+      color: 'text-[var(--color-text-muted)]',
+      bg: 'bg-[var(--color-bg-elevated)]',
     },
   ];
 
@@ -60,10 +60,10 @@ export const StatisticsPanel: React.FC<Props> = ({ stats }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.1 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4 flex items-center gap-2">
-        <BarChart3 size={16} className="text-[#ffa95a]" />
+      <h3 className="text-sm font-semibold text-[var(--color-text-muted)] mb-4 flex items-center gap-2">
+        <BarChart3 size={16} className="text-brand" />
         統計數據
-        <span className="text-xs text-gray-400 dark:text-gray-500 font-normal">
+        <span className="text-xs text-[var(--color-text-muted)] font-normal">
           ({stats.start_date} ~ {stats.end_date})
         </span>
       </h3>
@@ -71,7 +71,7 @@ export const StatisticsPanel: React.FC<Props> = ({ stats }) => {
         {items.map((item, i) => (
           <motion.div
             key={item.label}
-            className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 shadow-sm"
+            className="bg-[var(--color-bg-card)] rounded-xl p-4 border border-[var(--color-border)] shadow-sm"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.15 + i * 0.05 }}
@@ -79,8 +79,8 @@ export const StatisticsPanel: React.FC<Props> = ({ stats }) => {
             <div className={`inline-flex p-2 rounded-lg ${item.bg} ${item.color} mb-2`}>
               {item.icon}
             </div>
-            <div className="text-xs text-gray-400 dark:text-gray-500 mb-1">{item.label}</div>
-            <div className="text-base font-bold text-gray-800 dark:text-gray-200 font-mono">{item.value}</div>
+            <div className="text-xs text-[var(--color-text-muted)] mb-1">{item.label}</div>
+            <div className="text-base font-bold text-[var(--color-text-primary)] font-mono">{item.value}</div>
           </motion.div>
         ))}
       </div>
