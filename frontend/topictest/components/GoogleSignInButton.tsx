@@ -103,7 +103,7 @@ export function GoogleSignInButton({ onCredential }: GoogleSignInButtonProps) {
 
   if (!clientId) {
     return (
-      <p className="text-xs text-center text-amber-600 dark:text-amber-400">
+      <p className="text-xs text-center text-brand-deep dark:text-brand">
         未設定 NEXT_PUBLIC_GOOGLE_CLIENT_ID，無法使用 Google 登入
       </p>
     );
@@ -112,7 +112,7 @@ export function GoogleSignInButton({ onCredential }: GoogleSignInButtonProps) {
   return (
     <div className="flex flex-col items-center gap-2 w-full">
       {loadError && (
-        <p className="text-xs text-center text-red-600 dark:text-red-400" role="alert">
+        <p className="text-xs text-center text-up" role="alert">
           {loadError}
         </p>
       )}

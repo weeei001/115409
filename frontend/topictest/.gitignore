@@ -16,3 +16,4 @@ chat_api.md
 simulated-order-api.md
 openapi.json
 *.tsbuildinfo
+.cursor/

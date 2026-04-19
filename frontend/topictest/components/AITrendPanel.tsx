@@ -23,7 +23,7 @@ export const AITrendPanel: React.FC<Props> = ({ analysis, sourcesSectionTitle = 
         <h1 className={styles.conclusion}>{analysis.conclusion}</h1>
         
         <div className={styles.confidence}>
-          <TrendingUp size={16} color="#ffa95a" />
+          <TrendingUp size={16} className="text-brand shrink-0" aria-hidden />
           <span className={styles.text}>信心指數 {analysis.confidence}%</span>
           <div className={styles.bar}>
             <motion.div

@@ -31,6 +31,7 @@ import { DateRangePicker } from '../../components/DateRangePicker';
 import { AITrendPanel } from '../../components/AITrendPanel';
 import { SubpageHeader } from '../../components/SubpageHeader';
 import { StockSectionNav } from '../../components/StockSectionNav';
+import { AnimatedSection } from '../../components/AnimatedSection';
 import { getDefaultDateRange } from '../../lib/utils/date';
 import { isValidDailyPrice } from '../../lib/utils/stockValidation';
 
@@ -230,17 +231,20 @@ export default function StockDetail() {
     void loadHistory(symbol, historyPage);
   }, [historyPage, symbol, loading, loadHistory]);
 
+  const stockTitle = symbol ? `股海明燈｜${symbol} 個股分析` : '股海明燈｜個股分析';
+  const stockDesc = symbol
+    ? `查詢 ${symbol} 即時股價、K 線、成交量、漲跌幅與歷史行情（展示／專題用途）。`
+    : '個股走勢、技術線圖與歷史行情分析（展示／專題用途）。';
   const stockPageHead = (
     <Head>
-      <title>{symbol ? `股海明燈｜${symbol} 個股分析` : '股海明燈｜個股分析'}</title>
-      <meta
-        name="description"
-        content={
-          symbol
-            ? `查詢 ${symbol} 即時股價、K 線、成交量、漲跌幅與歷史行情（展示／專題用途）。`
-            : '個股走勢、技術線圖與歷史行情分析（展示／專題用途）。'
-        }
-      />
+      <title>{stockTitle}</title>
+      <meta name="description" content={stockDesc} />
+      <meta property="og:title" content={stockTitle} />
+      <meta property="og:description" content={stockDesc} />
+      <meta property="og:type" content="article" />
+      <meta name="twitter:card" content="summary" />
+      <meta name="twitter:title" content={stockTitle} />
+      <meta name="twitter:description" content={stockDesc} />
     </Head>
   );
 
@@ -248,8 +252,9 @@ export default function StockDetail() {
     return (
       <>
         {stockPageHead}
-        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
-          <Loader2 size={40} className="text-[#ffa95a] animate-spin" />
+        <div className="min-h-screen flex items-center justify-center" role="status" aria-live="polite">
+          <Loader2 size={40} className="text-brand animate-spin" aria-hidden="true" />
+          <span className="sr-only">載入中...</span>
         </div>
       </>
     );
@@ -259,13 +264,14 @@ export default function StockDetail() {
     return (
       <>
         {stockPageHead}
-        <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4 px-4">
-          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 max-w-md text-center">
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
+          <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up max-w-md text-center">
             {error}
           </div>
           <button
             onClick={() => router.push('/')}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all cursor-pointer"
+            className="px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg transition-all cursor-pointer"
+            style={{ background: 'var(--brand-gradient)' }}
           >
             返回首頁
           </button>
@@ -278,14 +284,15 @@ export default function StockDetail() {
     return (
       <>
         {stockPageHead}
-        <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-900 gap-4 px-4">
-          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 max-w-md text-center">
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
+          <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up max-w-md text-center">
             無法取得報價資料
           </div>
           <button
             type="button"
             onClick={() => router.push('/')}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all cursor-pointer"
+            className="px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg transition-all cursor-pointer"
+            style={{ background: 'var(--brand-gradient)' }}
           >
             返回首頁
           </button>
@@ -295,71 +302,95 @@ export default function StockDetail() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50/50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen flex flex-col text-[var(--color-text-primary)]">
       {stockPageHead}
       <SubpageHeader
         icon={TrendingUp}
         title="股海明燈"
         subtitle="個股走勢與分析"
       />
-      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
         <StockSectionNav />
 
-        <section id="stock-overview" className={sectionClass}>
-          <StockHeader data={latest} />
-        </section>
+        <AnimatedSection preset="fadeUp" delay={0.05}>
+          <section id="stock-overview" className={sectionClass}>
+            <StockHeader data={latest} />
+          </section>
+        </AnimatedSection>
 
-        <section id="ai-trend" className={sectionClass}>
-          <AITrendPanel analysis={mockAiAnalysis} sourcesSectionTitle="示範引用來源" />
-        </section>
+        <AnimatedSection preset="fadeUp" delay={0.1}>
+          <section id="ai-trend" className={sectionClass}>
+            <AITrendPanel analysis={mockAiAnalysis} sourcesSectionTitle="示範引用來源" />
+          </section>
+        </AnimatedSection>
 
-        <section id="date-range" className={sectionClass}>
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <DateRangePicker
-              startDate={startDate}
-              endDate={endDate}
-              onStartChange={setStartDate}
-              onEndChange={setEndDate}
-            />
-          </div>
-        </section>
+        <AnimatedSection preset="fadeIn" delay={0.05}>
+          <section id="date-range" className={sectionClass}>
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <DateRangePicker
+                startDate={startDate}
+                endDate={endDate}
+                onStartChange={setStartDate}
+                onEndChange={setEndDate}
+              />
+            </div>
+          </section>
+        </AnimatedSection>
 
         {chartLoading && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">載入圖表資料中…</div>
+          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+            <Loader2 size={16} className="animate-spin text-brand" />
+            載入圖表資料中…
+          </div>
         )}
         {chartError && (
-          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+          <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
             {chartError}
           </div>
         )}
 
-        <section id="statistics" className={sectionClass}>
-          {statistics && <StatisticsPanel stats={statistics} />}
-        </section>
-        <section id="candlestick" className={sectionClass}>
-          {candlestickMA && <CandlestickChart data={candlestickMA} />}
-        </section>
-        <section id="volume" className={sectionClass}>
-          {volumeData && <VolumeChart data={volumeData} />}
-        </section>
-        <section id="price-change" className={sectionClass}>
-          {priceChangeData && <PriceChangeChart data={priceChangeData} />}
-        </section>
+        <AnimatedSection preset="fadeUp" delay={0.05}>
+          <section id="statistics" className={sectionClass}>
+            {statistics && <StatisticsPanel stats={statistics} />}
+          </section>
+        </AnimatedSection>
+
+        <AnimatedSection preset="scaleIn" delay={0.05}>
+          <section id="candlestick" className={sectionClass}>
+            {candlestickMA && <CandlestickChart data={candlestickMA} />}
+          </section>
+        </AnimatedSection>
+
+        <AnimatedSection preset="scaleIn" delay={0.05}>
+          <section id="volume" className={sectionClass}>
+            {volumeData && <VolumeChart data={volumeData} />}
+          </section>
+        </AnimatedSection>
+
+        <AnimatedSection preset="scaleIn" delay={0.05}>
+          <section id="price-change" className={sectionClass}>
+            {priceChangeData && <PriceChangeChart data={priceChangeData} />}
+          </section>
+        </AnimatedSection>
+
         {historyError && (
-          <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+          <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
             {historyError}
           </div>
         )}
-        <section id="history" className={sectionClass}>
-          {history && (
-            <HistoryTable
-              data={history}
-              page={historyPage}
-              pageSize={HISTORY_PAGE_SIZE}
-              onPageChange={setHistoryPage}
-            />
-          )}
-        </section>
+
+        <AnimatedSection preset="fadeUp" delay={0.05}>
+          <section id="history" className={sectionClass}>
+            {history && (
+              <HistoryTable
+                data={history}
+                page={historyPage}
+                pageSize={HISTORY_PAGE_SIZE}
+                onPageChange={setHistoryPage}
+              />
+            )}
+          </section>
+        </AnimatedSection>
       </div>
     </div>
   );

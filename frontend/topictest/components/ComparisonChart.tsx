@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import type { CompareChartMode, MultiStockResponse } from '../lib/types';
 import { useTheme } from '../lib/ThemeContext';
+import { getChartPalette } from '../lib/chartTheme';
 import {
   COMPARE_COLOR_PALETTE,
   toCumulativeReturnChartData,
@@ -65,6 +66,7 @@ function fallbackColor(symbol: string, index: number): string {
 export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolColors = {} }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
+  const c = getChartPalette(isDark);
   const [hiddenSymbols, setHiddenSymbols] = useState<string[]>([]);
 
   const symbolKey = data.symbols.join('|');
@@ -87,7 +89,7 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
   const modeMeta = MODE_META[mode];
 
   if (chartData.length === 0) {
-    return <div className="text-gray-400 dark:text-gray-500 text-sm text-center py-12">無比較資料</div>;
+    return <div className="text-[var(--color-text-muted)] text-sm text-center py-12">無比較資料</div>;
   }
 
   return (
@@ -96,25 +98,25 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-5 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700/80 space-y-1">
-          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">{modeMeta.title}</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{modeMeta.description}</p>
+      <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+        <div className="px-5 pt-4 pb-3 border-b border-[var(--color-border)] space-y-1">
+          <h3 className="text-base font-bold text-[var(--color-text-primary)]">{modeMeta.title}</h3>
+          <p className="text-xs text-[var(--color-text-muted)]">{modeMeta.description}</p>
         </div>
 
         <div className="p-4 h-[260px] sm:h-[340px] lg:h-[420px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 12, left: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e5e7eb'} />
+              <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                tick={{ fontSize: 11, fill: c.tick }}
                 tickLine={false}
                 axisLine={false}
                 interval={Math.max(Math.floor(chartData.length / 8), 1)}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                tick={{ fontSize: 11, fill: c.tick }}
                 tickLine={false}
                 axisLine={false}
                 width={74}
@@ -127,11 +129,11 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
               <Tooltip
                 contentStyle={{
                   borderRadius: '12px',
-                  border: 'none',
-                  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.15)',
+                  border: '1px solid var(--color-border)',
+                  boxShadow: c.tooltipShadow,
                   fontSize: '12px',
-                  backgroundColor: isDark ? '#0f172a' : '#fff',
-                  color: isDark ? '#f8fafc' : '#111827',
+                  backgroundColor: c.tooltipBg,
+                  color: c.tooltipText,
                 }}
                 formatter={(value: unknown, name?: string | number) => {
                   if (typeof value !== 'number') return [String(value), String(name ?? '')];
@@ -157,34 +159,34 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
           </ResponsiveContainer>
 
           {visibleSymbols.length === 0 && (
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">已隱藏全部股票，請用下方圖例重新開啟或按「重設」。</p>
+            <p className="mt-2 text-xs text-[var(--color-brand-deep)] dark:text-brand">已隱藏全部股票，請用下方圖例重新開啟或按「重設」。</p>
           )}
         </div>
 
-        <div className="px-5 pb-4 pt-1 border-t border-gray-100 dark:border-gray-700/80 space-y-2">
+        <div className="px-5 pb-4 pt-1 border-t border-[var(--color-border)] space-y-2">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setHiddenSymbols([])}
-              className="px-2.5 py-1 text-xs rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#ffa95a] hover:text-[#ea580c] cursor-pointer"
+              className="px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand cursor-pointer"
             >
               全顯示
             </button>
             <button
               type="button"
               onClick={() => setHiddenSymbols([...data.symbols])}
-              className="px-2.5 py-1 text-xs rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#ffa95a] hover:text-[#ea580c] cursor-pointer"
+              className="px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand cursor-pointer"
             >
               全隱藏
             </button>
             <button
               type="button"
               onClick={() => setHiddenSymbols([])}
-              className="px-2.5 py-1 text-xs rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#ffa95a] hover:text-[#ea580c] cursor-pointer"
+              className="px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand cursor-pointer"
             >
               重設
             </button>
-            <span className="px-2.5 py-1 text-xs rounded-full bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">
+            <span className="px-2.5 py-1 text-xs rounded-full bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
               已顯示 {visibleSymbols.length}/{data.symbols.length}
             </span>
           </div>
@@ -200,8 +202,8 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
                   aria-pressed={!isHidden}
                   className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-mono cursor-pointer transition-colors ${
                     isHidden
-                      ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500'
-                      : 'bg-gray-50 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200'
+                      ? 'bg-[var(--color-bg-elevated)] opacity-60 text-[var(--color-text-muted)]'
+                      : 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)]'
                   }`}
                 >
                   <span
@@ -214,7 +216,7 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
               );
             })}
           </div>
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          <p className="text-[11px] text-[var(--color-text-muted)]">
             圖例色彩與摘要卡、風險報酬散點一致；Y 軸口徑：{modeMeta.yAxisLabel}。點擊圖例可切換顯示。
           </p>
         </div>
@@ -222,4 +224,3 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
     </motion.section>
   );
 };
-
