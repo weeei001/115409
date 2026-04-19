@@ -114,16 +114,16 @@ classDiagram
     %% 實體關聯 (Relationships)
     %% ==========================================
     
-    會員User "1" --> "*" 模擬訂單SimulatedOrder : 擁有多筆委託
+    會員User "1" --> "*" 模擬訂單SimulatedOrder
     
-    模擬下單服務SimulatedOrderController ..> 模擬訂單SimulatedOrder : 讀取/更新狀態
-    模擬下單服務SimulatedOrderController ..> 每日股價DailyPrice : 查詢收盤以重新估值
+    模擬下單服務SimulatedOrderController ..> 模擬訂單SimulatedOrder
+    模擬下單服務SimulatedOrderController ..> 每日股價DailyPrice
     
-    每日股價DailyPrice "1" -- "1" 三大法人籌碼InstitutionalTrade : 同步對齊(Date, Symbol)
-    每日股價DailyPrice "1" -- "1" 技術指標TechnicalIndicator : 同步對齊(Date, Symbol)
-    台股新聞CnyesTWStockNews "*" -- "1" 每日股價DailyPrice : 基於日期/代號關聯
+    每日股價DailyPrice "1" -- "1" 三大法人籌碼InstitutionalTrade
+    每日股價DailyPrice "1" -- "1" 技術指標TechnicalIndicator
+    台股新聞CnyesTWStockNews "*" -- "1" 每日股價DailyPrice
     
-    AI報告AdvisorReport *-- "1" 評分表ScoreBreakdown : 包含模型評分明細
-    AI報告AdvisorReport *-- "*" 技術訊號明細AdvisorTechnicalSignal : 包含技術訊號解讀
-    AI報告AdvisorReport *-- "*" 文獻與來源AdvisorSource : 包含新聞來源整合
+    AI報告AdvisorReport *-- "1" 評分表ScoreBreakdown
+    AI報告AdvisorReport *-- "*" 技術訊號明細AdvisorTechnicalSignal
+    AI報告AdvisorReport *-- "*" 文獻與來源AdvisorSource
 ```
