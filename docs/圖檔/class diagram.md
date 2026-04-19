@@ -5,31 +5,27 @@ classDiagram
     %% ==========================================
     
     class 會員User {
-        +int 編號
-        +string 郵件
-        +string 暱稱
-        +string Google授權碼
+        登入Email
+        暱稱
     }
     
     class 模擬訂單SimulatedOrder {
-        +bigInt 編號
-        +string 會員編號
-        +string 股票代號
-        +string 交易方向
-        +Date 交易日期
-        +int 數量
-        +string 賣出計畫
-        +Date 預計賣出日期
-        +string 狀態
-        +int 預估總金額
-        +int 損益金額
-        +清空不必要欄位() void
-        +驗證訂單() boolean
+        股票代號
+        買賣方向
+        模擬下單日期
+        委託數量
+        賣出計畫
+        預計賣出日
+        委託狀態
+        預估成交金額
+        損益金額（動態計算）
+        +清空不必要欄位()
+        +驗證訂單()
     }
     
     class 模擬下單服務SimulatedOrderController {
         <<Service>>
-        +結算損益(會員編號) void
+        +結算損益(會員)
     }
 
     %% ==========================================
@@ -37,33 +33,45 @@ classDiagram
     %% ==========================================
     
     class 每日股價DailyPrice {
-        +Date 日期
-        +string 股票代號
-        +decimal 收盤價
-        +bigInt 成交量
+        日期
+        股票代號
+        開盤價
+        最高價
+        最低價
+        收盤價
+        成交股數
+        成交金額
+        漲跌價差
+        成交筆數
     }
     
     class 三大法人籌碼InstitutionalTrade {
-        +Date 日期
-        +string 股票代號
-        +bigInt 總買賣超
-        +bigInt 外資買賣超
-        +bigInt 投信買賣超
+        交易日期
+        證券代號
+        外陸資買賣超
+        外資自營商買賣超
+        投信買賣超
+        自營商買賣超總計
+        三大法人買賣超總計
     }
     
     class 技術指標TechnicalIndicator {
-        +Date 日期
-        +string 股票代號
-        +decimal 均線
-        +decimal K值
-        +decimal 值
+        日期
+        股票代號
+        各週期均線（5/10/20/60日）
+        KD指標K與D值
+        14日RSI
+        MACD線
+        布林通道
+        5日均量
     }
 
     class 台股新聞CnyesTWStockNews {
-        +bigInt 新聞編號
-        +string 標題
-        +Date 發佈時間
-        +string 關聯股票
+        新聞標題
+        新聞內文
+        發布時間
+        關聯股票
+        原始新聞網址
     }
 
     %% ==========================================
@@ -72,34 +80,34 @@ classDiagram
     
     class AI報告AdvisorReport {
         <<Interface>>
-        +string 股票代號
-        +string 操作建議
-        +string 摘要
-        +string 推論邏輯
+        股票代號
+        操作建議
+        摘要
+        推論邏輯
     }
     
     class 評分表ScoreBreakdown {
         <<Interface>>
-        +number 技術面得分
-        +number 籌碼面得分
-        +number 新聞分數
-        +number 動能分數
-        +number 總分
+        技術面得分
+        籌碼面得分
+        新聞分數
+        動能分數
+        總分
     }
     
     class 技術訊號明細AdvisorTechnicalSignal {
         <<Interface>>
-        +string 訊號名稱
-        +string 數值
-        +string 解釋
+        訊號名稱
+        數值
+        解釋
     }
     
     class 文獻與來源AdvisorSource {
         <<Interface>>
-        +string 標題
-        +string 連結
-        +string 機構
-        +string 摘要
+        標題
+        連結
+        機構
+        摘要
     }
 
     %% ==========================================
