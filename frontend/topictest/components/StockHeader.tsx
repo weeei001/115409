@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { TrendingUp, TrendingDown, ArrowLeft } from 'lucide-react';
-import { useRouter } from 'next/router';
+import { TrendingUp, TrendingDown } from 'lucide-react';
 import type { DailyPriceResponse } from '../lib/types';
 import { fmt, fmtPrice } from '../lib/utils/format';
 
@@ -10,11 +9,11 @@ interface Props {
 }
 
 export const StockHeader: React.FC<Props> = ({ data }) => {
-  const router = useRouter();
   const change = Number(data.change ?? 0);
   const close = Number(data.close ?? 0);
   const prevClose = close - change;
-  const changePct = prevClose !== 0 ? ((change / prevClose) * 100).toFixed(2) : '0.00';
+  const validPrev = prevClose > 0;
+  const changePct = validPrev ? ((change / prevClose) * 100).toFixed(2) : null;
   const isUp = change >= 0;
 
   const infoItems = [
@@ -28,38 +27,26 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
 
   return (
     <motion.header
-      className="w-full max-w-5xl mb-8"
+      className="w-full mb-8"
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          onClick={() => router.push('/')}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-        >
-          <ArrowLeft size={20} className="text-gray-500 dark:text-gray-400" />
-        </button>
-        <h2 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-          股海明燈
-        </h2>
-      </div>
-
-      <div className="flex justify-between items-end mb-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-baseline gap-3">
+          <h1 className="text-2xl sm:text-3xl font-bold flex items-baseline gap-3">
             {data.symbol}
-            <span className="text-base text-gray-400 dark:text-gray-500">{data.date}</span>
+            <span className="text-sm sm:text-base text-[var(--color-text-muted)] tabular-nums">{data.date}</span>
           </h1>
         </div>
-        <div className="text-right">
-          <div className="text-4xl font-mono font-bold text-gray-900 dark:text-gray-100">
+        <div className="sm:text-right">
+          <div className="text-2xl sm:text-4xl font-mono font-bold tabular-nums">
             {fmtPrice(data.close)}
           </div>
-          <div className={`flex items-center justify-end gap-1 text-sm font-medium ${isUp ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+          <div className={`flex items-center sm:justify-end gap-1 text-sm font-medium font-mono tabular-nums ${isUp ? 'text-up' : 'text-down'}`}>
             {isUp ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
             <span>{isUp ? '+' : ''}{change.toFixed(2)}</span>
-            <span>({isUp ? '+' : ''}{changePct}%)</span>
+            <span>({changePct != null ? `${isUp ? '+' : ''}${changePct}%` : '--'})</span>
           </div>
         </div>
       </div>
@@ -68,10 +55,10 @@ export const StockHeader: React.FC<Props> = ({ data }) => {
         {infoItems.map((item) => (
           <div
             key={item.label}
-            className="bg-gray-50 dark:bg-gray-800 rounded-xl px-4 py-3 border border-gray-100 dark:border-gray-700"
+            className="bg-[var(--color-bg-elevated)] rounded-xl px-4 py-3 border border-[var(--color-border)]"
           >
-            <div className="text-xs text-gray-400 dark:text-gray-500 mb-1">{item.label}</div>
-            <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 font-mono">{item.value}</div>
+            <div className="text-xs text-[var(--color-text-muted)] mb-1">{item.label}</div>
+            <div className="text-sm font-semibold font-mono tabular-nums">{item.value}</div>
           </div>
         ))}
       </div>

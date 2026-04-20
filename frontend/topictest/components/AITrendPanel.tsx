@@ -1,14 +1,16 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { BookOpen, TrendingUp } from 'lucide-react';
-import { AITrendAnalysis } from '../lib/types';
+import type { AITrendAnalysis } from '../lib/types';
 import styles from '../styles/components/AITrendPanel.module.scss';
 
 interface Props {
   analysis: AITrendAnalysis;
+  /** 引用區塊標題；示範資料時建議傳「示範引用來源」避免與即時 RAG 混淆 */
+  sourcesSectionTitle?: string;
 }
 
-export const AITrendPanel: React.FC<Props> = ({ analysis }) => {
+export const AITrendPanel: React.FC<Props> = ({ analysis, sourcesSectionTitle = 'RAG 引用來源' }) => {
   return (
     <motion.div
       className={styles.panel}
@@ -21,7 +23,7 @@ export const AITrendPanel: React.FC<Props> = ({ analysis }) => {
         <h1 className={styles.conclusion}>{analysis.conclusion}</h1>
         
         <div className={styles.confidence}>
-          <TrendingUp size={16} color="#ffa95a" />
+          <TrendingUp size={16} className="text-brand shrink-0" aria-hidden />
           <span className={styles.text}>信心指數 {analysis.confidence}%</span>
           <div className={styles.bar}>
             <motion.div
@@ -39,7 +41,7 @@ export const AITrendPanel: React.FC<Props> = ({ analysis }) => {
       <div className={styles.sourcesWrap}>
         <div className={styles.sourcesTitle}>
           <BookOpen />
-          <span>RAG 引用來源</span>
+          <span>{sourcesSectionTitle}</span>
         </div>
         <div className={styles.sourceList}>
           {analysis.sources.map((source, index) => (

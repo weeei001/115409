@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Send } from 'lucide-react';
 
 interface Props {
@@ -8,7 +8,6 @@ interface Props {
 
 export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
   const [value, setValue] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
@@ -24,31 +23,38 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
     }
   };
 
+  const inputId = 'chat-input-message';
+
   return (
-    <div className="flex gap-2 items-end p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+    <div className="flex gap-2 items-end p-4 border-t border-[var(--color-border)]
+                    bg-[var(--color-bg-card)]">
+      <label htmlFor={inputId} className="sr-only">
+        輸入訊息（Enter 送出，Shift+Enter 換行）
+      </label>
       <textarea
-        ref={textareaRef}
+        id={inputId}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="輸入您的問題..."
         rows={1}
         disabled={disabled}
-        className="flex-1 min-h-[44px] max-h-32 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600
-                   bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm
-                   resize-none focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
+        className="flex-1 min-h-[48px] max-h-32 px-4 py-3 rounded-xl border border-[var(--color-border)]
+                   bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-sm
+                   resize-none focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
                    disabled:opacity-50 disabled:cursor-not-allowed"
       />
       <button
         type="button"
         onClick={handleSubmit}
         disabled={!value.trim() || disabled}
-        className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center
-                   bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white shadow-lg shadow-[#ffa95a]/20
-                   hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all
+        aria-label="送出訊息"
+        className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center
+                   text-white shadow-lg transition-all
                    disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+        style={{ background: 'var(--brand-gradient)' }}
       >
-        <Send size={18} />
+        <Send size={18} aria-hidden />
       </button>
     </div>
   );

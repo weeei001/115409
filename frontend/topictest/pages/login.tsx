@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion } from 'motion/react';
-import { TrendingUp, LogIn, Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { motion, useReducedMotion } from 'motion/react';
+import { LogIn, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { SubpageHeader } from '../components/SubpageHeader';
+import { GoogleSignInButton } from '../components/GoogleSignInButton';
+import { authGoogle, authLogin } from '../lib/api/auth';
+import { ApiRequestError } from '../lib/api/client';
+import { setAuth } from '../lib/auth/storage';
+import { safeReturnUrl } from '../lib/utils/returnUrl';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +17,38 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const postLoginPath = useMemo(() => {
+    if (!router.isReady) return '/';
+    return safeReturnUrl(router.query.returnUrl) ?? '/';
+  }, [router.isReady, router.query.returnUrl]);
+
+  const redirectAfterLogin = useCallback(async () => {
+    await router.push(postLoginPath);
+  }, [router, postLoginPath]);
+
+  const handleGoogleCredential = useCallback(
+    async (credential: string) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const data = await authGoogle({ id_token: credential });
+        setAuth(data.access_token, data.user);
+        await redirectAfterLogin();
+      } catch (err) {
+        setError(
+          err instanceof ApiRequestError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Google 登入失敗'
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [redirectAfterLogin]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,58 +74,71 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setLoading(false);
-    alert('登入功能尚未開放，待 API 串接後即可使用。');
+    try {
+      const data = await authLogin({ email: normalizedEmail, password: normalizedPassword });
+      setAuth(data.access_token, data.user);
+      await redirectAfterLogin();
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError ? err.message : err instanceof Error ? err.message : '登入失敗'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 flex flex-col">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20">
-              <TrendingUp size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">股海明燈</span>
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
+  const reduceMotion = useReducedMotion();
 
-      <main className="flex-1 flex items-center justify-center px-4 py-12">
-        <motion.div
-          className="w-full max-w-md"
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8">
-            <div className="flex flex-col items-center mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20 mb-4">
-                <LogIn size={26} className="text-white" />
+  return (
+    <div className="min-h-screen flex flex-col relative">
+      <Head>
+        <title>股海明燈｜登入</title>
+        <meta name="description" content="登入股海明燈帳號。" />
+      </Head>
+
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <SubpageHeader icon={LogIn} title="股海明燈" subtitle="登入帳號" />
+
+        <main className="flex-1 flex items-center justify-center px-4 py-12">
+          <motion.div
+            className="w-full max-w-md"
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+          >
+            <div className="glass rounded-2xl shadow-[var(--shadow-elevated)] p-8">
+              <div className="flex flex-col items-center mb-8">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg mb-4"
+                     style={{ background: 'var(--brand-gradient)', animation: 'glow-pulse 3s ease-in-out infinite' }}>
+                  <LogIn size={26} className="text-white" />
+                </div>
+                <h2 className="text-2xl font-bold gradient-text">歡迎回來</h2>
+                <p className="text-sm text-[var(--color-text-muted)] mt-1">登入您的帳號以繼續</p>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">歡迎回來</h1>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">登入您的帳號以繼續</p>
-            </div>
 
             {error && (
-              <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+              <div
+                id="login-form-error"
+                role="alert"
+                className="mb-5 px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up"
+              >
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+            <form
+              onSubmit={handleSubmit}
+              className="flex flex-col gap-5"
+              aria-describedby={error ? 'login-form-error' : undefined}
+            >
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="login-email" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                   電子郵件
                 </label>
                 <div className="relative">
-                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Mail size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                   <input
+                    id="login-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -95,34 +146,42 @@ export default function LoginPage() {
                     autoComplete="email"
                     inputMode="email"
                     maxLength={254}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200
-                               focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                    disabled={loading}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--color-border)]
+                               bg-[var(--color-bg-elevated)]/60 text-sm text-[var(--color-text-primary)]
+                               focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
+                               transition-shadow disabled:opacity-60"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label htmlFor="login-password" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                   密碼
                 </label>
                 <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Lock size={16} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                   <input
+                    id="login-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="請輸入密碼"
                     autoComplete="current-password"
                     maxLength={128}
-                    className="w-full pl-10 pr-11 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200
-                               focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                    disabled={loading}
+                    className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-[var(--color-border)]
+                               bg-[var(--color-bg-elevated)]/60 text-sm text-[var(--color-text-primary)]
+                               focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
+                               transition-shadow disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    aria-label={showPassword ? '隱藏密碼' : '顯示密碼'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                   </button>
                 </div>
               </div>
@@ -131,7 +190,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => router.push('/forgot-password')}
-                  className="text-xs text-[#ffa95a] hover:text-[#e8953a] transition-colors"
+                  className="text-xs text-brand hover:text-brand-deep transition-colors cursor-pointer"
                 >
                   忘記密碼？
                 </button>
@@ -140,12 +199,14 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold
-                           shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30
-                           transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                aria-busy={loading}
+                className="relative w-full py-3 rounded-xl text-white font-semibold
+                           shadow-lg hover:shadow-[0_0_24px_var(--glow-brand-strong)]
+                           transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
+                style={{ background: 'var(--brand-gradient)' }}
               >
                 {loading ? (
-                  <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  <Loader2 size={18} className="animate-spin" />
                 ) : (
                   <>
                     <LogIn size={18} />
@@ -155,18 +216,31 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="mt-6 text-center text-sm text-gray-400 dark:text-gray-500">
+            <div className="relative my-8">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[var(--color-border)]" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-3 bg-[var(--color-bg-card)]/80 rounded text-[var(--color-text-muted)] backdrop-blur-sm">或使用</span>
+              </div>
+            </div>
+
+            <GoogleSignInButton onCredential={handleGoogleCredential} />
+
+            <div className="mt-6 text-center text-sm text-[var(--color-text-muted)]">
               還沒有帳號？{' '}
               <button
+                type="button"
                 onClick={() => router.push('/register')}
-                className="text-[#ffa95a] hover:text-[#e8953a] font-medium transition-colors"
+                className="text-brand hover:text-brand-deep font-medium transition-colors cursor-pointer"
               >
                 立即註冊
               </button>
             </div>
           </div>
         </motion.div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

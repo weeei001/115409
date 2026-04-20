@@ -43,11 +43,13 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
 
   return (
     <motion.article
-      className="group border-b border-gray-100 dark:border-gray-700 last:border-b-0 py-4 first:pt-0"
-      initial={{ opacity: 0, x: -10 }}
+      className="group border-b border-[var(--color-border)] last:border-b-0 py-4 first:pt-0
+                 relative pl-4 hover:-translate-y-0.5 transition-transform duration-200"
+      initial={{ opacity: 0, x: -16 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.04 }}
+      transition={{ duration: 0.35, delay: index * 0.04, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
+      <div className="absolute left-0 top-4 bottom-4 w-0.5 rounded-full bg-gradient-to-b from-brand to-brand-light opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -55,22 +57,22 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
               <span
                 key={s}
                 className="inline-flex items-center gap-0.5 text-[11px] font-mono font-medium
-                           text-[#ffa95a] bg-[#fff9e6] dark:bg-[#ffa95a]/10 px-1.5 py-0.5 rounded"
+                           text-brand bg-brand/8 px-1.5 py-0.5 rounded"
               >
                 <Tag size={9} />
                 {s}
               </span>
             ))}
             {news.publish_time && (
-              <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500">
+              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
                 <Clock size={10} />
                 {formatTime(news.publish_time)}
               </span>
             )}
           </div>
 
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 leading-snug mb-1
-                         group-hover:text-[#ffa95a] transition-colors line-clamp-2">
+          <h3 className="text-sm font-semibold leading-snug mb-1
+                         group-hover:text-brand transition-colors line-clamp-2">
             {safeUrl ? (
               <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
                 {news.title}
@@ -81,7 +83,7 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
           </h3>
 
           {snippet && !expanded && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">{snippet}</p>
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed line-clamp-2">{snippet}</p>
           )}
 
           <AnimatePresence>
@@ -93,7 +95,7 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
                 transition={{ duration: 0.25 }}
                 className="overflow-hidden"
               >
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mt-1 whitespace-pre-line">
+                <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mt-1 whitespace-pre-line">
                   {news.content?.replace(/<[^>]*>/g, '').trim()}
                 </p>
               </motion.div>
@@ -105,7 +107,8 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
           {hasContent && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              className="p-1.5 rounded-lg hover:bg-[var(--color-bg-elevated)] transition-colors
+                         text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
             >
               <ChevronDown
                 size={14}
@@ -118,7 +121,8 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
               href={safeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-400 hover:text-[#ffa95a]"
+              className="p-1.5 rounded-lg hover:bg-[var(--color-bg-elevated)] transition-colors
+                         text-[var(--color-text-muted)] hover:text-brand"
             >
               <ExternalLink size={14} />
             </a>

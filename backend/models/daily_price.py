@@ -16,10 +16,8 @@ class DailyPrice(Base):
     change = Column(DECIMAL(10, 2), comment='漲跌價差')
     trades = Column(Integer, comment='成交筆數')
 
-    # 定義索引
     __table_args__ = (
-        Index('idx_symbol', 'symbol'),
-        Index('idx_date', 'date'),
+        Index('idx_dp_symbol_date', 'symbol', 'date'),
     )
 
     def __repr__(self):

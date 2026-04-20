@@ -3,6 +3,7 @@ import logging
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import schedule
@@ -23,9 +24,10 @@ CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
 INDICATOR_SCRIPT = CRAWLER_DIR / "technical_indicator_job.py"
 INSTITUTIONAL_TRADES_SCRIPT = CRAWLER_DIR / "institutional_trades_job.py"
 RUN_TECHNICAL_INDICATOR_AFTER_CRAWL = True
-RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = False
+RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = True
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
+TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
 def _python_executable() -> str:
@@ -34,6 +36,17 @@ def _python_executable() -> str:
 
 def _subprocess_text_encoding() -> str:
     return locale.getpreferredencoding(False) or "utf-8"
+
+
+def _twse_backfill_range_yyyymm() -> tuple[str, str]:
+    """Return (start, end) as YYYYMM for a rolling 2-month window in Asia/Taipei."""
+    now = datetime.now(tz=TZ_TAIPEI)
+    end_yyyymm = f"{now.year}{now.month:02d}"
+    if now.month == 1:
+        start_yyyymm = f"{now.year - 1}12"
+    else:
+        start_yyyymm = f"{now.year}{now.month - 1:02d}"
+    return start_yyyymm, end_yyyymm
 
 def run_crawler_job():
     """
@@ -53,8 +66,18 @@ def run_crawler_job():
 
     try:
         # 加上 --batch 參數，關閉所有互動式輸入
-        command = [python_cmd, str(script_path), "--batch"]
+        start_yyyymm, end_yyyymm = _twse_backfill_range_yyyymm()
+        command = [
+            python_cmd,
+            str(script_path),
+            "--batch",
+            "--start",
+            start_yyyymm,
+            "--end",
+            end_yyyymm,
+        ]
         output_encoding = _subprocess_text_encoding()
+        log.info("TWSE backfill window: %s -> %s", start_yyyymm, end_yyyymm)
         
         log.info(f"執行指令: {' '.join(command)}")
         
@@ -184,10 +207,14 @@ def main():
     # 設定每天執行一次
     schedule.every().day.at(schedule_time).do(run_crawler_job)
     log.info(
-        "✅ 已設定每天 %s 執行：%s（成功後依常數接續三大法人／技術指標）",
+        "✅ 已設定每天 %s 執行：%s",
         schedule_time,
         TWSE_CRAWLER_SCRIPT.name,
     )
+    if RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL:
+        log.info("  ↳ 三大法人買賣超：爬蟲成功後自動執行")
+    if RUN_TECHNICAL_INDICATOR_AFTER_CRAWL:
+        log.info("  ↳ 技術指標計算：爬蟲成功後自動執行")
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)

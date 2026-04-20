@@ -1,13 +1,23 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import type { CompareMetricsRow } from '../lib/types';
 import type { CompareSortState } from '../lib/utils/compare';
-import { sortMetricsRows } from '../lib/utils/compare';
+import { COMPARE_COLOR_PALETTE, sortMetricsRows } from '../lib/utils/compare';
 import { fmtVolume } from '../lib/utils/format';
-import { useTheme } from '../lib/ThemeContext';
+
+function fallbackSymbolColor(symbol: string): string {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i += 1) {
+    hash = (hash << 5) - hash + symbol.charCodeAt(i);
+    hash |= 0;
+  }
+  return COMPARE_COLOR_PALETTE[Math.abs(hash) % COMPARE_COLOR_PALETTE.length];
+}
 
 interface Props {
   rows: CompareMetricsRow[];
+  symbolColors?: Record<string, string>;
+  calcVersion?: string;
 }
 
 const headers: Array<{ key: keyof CompareMetricsRow; label: string }> = [
@@ -32,9 +42,15 @@ function fmtNum(v: number | null): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+/** 台股慣例：上漲紅、下跌綠 */
+function twReturnClass(v: number | null): string {
+  if (v == null || Number.isNaN(v)) return '';
+  if (v > 0) return 'text-up font-medium';
+  if (v < 0) return 'text-down font-medium';
+  return 'text-[var(--color-text-primary)]';
+}
+
+export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }) => {
   const [sort, setSort] = useState<CompareSortState>({ key: 'totalReturnPct', direction: 'desc' });
 
   const sortedRows = useMemo(() => sortMetricsRows(rows, sort), [rows, sort]);
@@ -43,20 +59,25 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
 
   return (
     <motion.section
+      role="region"
+      aria-label="股票比較指標表"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-4">比較指標表</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900/40">
+      <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--color-border)]">
+          <h3 className="text-base font-bold text-[var(--color-text-primary)]">比較指標表</h3>
+        </div>
+        <div className="overflow-x-auto touch-pan-x overscroll-x-contain">
+          <table className="w-full text-sm min-w-[720px]">
+            <thead className="bg-[var(--color-bg-elevated)]">
               <tr>
                 {headers.map((h) => (
-                  <th key={h.key} className="px-4 py-3 text-left whitespace-nowrap">
+                  <th key={h.key} scope="col" className="px-4 py-3 text-left whitespace-nowrap">
                     <button
-                      className="font-semibold text-gray-600 dark:text-gray-300 hover:text-[#ffa95a] transition-colors"
+                      type="button"
+                      className="font-semibold text-[var(--color-text-secondary)] hover:text-brand transition-colors cursor-pointer"
                       onClick={() =>
                         setSort((prev) => ({
                           key: h.key,
@@ -82,15 +103,20 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
               {sortedRows.map((r) => (
                 <tr
                   key={r.symbol}
-                  className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50/70 dark:hover:bg-gray-700/30"
+                  className="border-t border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-bg-elevated)_85%,transparent)]"
                 >
-                  <td className="px-4 py-3 font-mono font-semibold text-[#b97a3a] dark:text-[#ffa95a]">{r.symbol}</td>
-                  <td className="px-4 py-3">{fmtPct(r.totalReturnPct)}</td>
+                  <td
+                    className="px-4 py-3 font-mono font-semibold"
+                    style={{ color: symbolColors[r.symbol] ?? fallbackSymbolColor(r.symbol) }}
+                  >
+                    {r.symbol}
+                  </td>
+                  <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.totalReturnPct)}`}>{fmtPct(r.totalReturnPct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.volatilityPct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.maxDrawdownPct)}</td>
                   <td className="px-4 py-3">{fmtPct(r.winRatePct)}</td>
-                  <td className="px-4 py-3 text-red-500">{fmtPct(r.maxDailyGainPct)}</td>
-                  <td className="px-4 py-3 text-green-600">{fmtPct(r.maxDailyLossPct)}</td>
+                  <td className="px-4 py-3 text-up">{fmtPct(r.maxDailyGainPct)}</td>
+                  <td className="px-4 py-3 text-down">{fmtPct(r.maxDailyLossPct)}</td>
                   <td className="px-4 py-3">{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
                   <td className="px-4 py-3">{fmtNum(r.avgAmount)}</td>
                 </tr>
@@ -98,7 +124,7 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows }) => {
             </tbody>
           </table>
         </div>
-        <div className={`px-4 py-2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+        <div className="px-4 py-2 text-xs text-[var(--color-text-muted)]">
           點擊欄位標題可排序，空值以 -- 顯示。
         </div>
       </div>

@@ -9,7 +9,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@sentry/nextjs": "^10.46.0",
     "@tailwindcss/postcss": "^4.2.1",
+    "@types/three": "^0.183.1",
+    "@vercel/analytics": "^2.0.1",
     "axios": "^1.13.6",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
@@ -22,11 +27,15 @@
     "react-dom": "^19.0.0",
     "recharts": "^3.8.0",
     "sass": "^1.98.0",
-    "tailwind-merge": "^3.5.0"
+    "simplex-noise": "^4.0.3",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@types/react": "19.2.14",
+    "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

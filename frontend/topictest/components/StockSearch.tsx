@@ -1,22 +1,34 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
+import { clsx } from 'clsx';
+import type { BulkSelectResult } from '../lib/types';
 
 interface Props {
   symbols: string[];
   onSelect: (symbol: string) => void;
+  onBulkSelect: (input: string) => BulkSelectResult;
+  maxSelection: number;
+  selectedCount: number;
   placeholder?: string;
   value?: string;
+  className?: string;
 }
 
 export const StockSearch: React.FC<Props> = ({
   symbols,
   onSelect,
+  onBulkSelect,
+  maxSelection,
+  selectedCount,
   placeholder = '輸入股票代號...',
   value = '',
+  className,
 }) => {
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const ref = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   useEffect(() => {
     setQuery(value);
@@ -35,41 +47,133 @@ export const StockSearch: React.FC<Props> = ({
     return symbols.filter((s) => s.includes(query.trim())).slice(0, 20);
   }, [query, symbols]);
 
+  const commitBulkInput = (rawInput: string) => {
+    const text = rawInput.trim();
+    if (!text) return;
+    onBulkSelect(text);
+    setQuery('');
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  const selectItem = (sym: string) => {
+    onSelect(sym);
+    setQuery('');
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      setOpen(true);
+      setActiveIndex(0);
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (query.trim()) {
+        commitBulkInput(query);
+        return;
+      }
+      if (!open || filtered.length === 0) return;
+      if (activeIndex >= 0 && activeIndex < filtered.length) {
+        selectItem(filtered[activeIndex]);
+      } else {
+        selectItem(filtered[0]);
+      }
+      return;
+    }
+
+    if (!open || filtered.length === 0) {
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % filtered.length);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveIndex((i) => (i <= 0 ? filtered.length - 1 : i - 1));
+        break;
+      case 'Home':
+        e.preventDefault();
+        setActiveIndex(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        setActiveIndex(filtered.length - 1);
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setOpen(false);
+        setActiveIndex(-1);
+        break;
+    }
+  };
+
+  const isExpanded = open && filtered.length > 0;
+  const activeDescendant = activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined;
+
   return (
-    <div ref={ref} className="relative w-full max-w-md">
+    <div ref={ref} className={clsx('relative w-full', !className && 'max-w-md', className)}>
       <div className="relative">
-        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={18} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
         <input
           type="text"
+          role="combobox"
+          aria-expanded={isExpanded}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeDescendant}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
+            setActiveIndex(-1);
+          }}
+          onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            const pastedText = e.clipboardData.getData('text');
+            if (!/[\s,，;；|]/.test(pastedText)) return;
+            e.preventDefault();
+            commitBulkInput(pastedText);
           }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200
-                     focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]
-                     bg-white dark:bg-gray-700 text-base shadow-sm"
+          className="w-full pl-10 pr-4 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text-primary)]
+                     focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand
+                     bg-[var(--color-bg-elevated)] text-base shadow-sm"
         />
       </div>
-      {open && filtered.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 shadow-lg z-50 max-h-60 overflow-y-auto">
-          {filtered.map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                onSelect(s);
-                setQuery(s);
-                setOpen(false);
-              }}
-              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#fff9e6] dark:hover:bg-[#ffa95a]/10 hover:text-[#ffa95a] transition-colors font-mono"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
+      <ul
+        id={listboxId}
+        role="listbox"
+        className={clsx(
+          'absolute top-full left-0 right-0 mt-1 bg-[var(--color-bg-card)] rounded-xl border border-[var(--color-border)] shadow-lg z-50 max-h-60 overflow-y-auto',
+          !isExpanded && 'hidden',
+        )}
+      >
+        {filtered.map((s, i) => (
+          <li
+            key={s}
+            id={`${listboxId}-option-${i}`}
+            role="option"
+            aria-selected={i === activeIndex}
+            onClick={() => selectItem(s)}
+            onMouseEnter={() => setActiveIndex(i)}
+            className={clsx(
+              'w-full text-left px-4 py-2.5 text-sm text-[var(--color-text-secondary)] hover:bg-brand/10 hover:text-brand transition-colors font-mono cursor-pointer',
+              i === activeIndex && 'bg-brand/10 text-brand',
+            )}
+          >
+            {s}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };

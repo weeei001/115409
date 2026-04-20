@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion } from 'motion/react';
-import { TrendingUp, KeyRound, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { motion, useReducedMotion } from 'motion/react';
+import { KeyRound, Mail, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
+import { SubpageHeader } from '../components/SubpageHeader';
+import { authForgotPassword } from '../lib/api/auth';
+import { ApiRequestError } from '../lib/api/client';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -10,67 +13,68 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const reduceMotion = useReducedMotion();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!email.trim()) {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
       setError('請輸入電子郵件');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
       setError('請輸入有效的電子郵件格式');
       return;
     }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setLoading(false);
-    setSent(true);
+    try {
+      const data = await authForgotPassword({ email: normalized });
+      setSuccessMessage(data.message);
+      setSent(true);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError ? err.message : err instanceof Error ? err.message : '申請失敗，請稍後再試'
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50/60 dark:bg-gray-900 flex flex-col">
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20">
-              <TrendingUp size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">股海明燈</span>
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col">
+      <Head>
+        <title>股海明燈｜重設密碼</title>
+        <meta name="description" content="申請重設密碼連結至您的電子郵件。" />
+      </Head>
+      <SubpageHeader icon={KeyRound} title="股海明燈" subtitle="重設密碼" />
 
       <main className="flex-1 flex items-center justify-center px-4 py-12">
         <motion.div
           className="w-full max-w-md"
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
+          animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.5 }}
         >
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8">
+          <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-8">
             {sent ? (
               <div className="flex flex-col items-center text-center">
-                <div className="w-14 h-14 rounded-2xl bg-green-50 dark:bg-green-900/30 flex items-center justify-center mb-4">
-                  <CheckCircle size={30} className="text-green-500" />
+                <div className="w-14 h-14 rounded-2xl bg-down-muted flex items-center justify-center mb-4">
+                  <CheckCircle size={30} className="text-down" />
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">郵件已發送</h1>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mb-6">
-                  重設密碼的連結已發送至 <span className="font-medium text-gray-600 dark:text-gray-300">{email}</span>，請至信箱查看。
-                </p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mb-6">
-                  （目前為模擬功能，實際上尚未發送郵件）
+                <h2 className="text-2xl font-bold text-[var(--color-text-primary)] mb-2">申請已送出</h2>
+                <p className="text-sm text-[var(--color-text-muted)] mb-6 leading-relaxed">
+                  {successMessage ?? '若此 email 已註冊且可重設密碼，您將收到重設連結。'}
                 </p>
                 <button
+                  type="button"
                   onClick={() => router.push('/login')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a]
-                             text-white font-semibold shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30 transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-all cursor-pointer"
+                  style={{ background: 'var(--brand-gradient)' }}
                 >
                   <ArrowLeft size={16} />
                   返回登入
@@ -79,33 +83,44 @@ export default function ForgotPasswordPage() {
             ) : (
               <>
                 <div className="flex flex-col items-center mb-8">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#ffa95a] to-[#ffd45a] flex items-center justify-center shadow-lg shadow-[#ffa95a]/20 mb-4">
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg shadow-brand/20 mb-4" style={{ background: 'var(--brand-gradient)' }}>
                     <KeyRound size={26} className="text-white" />
                   </div>
-                  <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">忘記密碼</h1>
-                  <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">輸入您的電子郵件，我們將發送重設連結</p>
+                  <h2 className="text-2xl font-bold text-[var(--color-text-primary)]">忘記密碼</h2>
+                  <p className="text-sm text-[var(--color-text-muted)] mt-1">輸入您的電子郵件，我們將發送重設連結</p>
                 </div>
 
                 {error && (
-                  <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+                  <div
+                    id="forgot-form-error"
+                    role="alert"
+                    className="mb-5 px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up"
+                  >
                     {error}
                   </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                <form
+                  onSubmit={handleSubmit}
+                  className="flex flex-col gap-5"
+                  aria-describedby={error ? 'forgot-form-error' : undefined}
+                >
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    <label htmlFor="forgot-email" className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
                       電子郵件
                     </label>
                     <div className="relative">
-                      <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <Mail size={16} aria-hidden className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
                       <input
+                        id="forgot-email"
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="you@example.com"
-                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm dark:text-gray-200
-                                   focus:outline-none focus:ring-2 focus:ring-[#ffa95a]/30 focus:border-[#ffa95a]"
+                        autoComplete="email"
+                        disabled={loading}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-sm text-[var(--color-text-primary)]
+                                   focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-60"
                       />
                     </div>
                   </div>
@@ -113,12 +128,14 @@ export default function ForgotPasswordPage() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-3 rounded-xl bg-gradient-to-r from-[#ffa95a] to-[#ffd45a] text-white font-semibold
-                               shadow-lg shadow-[#ffa95a]/20 hover:shadow-xl hover:shadow-[#ffa95a]/30
-                               transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    aria-busy={loading}
+                    className="w-full py-3 rounded-xl text-white font-semibold
+                               shadow-lg shadow-brand/20 hover:shadow-xl
+                               transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                    style={{ background: 'var(--brand-gradient)' }}
                   >
                     {loading ? (
-                      <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <Loader2 size={18} className="animate-spin" />
                     ) : (
                       <>
                         <Mail size={18} />
@@ -130,8 +147,9 @@ export default function ForgotPasswordPage() {
 
                 <div className="mt-6 text-center">
                   <button
+                    type="button"
                     onClick={() => router.push('/login')}
-                    className="text-sm text-[#ffa95a] hover:text-[#e8953a] font-medium transition-colors flex items-center gap-1 mx-auto"
+                    className="text-sm text-brand hover:text-brand-deep font-medium transition-colors flex items-center gap-1 mx-auto cursor-pointer"
                   >
                     <ArrowLeft size={14} />
                     返回登入
