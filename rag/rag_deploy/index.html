@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>財經新聞 RAG 系統</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Microsoft JhengHei", sans-serif; background: #0f1923; color: #e0e0e0; min-height: 100vh; }
+
+  /* 頂部導覽 */
+  nav { background: #1a2635; padding: 12px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #2a3a4a; }
+  nav h1 { font-size: 18px; color: #4fc3f7; }
+  nav .tab { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #90a4ae; transition: .2s; }
+  nav .tab.active { background: #4fc3f7; color: #0f1923; font-weight: 600; }
+  nav .tab:hover:not(.active) { background: #253545; }
+  .health { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 10px; }
+  .health.ok { background: #1b5e20; color: #a5d6a7; }
+  .health.fail { background: #b71c1c; color: #ef9a9a; }
+
+  /* 頁面區塊 */
+  .page { display: none; padding: 24px; max-width: 960px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* 輸入區 */
+  .input-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  select, input[type=text], input[type=number] { background: #1a2635; border: 1px solid #2a3a4a; color: #e0e0e0; padding: 10px 14px; border-radius: 8px; font-size: 14px; outline: none; }
+  select:focus, input:focus { border-color: #4fc3f7; }
+  input[type=text] { flex: 1; }
+  button { background: #4fc3f7; color: #0f1923; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: .2s; }
+  button:hover { background: #81d4fa; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* 選項列 */
+  .options { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; font-size: 13px; }
+  .options label { display: flex; align-items: center; gap: 4px; color: #90a4ae; }
+  .options input[type=checkbox] { accent-color: #4fc3f7; }
+
+  /* 結果卡片 */
+  .card { background: #1a2635; border: 1px solid #2a3a4a; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { color: #4fc3f7; margin-bottom: 12px; font-size: 16px; }
+  .badge { display: inline-block; background: #253545; color: #81d4fa; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px; }
+  .meta { color: #78909c; font-size: 12px; margin-top: 8px; }
+
+  /* AI 回答 */
+  #answer { white-space: pre-wrap; line-height: 1.8; font-size: 14px; }
+  .loading { color: #4fc3f7; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* 來源折疊 */
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: #4fc3f7; font-size: 14px; }
+  .source-item { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 8px; padding: 12px; margin-top: 8px; }
+  .source-item h4 { font-size: 13px; color: #e0e0e0; margin-bottom: 4px; }
+  .source-item p { font-size: 12px; color: #90a4ae; line-height: 1.5; }
+  .source-item a { color: #4fc3f7; text-decoration: none; font-size: 12px; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #253545; color: #4fc3f7; padding: 10px; text-align: left; }
+  td { padding: 10px; border-bottom: 1px solid #1a2635; }
+  tr:hover { background: #1a2635; }
+
+  /* 分頁 */
+  .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>📈 財經新聞 RAG</h1>
+  <div class="tab active" onclick="switchTab('ask')">AI 問答</div>
+  <div class="tab" onclick="switchTab('news')">新聞瀏覽</div>
+  <div class="tab" onclick="switchTab('history')">歷史紀錄</div>
+  <span class="health" id="healthBadge">檢查中...</span>
+</nav>
+
+<!-- ===== AI 問答 ===== -->
+<div class="page active" id="page-ask">
+  <div class="input-row">
+    <select id="stockSelect"><option value="">全部（自動偵測）</option></select>
+    <input type="text" id="queryInput" placeholder="請輸入財經問題，例如：台積電最近 AI 伺服器訂單如何？" />
+    <button id="askBtn" onclick="doAsk()">送出</button>
+  </div>
+  <div class="options">
+    <label><input type="checkbox" id="streamCheck" checked /> 串流回答</label>
+  </div>
+  <div id="askResult"></div>
+</div>
+
+<!-- ===== 新聞瀏覽 ===== -->
+<div class="page" id="page-news">
+  <div class="input-row">
+    <select id="newsStock"></select>
+    <input type="text" id="newsKeyword" placeholder="搜尋關鍵字..." />
+    <button onclick="loadNews(1)">搜尋</button>
+  </div>
+  <div id="newsResult"></div>
+</div>
+
+<!-- ===== 歷史紀錄 ===== -->
+<div class="page" id="page-history">
+  <button onclick="loadHistory(1)" style="margin-bottom:16px">載入歷史</button>
+  <div id="historyResult"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+// ── Tab 切換 ──
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach((t, i) => {
+    t.classList.toggle("active", t.textContent.includes(
+      name === "ask" ? "問答" : name === "news" ? "新聞" : "歷史"
+    ));
+  });
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById("page-" + name).classList.add("active");
+}
+
+// ── 健康檢查 ──
+async function checkHealth() {
+  const badge = document.getElementById("healthBadge");
+  try {
+    const r = await fetch(API + "/api/health");
+    const d = await r.json();
+    badge.textContent = d.qdrant_ready ? "● 系統正常" : "● Qdrant 未就緒";
+    badge.className = "health " + (d.qdrant_ready ? "ok" : "fail");
+  } catch {
+    badge.textContent = "● 無法連線";
+    badge.className = "health fail";
+  }
+}
+
+// ── 載入股票清單 ──
+async function loadStocks() {
+  try {
+    const r = await fetch(API + "/api/stocks");
+    const d = await r.json();
+    const opts = d.stocks.map(s => `<option value="${s.id}">${s.id} ${s.name}</option>`).join("");
+    document.getElementById("stockSelect").innerHTML = `<option value="">全部（自動偵測）</option>` + opts;
+    document.getElementById("newsStock").innerHTML = opts;
+  } catch {}
+}
+
+// ── AI 問答 ──
+async function doAsk() {
+  const query = document.getElementById("queryInput").value.trim();
+  if (!query) return;
+  const stock_id = document.getElementById("stockSelect").value || null;
+  const stream = document.getElementById("streamCheck").checked;
+  const btn = document.getElementById("askBtn");
+  const result = document.getElementById("askResult");
+
+  btn.disabled = true;
+  btn.textContent = "思考中...";
+
+  if (stream) {
+    result.innerHTML = `<div class="card"><h3>🤖 AI 分析</h3><div id="answer" class="loading">正在分析中...</div></div>`;
+    try {
+      const res = await fetch(API + "/api/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({query, stock_id, stream: true}),
+      });
+      // 非串流回應（如意圖分類攔截）直接當 JSON 處理
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const data = await res.json();
+        document.getElementById("answer").className = "";
+        document.getElementById("answer").textContent = data.answer;
+        btn.disabled = false; btn.textContent = "送出";
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let answerEl = document.getElementById("answer");
+      answerEl.className = "";
+      answerEl.textContent = "";
+      let buffer = "";
+
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream: true});
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.type === "text") {
+            answerEl.textContent += data.content;
+          } else if (data.type === "done") {
+            renderSources(data.sources, data);
+          } else if (data.type === "error") {
+            answerEl.textContent = "❌ 錯誤：" + data.message;
+          }
+        }
+      }
+    } catch (e) {
+      result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+    }
+  } else {
+    result.innerHTML = `<div class="card"><h3 class="loading">⏳ 等待 AI 回覆中...</h3></div>`;
+    try {
+      const res = await fetch(API + "/api/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({query, stock_id, stream: false}),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail);
+      }
+      const data = await res.json();
+      result.innerHTML = `<div class="card"><h3>🤖 AI 分析</h3>
+        <div class="meta">${data.detected_stocks.map(s => `<span class="badge">${s}</span>`).join("")}
+        ${data.time_range ? `<span class="badge">${data.time_range.from.slice(0,10)} ~ ${data.time_range.to.slice(0,10)}</span>` : ""}
+        <span class="badge">${data.duration_ms}ms</span>
+        <span class="badge">tokens: ${data.tokens.input}→${data.tokens.output}</span>
+        </div>
+        <div id="answer" style="margin-top:12px">${data.answer}</div>
+      </div>`;
+      renderSources(data.sources, data);
+    } catch (e) {
+      result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+    }
+  }
+  btn.disabled = false;
+  btn.textContent = "送出";
+}
+
+function renderSources(sources, meta) {
+  if (!sources || !sources.length) return;
+  const result = document.getElementById("askResult");
+  let html = `<details class="card"><summary>📚 ${sources.length} 筆參考來源</summary>`;
+  if (meta.detected_stocks) {
+    html += `<div class="meta" style="margin:8px 0">${meta.detected_stocks.map(s=>`<span class="badge">${s}</span>`).join("")}
+      ${meta.duration_ms ? `<span class="badge">${meta.duration_ms}ms</span>` : ""}</div>`;
+  }
+  for (const s of sources) {
+    html += `<div class="source-item">
+      <h4>${s.title}</h4>
+      <p>${s.content.slice(0, 200)}...</p>
+      <span class="badge">${s.source_name}</span>
+      <span class="badge">${s.stock_id}</span>
+      <span class="badge">${s.pub_time}</span>
+      <span class="badge">相似度 ${s.score}</span>
+      ${s.url ? `<a href="${s.url}" target="_blank">🔗 原文連結</a>` : ""}
+    </div>`;
+  }
+  html += `</details>`;
+  result.innerHTML += html;
+}
+
+// Enter 送出
+document.getElementById("queryInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") doAsk();
+});
+
+// ── 新聞瀏覽 ──
+async function loadNews(page) {
+  const stock = document.getElementById("newsStock").value;
+  const kw = document.getElementById("newsKeyword").value;
+  const result = document.getElementById("newsResult");
+  result.innerHTML = `<p class="loading">載入中...</p>`;
+  try {
+    const params = new URLSearchParams({stock_id: stock, keyword: kw, page, page_size: 30});
+    const res = await fetch(API + "/api/news?" + params);
+    const d = await res.json();
+    let html = `<p class="meta" style="margin-bottom:12px">${d.stock_name}（${d.stock_id}）共 ${d.total} 筆</p>`;
+    html += `<table><tr><th>標題</th><th>時間</th><th>連結</th></tr>`;
+    for (const r of d.records) {
+      html += `<tr>
+        <td title="${r.content_preview}">${r.title}</td>
+        <td style="white-space:nowrap">${r.pub_time.slice(0,10)}</td>
+        <td>${r.url ? `<a href="${r.url}" target="_blank" style="color:#4fc3f7">開啟</a>` : "-"}</td>
+      </tr>`;
+    }
+    html += `</table>`;
+    const totalPages = Math.ceil(d.total / d.page_size);
+    html += `<div class="pagination">`;
+    if (page > 1) html += `<button onclick="loadNews(${page-1})">上一頁</button>`;
+    html += `<span style="padding:10px;color:#90a4ae">第 ${page} / ${totalPages} 頁</span>`;
+    if (page < totalPages) html += `<button onclick="loadNews(${page+1})">下一頁</button>`;
+    html += `</div>`;
+    result.innerHTML = html;
+  } catch (e) {
+    result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+  }
+}
+
+// ── 歷史紀錄 ──
+async function loadHistory(page) {
+  const result = document.getElementById("historyResult");
+  result.innerHTML = `<p class="loading">載入中...</p>`;
+  try {
+    const res = await fetch(API + `/api/history?page=${page}&page_size=20`);
+    const d = await res.json();
+    let html = `<table><tr><th>ID</th><th>時間</th><th>問題</th><th>狀態</th><th>耗時</th><th>操作</th></tr>`;
+    for (const r of d.records) {
+      html += `<tr>
+        <td>${r.id}</td>
+        <td style="white-space:nowrap">${r.timestamp.slice(0,16)}</td>
+        <td>${r.query}</td>
+        <td><span class="badge">${r.status}</span></td>
+        <td>${r.duration_ms}ms</td>
+        <td><button onclick="viewDetail(${r.id})" style="padding:4px 8px;font-size:12px">詳情</button></td>
+      </tr>`;
+    }
+    html += `</table>`;
+    const totalPages = Math.ceil(d.total / d.page_size);
+    html += `<div class="pagination">`;
+    if (page > 1) html += `<button onclick="loadHistory(${page-1})">上一頁</button>`;
+    html += `<span style="padding:10px;color:#90a4ae">第 ${page} / ${totalPages} 頁</span>`;
+    if (page < totalPages) html += `<button onclick="loadHistory(${page+1})">下一頁</button>`;
+    html += `</div>`;
+    result.innerHTML = html;
+  } catch (e) {
+    result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+  }
+}
+
+async function viewDetail(id) {
+  try {
+    const res = await fetch(API + `/api/history/${id}`);
+    const d = await res.json();
+    const result = document.getElementById("historyResult");
+    let html = `<button onclick="loadHistory(1)" style="margin-bottom:12px">← 返回列表</button>`;
+    html += `<div class="card"><h3>問題：${d.query}</h3>
+      <div class="meta"><span class="badge">${d.model}</span><span class="badge">${d.duration_ms}ms</span>
+      <span class="badge">${d.status}</span><span class="badge">${d.timestamp}</span></div>
+      <div id="answer" style="margin-top:12px">${d.answer || "（無回答）"}</div>
+    </div>`;
+    if (d.sources && d.sources.length) {
+      html += `<details class="card" open><summary>📚 ${d.sources.length} 筆來源</summary>`;
+      for (const s of d.sources) {
+        html += `<div class="source-item">
+          <h4>${s.title}</h4>
+          <p>${s.page_content.slice(0,200)}...</p>
+          <span class="badge">${s.source_name || s.source}</span>
+          <span class="badge">${s.stock_id}</span>
+          ${s.url ? `<a href="${s.url}" target="_blank">🔗 原文</a>` : ""}
+        </div>`;
+      }
+      html += `</details>`;
+    }
+    result.innerHTML = html;
+  } catch (e) {
+    alert("載入失敗：" + e.message);
+  }
+}
+
+// ── 初始化 ──
+checkHealth();
+loadStocks();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# 環境變數與 API Key
+.env
+rag_deploy/.env
+
+# 向量資料庫（太大）
+qdrant_db/
+
+# 新聞原始資料（太大）
+news_db_filtered/
+news_db_local/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
