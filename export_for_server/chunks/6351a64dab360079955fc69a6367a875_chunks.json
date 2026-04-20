@@ -1,0 +1,13 @@
+[
+  {
+    "chunk_id": "6351a64dab360079955fc69a6367a875_0",
+    "article_id": "6351a64dab360079955fc69a6367a875",
+    "stock_id": "2330",
+    "source": "ltn",
+    "pub_time": "2025-07-30T15:04:40+08:00",
+    "title": "與台積電有關！大摩：輝達下一代GPU採用CoWoP可能性不大",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5126165",
+    "tags": "",
+    "content_chunk": "大摩表示，輝達下一代GPU產品Rubin Ultra仍將沿用現有的ABF基板技術，而非轉向CoWoP方案。（路透）\n\n〔財經頻道／綜合報導〕市場熱議CoWoP工藝將可取代Cowos，而輝達下一代GPU將採用CoWoP，然摩根士丹認為，從CoWoS轉向CoWoP在技術上仍面臨重大挑戰，不僅對ABF基板的依賴短期內難以改變，更重要的是，目前台積電（2330）的CoWoS良率已接近100%，在如此高的良率基礎上進行技術切換存在不必要的風險，在此情況下，輝達下一代GPU採用CoWoP可能性不大。\nCoWoP（Chip on Wafer on PCB）技術，即用PCB的類載板（mSAP）製程將晶片直接貼合在PCB主板，取代Cowos的IC載板。"
+  }
+]

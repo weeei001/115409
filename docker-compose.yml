@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=rag_logs
+      - MYSQL_USER=rag
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "rag", "--password=${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    expose:
+      - "6333"        # 只開放給 Docker 內部容器，不對外
+    ports:
+      - "127.0.0.1:6333:6333"   # 暫時對本機開放，供 build_vector_db.py 使用
+    volumes:
+      - ./qdrant_db:/qdrant/storage
+
+  api_server:
+    build: ./rag_deploy
+    restart: unless-stopped
+    env_file:
+      - ./rag_deploy/.env
+    environment:
+      - QDRANT_HOST=qdrant
+      - FINMIND_TOKEN=${FINMIND_TOKEN}
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=rag_logs
+      - MYSQL_USER=rag
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    # api_server 在 8000 啟動，只有 nginx 能透過 docker 內網看到
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api_server
+    ports:
+      - "8080:80"   # 本機可用 8080 測試
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+
+volumes:
+  mysql_data:

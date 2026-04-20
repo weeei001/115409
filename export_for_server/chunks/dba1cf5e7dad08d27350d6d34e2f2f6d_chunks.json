@@ -1,0 +1,13 @@
+[
+  {
+    "chunk_id": "dba1cf5e7dad08d27350d6d34e2f2f6d_0",
+    "article_id": "dba1cf5e7dad08d27350d6d34e2f2f6d",
+    "stock_id": "2317",
+    "source": "ltn",
+    "pub_time": "2024-12-30T16:24:45+08:00",
+    "title": "鴻海研究院斬獲新成果 AI模型助攻碳化矽元件研發",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/4908536",
+    "tags": "",
+    "content_chunk": "鴻海（2317）持續專注於AI硬體材料與學習模型之間優化整合程度，旗下研究院當中的兩大核心單位攜手轉投資事業鴻揚半導體，已成功將AI學習模型與強化學習（Reinforcement Learning）技術結合，大幅加速碳化矽功率半導體的研發進度，並將成果發表於國際知名期刊《IEEE Open Journal of Power Electronics （OJPEL）》。\n鴻海今日針對研究院的最新成果做出說明，此次採用強化學習中的策略優化方法，透過深度強化學習領域廣泛應用的策略梯度方法「PPO」以及結合策略與價值函數的「A2C」架構，探索並優化碳化矽材料的製程參數與元件設計，以提升硬體運行時的性能表現。"
+  }
+]

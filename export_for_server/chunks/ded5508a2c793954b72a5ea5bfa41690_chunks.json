@@ -1,0 +1,13 @@
+[
+  {
+    "chunk_id": "ded5508a2c793954b72a5ea5bfa41690_0",
+    "article_id": "ded5508a2c793954b72a5ea5bfa41690",
+    "stock_id": "2330",
+    "source": "ltn",
+    "pub_time": "2025-03-18T18:29:54+08:00",
+    "title": "MetaAI晶片採用台積電5奈米 2026量產",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/4984077",
+    "tags": "",
+    "content_chunk": "〔財經頻道／綜合報導〕據報導，Meta正在測試其首款內部AI訓練晶片，該晶片將基於台積電的5奈米製程，預計將於2026年實現量產。\n目前，Meta仍然是輝達的最大客戶之一，它使用該公司的GPU來訓練廣告、推薦和Llama系列的模型，同時也為數十億的日常用戶處理AI推理。"
+  }
+]
