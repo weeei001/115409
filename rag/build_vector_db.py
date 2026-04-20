@@ -218,8 +218,8 @@ def build_worker_pool(gui, update_queue, client, collection_name, existing_ids):
 
     # 掃描新結構（各來源子資料夾）+ 舊結構（chunks/）
     chunk_files = (
-        glob.glob(os.path.join("news_db_local", "*", "chunks", "*_chunks.json")) +
-        glob.glob(os.path.join("news_db_local", "chunks", "*_chunks.json"))
+        glob.glob(os.path.join("news_db_filtered", "*", "chunks", "*_chunks.json")) +
+        glob.glob(os.path.join("news_db_filtered", "chunks", "*_chunks.json"))
     )
     stocks_data = {} # 聚合資料: stock_id -> {'total': int, 'rem_docs': list, 'done': int}
 
@@ -282,8 +282,12 @@ def main():
 
     # 建立唯一的 Qdrant client（避免並發鎖定），並載入已存在的 chunk_id
     try:
-        client = QdrantClient(path=persist_directory)
-        if os.path.exists(persist_directory):
+        qdrant_host = os.environ.get("QDRANT_HOST", "")
+        if qdrant_host:
+            client = QdrantClient(host=qdrant_host, port=6333)
+        else:
+            client = QdrantClient(path=persist_directory)
+        if qdrant_host or os.path.exists(persist_directory):
             results = client.scroll(collection_name=collection_name, limit=200_000, with_payload=True)
             for point in results[0]:
                 if "chunk_id" in point.payload:
@@ -293,8 +297,8 @@ def main():
         client = None
 
     chunk_files = (
-        glob.glob(os.path.join("news_db_local", "*", "chunks", "*_chunks.json")) +
-        glob.glob(os.path.join("news_db_local", "chunks", "*_chunks.json"))
+        glob.glob(os.path.join("news_db_filtered", "*", "chunks", "*_chunks.json")) +
+        glob.glob(os.path.join("news_db_filtered", "chunks", "*_chunks.json"))
     )
     total_all = 0
     done_all = 0
