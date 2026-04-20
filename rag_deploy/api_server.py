@@ -1476,18 +1476,21 @@ async def list_news(
 @app.get("/api/stock_price")
 async def get_stock_price(
     stock_id: str = Query(..., description="股票代號，如 2330"),
-    start_date: str = Query(None, description="開始日期 YYYY-MM-DD，預設 180 天前"),
+    start_date: str = Query(None, description="開始日期 YYYY-MM-DD"),
     end_date: str = Query(None, description="結束日期 YYYY-MM-DD，預設今天"),
+    trading_days: int = Query(None, description="最近 N 個交易日，優先於 start_date"),
 ):
-    """拉取台股日收盤價（FinMind REST API）"""
+    """拉取台股日收盤價（yfinance）"""
     from datetime import date, timedelta
 
     if not end_date:
         end_date = date.today().strftime("%Y-%m-%d")
-    if not start_date:
+    if trading_days:
+        # 多抓 1.5 倍日曆天確保足夠，再截取最後 N 個交易日
+        start_date = (date.today() - timedelta(days=int(trading_days * 1.5))).strftime("%Y-%m-%d")
+    elif not start_date:
         start_date = (date.today() - timedelta(days=180)).strftime("%Y-%m-%d")
 
-    token = os.environ.get("FINMIND_TOKEN", "")
     try:
         import yfinance as yf
         ticker = yf.Ticker(f"{stock_id}.TW")
@@ -1509,6 +1512,10 @@ async def get_stock_price(
         }
         for idx, row in df.iterrows()
     ]
+
+    if trading_days:
+        records = records[-trading_days:]
+
     return {
         "stock_id": stock_id,
         "stock_name": STOCK_OPTIONS.get(stock_id, stock_id),
@@ -1568,6 +1575,374 @@ async def get_news_timeline(
         "stock_name": STOCK_OPTIONS.get(stock_id, stock_id),
         "news": news,
     }
+
+
+@app.get("/api/trend_predict")
+async def get_trend_predict(
+    stock_id: str = Query(..., description="股票代號，如 2330"),
+):
+    """線性回歸趨勢 + AI 新聞情緒預測（未來 10 交易日）"""
+    from datetime import date, timedelta
+
+    # ── 1. 取最近 30 交易日價格 ──
+    fetch_start = (date.today() - timedelta(days=60)).strftime("%Y-%m-%d")
+    fetch_end   = date.today().strftime("%Y-%m-%d")
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f"{stock_id}.TW")
+        df = await asyncio.to_thread(ticker.history, start=fetch_start, end=fetch_end, interval="1d")
+    except Exception as e:
+        raise HTTPException(502, f"股價取得失敗：{e}")
+
+    if df is None or df.empty:
+        raise HTTPException(404, f"找不到股票 {stock_id} 的價格資料")
+
+    records = [
+        {"date": str(idx.date()), "close": round(float(row["Close"]), 2)}
+        for idx, row in df.iterrows()
+    ]
+    records = records[-30:]  # 最多 30 個交易日
+
+    closes = [r["close"] for r in records]
+    last_date_str = records[-1]["date"]
+    last_price = closes[-1]
+    n = len(closes)
+
+    # ── 2. 加權線性回歸（指數衰減權重，近期資料影響力較高） ──
+    import math as _math
+    lam = 0.1  # 衰減係數，越大近期權重越高
+    weights = [_math.exp(lam * i) for i in range(n)]  # i=0 最舊，i=n-1 最新
+    w_sum = sum(weights)
+    x_vals = list(range(n))
+    x_mean_w = sum(weights[i] * x_vals[i] for i in range(n)) / w_sum
+    y_mean_w = sum(weights[i] * closes[i]  for i in range(n)) / w_sum
+    num_w    = sum(weights[i] * (x_vals[i] - x_mean_w) * (closes[i] - y_mean_w) for i in range(n))
+    den_w    = sum(weights[i] * (x_vals[i] - x_mean_w) ** 2 for i in range(n))
+    slope     = num_w / den_w if den_w else 0
+    intercept = y_mean_w - slope * x_mean_w
+
+    # 回歸線覆蓋現有資料（供前端畫完整回歸線用）
+    regression_history = [round(slope * i + intercept, 2) for i in x_vals]
+
+    # ── 3. 產生未來 20 個交易日日期（約 1 個月） ──
+    def next_trading_days(from_str: str, n: int):
+        from datetime import date as _date
+        d = _date.fromisoformat(from_str) + timedelta(days=1)
+        days = []
+        while len(days) < n:
+            if d.weekday() < 5:
+                days.append(d.isoformat())
+            d += timedelta(days=1)
+        return days
+
+    future_dates = next_trading_days(last_date_str, 20)
+
+    # 加權回歸外推（未來 20 天）
+    regression_future = [round(slope * (n + i) + intercept, 2) for i in range(20)]
+
+    # ── 4. 取最近 20 則新聞 ──
+    recent_news_titles = []
+    if qdrant_client:
+        try:
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            news_start = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+            scroll_res = await asyncio.to_thread(
+                qdrant_client.scroll,
+                collection_name="news_chunks",
+                scroll_filter=Filter(must=[FieldCondition(key="stock_id", match=MatchValue(value=stock_id))]),
+                limit=500,
+                with_payload=True,
+                with_vectors=False,
+            )
+            seen = set()
+            for pt in scroll_res[0]:
+                p = pt.payload or {}
+                title = p.get("title", "")
+                pub_time = p.get("pub_time", "")
+                if not pub_time or not title or title in seen:
+                    continue
+                if pub_time[:10] >= news_start:
+                    seen.add(title)
+                    recent_news_titles.append(title)
+            recent_news_titles = recent_news_titles[:20]
+        except Exception:
+            pass
+
+    # ── 5. LLM 預測 ──
+    stock_name = STOCK_OPTIONS.get(stock_id, stock_id)
+    price_change_pct = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if closes[0] else 0
+    price_trend_desc = f"最近 {n} 個交易日，收盤價從 {closes[0]} 元變化至 {closes[-1]} 元（{price_change_pct:+.2f}%），線性回歸斜率每日 {slope:+.2f} 元。"
+    news_desc = "\n".join(f"- {t}" for t in recent_news_titles) if recent_news_titles else "（無近期新聞）"
+
+    prompt = f"""你是台股分析師，請根據以下資訊預測 {stock_name}（{stock_id}）未來 20 個交易日（約一個月）的股價走勢。
+
+## 近期價格趨勢
+{price_trend_desc}
+
+## 近期相關新聞（最多 20 則）
+{news_desc}
+
+請以 JSON 格式回答，不要輸出其他文字：
+{{
+  "direction": "up 或 down",
+  "change_pct_total": 預估兩週後總漲跌幅（數字，例如 2.5 表示漲 2.5%，-1.8 表示跌 1.8%），
+  "confidence": 信心指數 1-5（整數），
+  "summary": "兩到三句繁體中文分析理由"
+}}"""
+
+    ai_direction = "up"
+    ai_change_pct = 0.0
+    ai_confidence = 1
+    ai_summary = "AI 預測服務暫時無法使用。"
+    try:
+        resp = await asyncio.to_thread(
+            openai_client.chat.completions.create,
+            model="meta/llama-3.3-70b-instruct",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300,
+        )
+        raw = resp.choices[0].message.content.strip()
+        # 嘗試解析 JSON（可能包裹在 ```json ... ``` 中）
+        import re as _re
+        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        if m:
+            parsed = json.loads(m.group())
+            ai_direction   = parsed.get("direction", "up")
+            ai_change_pct  = float(parsed.get("change_pct_total", 0))
+            ai_confidence  = int(parsed.get("confidence", 1))
+            ai_summary     = parsed.get("summary", "")
+    except Exception as e:
+        ai_summary = f"AI 預測失敗：{e}"
+
+    # ── 6. 計算歷史日波動率（σ） ──
+    import math
+    daily_returns = [
+        (closes[i] - closes[i - 1]) / closes[i - 1]
+        for i in range(1, len(closes))
+    ]
+    mean_ret = sum(daily_returns) / len(daily_returns) if daily_returns else 0
+    variance = sum((r - mean_ret) ** 2 for r in daily_returns) / len(daily_returns) if daily_returns else 0
+    daily_sigma = math.sqrt(variance)
+
+    # 回歸通道上下界（±1σ，以回歸殘差為基準）
+    residuals = [closes[i] - regression_history[i] for i in range(n)]
+    resid_std = math.sqrt(sum(r ** 2 for r in residuals) / n) if n else 0
+    regression_upper = [round(regression_history[i] + resid_std, 2) for i in range(n)]
+    regression_lower = [round(regression_history[i] - resid_std, 2) for i in range(n)]
+
+    # ── 7. AI 預測線：從最後價格線性插值到目標價（20 天） ──
+    target_price = round(last_price * (1 + ai_change_pct / 100), 2)
+    ai_future = [
+        round(last_price + (target_price - last_price) * (i + 1) / 20, 2)
+        for i in range(20)
+    ]
+
+    return {
+        "stock_id": stock_id,
+        "stock_name": stock_name,
+        "history_dates": [r["date"] for r in records],
+        "regression_history": regression_history,
+        "regression_upper": regression_upper,
+        "regression_lower": regression_lower,
+        "future_dates": future_dates,
+        "regression_future": regression_future,
+        "ai_future": ai_future,
+        "ai_direction": ai_direction,
+        "ai_change_pct": ai_change_pct,
+        "ai_confidence": ai_confidence,
+        "ai_summary": ai_summary,
+        "last_price": last_price,
+        "target_price": target_price,
+        "daily_sigma_pct": round(daily_sigma * 100, 2),
+    }
+
+
+@app.get("/api/trend_predict_stream")
+async def trend_predict_stream(
+    stock_id: str = Query(..., description="股票代號，如 2330"),
+):
+    """逐週預測 SSE 串流：4 次獨立 LLM 呼叫，每算完一週就推送一個節點"""
+    from datetime import date, timedelta
+    import math as _math
+
+    # ── 1. 取最近 30 交易日價格 ──
+    fetch_start = (date.today() - timedelta(days=60)).strftime("%Y-%m-%d")
+    fetch_end   = date.today().strftime("%Y-%m-%d")
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f"{stock_id}.TW")
+        df = await asyncio.to_thread(ticker.history, start=fetch_start, end=fetch_end, interval="1d")
+    except Exception as e:
+        async def err():
+            yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+        return StreamingResponse(err(), media_type="text/event-stream")
+
+    records = [
+        {"date": str(idx.date()), "close": round(float(row["Close"]), 2)}
+        for idx, row in df.iterrows()
+    ]
+    records = records[-30:]
+    closes = [r["close"] for r in records]
+    last_date_str = records[-1]["date"]
+    last_price = closes[-1]
+    n = len(closes)
+
+    # ── 2. 加權線性回歸 ──
+    lam = 0.1
+    weights = [_math.exp(lam * i) for i in range(n)]
+    w_sum = sum(weights)
+    x_vals = list(range(n))
+    x_mean_w = sum(weights[i] * x_vals[i] for i in range(n)) / w_sum
+    y_mean_w = sum(weights[i] * closes[i]  for i in range(n)) / w_sum
+    num_w    = sum(weights[i] * (x_vals[i] - x_mean_w) * (closes[i] - y_mean_w) for i in range(n))
+    den_w    = sum(weights[i] * (x_vals[i] - x_mean_w) ** 2 for i in range(n))
+    slope     = num_w / den_w if den_w else 0
+    intercept = y_mean_w - slope * x_mean_w
+
+    regression_history = [round(slope * i + intercept, 2) for i in x_vals]
+
+    # 回歸通道
+    residuals = [closes[i] - regression_history[i] for i in range(n)]
+    resid_std = _math.sqrt(sum(r ** 2 for r in residuals) / n) if n else 0
+    regression_upper = [round(regression_history[i] + resid_std, 2) for i in range(n)]
+    regression_lower = [round(regression_history[i] - resid_std, 2) for i in range(n)]
+
+    # ── 3. 未來 20 個交易日日期 ──
+    def next_trading_days(from_str, cnt):
+        from datetime import date as _d
+        d = _d.fromisoformat(from_str) + timedelta(days=1)
+        days = []
+        while len(days) < cnt:
+            if d.weekday() < 5:
+                days.append(d.isoformat())
+            d += timedelta(days=1)
+        return days
+
+    future_dates = next_trading_days(last_date_str, 20)
+    regression_future = [round(slope * (n + i) + intercept, 2) for i in range(20)]
+
+    # ── 4. 取近期新聞 ──
+    recent_news_titles = []
+    if qdrant_client:
+        try:
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            news_start = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+            scroll_res = await asyncio.to_thread(
+                qdrant_client.scroll,
+                collection_name="news_chunks",
+                scroll_filter=Filter(must=[FieldCondition(key="stock_id", match=MatchValue(value=stock_id))]),
+                limit=500, with_payload=True, with_vectors=False,
+            )
+            seen = set()
+            for pt in scroll_res[0]:
+                p = pt.payload or {}
+                title = p.get("title", "")
+                pub_time = p.get("pub_time", "")
+                if not pub_time or not title or title in seen:
+                    continue
+                if pub_time[:10] >= news_start:
+                    seen.add(title)
+                    recent_news_titles.append(title)
+            recent_news_titles = recent_news_titles[:20]
+        except Exception:
+            pass
+
+    stock_name = STOCK_OPTIONS.get(stock_id, stock_id)
+    price_change_pct = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if closes[0] else 0
+    price_trend_desc = f"最近 {n} 個交易日，收盤價從 {closes[0]} 到 {closes[-1]} 元（{price_change_pct:+.2f}%），加權回歸斜率每日 {slope:+.2f} 元。"
+    news_desc = "\n".join(f"- {t}" for t in recent_news_titles) if recent_news_titles else "（無近期新聞）"
+
+    # ── 5. SSE 串流：逐週呼叫 LLM ──
+    async def generate():
+        # 先推送初始化資料
+        init_payload = {
+            "type": "init",
+            "stock_id": stock_id,
+            "stock_name": stock_name,
+            "last_price": last_price,
+            "history_dates": [r["date"] for r in records],
+            "regression_history": regression_history,
+            "regression_upper": regression_upper,
+            "regression_lower": regression_lower,
+            "future_dates": future_dates,
+            "regression_future": regression_future,
+        }
+        yield f"data: {json.dumps(init_payload, ensure_ascii=False)}\n\n"
+
+        prior_nodes = []  # 累積已預測週次，作為後續週的 context
+
+        for week in range(1, 5):
+            day_idx = week * 5 - 1  # 第 4、9、14、19 天（0-indexed）
+            prior_ctx = ""
+            if prior_nodes:
+                lines = [f"  第{w}週末：{p:+.2f}%，{r}" for w, p, r in prior_nodes]
+                prior_ctx = "\n\n## 前幾週已預測結果\n" + "\n".join(lines)
+
+            prompt = f"""你是台股分析師。請根據以下資訊，獨立預測 {stock_name}（{stock_id}）第 {week} 週末（未來第 {week*5} 個交易日）的漲跌幅。
+
+## 當前資訊
+- 最新收盤價：{last_price} 元
+- {price_trend_desc}
+
+## 近期相關新聞
+{news_desc}{prior_ctx}
+
+請只回答 JSON，不要其他文字：
+{{"pct": 漲跌幅數字（例如 1.5 或 -2.0）, "reason": "一句話說明本週關鍵判斷依據"}}"""
+
+            pct = 0.0
+            reason = ""
+            try:
+                resp = await asyncio.to_thread(
+                    openai_client.chat.completions.create,
+                    model="meta/llama-3.3-70b-instruct",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=120,
+                )
+                raw = resp.choices[0].message.content.strip()
+                import re as _re
+                m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group())
+                    pct    = float(parsed.get("pct", 0))
+                    reason = parsed.get("reason", "")
+            except Exception as e:
+                reason = f"預測失敗：{e}"
+
+            # 累積價格（以前一週節點為基準）
+            base_price = prior_nodes[-1][3] if prior_nodes else last_price
+            node_price = round(base_price * (1 + pct / 100), 2)
+            prior_nodes.append((week, pct, reason, node_price))
+
+            node_payload = {
+                "type": "node",
+                "week": week,
+                "day_idx": day_idx,
+                "price": node_price,
+                "pct": pct,
+                "reason": reason,
+            }
+            yield f"data: {json.dumps(node_payload, ensure_ascii=False)}\n\n"
+
+        # 推送完成訊號
+        total_pct = round((prior_nodes[-1][3] - last_price) / last_price * 100, 2)
+        direction = "up" if total_pct > 0 else "down"
+        done_payload = {
+            "type": "done",
+            "total_pct": total_pct,
+            "direction": direction,
+            "target_price": prior_nodes[-1][3],
+            "nodes": [{"week": w, "pct": p, "reason": r, "price": pr} for w, p, r, pr in prior_nodes],
+        }
+        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── 前端頁面 ─────────────────────────────────────────
