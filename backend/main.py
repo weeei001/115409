@@ -12,6 +12,7 @@ from routers import (
     institutional_trade_router,
     chat_router,
     auth_router,
+    backtest_router,
 )
 from config import get_settings
 from models.user import User  # noqa: F401 — 註冊至 Base.metadata 供 create_all 建表
@@ -103,6 +104,7 @@ app.include_router(simulated_order_router)
 app.include_router(institutional_trade_router)
 app.include_router(chat_router)
 app.include_router(auth_router)
+app.include_router(backtest_router)
 
 
 @app.get("/")

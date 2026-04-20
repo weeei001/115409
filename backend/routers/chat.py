@@ -113,8 +113,12 @@ def _first_symbol(symbols: list[str]) -> str:
     return cleaned[0]
 
 
-def _intent_raw(symbol: str, lookback_days: int) -> ParsedIntent:
-    today = date.today()
+def _anchor_date(as_of_date: date | None) -> date:
+    return as_of_date or date.today()
+
+
+def _intent_raw(symbol: str, lookback_days: int, *, as_of_date: date | None = None) -> ParsedIntent:
+    today = _anchor_date(as_of_date)
     return ParsedIntent(
         symbols=[symbol],
         date_start=today - timedelta(days=lookback_days),
@@ -123,8 +127,8 @@ def _intent_raw(symbol: str, lookback_days: int) -> ParsedIntent:
     )
 
 
-def _intent_advisor(symbol: str, lookback_days: int) -> ParsedIntent:
-    today = date.today()
+def _intent_advisor(symbol: str, lookback_days: int, *, as_of_date: date | None = None) -> ParsedIntent:
+    today = _anchor_date(as_of_date)
     return ParsedIntent(
         symbols=[symbol],
         date_start=today - timedelta(days=lookback_days),
@@ -260,7 +264,7 @@ def _data_not_found_detail(symbol: str) -> str:
 )
 async def analyze_raw_prices(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_raw(symbol, _LOOKBACK_DAYS)
+    intent = _intent_raw(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
 
     try:
         data = await fetch_prices_only(intent)
@@ -288,7 +292,7 @@ async def analyze_raw_prices(req: AnalyzeSymbolsRequest):
 )
 async def analyze_raw_indicators(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_raw(symbol, _LOOKBACK_DAYS)
+    intent = _intent_raw(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
 
     try:
         data = await fetch_indicators_only(intent)
@@ -316,7 +320,7 @@ async def analyze_raw_indicators(req: AnalyzeSymbolsRequest):
 )
 async def analyze_raw_institutional(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_raw(symbol, _LOOKBACK_DAYS)
+    intent = _intent_raw(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
 
     try:
         data = await fetch_institutional_only(intent)
@@ -350,7 +354,7 @@ async def analyze_raw_institutional(req: AnalyzeSymbolsRequest):
 )
 async def analyze_quick_insights_endpoint(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_raw(symbol, _LOOKBACK_DAYS)
+    intent = _intent_raw(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
 
     llm_secondary = _get_llm(_resolve_model_key(None, fallback_default="secondary"))
     pipeline = AnalysisPipelineService(
@@ -386,7 +390,7 @@ async def analyze_quick_insights_endpoint(req: AnalyzeSymbolsRequest):
 )
 async def analyze_final_only(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_advisor(symbol, _LOOKBACK_DAYS)
+    intent = _intent_advisor(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
     request_id = uuid.uuid4().hex
 
     pipeline = _make_pipeline()
@@ -425,7 +429,7 @@ async def analyze_final_only(req: AnalyzeSymbolsRequest):
 )
 async def analyze_report(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_advisor(symbol, _LOOKBACK_DAYS)
+    intent = _intent_advisor(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
     request_id = uuid.uuid4().hex
 
     pipeline = _make_pipeline()
@@ -450,7 +454,7 @@ async def analyze_report(req: AnalyzeSymbolsRequest):
 )
 async def analyze_stream(req: AnalyzeSymbolsRequest):
     symbol = _first_symbol(req.symbols)
-    intent = _intent_advisor(symbol, _LOOKBACK_DAYS)
+    intent = _intent_advisor(symbol, _LOOKBACK_DAYS, as_of_date=req.as_of_date)
     request_id = uuid.uuid4().hex
 
     pipeline = _make_pipeline()

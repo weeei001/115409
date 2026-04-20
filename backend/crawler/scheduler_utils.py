@@ -19,14 +19,16 @@ log = logging.getLogger(__name__)
 # 定期更新流程固定於此：若要改時間、腳本或是否跑三大法人，請直接改常數。
 CRAWLER_DIR = Path(__file__).resolve().parent
 SCHEDULE_TIME = "15:00"  # 台股盤後資料約 14:00–15:00 釋出，預設收盤後一小時執行
+INSTITUTIONAL_TRADES_SCHEDULE_TIME = "17:00"
 TWSE_CRAWLER_SCRIPT = CRAWLER_DIR / "twse_crawler.py"
 CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
 INDICATOR_SCRIPT = CRAWLER_DIR / "technical_indicator_job.py"
 INSTITUTIONAL_TRADES_SCRIPT = CRAWLER_DIR / "institutional_trades_job.py"
 RUN_TECHNICAL_INDICATOR_AFTER_CRAWL = True
-RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL = True
+RUN_INSTITUTIONAL_TRADES_DAILY = True
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
+CNYES_SCHEDULE_LOOKBACK_DAYS = 5
 TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
@@ -93,8 +95,6 @@ def run_crawler_job():
         # 根據回傳碼判斷是否成功 (0 代表成功)
         if result.returncode == 0:
             log.info("✅ 爬取作業順利完成！")
-            if RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL:
-                run_institutional_trades_job(python_cmd)
             if RUN_TECHNICAL_INDICATOR_AFTER_CRAWL:
                 run_indicator_job(python_cmd)
             # 如果想看爬蟲的輸出，可以把下面這行解除註解
@@ -137,6 +137,10 @@ def run_institutional_trades_job(python_cmd: str) -> None:
         log.error(f"執行三大法人腳本時發生未預期例外: {e}")
 
 
+def run_scheduled_institutional_trades_job() -> None:
+    run_institutional_trades_job(_python_executable())
+
+
 def run_indicator_job(python_cmd: str) -> None:
     script_path = INDICATOR_SCRIPT
     if not script_path.exists():
@@ -167,7 +171,7 @@ def run_indicator_job(python_cmd: str) -> None:
 
 
 def run_cnyes_job() -> None:
-    """鉅亨台股新聞：與 cnyes_crawlwer 內 SCHEDULE_LOOKBACK_DAYS 一致，僅增量區間。"""
+    """鉅亨台股新聞：排程固定回補最近 5 天。"""
     if not RUN_CNYES_NEWS_CRAWL:
         return
     script_path = CNYES_CRAWLER_SCRIPT
@@ -211,18 +215,27 @@ def main():
         schedule_time,
         TWSE_CRAWLER_SCRIPT.name,
     )
-    if RUN_INSTITUTIONAL_TRADES_AFTER_CRAWL:
-        log.info("  ↳ 三大法人買賣超：爬蟲成功後自動執行")
     if RUN_TECHNICAL_INDICATOR_AFTER_CRAWL:
         log.info("  ↳ 技術指標計算：爬蟲成功後自動執行")
+
+    if RUN_INSTITUTIONAL_TRADES_DAILY:
+        schedule.every().day.at(INSTITUTIONAL_TRADES_SCHEDULE_TIME).do(
+            run_scheduled_institutional_trades_job
+        )
+        log.info(
+            "✅ 已設定每日 %s 執行：%s（三大法人買賣超）",
+            INSTITUTIONAL_TRADES_SCHEDULE_TIME,
+            INSTITUTIONAL_TRADES_SCRIPT.name,
+        )
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)
         schedule.every(interval).minutes.do(run_cnyes_job)
         log.info(
-            "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，回溯天數見該腳本 SCHEDULE_LOOKBACK_DAYS）",
+            "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，固定回補最近 %s 天）",
             interval,
             CNYES_CRAWLER_SCRIPT.name,
+            CNYES_SCHEDULE_LOOKBACK_DAYS,
         )
 
     # ----------------------------------------------------

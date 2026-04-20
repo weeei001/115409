@@ -5,11 +5,12 @@ from statistics import mean
 from agent.schemas import DBData, NormalizedNewsChunk, ScoreBreakdown, ScoreExplanations, ScoreWeights
 
 WEIGHTS = ScoreWeights(
-    technical=0.25,
+    technical=0.38,
     institutional=0.30,
-    news=0.20,
-    momentum=0.25,
+    news=0.15,
+    momentum=0.17,
 )
+ANALYSIS_WINDOW_DAYS = 20
 
 _TECHNICAL_SUB_WEIGHTS = {
     "ma": 0.40,
@@ -148,14 +149,14 @@ def _score_institutional(data: DBData) -> tuple[float, str]:
     if not data.institutional:
         return 0.0, "籌碼面資料不足（缺少三大法人資料），本面向分數以 0 計。"
 
-    last5 = data.institutional[-5:]
-    totals = [_to_float(row.get("total_net")) or 0.0 for row in last5]
+    recent_rows = data.institutional[-ANALYSIS_WINDOW_DAYS:]
+    totals = [_to_float(row.get("total_net")) or 0.0 for row in recent_rows]
     sum_sign = _sign(sum(totals))
     latest_sign = _sign(totals[-1] if totals else 0.0)
     score = _clamp(sum_sign * 0.7 + latest_sign * 0.3)
     return (
         score,
-        f"籌碼面以近 5 筆合計方向與最新一日方向計分，分數 {score:.4f}。",
+        f"籌碼面以近 {len(recent_rows)} 筆合計方向與最新一日方向計分，分數 {score:.4f}。",
     )
 
 
@@ -191,7 +192,7 @@ def _score_momentum(data: DBData) -> tuple[float, str]:
         if _to_float(row.get("close")) is not None and _to_float(row.get("volume")) is not None
     ]
     if len(valid_rows) < 2:
-        return 0.0, "量價動能資料不足（近 5 日價格/成交量不足），本面向分數以 0 計。"
+        return 0.0, f"量價動能資料不足（近 {ANALYSIS_WINDOW_DAYS} 日價格/成交量不足），本面向分數以 0 計。"
 
     closes = [_to_float(row.get("close")) for row in valid_rows]
     volumes = [_to_float(row.get("volume")) for row in valid_rows]
@@ -201,31 +202,35 @@ def _score_momentum(data: DBData) -> tuple[float, str]:
         return 0.0, "量價動能資料不足（價格或成交量缺失），本面向分數以 0 計。"
 
     latest_close = closes[-1]
-    ref_idx = -6 if len(closes) >= 6 else 0
+    ref_idx = -(ANALYSIS_WINDOW_DAYS + 1) if len(closes) >= ANALYSIS_WINDOW_DAYS + 1 else 0
     base_close = closes[ref_idx]
     if base_close == 0:
         return 0.0, "量價動能資料不足（基準價格為 0），本面向分數以 0 計。"
 
-    ret_5d = (latest_close - base_close) / base_close
-    return_score = _clamp(ret_5d / 0.10)
+    ret_window = (latest_close - base_close) / base_close
+    return_score = _clamp(ret_window / 0.10)
 
-    recent_vol = volumes[-5:] if len(volumes) >= 5 else volumes
-    prev_vol = volumes[-10:-5] if len(volumes) >= 10 else []
+    recent_vol = volumes[-ANALYSIS_WINDOW_DAYS:] if len(volumes) >= ANALYSIS_WINDOW_DAYS else volumes
+    prev_vol = (
+        volumes[-(ANALYSIS_WINDOW_DAYS * 2):-ANALYSIS_WINDOW_DAYS]
+        if len(volumes) >= ANALYSIS_WINDOW_DAYS * 2
+        else []
+    )
     volume_score = 0.0
     has_volume_compare = bool(prev_vol and mean(prev_vol) > 0)
     if has_volume_compare:
         vol_ratio = mean(recent_vol) / mean(prev_vol)
         vol_amp = _clamp(vol_ratio - 1.0)
-        volume_score = _sign(ret_5d) * vol_amp
+        volume_score = _sign(ret_window) * vol_amp
 
     score = _clamp(return_score * 0.7 + volume_score * 0.3)
     if has_volume_compare:
         message = (
-            f"量價動能由近 5 日報酬與成交量放大方向計分，分數 {score:.4f}。"
+            f"量價動能由近 {ANALYSIS_WINDOW_DAYS} 日報酬與成交量放大方向計分，分數 {score:.4f}。"
         )
     else:
         message = (
-            f"量價動能由近 5 日報酬計分（成交量對照不足），分數 {score:.4f}。"
+            f"量價動能由近 {ANALYSIS_WINDOW_DAYS} 日報酬計分（成交量對照不足），分數 {score:.4f}。"
         )
     return score, message
 
