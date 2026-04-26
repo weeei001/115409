@@ -950,71 +950,80 @@ export default function AdvisorPage() {
             </section> */}
 
 
-            <section className="bento-cell p-5">
-              <h2 className="text-base sm:text-lg font-bold">最終建議</h2>
-              {loading && progress?.pendingFinal ? (
-                <div className="mt-3 space-y-2 text-sm text-[var(--color-text-muted)]">
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-                    最終建議與論述載入中，請先參考上方法人與技術觀察…
-                  </span>
-                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
-                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
-                </div>
-              ) : (
-                <>
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">方向</p>
-                      <p>
-                        <span className={`mt-1 inline-flex px-3 py-1 rounded-full text-sm font-bold ${recommendationClass(report.recommendation)}`}>
-                          {recommendationText(report.recommendation)}
-                        </span>
-                      </p>
-                    </div>
+<section className="bento-cell p-5">
+  <div>
+    <h2 className="mt-1 text-base sm:text-lg font-bold text-[var(--color-text-primary)]">
+      最終建議
+    </h2>
+  </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">操作參考</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">
-                        {actionHintText(report.recommendation)}
-                      </p>
-                    </div>
+  {loading && progress?.pendingFinal ? (
+    <div className="mt-5 space-y-3">
+      <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+        <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
+        正在整理最終觀點…
+      </div>
 
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">股票代號</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">
-                        {report.symbol}
-                      </p>
-                    </div>
-                  </div>
+      <div className="space-y-2">
+        <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-xl" />
+        <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
+        <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
+      </div>
+    </div>
+  ) : (
+    <div className="mt-5 space-y-5">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <span
+            className={`inline-flex w-fit rounded-full px-3 py-1 text-sm font-semibold ${recommendationClass(
+              report.recommendation
+            )}`}
+          >
+            {recommendationText(report.recommendation)}
+          </span>
 
-                  {report.recommendation_text ? (
-                    <div className="mt-4 rounded-xl border border-brand/30 bg-brand/5 dark:bg-brand/10 p-3">
-                      <p className="text-xs font-semibold text-brand-deep dark:text-brand-light">操作建議</p>
-                      <p className="mt-1 text-sm leading-6 text-[var(--color-text-primary)]">
-                        {report.recommendation_text}
-                      </p>
-                    </div>
-                  ) : null}
+          <span className="text-sm text-[var(--color-text-secondary)]">
+            {actionHintText(report.recommendation)}
+          </span>
+        </div>
 
-                  {report.reasoning ? (
-                    <div className="mt-4">
-                      <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">為什麼這樣判斷？</h3>
-                      <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)] whitespace-pre-wrap">
-                        {report.reasoning}
-                      </p>
-                    </div>
-                  ) : null}
+      {report.recommendation_text ? (
+        <div className="border-l-2 border-brand pl-4">
+          <p className="text-xs font-semibold text-brand-deep dark:text-brand-light">
+            操作建議
+          </p>
+          <p className="mt-2 text-sm leading-7 text-[var(--color-text-primary)]">
+            {report.recommendation_text}
+          </p>
+        </div>
+      ) : null}
 
-                  <div className="mt-4 rounded-xl border border-amber-300/40 bg-amber-50 dark:bg-amber-400/10 p-3">
-                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">風險提醒</p>
-                    <p className="mt-1 text-sm leading-6 text-[var(--color-text-primary)]">
-                      {getRiskToneText(report)}
-                    </p>
-                  </div>
-                </>
-              )}
-            </section>
+      {report.reasoning ? (
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+            判斷依據
+          </h3>
+          <p className="mt-2 text-sm leading-7 text-[var(--color-text-secondary)] whitespace-pre-wrap">
+            {report.reasoning}
+          </p>
+        </div>
+      ) : null}
+
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/30 p-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <p className="text-xs font-semibold text-[var(--color-text-primary)]">
+              風險提醒
+            </p>
+            <p className="mt-1 text-sm leading-7 text-[var(--color-text-secondary)]">
+              {getRiskToneText(report)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+</section>
 
             <section className="bento-cell p-5">
               <h2 className="text-base sm:text-lg font-bold">資料來源</h2>
