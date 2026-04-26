@@ -1,531 +1,474 @@
-﻿
 import apiClient, { ApiRequestError } from './client';
 import { getToken } from '../auth/storage';
-import { pickDetailMessage } from './errorDetail';
 import type {
   AdvisorAction,
   AdvisorPartialDataEvent,
   AdvisorReport,
-  AdvisorStepKey,
-  AdvisorStepStatus,
+  AdvisorSource,
   AdvisorStepUpdate,
-  AnalyzeFinalResponse,
-  AnalyzeQuickInsightsResponse,
-  AnalyzeRawInstitutionalResponse,
-  AnalyzeReportResponse,
-  AnalyzeResponse,
-  AnalyzeSplitRequest,
 } from '../types';
+import type {
+  AdvisorBacktestSnapshot,
+  AdvisorFullReport,
+  AdvisorOverviewRequest,
+  AdvisorOverviewResponse,
+  AdvisorStreamEvent,
+  AdvisorStreamEventName,
+} from '../types/advisorV2';
+import type { CoreModePriceChart } from '../types/coreMode';
 
-export interface FetchAdvisorReportParams {
-  symbol: string;
-}
-
-export interface FetchAdvisorReportOptions {
-  fallbackToMock?: boolean;
-}
+const STREAM_TIMEOUT_MS = 180_000;
 
 export interface AdvisorFetchProgress {
   pendingInstitutional: boolean;
-  pendingQuick: boolean;
   pendingFinal: boolean;
 }
 
-export interface FetchAdvisorReportProgressiveOptions extends FetchAdvisorReportOptions {
+export interface AdvisorBacktestView {
+  price_chart: CoreModePriceChart | null;
+  overall: {
+    sample_count: number | null;
+    accuracy: number | null;
+    f1_buy: number | null;
+    precision_buy: number | null;
+    recall_buy: number | null;
+    tp: number | null;
+    fp: number | null;
+    fn: number | null;
+    tn: number | null;
+  };
+}
+
+interface AdvisorProgressiveCallbacks {
   onPartial?: (report: AdvisorReport) => void;
   onProgress?: (progress: AdvisorFetchProgress) => void;
-  onStepUpdate?: (step: AdvisorStepUpdate) => void;
-  onPartialData?: (data: AdvisorPartialDataEvent) => void;
+  onStepUpdate?: (update: AdvisorStepUpdate) => void;
+  onPartialData?: (payload: AdvisorPartialDataEvent) => void;
+  onBacktest?: (payload: AdvisorBacktestView) => void;
 }
-
-export interface MapAnalyzeOptions {
-  technicalSignalLabel?: (index: number) => string;
-}
-
-const TIMEOUT_REPORT_MS = 120_000;
-const STREAM_TIMEOUT_MS = 140_000;
-
-type SseEventName = 'step_start' | 'step_done' | 'partial_data' | 'final_report' | 'error' | 'completed';
 
 interface SseEnvelope {
-  event: SseEventName;
+  event: AdvisorStreamEventName;
   data: Record<string, unknown>;
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function toInstitutionalRows(v: unknown): AnalyzeRawInstitutionalResponse['institutional_data'] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .filter((item): item is Record<string, unknown> => isRecord(item))
-    .map((item) => ({
-      date: typeof item.date === 'string' ? item.date : '',
-      foreign_net: typeof item.foreign_net === 'number' ? item.foreign_net : 0,
-      trust_net: typeof item.trust_net === 'number' ? item.trust_net : 0,
-      dealer_net: typeof item.dealer_net === 'number' ? item.dealer_net : 0,
-      total_net: typeof item.total_net === 'number' ? item.total_net : 0,
-    }))
-    .filter((row) => row.date);
-}
-
-function resolveStreamUrl(): string {
-  const base = String(apiClient.defaults.baseURL ?? '').trim();
-  if (!base) return '/analyze/stream';
-  if (/^https?:\/\//i.test(base)) {
-    return `${base.replace(/\/$/, '')}/analyze/stream`;
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
   }
-  return `${base.replace(/\/$/, '')}/analyze/stream`;
+  return null;
 }
 
-function deriveProgressFromSteps(stepStatuses: Record<AdvisorStepKey, AdvisorStepStatus>): AdvisorFetchProgress {
-  return {
-    pendingInstitutional: !['done', 'error'].includes(stepStatuses.institutional),
-    pendingQuick: !['done', 'error'].includes(stepStatuses.cross_check),
-    pendingFinal: !['done', 'error'].includes(stepStatuses.final),
-  };
+function toStringValue(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value;
+  return null;
 }
 
-function mapRecommendationToAction(
-  sentiment: number | undefined,
-  recommendationText: string | undefined
-): AdvisorAction {
-  if (typeof sentiment === 'number' && !Number.isNaN(sentiment)) {
-    if (sentiment >= 0.25) return 'buy';
-    if (sentiment <= -0.25) return 'sell';
-  }
-  const t = (recommendationText ?? '').toLowerCase();
-  if (t.includes('sell') || t.includes('賣')) return 'sell';
-  if (t.includes('buy') || t.includes('買')) return 'buy';
+function toSignalValue(value: unknown): string | number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return null;
+}
+
+function normalizeRecommendation(trendConclusion: string): AdvisorAction {
+  const token = trendConclusion.toLowerCase();
+  if (token.includes('偏多') || token.includes('buy')) return 'buy';
+  if (token.includes('偏空') || token.includes('sell')) return 'sell';
   return 'wait';
 }
 
-export function mapAnalyzeResponseToAdvisorReport(
-  res: AnalyzeResponse,
-  options?: MapAnalyzeOptions
-): AdvisorReport {
-  const symbol = (res.symbol ?? '').trim().toUpperCase() || '--';
-  const dateEnd = res.date_end?.trim();
-  const dateStart = res.date_start?.trim();
-  const generated_at = dateEnd
-    ? new Date(`${dateEnd}T12:00:00+08:00`).toISOString()
-    : new Date().toISOString();
-
-  const labelFn = options?.technicalSignalLabel ?? ((i: number) => `Signal ${i + 1}`);
-  const technical_signals = (res.technical_highlights ?? []).map((text, i) => ({
-    name: labelFn(i),
-    interpretation: text,
-  }));
-
-  const rows = [...(res.institutional_data ?? [])].sort((a, b) => a.date.localeCompare(b.date));
-  const latest = rows.length ? rows[rows.length - 1] : null;
-
-  const institutional_flow = latest
-    ? {
-        summary: `Latest institutional snapshot (${latest.date})`,
-        items: [
-          { name: 'Foreign', net_amount: latest.foreign_net ?? null, trend: null },
-          { name: 'Trust', net_amount: latest.trust_net ?? null, trend: null },
-          { name: 'Dealer', net_amount: latest.dealer_net ?? null, trend: null },
-        ],
-      }
-    : {
-        summary: 'No institutional data available',
-        items: [],
-      };
-
-  const basis = (res.recommendation_basis ?? []).filter(Boolean);
-  const reasoning =
-    basis.length > 0 ? basis.map((line) => `• ${line}`).join('\n') : (res.recommendation ?? '').trim() || '--';
-
-  const sources = (res.news_sources ?? []).map((n) => ({
-    title: n.title,
-    url: n.url ?? null,
-    publisher: 'News',
-    published_at: n.timestamp?.trim() || null,
-    type: 'news',
-    summary: n.summary?.trim() ? n.summary : null,
-  }));
-
-  const recRaw = (res.recommendation ?? '').trim();
-  const recommendation_text = basis.length > 0 ? recRaw || undefined : undefined;
-
-  return {
-    symbol,
-    generated_at,
-    summary: res.summary ?? '',
-    technical_signals,
-    institutional_flow,
-    recommendation: mapRecommendationToAction(res.sentiment_score, res.recommendation),
-    reasoning,
-    risk_notes: null,
-    sources,
-    date_start: dateStart,
-    date_end: dateEnd,
-    sentiment_score: res.sentiment_score,
-    recommendation_text,
-    score_breakdown: res.score_breakdown,
-    institutional_rows: rows.length ? rows : undefined,
-  };
+function resolveAdvisorStreamUrl(requestId: string): string {
+  const base = String(apiClient.defaults.baseURL ?? '').trim().replace(/\/$/, '');
+  if (!base) return `/advisor/${encodeURIComponent(requestId)}/stream`;
+  return `${base}/advisor/${encodeURIComponent(requestId)}/stream`;
 }
 
-export function mapSplitAnalyzeToAdvisorReport(
-  final: AnalyzeFinalResponse | undefined,
-  quick: AnalyzeQuickInsightsResponse | undefined,
-  institutional: AnalyzeRawInstitutionalResponse | undefined
-): AdvisorReport {
-  const synthetic = {
-    symbol: final?.symbol,
-    date_start: final?.date_start ?? quick?.date_start ?? institutional?.date_start,
-    date_end: final?.date_end ?? quick?.date_end ?? institutional?.date_end,
-    summary: final?.summary,
-    sentiment_score: final?.sentiment_score,
-    recommendation: final?.recommendation,
-    recommendation_basis: final?.recommendation_basis,
-    score_breakdown: final?.score_breakdown,
-    news_sources: final?.news_sources,
-    technical_highlights: quick?.points ?? [],
-    institutional_data: institutional?.institutional_data ?? [],
-  } as AnalyzeResponse;
+function parseSseChunk(raw: string): SseEnvelope | null {
+  const chunk = raw.trim();
+  if (!chunk) return null;
 
-  return mapAnalyzeResponseToAdvisorReport(synthetic, {
-    technicalSignalLabel: (i) => `Point ${i + 1}`,
-  });
-}
-
-export function mapAnalyzeReportToAdvisorReport(report: AnalyzeReportResponse): AdvisorReport {
-  const synthetic = {
-    symbol: report.symbol,
-    date_start: report.date_start,
-    date_end: report.date_end,
-    summary: report.summary,
-    sentiment_score: report.sentiment_score,
-    recommendation: report.recommendation,
-    recommendation_basis: report.recommendation_basis,
-    score_breakdown: report.score_breakdown,
-    news_sources: report.news_sources,
-    technical_highlights: report.quick_points ?? [],
-    institutional_data: report.institutional_data ?? [],
-  } as AnalyzeResponse;
-
-  return mapAnalyzeResponseToAdvisorReport(synthetic, {
-    technicalSignalLabel: (i) => `Point ${i + 1}`,
-  });
-}
-
-function buildMockReport(symbol: string): AdvisorReport {
-  const normalized = symbol.trim().toUpperCase();
-  return {
-    symbol: normalized,
-    generated_at: new Date().toISOString(),
-    summary: 'Mock advisor report (development fallback).',
-    technical_signals: [
-      { name: 'Signal 1', value: 'N/A', interpretation: 'Mock technical interpretation' },
-    ],
-    institutional_flow: {
-      summary: 'Mock institutional summary',
-      items: [],
-    },
-    recommendation: 'wait',
-    reasoning: 'Mock reasoning',
-    risk_notes: null,
-    sources: [],
-  };
-}
-
-async function fetchAdvisorReportFallbackReport(
-  symbol: string,
-  options: FetchAdvisorReportProgressiveOptions
-): Promise<AdvisorReport> {
-  const { fallbackToMock = process.env.NODE_ENV === 'development', onPartial, onProgress } = options;
-  const upper = symbol.toUpperCase();
-  const body: AnalyzeSplitRequest = { symbols: [upper] };
-
-  onProgress?.({
-    pendingInstitutional: true,
-    pendingQuick: true,
-    pendingFinal: true,
-  });
-
-  try {
-    const response = await apiClient.post('/analyze/report', body, { timeout: TIMEOUT_REPORT_MS });
-    const mapped = mapAnalyzeReportToAdvisorReport(response.data as AnalyzeReportResponse);
-    onPartial?.(mapped);
-    onProgress?.({
-      pendingInstitutional: false,
-      pendingQuick: false,
-      pendingFinal: false,
-    });
-    return mapped;
-  } catch (error) {
-    onProgress?.({
-      pendingInstitutional: false,
-      pendingQuick: false,
-      pendingFinal: false,
-    });
-    if (fallbackToMock) return buildMockReport(symbol);
-    throw error;
-  }
-}
-
-function parseSseBlock(block: string): SseEnvelope | null {
-  const trimmed = block.trim();
-  if (!trimmed) return null;
-
-  let event: SseEventName = 'partial_data';
+  let eventName: AdvisorStreamEventName = 'keepalive';
   const dataLines: string[] = [];
-  for (const line of trimmed.split('\n')) {
+  for (const line of chunk.split('\n')) {
     if (line.startsWith('event:')) {
-      event = line.slice(6).trim() as SseEventName;
+      eventName = line.slice(6).trim() as AdvisorStreamEventName;
       continue;
     }
     if (line.startsWith('data:')) {
       dataLines.push(line.slice(5).trim());
     }
   }
-  if (dataLines.length === 0) return null;
-
+  if (!dataLines.length) return null;
   try {
-    const data = JSON.parse(dataLines.join('\n'));
-    if (!isRecord(data)) return null;
-    return { event, data };
+    const parsed = JSON.parse(dataLines.join('\n'));
+    if (!isRecord(parsed)) return null;
+    return { event: eventName, data: parsed };
   } catch {
     return null;
   }
 }
 
-async function readSseResponse(
-  response: Response,
-  onEvent: (event: SseEnvelope) => void
-): Promise<void> {
+async function readSse(response: Response, onEvent: (event: AdvisorStreamEvent) => void): Promise<void> {
   const reader = response.body?.getReader();
-  if (!reader) {
-    throw new ApiRequestError('Streaming response body is not readable');
-  }
+  if (!reader) throw new ApiRequestError('SSE 連線無資料流');
 
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
   while (true) {
-    const { value, done } = await reader.read();
+    const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const chunks = buffer.split('\n\n');
     buffer = chunks.pop() ?? '';
     for (const chunk of chunks) {
-      const parsed = parseSseBlock(chunk);
+      const parsed = parseSseChunk(chunk);
       if (parsed) onEvent(parsed);
     }
   }
-
-  const tail = parseSseBlock(buffer);
-  if (tail) onEvent(tail);
+  const last = parseSseChunk(buffer);
+  if (last) onEvent(last);
 }
 
-async function fetchAdvisorReportViaStream(
-  symbol: string,
-  options: FetchAdvisorReportProgressiveOptions
-): Promise<AdvisorReport> {
-  const { onPartial, onProgress, onStepUpdate, onPartialData } = options;
-  const upper = symbol.toUpperCase();
-  const body: AnalyzeSplitRequest = { symbols: [upper] };
+function mapOverviewToReport(overview: AdvisorOverviewResponse): AdvisorReport {
+  const trend = toStringValue(overview.trend_conclusion) ?? '尚無結論';
+  const confidence = toStringValue(overview.confidence_level) ?? '未提供';
+  const reasoning = (overview.reason_points ?? []).filter(Boolean).join('\n');
+  const summary = (overview.rule_summary ?? []).join(' ');
 
-  let partialFinal: AnalyzeFinalResponse | undefined;
-  let partialQuick: AnalyzeQuickInsightsResponse | undefined;
-  let partialInstitutional: AnalyzeRawInstitutionalResponse | undefined;
-  let streamCompleted = false;
-  let finalOk = true;
-
-  const stepStatuses: Record<AdvisorStepKey, AdvisorStepStatus> = {
-    institutional: 'pending',
-    news: 'pending',
-    cross_check: 'pending',
-    final: 'pending',
+  return {
+    symbol: overview.symbol,
+    generated_at: new Date().toISOString(),
+    summary: summary || `${overview.symbol} 核心判斷為「${trend}」，信心等級 ${confidence}。`,
+    technical_signals: [
+      {
+        name: '趨勢結論',
+        value: trend,
+        interpretation: `信心等級：${confidence}`,
+      },
+      ...(overview.condition_checks ?? []).slice(0, 5).map((item) => ({
+        name: item.label ?? item.key ?? '條件檢查',
+        value: toSignalValue(item.value),
+        interpretation: item.passed ? '條件通過' : '條件未通過',
+      })),
+    ],
+    institutional_flow: {
+      summary: '依據最新法人快照整理',
+      items: [
+        { name: '外資', net_amount: toNumber(overview.institutional_snapshot?.foreign_net) },
+        { name: '投信', net_amount: toNumber(overview.institutional_snapshot?.trust_net) },
+        { name: '自營商', net_amount: toNumber(overview.institutional_snapshot?.dealer_net) },
+        { name: '三大法人合計', net_amount: toNumber(overview.institutional_snapshot?.total_net) },
+      ],
+    },
+    recommendation: normalizeRecommendation(trend),
+    recommendation_text: `核心判斷：${trend}（信心 ${confidence}）`,
+    reasoning: reasoning || summary || '尚無補充說明',
+    risk_notes: null,
+    sources: [],
+    date_start: undefined,
+    date_end: overview.as_of_date,
+    sentiment_score: undefined,
+    score_breakdown: undefined,
+    institutional_rows: undefined,
   };
+}
 
-  const emitProgress = () => {
-    onProgress?.(deriveProgressFromSteps(stepStatuses));
+function toBacktestView(snapshot: AdvisorBacktestSnapshot | null, fallbackPriceChart?: CoreModePriceChart): AdvisorBacktestView {
+  const credibility = snapshot?.credibility_summary;
+  return {
+    price_chart: snapshot?.price_chart ?? fallbackPriceChart ?? null,
+    overall: {
+      sample_count: null,
+      accuracy: credibility?.ac ?? null,
+      f1_buy: null,
+      precision_buy: null,
+      recall_buy: null,
+      tp: null,
+      fp: null,
+      fn: null,
+      tn: null,
+    },
   };
-  const emitPartial = () => {
-    onPartial?.(mapSplitAnalyzeToAdvisorReport(partialFinal, partialQuick, partialInstitutional));
-  };
-  const setStep = (next: AdvisorStepUpdate) => {
-    stepStatuses[next.step_key] = next.status;
-    onStepUpdate?.(next);
-    emitProgress();
-  };
+}
 
-  emitProgress();
+function emitBootstrapPartialData(
+  overview: AdvisorOverviewResponse,
+  onPartialData?: (payload: AdvisorPartialDataEvent) => void
+): void {
+  if (!onPartialData) return;
+  const requestId = overview.request_id;
 
+  const institutionalPreview = (overview.institutional_history ?? []).slice(-30).map((row) => ({
+    date: toStringValue(row.date) ?? overview.as_of_date,
+    foreign_net: toNumber(row.foreign_net),
+    trust_net: toNumber(row.trust_net),
+    dealer_net: toNumber(row.dealer_net),
+    total_net: toNumber(row.total_net),
+  }));
+  const latestInstitutional = institutionalPreview[institutionalPreview.length - 1];
+  onPartialData({
+    request_id: requestId,
+    step_key: 'institutional',
+    dataset: 'institutional',
+    summary: {
+      rows: institutionalPreview.length,
+      latest_date: latestInstitutional?.date ?? overview.as_of_date,
+      latest_total_net: latestInstitutional?.total_net ?? null,
+    },
+    preview: institutionalPreview,
+  });
+
+  const indicatorsPreview = (overview.technical_history ?? []).slice(-30).map((row) => ({
+    date: toStringValue(row.date) ?? overview.as_of_date,
+    ma5: toNumber(row.ma5),
+    ma20: toNumber(row.ma20),
+    rsi14: toNumber(row.rsi14),
+    macd_hist: toNumber(row.macd_hist),
+  }));
+  const latestIndicator = indicatorsPreview[indicatorsPreview.length - 1];
+  onPartialData({
+    request_id: requestId,
+    step_key: 'cross_check',
+    dataset: 'indicators',
+    summary: {
+      rows: indicatorsPreview.length,
+      latest_date: latestIndicator?.date ?? overview.as_of_date,
+      latest_rsi14: latestIndicator?.rsi14 ?? null,
+      latest_macd_hist: latestIndicator?.macd_hist ?? null,
+    },
+    preview: indicatorsPreview,
+  });
+
+  const candles = overview.price_chart?.candles ?? [];
+  if (!candles.length) return;
+  const volumeMap = new Map((overview.price_chart?.volume ?? []).map((v) => [v.time, v.value]));
+  const preview = candles.slice(-30).map((candle, index, arr) => {
+    const prev = index > 0 ? arr[index - 1] : null;
+    const change = prev ? Number((candle.close - prev.close).toFixed(2)) : null;
+    return {
+      date: candle.time,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      change,
+      volume: volumeMap.get(candle.time) ?? null,
+    };
+  });
+  const last = preview[preview.length - 1];
+  onPartialData({
+    request_id: requestId,
+    step_key: 'cross_check',
+    dataset: 'prices',
+    summary: {
+      rows: preview.length,
+      latest_date: last?.date ?? overview.as_of_date,
+      latest_close: last?.close ?? null,
+      latest_change: last?.change ?? null,
+    },
+    preview,
+  });
+}
+
+function parseFullReportSource(item: unknown): AdvisorSource | null {
+  if (!isRecord(item)) return null;
+  const title = toStringValue(item.title);
+  if (!title) return null;
+  return {
+    title,
+    url: toStringValue(item.url),
+    publisher: null,
+    published_at: null,
+    type: null,
+    summary: toStringValue(item.summary),
+  };
+}
+
+function mergeFullReport(base: AdvisorReport, payload: AdvisorFullReport): AdvisorReport {
+  const reasonLines = (payload.recommendation_basis ?? []).filter((item) => typeof item === 'string' && item.trim().length > 0);
+  const riskLines = (payload.risk_points ?? []).filter((item) => typeof item === 'string' && item.trim().length > 0);
+
+  return {
+    ...base,
+    generated_at: new Date().toISOString(),
+    summary: toStringValue(payload.final_summary) ?? base.summary,
+    recommendation: normalizeRecommendation(payload.trend_conclusion),
+    recommendation_text: `核心判斷：${payload.trend_conclusion}（信心 ${payload.confidence_level}）`,
+    reasoning: reasonLines.join('\n') || base.reasoning,
+    risk_notes: riskLines.length ? riskLines.join('；') : base.risk_notes,
+    date_end: toStringValue(payload.as_of_date) ?? base.date_end,
+    sources: (payload.source_highlights ?? [])
+      .map(parseFullReportSource)
+      .filter((item): item is AdvisorSource => Boolean(item)),
+  };
+}
+
+export async function fetchAdvisorOverview(req: AdvisorOverviewRequest): Promise<AdvisorOverviewResponse> {
+  const symbol = req.symbol.trim().toUpperCase();
+  if (!symbol) throw new ApiRequestError('請輸入股票代號');
+
+  const payload: AdvisorOverviewRequest = {
+    use_active_preset: true,
+    window_spec: '1y',
+    validation_mode: 'rolling_walk_forward',
+    ...req,
+    symbol,
+  };
+  const { data } = await apiClient.post<AdvisorOverviewResponse>('/advisor/overview', payload, {
+    timeout: 12_000,
+  });
+  return data;
+}
+
+export async function streamAdvisorUpdates(
+  requestId: string,
+  onEvent: (event: AdvisorStreamEvent) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const token = getToken();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STREAM_TIMEOUT_MS);
+
+  const forwardAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    signal.addEventListener('abort', forwardAbort);
+  }
+
   try {
-    const token = getToken();
-    const response = await fetch(resolveStreamUrl(), {
-      method: 'POST',
+    const response = await fetch(resolveAdvisorStreamUrl(requestId), {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify(body),
       signal: controller.signal,
     });
-
     if (!response.ok) {
-      let message = `Streaming request failed (${response.status})`;
-      try {
-        const data = await response.json();
-        if (isRecord(data)) {
-          message = pickDetailMessage(data, response.status);
-        }
-      } catch {
-        // ignore parse errors
-      }
-      throw new ApiRequestError(message, response.status);
+      throw new ApiRequestError(`Advisor 串流請求失敗 (${response.status})`, response.status);
     }
-
-    await readSseResponse(response, ({ event, data }) => {
-      if (event === 'step_start' || event === 'step_done') {
-        const stepKey = data.step_key;
-        if (typeof stepKey === 'string' && ['institutional', 'news', 'cross_check', 'final'].includes(stepKey)) {
-          const stepStatusRaw = data.status;
-          const status: AdvisorStepStatus =
-            stepStatusRaw === 'running' || stepStatusRaw === 'done' || stepStatusRaw === 'error'
-              ? stepStatusRaw
-              : event === 'step_start'
-                ? 'running'
-                : 'done';
-          setStep({
-            request_id: String(data.request_id ?? ''),
-            step_key: stepKey as AdvisorStepKey,
-            step_label: typeof data.step_label === 'string' ? data.step_label : undefined,
-            status,
-            message: typeof data.message === 'string' ? data.message : undefined,
-          });
-        }
-        return;
-      }
-
-      if (event === 'error') {
-        const stepKey = data.step_key;
-        if (typeof stepKey === 'string' && ['institutional', 'news', 'cross_check', 'final'].includes(stepKey)) {
-          setStep({
-            request_id: String(data.request_id ?? ''),
-            step_key: stepKey as AdvisorStepKey,
-            status: 'error',
-            message: typeof data.message === 'string' ? data.message : 'Step failed',
-          });
-        }
-        return;
-      }
-
-      if (event === 'partial_data') {
-        const stepKey = data.step_key;
-        const dataset = data.dataset;
-        if (
-          typeof stepKey === 'string' &&
-          typeof dataset === 'string' &&
-          ['institutional', 'news', 'cross_check', 'final'].includes(stepKey)
-        ) {
-          const payload: AdvisorPartialDataEvent = {
-            request_id: String(data.request_id ?? ''),
-            step_key: stepKey as AdvisorStepKey,
-            dataset: dataset as AdvisorPartialDataEvent['dataset'],
-            summary: isRecord(data.summary) ? data.summary : undefined,
-            preview: Array.isArray(data.preview)
-              ? data.preview.filter((x): x is Record<string, unknown> => isRecord(x))
-              : undefined,
-          };
-          onPartialData?.(payload);
-
-          if (payload.dataset === 'institutional') {
-            partialInstitutional = {
-              status: 'institutional_ready',
-              symbol: upper,
-              date_start: String(payload.summary?.date_start ?? ''),
-              date_end: String(payload.summary?.date_end ?? ''),
-              institutional_data: toInstitutionalRows(payload.preview ?? []),
-            };
-            emitPartial();
-          }
-
-          if (payload.dataset === 'quick_insights') {
-            const pointsRaw = payload.summary?.points;
-            const points = Array.isArray(pointsRaw) ? pointsRaw.map((x) => String(x)).filter(Boolean) : [];
-            partialQuick = {
-              symbol: upper,
-              date_start: partialFinal?.date_start,
-              date_end: partialFinal?.date_end,
-              points,
-              fallback_mode: Boolean(payload.summary?.fallback_mode),
-            };
-            emitPartial();
-          }
-        }
-        return;
-      }
-
-      if (event === 'final_report') {
-        const reportRaw = data.report;
-        if (isRecord(reportRaw)) {
-          partialFinal = reportRaw as AnalyzeFinalResponse;
-        }
-        const quickRaw = data.quick_insights;
-        if (isRecord(quickRaw)) {
-          partialQuick = quickRaw as AnalyzeQuickInsightsResponse;
-        }
-        const instRaw = data.institutional;
-        if (isRecord(instRaw)) {
-          partialInstitutional = {
-            status: 'institutional_ready',
-            symbol:
-              typeof instRaw.symbol === 'string' && instRaw.symbol.trim()
-                ? instRaw.symbol
-                : upper,
-            date_start: typeof instRaw.date_start === 'string' ? instRaw.date_start : '',
-            date_end: typeof instRaw.date_end === 'string' ? instRaw.date_end : '',
-            institutional_data: toInstitutionalRows(instRaw.institutional_data),
-          };
-        }
-        emitPartial();
-        return;
-      }
-
-      if (event === 'completed') {
-        streamCompleted = true;
-        finalOk = data.ok !== false;
-      }
-    });
+    await readSse(response, onEvent);
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', forwardAbort);
   }
-
-  if (!streamCompleted || !finalOk || !partialFinal) {
-    throw new ApiRequestError('Streaming completed without a final report');
-  }
-  return mapSplitAnalyzeToAdvisorReport(partialFinal, partialQuick, partialInstitutional);
 }
 
 export async function fetchAdvisorReportProgressive(
-  params: FetchAdvisorReportParams,
-  options: FetchAdvisorReportProgressiveOptions = {}
+  req: { symbol: string },
+  callbacks: AdvisorProgressiveCallbacks = {}
 ): Promise<AdvisorReport> {
-  const symbol = params.symbol.trim();
-  if (!symbol) {
-    throw new ApiRequestError('Please provide a stock symbol');
-  }
+  let progress: AdvisorFetchProgress = {
+    pendingInstitutional: true,
+    pendingFinal: true,
+  };
+  callbacks.onProgress?.(progress);
+  callbacks.onStepUpdate?.({
+    request_id: '',
+    step_key: 'institutional',
+    status: 'running',
+    message: '載入首屏核心資料',
+  });
 
-  try {
-    return await fetchAdvisorReportViaStream(symbol, options);
-  } catch (streamError) {
-    console.warn('[advisor] stream path failed, fallback to /analyze/report', streamError);
-    return fetchAdvisorReportFallbackReport(symbol, options);
-  }
-}
+  const overview = await fetchAdvisorOverview({ symbol: req.symbol });
+  const requestId = overview.request_id;
+  let currentReport = mapOverviewToReport(overview);
+  callbacks.onPartial?.(currentReport);
 
-export async function fetchAdvisorReport(
-  params: FetchAdvisorReportParams,
-  options: FetchAdvisorReportOptions = {}
-): Promise<AdvisorReport> {
-  return fetchAdvisorReportProgressive(params, options);
+  emitBootstrapPartialData(overview, callbacks.onPartialData);
+  callbacks.onBacktest?.(toBacktestView(null, overview.price_chart));
+
+  progress = { ...progress, pendingInstitutional: false };
+  callbacks.onProgress?.(progress);
+  callbacks.onStepUpdate?.({
+    request_id: requestId,
+    step_key: 'institutional',
+    status: 'done',
+    message: '首屏資料已就緒',
+  });
+  callbacks.onStepUpdate?.({
+    request_id: requestId,
+    step_key: 'cross_check',
+    status: 'done',
+    message: '技術與籌碼快照已就緒',
+  });
+  callbacks.onStepUpdate?.({
+    request_id: requestId,
+    step_key: 'news',
+    status: 'running',
+    message: '背景整理新聞脈絡中',
+  });
+  callbacks.onStepUpdate?.({
+    request_id: requestId,
+    step_key: 'final',
+    status: 'running',
+    message: '背景生成完整報告中',
+  });
+
+  let streamFailed: string | null = null;
+  await streamAdvisorUpdates(requestId, (event) => {
+    if (event.event === 'keepalive') return;
+
+    if (event.event === 'core_backtest_ready') {
+      const snapshot = isRecord(event.data.snapshot) ? (event.data.snapshot as unknown as AdvisorBacktestSnapshot) : null;
+      callbacks.onBacktest?.(toBacktestView(snapshot, overview.price_chart));
+      return;
+    }
+
+    if (event.event === 'news_ready') {
+      const news = isRecord(event.data.news) ? event.data.news : null;
+      const preview = Array.isArray(news?.preview) ? news?.preview : [];
+      if (preview.length) {
+        currentReport = {
+          ...currentReport,
+          sources: preview.map(parseFullReportSource).filter((item): item is AdvisorSource => Boolean(item)),
+        };
+        callbacks.onPartial?.(currentReport);
+      }
+      callbacks.onStepUpdate?.({
+        request_id: requestId,
+        step_key: 'news',
+        status: 'done',
+        message: '新聞脈絡已就緒',
+      });
+      return;
+    }
+
+    if (event.event === 'advisor_full_report_ready') {
+      const full = isRecord(event.data.full_report) ? (event.data.full_report as unknown as AdvisorFullReport) : null;
+      if (full) {
+        currentReport = mergeFullReport(currentReport, full);
+        callbacks.onPartial?.(currentReport);
+      }
+      progress = { ...progress, pendingFinal: false };
+      callbacks.onProgress?.(progress);
+      callbacks.onStepUpdate?.({
+        request_id: requestId,
+        step_key: 'final',
+        status: 'done',
+        message: '完整報告已完成',
+      });
+      return;
+    }
+
+    if (event.event === 'failed') {
+      streamFailed = toStringValue(event.data.message) ?? 'Advisor 背景流程失敗';
+      callbacks.onStepUpdate?.({
+        request_id: requestId,
+        step_key: 'final',
+        status: 'error',
+        message: streamFailed,
+      });
+    }
+  });
+
+  if (streamFailed) throw new ApiRequestError(streamFailed);
+  return currentReport;
 }

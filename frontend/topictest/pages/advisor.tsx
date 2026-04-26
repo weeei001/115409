@@ -11,31 +11,21 @@ import {
   CircleDashed,
   ExternalLink,
   Loader2,
-  RefreshCw,
   Search,
 } from 'lucide-react';
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { toast } from 'sonner';
 import { SubpageHeader } from '../components/SubpageHeader';
 import {
   fetchAdvisorReportProgressive,
+  type AdvisorBacktestView,
   type AdvisorFetchProgress,
 } from '../lib/api/advisor';
-import { runBacktest } from '../lib/api/backtest';
+import { CoreModePriceChart } from '../components/core-mode/CoreModePriceChart';
 import { fetchSymbols } from '../lib/api/stock';
 import type {
   AdvisorAction,
   AdvisorPartialDataEvent,
   AdvisorReport,
-  BacktestRunResult,
   AdvisorStepKey,
   AdvisorStepStatus,
   AdvisorStepUpdate,
@@ -51,27 +41,28 @@ interface StepView {
 }
 
 const STEP_DEFS: Array<{ key: AdvisorStepKey; title: string }> = [
-  { key: 'institutional', title: '抓取近 30 日法人籌碼' },
-  { key: 'cross_check', title: '交叉比對股價與技術指標' },
-  { key: 'news', title: '檢索相關新聞與情緒摘要' },
-  { key: 'final', title: '生成綜合報告' },
+  { key: 'institutional', title: '查看法人買賣方向' },
+  { key: 'cross_check', title: '檢查股價與技術面' },
+  { key: 'news', title: '整理近期市場消息' },
+  { key: 'final', title: '產生投資觀點' },
 ];
 
 const DATASET_TITLES: Record<DisplayDataset, string> = {
-  institutional: '法人籌碼快照',
-  prices: '股價快照',
-  indicators: '技術指標快照',
+  institutional: '法人籌碼',
+  prices: '股價表現',
+  indicators: '技術指標',
 };
-const SNAPSHOT_SECTION_TITLE = '中間分析快照（法人／股價／技術指標）';
+
+const SNAPSHOT_SECTION_TITLE = '關鍵資料整理';
 
 function createInitialSteps(): StepView[] {
   return STEP_DEFS.map((s) => ({ ...s, status: 'pending' as const }));
 }
 
-function recommendationText(action: AdvisorAction): string {
-  if (action === 'buy') return '建議買進';
-  if (action === 'sell') return '建議賣出';
-  return '建議觀望';
+function actionHintText(action: AdvisorAction): string {
+  if (action === 'buy') return '可續抱或分批布局';
+  if (action === 'sell') return '建議降低持股或暫避風險';
+  return '建議先觀察，不急著進場';
 }
 
 function recommendationClass(action: AdvisorAction): string {
@@ -96,9 +87,9 @@ function formatNetShares(value: number | null | undefined): string {
 }
 
 function statusText(status: AdvisorStepStatus): string {
-  if (status === 'running') return '進行中';
-  if (status === 'done') return 'Done';
-  if (status === 'error') return 'Failed';
+  if (status === 'running') return '分析中';
+  if (status === 'done') return '已完成';
+  if (status === 'error') return '發生問題';
   return '等待中';
 }
 
@@ -112,13 +103,6 @@ function toDisplayString(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   return String(value);
-}
-
-function toIsoDateString(d: Date): string {
-  const year = d.getFullYear();
-  const month = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function formatPctFromUnit(value: number | null | undefined): string {
@@ -135,26 +119,29 @@ const ADVISOR_MODEL_WEIGHTS = {
 
 function getSummaryRows(dataset: DisplayDataset, card: AdvisorPartialDataEvent | null) {
   const summary = card?.summary ?? {};
+
   switch (dataset) {
     case 'institutional':
       return [
-        { label: '資料筆數', value: summary.rows },
+        { label: '統計天數', value: summary.rows },
         { label: '最新日期', value: summary.latest_date },
-        { label: '最新三大法人合計', value: summary.latest_total_net },
+        { label: '法人合計買賣超', value: summary.latest_total_net },
       ];
+
     case 'prices':
       return [
-        { label: '資料筆數', value: summary.rows },
+        { label: '統計天數', value: summary.rows },
         { label: '最新日期', value: summary.latest_date },
-        { label: '最新收盤', value: summary.latest_close },
-        { label: '最新漲跌', value: summary.latest_change },
+        { label: '最新收盤價', value: summary.latest_close },
+        { label: '單日漲跌', value: summary.latest_change },
       ];
+
     case 'indicators':
       return [
-        { label: '資料筆數', value: summary.rows },
+        { label: '統計天數', value: summary.rows },
         { label: '最新日期', value: summary.latest_date },
-        { label: 'RSI14', value: summary.latest_rsi14 },
-        { label: 'MACD Hist', value: summary.latest_macd_hist },
+        { label: 'RSI 強弱指標', value: summary.latest_rsi14 },
+        { label: 'MACD 動能', value: summary.latest_macd_hist },
       ];
   }
 }
@@ -163,27 +150,61 @@ function getColumns(dataset: DisplayDataset): Array<{ key: string; label: string
   if (dataset === 'institutional') {
     return [
       { key: 'date', label: '日期' },
-      { key: 'foreign_net', label: '外資' },
-      { key: 'trust_net', label: '投信' },
-      { key: 'dealer_net', label: '自營商' },
-      { key: 'total_net', label: '合計' },
+      { key: 'foreign_net', label: '外資買賣超' },
+      { key: 'trust_net', label: '投信買賣超' },
+      { key: 'dealer_net', label: '自營商買賣超' },
+      { key: 'total_net', label: '法人合計' },
     ];
   }
+
   if (dataset === 'prices') {
     return [
       { key: 'date', label: '日期' },
-      { key: 'close', label: '收盤' },
+      { key: 'close', label: '收盤價' },
       { key: 'change', label: '漲跌' },
       { key: 'volume', label: '成交量' },
     ];
   }
+
   return [
     { key: 'date', label: '日期' },
-    { key: 'ma5', label: 'MA5' },
-    { key: 'ma20', label: 'MA20' },
-    { key: 'rsi14', label: 'RSI14' },
-    { key: 'macd_hist', label: 'MACD Hist' },
+    { key: 'ma5', label: '5 日均線' },
+    { key: 'ma20', label: '20 日均線' },
+    { key: 'rsi14', label: 'RSI' },
+    { key: 'macd_hist', label: 'MACD 動能' },
   ];
+}
+function recommendationText(action: AdvisorAction): string {
+  if (action === 'buy') return '偏多';
+  if (action === 'sell') return '偏空';
+  return '觀望';
+}
+function getInvestorToneSummary(report: AdvisorReport): string {
+  const action = report.recommendation;
+
+  if (action === 'buy') {
+    return `${report.symbol} 目前偏多，股價趨勢、技術動能與籌碼面整體偏正向。已有持股者可續抱觀察；尚未進場者不建議一次追高，可等待拉回或分批布局。`;
+  }
+
+  if (action === 'sell') {
+    return `${report.symbol} 目前偏空，短線風險升高，建議降低持股或先暫避風險。若後續股價重新站回關鍵位置，再重新評估是否進場。`;
+  }
+
+  return `${report.symbol} 目前方向不明，建議先觀望。等待股價、技術面與籌碼面出現更一致的訊號後，再考慮進場。`;
+}
+
+function getRiskToneText(report: AdvisorReport): string {
+  if (report.risk_notes) return report.risk_notes;
+
+  if (report.recommendation === 'buy') {
+    return '短線若漲幅過快，追價風險會升高。建議設定停損，並留意是否跌破近期支撐。';
+  }
+
+  if (report.recommendation === 'sell') {
+    return '若股價快速反彈並站回關鍵均線，偏空判斷可能需要重新評估。';
+  }
+
+  return '目前訊號尚未明朗，過早進場容易承擔不必要波動。';
 }
 
 function StepIcon({ status }: { status: AdvisorStepStatus }) {
@@ -212,11 +233,9 @@ export default function AdvisorPage() {
     prices: false,
     indicators: false,
   });
-  const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
-  const [backtestResult, setBacktestResult] = useState<BacktestRunResult | null>(null);
+  const [backtestResult, setBacktestResult] = useState<AdvisorBacktestView | null>(null);
   const requestSeq = useRef(0);
-  const backtestReqKeyRef = useRef('');
 
   useEffect(() => {
     let active = true;
@@ -258,67 +277,6 @@ export default function AdvisorPage() {
   const showPartialCards =
     loading || Object.values(partialCards).some((card) => card?.preview?.length || card?.summary);
   const snapshotDatasets: DisplayDataset[] = ['institutional', 'prices', 'indicators'];
-  const backtestWindow = useMemo(() => {
-    const dateText = report?.date_end || report?.date_start;
-    const anchor = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
-    if (Number.isNaN(anchor.getTime())) return null;
-    const end = new Date(anchor);
-    end.setDate(end.getDate() - 25);
-    const start = new Date(end);
-    start.setFullYear(start.getFullYear() - 1);
-    return {
-      start: toIsoDateString(start),
-      end: toIsoDateString(end),
-    };
-  }, [report?.date_end, report?.date_start]);
-  const backtestChartData = useMemo(() => {
-    return (backtestResult?.segments ?? []).map((seg) => ({
-      segment: seg.segment_id,
-      accuracy: Number((seg.metrics.accuracy * 100).toFixed(2)),
-      f1: Number((seg.metrics.f1_buy * 100).toFixed(2)),
-      samples: seg.metrics.sample_count,
-    }));
-  }, [backtestResult?.segments]);
-
-  const loadBacktestTrend = async (symbolInput: string, start: string, end: string) => {
-    setBacktestLoading(true);
-    setBacktestError(null);
-    try {
-      const data = await runBacktest({
-        symbol: symbolInput.toUpperCase(),
-        start_date: start,
-        end_date: end,
-        horizon: 20,
-        lookback_days: 30,
-        mode: 'score_only',
-        llm_sample_size: 0,
-        walk_forward: 'monthly',
-      });
-      setBacktestResult(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '取得回測趨勢失敗';
-      setBacktestError(message);
-      setBacktestResult(null);
-    } finally {
-      setBacktestLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!report?.symbol || !backtestWindow) return;
-    if (loading || progress?.pendingFinal) return;
-
-    const key = `${report.symbol}-${backtestWindow.start}-${backtestWindow.end}`;
-    if (backtestReqKeyRef.current === key) return;
-    backtestReqKeyRef.current = key;
-    void loadBacktestTrend(report.symbol, backtestWindow.start, backtestWindow.end);
-  }, [
-    report?.symbol,
-    backtestWindow?.start,
-    backtestWindow?.end,
-    loading,
-    progress?.pendingFinal,
-  ]);
 
   const renderSnapshotCards = () => (
     <div className="mt-4 grid grid-cols-1 gap-4">
@@ -415,7 +373,6 @@ export default function AdvisorPage() {
     setReport(null);
     setProgress({
       pendingInstitutional: true,
-      pendingQuick: true,
       pendingFinal: true,
     });
     setSteps(createInitialSteps());
@@ -429,6 +386,8 @@ export default function AdvisorPage() {
       prices: false,
       indicators: false,
     });
+    setBacktestResult(null);
+    setBacktestError(null);
 
     try {
       const data = await fetchAdvisorReportProgressive(
@@ -460,6 +419,10 @@ export default function AdvisorPage() {
               [payload.dataset]: payload,
             }));
           },
+          onBacktest: (payload) => {
+            if (seq !== requestSeq.current) return;
+            setBacktestResult(payload);
+          },
         }
       );
       if (seq !== requestSeq.current) return;
@@ -488,7 +451,7 @@ export default function AdvisorPage() {
       <SubpageHeader
         icon={BrainCircuit}
         title="投資顧問"
-        subtitle="整合 RAG/LLM 分析，提供買進、賣出或觀望建議"
+        subtitle="用法人籌碼、股價趨勢與技術指標，整理成容易理解的投資觀點"
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
@@ -527,7 +490,7 @@ export default function AdvisorPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !loading) void handleGenerate();
                 }}
-                placeholder="Or type a symbol (e.g. 2330)"
+                placeholder="輸入股票代號，例如 2330"
                 disabled={loading}
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]
                            text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-60"
@@ -547,7 +510,7 @@ export default function AdvisorPage() {
           </div>
           {!symbolsLoading && symbolOptions.length === 0 ? (
             <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
-              Symbol dropdown is unavailable right now. You can still type a symbol manually.</p>
+              目前無法載入股票清單，你仍可直接輸入股票代號。</p>
           ) : null}
           <div className="mt-3 space-y-2">
             {loading && symbol.trim() ? (
@@ -598,7 +561,7 @@ export default function AdvisorPage() {
 
         {showTracker ? (
           <section className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-5">
-            <h2 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">分析步驟追蹤</h2>
+            <h2 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">分析進度</h2>
             <div className="mt-3 space-y-2">
               {steps.map((step, index) => (
                 <div
@@ -608,7 +571,7 @@ export default function AdvisorPage() {
                   <div className="mt-0.5"><StepIcon status={step.status} /></div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[var(--color-text-primary)]">
-                      [{index + 1 === steps.length ? 'Final' : `Step ${index + 1}`}] {step.title}
+                      {index + 1}. {step.title}
                     </p>
                     <p className="text-xs text-[var(--color-text-muted)] mt-1">
                       {step.message ?? `${step.title}... (${statusText(step.status)})`}
@@ -623,7 +586,9 @@ export default function AdvisorPage() {
         {showPartialCards && !report ? (
           <section className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-5">
             <h2 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">{SNAPSHOT_SECTION_TITLE}</h2>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1">等待最終報告時，先查看已完成步驟的中間資料。</p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              先整理目前已取得的法人、股價與技術資料，方便快速掌握重點。
+            </p>
             {renderSnapshotCards()}
           </section>
         ) : null}
@@ -669,53 +634,157 @@ export default function AdvisorPage() {
             <section className="bento-cell p-5">
               <h2 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">{SNAPSHOT_SECTION_TITLE}</h2>
               <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                整合法人籌碼、股價與技術指標三種資料，快速比對中間分析結果。
+                以下整理本次判斷會參考的主要資料，幫助你了解模型為什麼得出這個看法。
               </p>
               {renderSnapshotCards()}
             </section>
 
             <section className="bento-cell p-5">
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-base sm:text-lg font-bold">總結摘要</h2>
-                {loading && progress?.pendingFinal ? (
-                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] inline-flex items-center gap-1.5">
-                    <Loader2 size={12} className="animate-spin shrink-0" />
-                    載入中
-                  </span>
-                ) : (
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
-                  >
-                    {recommendationText(report.recommendation)}
-                  </span>
-                )}
+                <h2 className="text-base sm:text-lg font-bold">歷史走勢與買賣點</h2>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {backtestResult ? '已完成' : '整理中'}
+                </span>
               </div>
-              {loading && progress?.pendingFinal ? (
-                <div className="mt-3 flex flex-col gap-2 text-sm text-[var(--color-text-muted)]">
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-                    摘要與新聞來源載入中…
-                  </span>
-                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
-                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
+
+              {!backtestResult ? (
+                <div className="mt-4 text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-brand" />
+                  正在整理歷史走勢…
                 </div>
-              ) : (
-                <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">{report.summary}</p>
-              )}
+              ) : null}
+
+              {backtestError ? (
+                <div className="mt-4 rounded-xl border border-up/20 bg-up-muted p-3 text-sm text-up inline-flex items-center gap-2">
+                  <AlertTriangle size={14} />
+                  {backtestError}
+                </div>
+              ) : null}
+
+              {backtestResult ? (
+                <>
+                  {/* <div className="mt-4 grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">樣本數</p>
+                      <p className="text-lg font-semibold tabular-nums">{backtestResult.overall.sample_count ?? '--'}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">Accuracy</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.accuracy)}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">F1 (buy)</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.f1_buy)}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">Precision (buy)</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.precision_buy)}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">Recall (buy)</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.recall_buy)}</p>
+                    </div>
+                  </div> */}
+
+                  <div className="mt-4 rounded-xl border border-[var(--color-border)] p-3">
+                    <h3 className="text-sm font-semibold inline-flex items-center gap-1.5">
+                      <BarChart3 size={14} className="text-brand" />
+                      股價走勢圖
+                    </h3>
+                    {backtestResult.price_chart?.candles?.length ? (
+                      <div className="mt-3">
+                        <CoreModePriceChart data={backtestResult.price_chart} />
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-[var(--color-text-muted)]">此區間沒有可用價格 K 線資料。</p>
+                    )}
+                  </div>
+
+                  {/* <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">TP</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tp ?? '--'}</p>
+                    </div>
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">FP</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fp ?? '--'}</p>
+                    </div>
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">FN</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fn ?? '--'}</p>
+                    </div>
+                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">TN</p>
+                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tn ?? '--'}</p>
+                    </div>
+                  </div> */}
+
+                  {/* <div className="mt-4 rounded-xl border border-[var(--color-border)] p-4 text-sm">
+                    <h3 className="font-semibold">指標公式與依據（新手版）</h3>
+                    <div className="mt-2 space-y-1 text-[var(--color-text-secondary)]">
+                      <p><strong>Accuracy</strong> = (TP + TN) / (TP + FP + FN + TN)</p>
+                      <p><strong>Precision</strong> = TP / (TP + FP)</p>
+                      <p><strong>Recall</strong> = TP / (TP + FN)</p>
+                      <p><strong>F1</strong> = 2 × Precision × Recall / (Precision + Recall)</p>
+                      <p className="text-xs text-[var(--color-text-muted)]">
+                        這裡把「buy」當正類：TP=預測買且實際漲、FP=預測買但實際跌、FN=預測賣但實際漲、TN=預測賣且實際跌。
+                      </p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                      <a
+                        href="https://developers.google.com/machine-learning/crash-course/classification/accuracy-precision-recall"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        Google ML Crash Course（Accuracy/F1）
+                      </a>
+                      <a
+                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.accuracy_score.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        scikit-learn: accuracy_score
+                      </a>
+                      <a
+                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        scikit-learn: f1_score
+                      </a>
+                      <a
+                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline"
+                      >
+                        scikit-learn: confusion_matrix（TP/FP/FN/TN）
+                      </a>
+                    </div>
+                  </div> */}
+                </>
+              ) : null}
             </section>
+
 
             <section className="bento-cell p-5">
               <h2 className="text-base sm:text-lg font-bold">技術指標重點</h2>
-              <div className="mt-3 space-y-3">
-                {loading && progress?.pendingQuick ? (
-                  <div className="space-y-2">
-                    <p className="text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
-                      <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-                      技術觀察載入中…
-                    </p>
-                    <div className="h-16 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" />
-                    <div className="h-16 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse max-w-[95%]" />
-                  </div>
+
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {loading && !report.technical_signals?.length ? (
+                  <>
+                    <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                      <p className="text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
+                        <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
+                        技術觀察載入中…
+                      </p>
+                      <div className="h-16 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" />
+                      <div className="h-16 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse max-w-[95%]" />
+                    </div>
+                  </>
                 ) : report.technical_signals?.length ? (
                   report.technical_signals.map((signal) => (
                     <div
@@ -730,16 +799,78 @@ export default function AdvisorPage() {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{signal.interpretation}</p>
+                      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+                        {signal.interpretation}
+                      </p>
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-[var(--color-text-muted)]">技術指標資料不足</p>
+                  <p className="text-sm text-[var(--color-text-muted)] sm:col-span-2 lg:col-span-3">
+                    技術指標資料不足
+                  </p>
                 )}
               </div>
             </section>
 
             <section className="bento-cell p-5">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold">目前看法</h2>
+                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                    先看結論，再看理由與風險。
+                  </p>
+                </div>
+
+                {loading && progress?.pendingFinal ? (
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] inline-flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin shrink-0" />
+                    整理中
+                  </span>
+                ) : (
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
+                  >
+                    {recommendationText(report.recommendation)}
+                  </span>
+                )}
+              </div>
+
+              {loading && progress?.pendingFinal ? (
+                <div className="mt-3 flex flex-col gap-2 text-sm text-[var(--color-text-muted)]">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
+                    正在整理投資觀點…
+                  </span>
+                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
+                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
+                    >
+                      {report.symbol}：{recommendationText(report.recommendation)}
+                    </span>
+                    <span className="text-xs text-[var(--color-text-muted)]">
+                      {actionHintText(report.recommendation)}
+                    </span>
+                  </div>
+
+                  <p className="mt-3 text-sm leading-6 text-[var(--color-text-primary)]">
+                    {getInvestorToneSummary(report)}
+                  </p>
+
+                  {report.summary ? (
+                    <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                      {report.summary}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </section>
+
+            {/* <section className="bento-cell p-5">
               <h2 className="text-base sm:text-lg font-bold">加權模型</h2>
               {report.score_breakdown ? (
                 <>
@@ -816,172 +947,8 @@ export default function AdvisorPage() {
               ) : (
                 <p className="mt-3 text-sm text-[var(--color-text-muted)]">加權模型資料不足</p>
               )}
-            </section>
+            </section> */}
 
-            <section className="bento-cell p-5">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-base sm:text-lg font-bold">歷史回測趨勢（近一年）</h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!report?.symbol || !backtestWindow) return;
-                    void loadBacktestTrend(report.symbol, backtestWindow.start, backtestWindow.end);
-                  }}
-                  disabled={backtestLoading || !report?.symbol || !backtestWindow}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand disabled:opacity-50"
-                >
-                  {backtestLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                  重新計算
-                </button>
-              </div>
-
-              {backtestWindow ? (
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                  區間：{backtestWindow.start} ～ {backtestWindow.end}（horizon=20，mode=score_only）
-                </p>
-              ) : null}
-
-              {backtestLoading ? (
-                <div className="mt-4 text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin text-brand" />
-                  回測計算中…
-                </div>
-              ) : null}
-
-              {backtestError ? (
-                <div className="mt-4 rounded-xl border border-up/20 bg-up-muted p-3 text-sm text-up inline-flex items-center gap-2">
-                  <AlertTriangle size={14} />
-                  {backtestError}
-                </div>
-              ) : null}
-
-              {backtestResult ? (
-                <>
-                  <div className="mt-4 grid grid-cols-2 lg:grid-cols-5 gap-3">
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">樣本數</p>
-                      <p className="text-lg font-semibold tabular-nums">{backtestResult.overall.sample_count}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">Accuracy</p>
-                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.accuracy)}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">F1 (buy)</p>
-                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.f1_buy)}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">Precision (buy)</p>
-                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.precision_buy)}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">Recall (buy)</p>
-                      <p className="text-lg font-semibold tabular-nums">{formatPctFromUnit(backtestResult.overall.recall_buy)}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-xl border border-[var(--color-border)] p-3">
-                    <h3 className="text-sm font-semibold inline-flex items-center gap-1.5">
-                      <BarChart3 size={14} className="text-brand" />
-                      每月趨勢（Accuracy / F1）
-                    </h3>
-                    {backtestChartData.length > 0 ? (
-                      <div className="mt-3 h-72">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={backtestChartData} margin={{ top: 10, right: 16, left: -4, bottom: 8 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                            <XAxis dataKey="segment" tick={{ fontSize: 12 }} />
-                            <YAxis
-                              domain={[0, 100]}
-                              tickFormatter={(v) => `${v}%`}
-                              tick={{ fontSize: 12 }}
-                            />
-                            <Tooltip
-                              formatter={(value: unknown, name: unknown) => {
-                                const numeric = typeof value === 'number' ? value : Number(value ?? 0);
-                                const label = name === 'accuracy' ? 'Accuracy' : 'F1';
-                                return [`${numeric}%`, label];
-                              }}
-                              labelFormatter={(label) => `分段 ${label}`}
-                            />
-                            <Line type="monotone" dataKey="accuracy" stroke="#f59e0b" strokeWidth={2.5} dot={false} />
-                            <Line type="monotone" dataKey="f1" stroke="#14b8a6" strokeWidth={2} dot={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ) : (
-                      <p className="mt-3 text-sm text-[var(--color-text-muted)]">此區間沒有可用回測分段資料。</p>
-                    )}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">TP</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tp}</p>
-                    </div>
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">FP</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fp}</p>
-                    </div>
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">FN</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fn}</p>
-                    </div>
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">TN</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tn}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-xl border border-[var(--color-border)] p-4 text-sm">
-                    <h3 className="font-semibold">指標公式與依據（新手版）</h3>
-                    <div className="mt-2 space-y-1 text-[var(--color-text-secondary)]">
-                      <p><strong>Accuracy</strong> = (TP + TN) / (TP + FP + FN + TN)</p>
-                      <p><strong>Precision</strong> = TP / (TP + FP)</p>
-                      <p><strong>Recall</strong> = TP / (TP + FN)</p>
-                      <p><strong>F1</strong> = 2 × Precision × Recall / (Precision + Recall)</p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        這裡把「buy」當正類：TP=預測買且實際漲、FP=預測買但實際跌、FN=預測賣但實際漲、TN=預測賣且實際跌。
-                      </p>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                      <a
-                        href="https://developers.google.com/machine-learning/crash-course/classification/accuracy-precision-recall"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        Google ML Crash Course（Accuracy/F1）
-                      </a>
-                      <a
-                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.accuracy_score.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        scikit-learn: accuracy_score
-                      </a>
-                      <a
-                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        scikit-learn: f1_score
-                      </a>
-                      <a
-                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        scikit-learn: confusion_matrix（TP/FP/FN/TN）
-                      </a>
-                    </div>
-                  </div>
-                </>
-              ) : null}
-            </section>
 
             <section className="bento-cell p-5">
               <h2 className="text-base sm:text-lg font-bold">最終建議</h2>
@@ -996,27 +963,55 @@ export default function AdvisorPage() {
                 </div>
               ) : (
                 <>
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
-                    >
-                      {recommendationText(report.recommendation)}
-                    </span>
-                    <span className="text-xs text-[var(--color-text-muted)]">標的：{report.symbol}</span>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">方向</p>
+                      <p>
+                        <span className={`mt-1 inline-flex px-3 py-1 rounded-full text-sm font-bold ${recommendationClass(report.recommendation)}`}>
+                          {recommendationText(report.recommendation)}
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">操作參考</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">
+                        {actionHintText(report.recommendation)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-[var(--color-border)] p-3">
+                      <p className="text-xs text-[var(--color-text-muted)]">股票代號</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">
+                        {report.symbol}
+                      </p>
+                    </div>
                   </div>
+
                   {report.recommendation_text ? (
-                    <p className="mt-3 text-sm leading-6 text-[var(--color-text-primary)] font-medium">
-                      操作建議：{report.recommendation_text}
-                    </p>
+                    <div className="mt-4 rounded-xl border border-brand/30 bg-brand/5 dark:bg-brand/10 p-3">
+                      <p className="text-xs font-semibold text-brand-deep dark:text-brand-light">操作建議</p>
+                      <p className="mt-1 text-sm leading-6 text-[var(--color-text-primary)]">
+                        {report.recommendation_text}
+                      </p>
+                    </div>
                   ) : null}
-                  <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)] whitespace-pre-wrap">
-                    {report.reasoning}
-                  </p>
-                  {report.risk_notes ? (
-                    <p className="mt-3 text-sm text-brand-deep dark:text-brand-light bg-brand/5 dark:bg-brand/10 border border-brand/30 dark:border-brand/25 rounded-xl p-3">
-                      風險提醒：{report.risk_notes}
-                    </p>
+
+                  {report.reasoning ? (
+                    <div className="mt-4">
+                      <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">為什麼這樣判斷？</h3>
+                      <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)] whitespace-pre-wrap">
+                        {report.reasoning}
+                      </p>
+                    </div>
                   ) : null}
+
+                  <div className="mt-4 rounded-xl border border-amber-300/40 bg-amber-50 dark:bg-amber-400/10 p-3">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">風險提醒</p>
+                    <p className="mt-1 text-sm leading-6 text-[var(--color-text-primary)]">
+                      {getRiskToneText(report)}
+                    </p>
+                  </div>
                 </>
               )}
             </section>
@@ -1068,7 +1063,7 @@ export default function AdvisorPage() {
         ) : null}
 
         <section className="text-xs text-[var(--color-text-muted)] pb-2">
-          本頁內容由模型整理提供，僅供研究與資訊參考，不構成任何投資建議。請自行評估風險並審慎決策。
+          本頁內容由系統依據公開資料與模型整理產生，僅供研究與參考，不代表保證獲利。投資前請自行評估風險。
         </section>
       </main>
     </div>

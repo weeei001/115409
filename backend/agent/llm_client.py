@@ -67,7 +67,7 @@ def _log_nim_model_error(model: str, exc: BaseException) -> None:
     if "nvlm" in msg or "vocab_size" in msg or "nvlm" in body_str or "vocab_size" in body_str:
         hint = (
             " Possible reason: the selected model is multimodal (VL) and incompatible with this text/chat endpoint."
-            " Use text instruct models in NIM_MODEL_PRIMARY / NIM_MODEL_SECONDARY."
+            " Use a text instruct model in ADVISOR_LLM_MODEL."
         )
     code = getattr(exc, "status_code", None)
     logger.error("NIM/LLM request failed model=%s status=%s error=%s body=%s.%s", model, code, exc, body, hint)
@@ -81,8 +81,8 @@ class LLMClient:
             api_key=settings.NIM_API_KEY,
             base_url=settings.NIM_BASE_URL,
         )
-        # Backward compatibility: explicit model > legacy NIM_MODEL > primary.
-        self.model = model or settings.NIM_MODEL or settings.NIM_MODEL_PRIMARY
+        # Priority: explicit model > ADVISOR_LLM_MODEL.
+        self.model = model or settings.ADVISOR_LLM_MODEL
 
     async def complete(
         self,
