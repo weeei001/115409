@@ -1,125 +1,87 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import uvicorn
 
-from database import engine, Base
-from routers import (
-    stock_router,
-    news_router,
-    indicator_router,
-    simulated_order_router,
-    institutional_trade_router,
-    chat_router,
-    auth_router,
-    backtest_router,
-)
 from config import get_settings
-from models.user import User  # noqa: F401 — 註冊至 Base.metadata 供 create_all 建表
+from database import Base, engine
 from models.password_reset_token import PasswordResetToken  # noqa: F401
+from models.user import User  # noqa: F401
+from routers import (
+    advisor_report_router,
+    advisor_router,
+    auth_router,
+    core_mode_router,
+    indicator_router,
+    institutional_trade_router,
+    news_router,
+    simulated_order_router,
+    stock_router,
+)
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """應用啟動和關閉時的生命週期管理"""
-    # 啟動時創建資料庫表
-    print("正在創建資料庫表...")
     Base.metadata.create_all(bind=engine)
-    print("資料庫表創建完成")
     yield
-    # 關閉時的清理工作
-    print("應用關閉")
 
 
-# OpenAPI：標籤說明（Swagger /docs 左側分組）
 _OPENAPI_TAGS = [
-    {
-        "name": "AI 分析",
-        "description": (
-            "股票 AI 分析相關端點：`raw/*`、`quick-insights`、`final`。\n\n"
-            "**模型**：`primary`／`secondary` 由**後端環境設定**決定，**API 請求不得指定**。\n\n"
-            "**錯誤**：HTTP 4xx/5xx 時 body 通常為 `{\"detail\": \"...\"}`；參數驗證失敗時為 `422`，`detail` 可能為欄位錯誤陣列。"
-        ),
-    },
-    {
-        "name": "股價查詢",
-        "description": "個股日線、K 線、歷史價量等（路徑前綴 `/stocks`）。",
-    },
-    {
-        "name": "新聞查詢",
-        "description": "鉅亨新聞列表、單篇、筆數統計等（前綴 `/news`）。",
-    },
-    {
-        "name": "技術指標",
-        "description": "技術指標相關查詢（前綴 `/stocks`，與股價路由共用）。",
-    },
-    {
-        "name": "三大法人",
-        "description": "三大法人買賣超等（前綴 `/stocks`）。",
-    },
-    {
-        "name": "模擬下單",
-        "description": "模擬委託、清單、分類損益（前綴 `/simulated-orders`）。",
-    },
-    {
-        "name": "認證",
-        "description": (
-            "註冊、帳密登入、`POST /auth/google`（Google id_token）、`GET /auth/me`。"
-            "同一 email 可合併密碼帳與 Google 帳。"
-        ),
-    },
+    {"name": "Advisor 體驗 API", "description": "Advisor 頁面首屏與漸進事件串流。"},
+    {"name": "Advisor 報告 Domain API", "description": "Advisor 完整報告背景工作管理。"},
+    {"name": "Core Mode API", "description": "Core Mode 能力層 API（decision/backtest/presets）。"},
+    {"name": "股票價格", "description": "股票價格查詢與圖表資料 API。"},
+    {"name": "新聞", "description": "新聞查詢 API。"},
+    {"name": "技術指標", "description": "技術指標查詢 API。"},
+    {"name": "法人籌碼", "description": "三大法人資料查詢 API。"},
+    {"name": "模擬下單", "description": "模擬交易 API。"},
+    {"name": "身份驗證", "description": "註冊、登入、Google 登入與帳號管理 API。"},
 ]
 
-# 創建 FastAPI 應用
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description=(
-        "台股相關 **FastAPI + MySQL** 後端。\n\n"
-        "- **互動文件**：本頁 Swagger UI（`/docs`）或 ReDoc（`/redoc`）。\n"
-        "- **健康檢查**：`GET /health`。\n"
-        "- **AI 分析**：見標籤「AI 分析」；分階架構可並行呼叫 `raw` 三筆 + `quick-insights` + `final`。\n\n"
-        "實際部署網域與 CORS 請依環境調整。"
+        "台股分析與 Advisor 後端服務。\n\n"
+        "- 文件：`/docs`、`/redoc`\n"
+        "- 健康檢查：`/health`\n"
+        "- Advisor 首屏保證不依賴 LLM，完整報告於背景流程補回"
     ),
     openapi_tags=_OPENAPI_TAGS,
     lifespan=lifespan,
 )
 
-# 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生產環境中應該設置具體的域名
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 註冊路由
 app.include_router(stock_router)
 app.include_router(news_router)
 app.include_router(indicator_router)
 app.include_router(simulated_order_router)
 app.include_router(institutional_trade_router)
-app.include_router(chat_router)
 app.include_router(auth_router)
-app.include_router(backtest_router)
+app.include_router(core_mode_router)
+app.include_router(advisor_router)
+app.include_router(advisor_report_router)
 
 
-@app.get("/")
+@app.get("/", summary="服務資訊", tags=["系統"])
 def read_root():
-    """根路徑"""
-    return {
-        "message": "歡迎使用 FastAPI + MySQL 後端應用",
-        "version": settings.APP_VERSION,
-        "docs": "/docs"
-    }
+    return {"message": "FastAPI service is running", "version": settings.APP_VERSION, "docs": "/docs"}
 
 
-@app.get("/health")
+@app.get("/health", summary="健康檢查", tags=["系統"])
 def health_check():
-    """健康檢查"""
     return {"status": "healthy"}
 
 
