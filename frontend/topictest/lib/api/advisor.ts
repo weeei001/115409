@@ -24,6 +24,29 @@ export interface AdvisorFetchProgress {
   pendingFinal: boolean;
 }
 
+type AdvisorMarkerSignalType = 'state_buy' | 'state_sell' | 'state_hold' | 'entry' | 'exit';
+type AdvisorSignalAction = 'buy' | 'sell' | 'hold';
+type RelativePosition = 'above' | 'below' | 'equal' | 'unknown';
+
+export interface AdvisorSignalPoint {
+  markerType: AdvisorMarkerSignalType;
+  action: AdvisorSignalAction | null;
+  time: string;
+  detail: string | null;
+}
+
+export interface AdvisorSignalSummary {
+  currentSignal: AdvisorSignalPoint | null;
+  lastStateSwitch: AdvisorSignalPoint | null;
+  lastEntry: AdvisorSignalPoint | null;
+  lastExit: AdvisorSignalPoint | null;
+  close: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  relativeToMA20: RelativePosition;
+  relativeToMA60: RelativePosition;
+}
+
 export interface AdvisorBacktestView {
   price_chart: CoreModePriceChart | null;
   overall: {
@@ -50,6 +73,108 @@ interface AdvisorProgressiveCallbacks {
 interface SseEnvelope {
   event: AdvisorStreamEventName;
   data: Record<string, unknown>;
+}
+
+const ADVISOR_MARKER_SIGNAL_TYPES: ReadonlySet<AdvisorMarkerSignalType> = new Set([
+  'state_buy',
+  'state_sell',
+  'state_hold',
+  'entry',
+  'exit',
+]);
+
+function toAdvisorMarkerSignalType(value: string): AdvisorMarkerSignalType | null {
+  return ADVISOR_MARKER_SIGNAL_TYPES.has(value as AdvisorMarkerSignalType) ? (value as AdvisorMarkerSignalType) : null;
+}
+
+function toAdvisorSignalAction(type: AdvisorMarkerSignalType): AdvisorSignalAction | null {
+  if (type === 'state_buy' || type === 'entry') return 'buy';
+  if (type === 'state_sell' || type === 'exit') return 'sell';
+  if (type === 'state_hold') return 'hold';
+  return null;
+}
+
+function compareRelative(close: number | null, ma: number | null): RelativePosition {
+  if (close === null || ma === null) return 'unknown';
+  if (Math.abs(close - ma) < 1e-6) return 'equal';
+  return close > ma ? 'above' : 'below';
+}
+
+function normalizeSignalPoint(marker: CoreModePriceChart['markers'][number]): AdvisorSignalPoint | null {
+  const markerType = toAdvisorMarkerSignalType(marker.type);
+  if (!markerType) return null;
+  return {
+    markerType,
+    action: toAdvisorSignalAction(markerType),
+    time: marker.time,
+    detail: marker.text?.trim() || null,
+  };
+}
+
+function latestOverlayValueByTime(points: Array<{ time: string; value: number | null }>, time: string): number | null {
+  if (!points.length) return null;
+  const found = points.find((item) => item.time === time);
+  if (found && found.value !== null) return Number(found.value);
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    if (points[i].value !== null && points[i].time <= time) return Number(points[i].value);
+  }
+  return null;
+}
+
+export function filterAdvisorPriceChartMarkers(priceChart: CoreModePriceChart | null): CoreModePriceChart | null {
+  if (!priceChart) return null;
+  return {
+    ...priceChart,
+    markers: priceChart.markers.filter((marker) => Boolean(toAdvisorMarkerSignalType(marker.type))),
+  };
+}
+
+export function summarizeAdvisorSignals(priceChart: CoreModePriceChart | null): AdvisorSignalSummary {
+  const empty: AdvisorSignalSummary = {
+    currentSignal: null,
+    lastStateSwitch: null,
+    lastEntry: null,
+    lastExit: null,
+    close: null,
+    ma20: null,
+    ma60: null,
+    relativeToMA20: 'unknown',
+    relativeToMA60: 'unknown',
+  };
+  if (!priceChart) return empty;
+
+  const markers = priceChart.markers
+    .slice()
+    .sort((a, b) => a.time.localeCompare(b.time))
+    .map(normalizeSignalPoint)
+    .filter((item): item is AdvisorSignalPoint => Boolean(item));
+
+  const stateMarkers = markers.filter(
+    (marker) => marker.markerType === 'state_buy' || marker.markerType === 'state_sell' || marker.markerType === 'state_hold'
+  );
+  const entryMarkers = markers.filter((marker) => marker.markerType === 'entry');
+  const exitMarkers = markers.filter((marker) => marker.markerType === 'exit');
+
+  const latestStateSwitch = stateMarkers[stateMarkers.length - 1] ?? null;
+  const latestEntry = entryMarkers[entryMarkers.length - 1] ?? null;
+  const latestExit = exitMarkers[exitMarkers.length - 1] ?? null;
+
+  const latestCandle = priceChart.candles[priceChart.candles.length - 1];
+  const close = latestCandle ? latestCandle.close : null;
+  const ma20 = latestCandle ? latestOverlayValueByTime(priceChart.overlays.MA20, latestCandle.time) : null;
+  const ma60 = latestCandle ? latestOverlayValueByTime(priceChart.overlays.MA60, latestCandle.time) : null;
+
+  return {
+    currentSignal: latestStateSwitch,
+    lastStateSwitch: latestStateSwitch,
+    lastEntry: latestEntry,
+    lastExit: latestExit,
+    close,
+    ma20,
+    ma60,
+    relativeToMA20: compareRelative(close, ma20),
+    relativeToMA60: compareRelative(close, ma60),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,8 +303,9 @@ function mapOverviewToReport(overview: AdvisorOverviewResponse): AdvisorReport {
 }
 function toBacktestView(snapshot: AdvisorBacktestSnapshot | null, fallbackPriceChart?: CoreModePriceChart): AdvisorBacktestView {
   const credibility = snapshot?.credibility_summary;
+  const rawPriceChart = snapshot?.price_chart ?? fallbackPriceChart ?? null;
   return {
-    price_chart: snapshot?.price_chart ?? fallbackPriceChart ?? null,
+    price_chart: filterAdvisorPriceChartMarkers(rawPriceChart),
     overall: {
       sample_count: null,
       accuracy: credibility?.ac ?? null,

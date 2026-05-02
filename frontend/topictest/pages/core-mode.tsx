@@ -82,6 +82,23 @@ function buildConclusionSentence(conclusion: string, confidence: string): string
   return `目前趨勢不明，整體屬於${confidence}信心；建議先觀察關鍵條件是否轉為一致。`;
 }
 
+function recommendationBadge(action: string | undefined): { label: string; className: string } {
+  if (!action) return { label: '持平', className: 'bg-amber-50 text-amber-700 border border-amber-200' };
+  if (action.includes('買')) return { label: '買入', className: 'bg-rose-50 text-rose-700 border border-rose-200' };
+  if (action.includes('減碼') || action.includes('風險') || action.includes('賣')) {
+    return { label: '賣出', className: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
+  }
+  return { label: '持平', className: 'bg-amber-50 text-amber-700 border border-amber-200' };
+}
+
+function normalizeCoreReason(text: string): string {
+  if (text.includes('型態分數') && text.includes('未通過')) return '目前突破力道不足，趨勢還沒有明確延續。';
+  if (text.includes('綜合趨勢分數') && text.includes('未通過')) return '訊號信心偏低，價格可能仍在盤整區間。';
+  if (text.includes('有效趨勢訊號不足')) return '尚未出現明確買盤確認，建議先觀察。';
+  if (text.includes('突破結構')) return '尚未形成明確突破，建議等待訊號更完整。';
+  return text;
+}
+
 export default function CoreModePage() {
   const [schema, setSchema] = useState<CoreModeSchemaResponse | null>(null);
   const [params, setParams] = useState<CoreModeParams | null>(null);
@@ -642,7 +659,18 @@ export default function CoreModePage() {
                     <p className="text-sm">結論：{analysisResult.trend_conclusion}</p>
                     <p className="text-sm">信心：{analysisResult.confidence_level}</p>
                     <p className="text-sm">基準日：{analysisResult.as_of_date}</p>
-                    <p className="text-sm">操作建議：{analysisResult.action_suggestion ?? '觀望'}</p>
+                    <p className="mt-2">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${recommendationBadge(analysisResult.action_suggestion).className}`}>
+                        建議狀態：{recommendationBadge(analysisResult.action_suggestion).label}
+                      </span>
+                    </p>
+                    <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+                      {recommendationBadge(analysisResult.action_suggestion).label === '買入'
+                        ? '買入｜趨勢轉強，可考慮分批布局'
+                        : recommendationBadge(analysisResult.action_suggestion).label === '賣出'
+                          ? '賣出｜趨勢轉弱，建議降低部位'
+                          : '持平｜建議先觀察，不急著進場'}
+                    </p>
                   </div>
                   <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
                     <h3 className="text-sm font-semibold">分數與訊號</h3>
@@ -656,9 +684,12 @@ export default function CoreModePage() {
                     <h3 className="text-sm font-semibold">理由</h3>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
                       {analysisResult.reason_points.map((item, idx) => (
-                        <li key={`${item}-${idx}`}>{item}</li>
+                        <li key={`${item}-${idx}`}>{normalizeCoreReason(item)}</li>
                       ))}
                     </ul>
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-sm text-[var(--color-text-secondary)]">
+                      目前訊號信心偏低，價格可能仍在盤整區間。若股價跌破 MA20，短線可能轉弱；若進一步跌破 MA60，代表中期結構轉差。
+                    </div>
                   </div>
                 </div>
               ) : null}
