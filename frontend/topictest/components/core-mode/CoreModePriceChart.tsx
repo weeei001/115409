@@ -277,11 +277,11 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
         < div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#2563eb' }} />
-            藍線：MA20
+            藍線：20 日均線
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#7c3aed' }} />
-            紫線：MA60
+            紫線：60 日均線
           </span>
         </div>
       </div>

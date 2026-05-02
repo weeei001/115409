@@ -148,7 +148,7 @@ export default function CoreModePage() {
   const handleLoadPreset = () => {
     if (!selectedPreset) return;
     setParams(cloneParams(selectedPreset.params));
-    setPresetMessage(`已載入 preset：${selectedPreset.name}`);
+    setPresetMessage(`已載入參數組合：${selectedPreset.name}`);
   };
 
   const handleResetParams = () => {
@@ -164,9 +164,9 @@ export default function CoreModePage() {
       setPresets(data.presets);
       setActivePresetId(data.active_preset_id);
       setSelectedPresetId(data.active_preset_id);
-      setPresetMessage('已設定 active preset');
+      setPresetMessage('已設定啟用參數組合');
     } catch (error) {
-      setPresetMessage(error instanceof Error ? error.message : '設定 active preset 失敗');
+      setPresetMessage(error instanceof Error ? error.message : '設定啟用參數組合失敗');
     }
   };
 
@@ -174,7 +174,7 @@ export default function CoreModePage() {
     if (!params) return;
     const name = presetName.trim();
     if (!name) {
-      setPresetMessage('請先輸入 preset 名稱');
+      setPresetMessage('請先輸入參數組合名稱');
       return;
     }
 
@@ -191,9 +191,9 @@ export default function CoreModePage() {
       setSelectedPresetId(data.active_preset_id);
       setPresetName('');
       setPresetDescription('');
-      setPresetMessage('preset 已儲存');
+      setPresetMessage('參數組合已儲存');
     } catch (error) {
-      setPresetMessage(error instanceof Error ? error.message : '儲存 preset 失敗');
+      setPresetMessage(error instanceof Error ? error.message : '儲存參數組合失敗');
     } finally {
       setSavingPreset(false);
     }
@@ -251,13 +251,13 @@ export default function CoreModePage() {
         trigger: 'item',
         formatter: (params: any) => {
           const data = params.data as [number, number, number, string];
-          return `${data[3]}<br/>AC：${(data[0] * 100).toFixed(2)}%<br/>最大回撤：${(data[1] * 100).toFixed(2)}%<br/>平衡目標：${data[2].toFixed(3)}`;
+          return `${data[3]}<br/>準確度：${(data[0] * 100).toFixed(2)}%<br/>最大回撤：${(data[1] * 100).toFixed(2)}%<br/>平衡目標：${data[2].toFixed(3)}`;
         },
       },
       grid: { left: 56, right: 20, top: 20, bottom: 40 },
       xAxis: {
         type: 'value',
-        name: 'AC',
+        name: '準確度',
         axisLabel: { formatter: (value: number) => `${(value * 100).toFixed(0)}%` },
       },
       yAxis: {
@@ -292,14 +292,14 @@ export default function CoreModePage() {
         <title>核心模式參數實驗室｜股海明燈</title>
         <meta
           name="description"
-          content="台股趨勢分析核心模式：8 參數調整、歷史回測、walk-forward 驗證、最佳參數搜尋與 active preset 套用。"
+          content="台股趨勢分析核心模式：8 參數調整、歷史回測、逐窗驗證、最佳參數搜尋與啟用參數組合套用。"
         />
       </Head>
 
       <SubpageHeader
         icon={Settings2}
         title="回測核心模式參數實驗室"
-        subtitle="趨勢分析＋回測＋最佳參數搜尋＋active preset 套用"
+        subtitle="趨勢分析＋回測＋最佳參數搜尋＋啟用參數組合套用"
       />
 
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -331,7 +331,7 @@ export default function CoreModePage() {
                     <p className="mt-1 text-sm font-semibold">{runResult.summary.signal_status.formal_signal ?? '無'}</p>
                   </div>
                   <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-3">
-                    <p className="text-xs text-[var(--color-text-muted)]">目前 active preset</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">目前啟用參數組合</p>
                     <p className="mt-1 text-sm font-semibold">{activePreset?.name ?? '尚未設定'}</p>
                   </div>
                 </div>
@@ -414,7 +414,7 @@ export default function CoreModePage() {
           </article>
 
           <article className="bento-cell p-4 sm:p-5">
-            <h2 className="text-base font-bold">Preset 操作</h2>
+            <h2 className="text-base font-bold">參數組合操作</h2>
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">載入、啟用與儲存常用參數組合。</p>
             <div className="mt-3 space-y-2">
               <select
@@ -441,11 +441,11 @@ export default function CoreModePage() {
                   onClick={handleActivatePreset}
                   className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium"
                 >
-                  設為 active
+                  設為啟用
                 </button>
               </div>
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
-                目前 active：{activePreset?.name ?? '尚未設定'}
+                目前啟用：{activePreset?.name ?? '尚未設定'}
               </div>
             </div>
           </article>
@@ -512,7 +512,7 @@ export default function CoreModePage() {
                 <input
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
-                  placeholder="新 preset 名稱"
+                  placeholder="新參數組合名稱"
                   className="ui-input"
                 />
                 <input
@@ -528,7 +528,7 @@ export default function CoreModePage() {
                   className="rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:brightness-[1.03] disabled:opacity-60"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
-                  {savingPreset ? '儲存中...' : '儲存 preset'}
+                  {savingPreset ? '儲存中...' : '儲存參數組合'}
                 </button>
               </div>
               {presetMessage ? <p className="mt-2 text-sm text-emerald-700">{presetMessage}</p> : null}
@@ -559,10 +559,10 @@ export default function CoreModePage() {
 
               <article className="bento-cell p-4 sm:p-5 xl:col-span-2">
                 <h2 className="text-base font-bold">回測摘要卡</h2>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">先看 AC、風險與穩定性，再看報酬。</p>
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">先看準確度、風險與穩定性，再看報酬。</p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">準確度（AC）</p>
+                    <p className="text-[11px] text-[var(--color-text-muted)]">準確度</p>
                     <p className="text-lg font-semibold">{formatPct(runResult.summary.ac)}</p>
                   </div>
                   <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
@@ -594,25 +594,25 @@ export default function CoreModePage() {
                     <p className="text-lg font-semibold">{runResult.summary.trade_count}</p>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-[var(--color-text-muted)]">AC 定義：{runResult.meta.ac_definition}</p>
+                {/* <p className="mt-2 text-xs text-[var(--color-text-muted)]">準確度定義：{runResult.meta.ac_definition}</p>
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                   成交規則：{runResult.meta.tail_execution_policy ?? '訊號日 n，成交日 n+1'}
                 </p>
                 {runResult.meta.tail_position_excluded ? (
                   <p className="mt-1 text-xs text-amber-700">尾端有未平倉部位因無 n+1 交易日，已自正式績效排除。</p>
-                ) : null}
+                ) : null} */}
               </article>
             </section>
 
             <CoreModePriceChart data={runResult.price_chart} />
-            <section className="grid grid-cols-1 gap-3">
-              <CoreModeEChartPanel title="參數候選比較（AC vs 最大回撤）" option={candidateScatterOption} height={320} />
-            </section>
+            {/* <section className="grid grid-cols-1 gap-3">
+              <CoreModeEChartPanel title="參數候選比較（準確度與最大回撤）" option={candidateScatterOption} height={320} />
+            </section> */}
             <VirtualTradeTable trades={runResult.trades} />
 
             <section className="bento-cell p-4 sm:p-5">
-              <h2 className="text-base font-bold">分析套用畫面（active preset）</h2>
-              <p className="mt-1 text-sm text-[var(--color-text-muted)]">目前 active preset：{activePreset?.name ?? '尚未設定'}</p>
+              <h2 className="text-base font-bold">分析套用畫面（啟用參數組合）</h2>
+              <p className="mt-1 text-sm text-[var(--color-text-muted)]">目前啟用參數組合：{activePreset?.name ?? '尚未設定'}</p>
 
               <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
                 <input
@@ -628,7 +628,7 @@ export default function CoreModePage() {
                   className="rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:brightness-[1.03] disabled:opacity-60"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
-                  {analysisLoading ? '分析中...' : '套用 active preset 分析'}
+                  {analysisLoading ? '分析中...' : '套用啟用參數組合分析'}
                 </button>
               </div>
 
@@ -646,11 +646,11 @@ export default function CoreModePage() {
                   </div>
                   <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
                     <h3 className="text-sm font-semibold">分數與訊號</h3>
-                    <p className="mt-2 text-sm">state_score：{formatNumber(analysisResult.state_score)}</p>
-                    <p className="text-sm">trend_shape_score：{formatNumber(analysisResult.trend_shape_score)}</p>
-                    <p className="text-sm">trend_score：{formatNumber(analysisResult.trend_score)}</p>
-                    <p className="text-sm">early_signal：{analysisResult.early_signal_status ?? '無'}</p>
-                    <p className="text-sm">formal_signal：{analysisResult.formal_signal_status ?? '無'}</p>
+                    <p className="mt-2 text-sm">狀態分數：{formatNumber(analysisResult.state_score)}</p>
+                    <p className="text-sm">趨勢型態分數：{formatNumber(analysisResult.trend_shape_score)}</p>
+                    <p className="text-sm">綜合趨勢分數：{formatNumber(analysisResult.trend_score)}</p>
+                    <p className="text-sm">早期訊號：{analysisResult.early_signal_status ?? '無'}</p>
+                    <p className="text-sm">正式訊號：{analysisResult.formal_signal_status ?? '無'}</p>
                   </div>
                   <div className="rounded-lg border border-[var(--color-border)] p-3">
                     <h3 className="text-sm font-semibold">理由</h3>

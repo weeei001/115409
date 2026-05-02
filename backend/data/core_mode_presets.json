@@ -3,22 +3,22 @@
   "presets": [
     {
       "id": "core-best-stable",
-      "name": "最佳穩健參數（建議啟用）",
+      "name": "最佳穩健參數",
       "description": "穩定型：偏重 fold 一致性與回撤控制，作為預設 active 的首選。",
       "category": "穩定型",
       "params": {
-        "breakout_lookback": 22,
+        "breakout_lookback": 38,
         "momentum_window": 16,
         "state_threshold": 0.19,
         "shape_threshold": 0.19,
-        "trend_threshold": 0.24,
-        "max_pullback_depth": 0.09,
-        "hard_stop_pct": 0.11,
-        "trailing_stop_pct": 0.07
+        "trend_threshold": 0.36,
+        "max_pullback_depth": 0.03,
+        "hard_stop_pct": 0.14,
+        "trailing_stop_pct": 0.01
       },
       "source": "system",
-      "created_at": "2026-04-26T07:58:24.343725+00:00",
-      "updated_at": "2026-04-26T07:58:24.343725+00:00"
+      "created_at": "2026-04-28T03:03:15.436676+00:00",
+      "updated_at": "2026-04-28T03:03:15.436676+00:00"
     },
     {
       "id": "core-best-balanced",
@@ -26,18 +26,18 @@
       "description": "平衡型：同時考慮 AC、expectancy、profit factor、趨勢品質、回撤與穩定性。",
       "category": "平衡型",
       "params": {
-        "breakout_lookback": 30,
-        "momentum_window": 13,
+        "breakout_lookback": 22,
+        "momentum_window": 14,
         "state_threshold": 0.19,
-        "shape_threshold": 0.15,
-        "trend_threshold": 0.24,
-        "max_pullback_depth": 0.15,
+        "shape_threshold": 0.19,
+        "trend_threshold": 0.36,
+        "max_pullback_depth": 0.06,
         "hard_stop_pct": 0.11,
         "trailing_stop_pct": 0.07
       },
       "source": "system",
-      "created_at": "2026-04-26T07:58:24.343725+00:00",
-      "updated_at": "2026-04-26T07:58:24.343725+00:00"
+      "created_at": "2026-04-28T03:03:15.436676+00:00",
+      "updated_at": "2026-04-28T03:03:15.436676+00:00"
     },
     {
       "id": "core-best-return",
@@ -45,18 +45,18 @@
       "description": "高報酬型：偏重累積報酬與 expectancy；不建議直接作為預設 active。",
       "category": "高報酬型",
       "params": {
-        "breakout_lookback": 30,
-        "momentum_window": 13,
+        "breakout_lookback": 22,
+        "momentum_window": 14,
         "state_threshold": 0.19,
-        "shape_threshold": 0.15,
-        "trend_threshold": 0.24,
-        "max_pullback_depth": 0.15,
+        "shape_threshold": 0.19,
+        "trend_threshold": 0.36,
+        "max_pullback_depth": 0.06,
         "hard_stop_pct": 0.11,
         "trailing_stop_pct": 0.07
       },
       "source": "system",
-      "created_at": "2026-04-26T07:58:24.343725+00:00",
-      "updated_at": "2026-04-26T07:58:24.343725+00:00"
+      "created_at": "2026-04-28T03:03:15.436676+00:00",
+      "updated_at": "2026-04-28T03:03:15.436676+00:00"
     },
     {
       "id": "core-refine-top-1",
@@ -64,18 +64,18 @@
       "description": "由 coarse + local refinement 產生的高分候選，可作為進一步人工驗證的備選。",
       "category": "候選型",
       "params": {
-        "breakout_lookback": 30,
-        "momentum_window": 13,
+        "breakout_lookback": 22,
+        "momentum_window": 14,
         "state_threshold": 0.19,
-        "shape_threshold": 0.15,
-        "trend_threshold": 0.24,
-        "max_pullback_depth": 0.15,
+        "shape_threshold": 0.19,
+        "trend_threshold": 0.36,
+        "max_pullback_depth": 0.06,
         "hard_stop_pct": 0.11,
         "trailing_stop_pct": 0.07
       },
       "source": "system",
-      "created_at": "2026-04-26T07:58:24.343725+00:00",
-      "updated_at": "2026-04-26T07:58:24.343725+00:00"
+      "created_at": "2026-04-28T03:03:15.436676+00:00",
+      "updated_at": "2026-04-28T03:03:15.436676+00:00"
     },
     {
       "id": "core-refine-top-2",
@@ -83,38 +83,19 @@
       "description": "由 coarse + local refinement 產生的高分候選，可作為進一步人工驗證的備選。",
       "category": "候選型",
       "params": {
-        "breakout_lookback": 30,
-        "momentum_window": 13,
-        "state_threshold": 0.19,
+        "breakout_lookback": 22,
+        "momentum_window": 16,
+        "state_threshold": 0.21,
         "shape_threshold": 0.19,
-        "trend_threshold": 0.24,
-        "max_pullback_depth": 0.09,
-        "hard_stop_pct": 0.05,
-        "trailing_stop_pct": 0.13
+        "trend_threshold": 0.36,
+        "max_pullback_depth": 0.06,
+        "hard_stop_pct": 0.11,
+        "trailing_stop_pct": 0.07
       },
       "source": "system",
-      "created_at": "2026-04-26T07:58:24.343725+00:00",
-      "updated_at": "2026-04-26T07:58:24.343725+00:00"
-    },
-    {
-      "id": "user-1777119888",
-      "name": "p1",
-      "description": "",
-      "category": "自訂",
-      "params": {
-        "breakout_lookback": 14,
-        "momentum_window": 9,
-        "state_threshold": 0.15,
-        "shape_threshold": 0.11,
-        "trend_threshold": 0.06,
-        "max_pullback_depth": 0.12,
-        "hard_stop_pct": 0.05,
-        "trailing_stop_pct": 0.1
-      },
-      "source": "user",
-      "created_at": "2026-04-25T12:24:48.230736+00:00",
-      "updated_at": "2026-04-25T12:24:48.230736+00:00"
+      "created_at": "2026-04-28T03:03:15.436676+00:00",
+      "updated_at": "2026-04-28T03:03:15.436676+00:00"
     }
   ],
-  "updated_at": "2026-04-26T07:58:24.343725+00:00"
+  "updated_at": "2026-04-28T03:03:15.436676+00:00"
 }

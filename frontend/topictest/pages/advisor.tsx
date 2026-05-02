@@ -101,7 +101,7 @@ function toDisplayString(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
   if (typeof value === 'string') return value;
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'boolean') return value ? '是' : '否';
   return String(value);
 }
 
@@ -1041,7 +1041,6 @@ export default function AdvisorPage() {
                     >
                       <p className="font-semibold">{source.title}</p>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                        {source.publisher || '未知來源'}
                         {source.type ? ` ｜ ${source.type}` : ''}
                         {source.published_at ? ` ｜ ${source.published_at}` : ''}
                       </p>

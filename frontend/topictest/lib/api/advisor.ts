@@ -73,17 +73,15 @@ function toStringValue(value: unknown): string | null {
 function toSignalValue(value: unknown): string | number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') return value;
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'boolean') return value ? '是' : '否';
   return null;
 }
-
 function normalizeRecommendation(trendConclusion: string): AdvisorAction {
   const token = trendConclusion.toLowerCase();
   if (token.includes('偏多') || token.includes('buy')) return 'buy';
   if (token.includes('偏空') || token.includes('sell')) return 'sell';
   return 'wait';
 }
-
 function resolveAdvisorStreamUrl(requestId: string): string {
   const base = String(apiClient.defaults.baseURL ?? '').trim().replace(/\/$/, '');
   if (!base) return `/advisor/${encodeURIComponent(requestId)}/stream`;
@@ -117,7 +115,7 @@ function parseSseChunk(raw: string): SseEnvelope | null {
 
 async function readSse(response: Response, onEvent: (event: AdvisorStreamEvent) => void): Promise<void> {
   const reader = response.body?.getReader();
-  if (!reader) throw new ApiRequestError('SSE 連線無資料流');
+  if (!reader) throw new ApiRequestError('SSE 串流連線失敗');
 
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
@@ -135,17 +133,16 @@ async function readSse(response: Response, onEvent: (event: AdvisorStreamEvent) 
   const last = parseSseChunk(buffer);
   if (last) onEvent(last);
 }
-
 function mapOverviewToReport(overview: AdvisorOverviewResponse): AdvisorReport {
-  const trend = toStringValue(overview.trend_conclusion) ?? '尚無結論';
-  const confidence = toStringValue(overview.confidence_level) ?? '未提供';
+  const trend = toStringValue(overview.trend_conclusion) ?? '趨勢不明';
+  const confidence = toStringValue(overview.confidence_level) ?? '信心未知';
   const reasoning = (overview.reason_points ?? []).filter(Boolean).join('\n');
   const summary = (overview.rule_summary ?? []).join(' ');
 
   return {
     symbol: overview.symbol,
     generated_at: new Date().toISOString(),
-    summary: summary || `${overview.symbol} 核心判斷為「${trend}」，信心等級 ${confidence}。`,
+    summary: summary || `${overview.symbol} 目前判斷為${trend}，信心等級為${confidence}。`,
     technical_signals: [
       {
         name: '趨勢結論',
@@ -159,17 +156,17 @@ function mapOverviewToReport(overview: AdvisorOverviewResponse): AdvisorReport {
       })),
     ],
     institutional_flow: {
-      summary: '依據最新法人快照整理',
+      summary: '以下為最新法人買賣超概況。',
       items: [
         { name: '外資', net_amount: toNumber(overview.institutional_snapshot?.foreign_net) },
         { name: '投信', net_amount: toNumber(overview.institutional_snapshot?.trust_net) },
         { name: '自營商', net_amount: toNumber(overview.institutional_snapshot?.dealer_net) },
-        { name: '三大法人合計', net_amount: toNumber(overview.institutional_snapshot?.total_net) },
+        { name: '法人合計', net_amount: toNumber(overview.institutional_snapshot?.total_net) },
       ],
     },
     recommendation: normalizeRecommendation(trend),
-    recommendation_text: `核心判斷：${trend}（信心 ${confidence}）`,
-    reasoning: reasoning || summary || '尚無補充說明',
+    recommendation_text: `目前趨勢判斷為${trend}，信心等級為${confidence}。`,
+    reasoning: reasoning || summary || '暫無足夠判斷依據。',
     risk_notes: null,
     sources: [],
     date_start: undefined,
@@ -179,7 +176,6 @@ function mapOverviewToReport(overview: AdvisorOverviewResponse): AdvisorReport {
     institutional_rows: undefined,
   };
 }
-
 function toBacktestView(snapshot: AdvisorBacktestSnapshot | null, fallbackPriceChart?: CoreModePriceChart): AdvisorBacktestView {
   const credibility = snapshot?.credibility_summary;
   return {
@@ -300,7 +296,7 @@ function mergeFullReport(base: AdvisorReport, payload: AdvisorFullReport): Advis
     generated_at: new Date().toISOString(),
     summary: toStringValue(payload.final_summary) ?? base.summary,
     recommendation: normalizeRecommendation(payload.trend_conclusion),
-    recommendation_text: `核心判斷：${payload.trend_conclusion}（信心 ${payload.confidence_level}）`,
+    recommendation_text: `目前趨勢判斷為${payload.trend_conclusion}，信心等級為${payload.confidence_level}。`,
     reasoning: reasonLines.join('\n') || base.reasoning,
     risk_notes: riskLines.length ? riskLines.join('；') : base.risk_notes,
     date_end: toStringValue(payload.as_of_date) ?? base.date_end,
@@ -309,10 +305,9 @@ function mergeFullReport(base: AdvisorReport, payload: AdvisorFullReport): Advis
       .filter((item): item is AdvisorSource => Boolean(item)),
   };
 }
-
 export async function fetchAdvisorOverview(req: AdvisorOverviewRequest): Promise<AdvisorOverviewResponse> {
   const symbol = req.symbol.trim().toUpperCase();
-  if (!symbol) throw new ApiRequestError('請輸入股票代號');
+  if (!symbol) throw new ApiRequestError('請先輸入股票代號');
 
   const payload: AdvisorOverviewRequest = {
     use_active_preset: true,
@@ -352,7 +347,7 @@ export async function streamAdvisorUpdates(
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new ApiRequestError(`Advisor 串流請求失敗 (${response.status})`, response.status);
+      throw new ApiRequestError(`投資顧問串流連線失敗 (${response.status})`, response.status);
     }
     await readSse(response, onEvent);
   } finally {
@@ -374,7 +369,7 @@ export async function fetchAdvisorReportProgressive(
     request_id: '',
     step_key: 'institutional',
     status: 'running',
-    message: '載入首屏核心資料',
+    message: '正在整理法人買賣資料...',
   });
 
   const overview = await fetchAdvisorOverview({ symbol: req.symbol });
@@ -391,25 +386,25 @@ export async function fetchAdvisorReportProgressive(
     request_id: requestId,
     step_key: 'institutional',
     status: 'done',
-    message: '首屏資料已就緒',
+    message: '法人買賣資料整理完成。',
   });
   callbacks.onStepUpdate?.({
     request_id: requestId,
     step_key: 'cross_check',
     status: 'done',
-    message: '技術與籌碼快照已就緒',
+    message: '股價與技術資料交叉檢查完成。',
   });
   callbacks.onStepUpdate?.({
     request_id: requestId,
     step_key: 'news',
     status: 'running',
-    message: '背景整理新聞脈絡中',
+    message: '正在整理新聞與市場脈絡...',
   });
   callbacks.onStepUpdate?.({
     request_id: requestId,
     step_key: 'final',
     status: 'running',
-    message: '背景生成完整報告中',
+    message: '正在生成最終投資觀點...',
   });
 
   let streamFailed: string | null = null;
@@ -436,7 +431,7 @@ export async function fetchAdvisorReportProgressive(
         request_id: requestId,
         step_key: 'news',
         status: 'done',
-        message: '新聞脈絡已就緒',
+        message: '新聞與市場脈絡整理完成。',
       });
       return;
     }
@@ -453,13 +448,13 @@ export async function fetchAdvisorReportProgressive(
         request_id: requestId,
         step_key: 'final',
         status: 'done',
-        message: '完整報告已完成',
+        message: '最終投資觀點生成完成。',
       });
       return;
     }
 
     if (event.event === 'failed') {
-      streamFailed = toStringValue(event.data.message) ?? 'Advisor 背景流程失敗';
+      streamFailed = toStringValue(event.data.message) ?? '投資顧問分析失敗';
       callbacks.onStepUpdate?.({
         request_id: requestId,
         step_key: 'final',
@@ -472,3 +467,4 @@ export async function fetchAdvisorReportProgressive(
   if (streamFailed) throw new ApiRequestError(streamFailed);
   return currentReport;
 }
+
