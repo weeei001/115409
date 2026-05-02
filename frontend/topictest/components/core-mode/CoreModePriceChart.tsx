@@ -58,12 +58,40 @@ const ALLOWED_MARKER_TYPES: ReadonlySet<AdvisorMarkerType> = new Set([
   'exit',
 ]);
 
-const MARKER_LABELS: Record<AdvisorMarkerType, string> = {
-  state_buy: '買訊',
-  state_sell: '賣訊',
-  state_hold: '持平',
-  entry: '買進',
-  exit: '賣出',
+const CHART_MARKERS = {
+  buySignal: {
+    color: '#F43F5E',
+    shape: 'square',
+    text: '買訊',
+  },
+  sellSignal: {
+    color: '#10B981',
+    shape: 'square',
+    text: '賣訊',
+  },
+  hold: {
+    color: '#F59E0B',
+    shape: 'circle',
+    text: '持平',
+  },
+  actualBuy: {
+    color: '#DC2626',
+    shape: 'arrowUp',
+    text: '買進',
+  },
+  actualSell: {
+    color: '#059669',
+    shape: 'arrowDown',
+    text: '賣出',
+  },
+} as const satisfies Record<string, { color: string; shape: SeriesMarker<Time>['shape']; text: string }>;
+
+const MARKER_CONFIG_BY_TYPE: Record<AdvisorMarkerType, (typeof CHART_MARKERS)[keyof typeof CHART_MARKERS]> = {
+  state_buy: CHART_MARKERS.buySignal,
+  state_sell: CHART_MARKERS.sellSignal,
+  state_hold: CHART_MARKERS.hold,
+  entry: CHART_MARKERS.actualBuy,
+  exit: CHART_MARKERS.actualSell,
 };
 
 function toBusinessDay(dateText: string): BusinessDay {
@@ -189,8 +217,8 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
       if (!markerType) return;
       const detail: MarkerDetail = {
         type: markerType,
-        label: MARKER_LABELS[markerType],
-        detail: marker.text?.trim() || MARKER_LABELS[markerType],
+        label: MARKER_CONFIG_BY_TYPE[markerType].text,
+        detail: marker.text?.trim() || MARKER_CONFIG_BY_TYPE[markerType].text,
       };
       const list = map.get(marker.time) ?? [];
       list.push(detail);
@@ -489,12 +517,13 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
     const markers = data.markers.reduce<SeriesMarkerBar<Time>[]>((acc, marker) => {
       const markerType = toMarkerType(marker.type);
       if (!markerType) return acc;
+      const markerConfig = MARKER_CONFIG_BY_TYPE[markerType];
       acc.push({
         time: toTime(marker.time),
         position: marker.position as SeriesMarkerBar<Time>['position'],
-        shape: marker.shape as SeriesMarker<Time>['shape'],
-        color: marker.color,
-        text: MARKER_LABELS[markerType],
+        shape: markerConfig.shape,
+        color: markerConfig.color,
+        text: markerConfig.text,
       });
       return acc;
     }, []);
@@ -551,19 +580,24 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
         <div className="mt-3 mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">策略標記</div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="font-bold" style={{ color: '#E11D48' }}>↑</span>買訊
+            <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: CHART_MARKERS.buySignal.color }} />
+            {CHART_MARKERS.buySignal.text}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="font-bold" style={{ color: '#059669' }}>↓</span>賣訊
+            <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: CHART_MARKERS.sellSignal.color }} />
+            {CHART_MARKERS.sellSignal.text}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#64748B' }} />持平
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_MARKERS.hold.color }} />
+            {CHART_MARKERS.hold.text}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="font-black" style={{ color: '#E11D48' }}>▲</span>買進
+            <span className="font-black" style={{ color: CHART_MARKERS.actualBuy.color }}>▲</span>
+            {CHART_MARKERS.actualBuy.text}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="font-black" style={{ color: '#059669' }}>▼</span>賣出
+            <span className="font-black" style={{ color: CHART_MARKERS.actualSell.color }}>▼</span>
+            {CHART_MARKERS.actualSell.text}
           </span>
         </div>
         <div className="mt-3 rounded-md border border-[var(--color-border)] bg-white/60 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">

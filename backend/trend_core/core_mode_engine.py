@@ -637,7 +637,7 @@ def build_price_chart_payload(
                         "time": day,
                         "position": "belowBar",
                         "shape": "arrowUp",
-                        "color": "#ef4444",
+                        "color": "#F43F5E",
                         "text": "訊號：轉為買進",
                         "type": "state_buy",
                     }
@@ -648,7 +648,7 @@ def build_price_chart_payload(
                         "time": day,
                         "position": "aboveBar",
                         "shape": "arrowDown",
-                        "color": "#22c55e",
+                        "color": "#10B981",
                         "text": "訊號：轉為賣出",
                         "type": "state_sell",
                     }
@@ -659,53 +659,20 @@ def build_price_chart_payload(
                         "time": day,
                         "position": "aboveBar",
                         "shape": "circle",
-                        "color": "#64748b",
+                        "color": "#F59E0B",
                         "text": "訊號：轉為持平",
                         "type": "state_hold",
                     }
                 )
             previous_action = action
 
-        if signal.early_signal:
-            markers.append(
-                {
-                    "time": day,
-                    "position": "belowBar",
-                    "shape": "circle",
-                    "color": "#f59e0b",
-                    "text": signal.early_signal,
-                    "type": "early",
-                }
-            )
-        if signal.formal_signal:
-            markers.append(
-                {
-                    "time": day,
-                    "position": "belowBar",
-                    "shape": "arrowUp",
-                    "color": "#ef4444",
-                    "text": signal.formal_signal,
-                    "type": "formal",
-                }
-            )
-        if not score.pullback_ok:
-            markers.append(
-                {
-                    "time": day,
-                    "position": "aboveBar",
-                    "shape": "arrowDown",
-                    "color": "#f97316",
-                    "text": "拉回過深",
-                    "type": "failure",
-                }
-            )
         if row.date in trade_entry_dates:
             markers.append(
                 {
                     "time": day,
                     "position": "belowBar",
                     "shape": "arrowUp",
-                    "color": "#0ea5e9",
+                    "color": "#DC2626",
                     "text": f"成交買進：{trade_entry_dates[row.date].entry_reason}",
                     "type": "entry",
                 }
@@ -716,7 +683,7 @@ def build_price_chart_payload(
                     "time": day,
                     "position": "aboveBar",
                     "shape": "arrowDown",
-                    "color": "#22c55e",
+                    "color": "#059669",
                     "text": f"賣出：{trade_exit_dates[row.date].exit_reason}",
                     "type": "exit",
                 }
