@@ -323,7 +323,7 @@ export default function CoreModePage() {
     clearLoadedAutoSearchValidationState();
     setIsBacktestResultStale(true);
     setCurrentParamsSource({ type: 'preset', label: `preset：${selectedPreset.name}` });
-    setPresetMessage(`已載入參數組合：${selectedPreset.name}`);
+    setPresetMessage(`已載入參數組合：${selectedPreset.name}（僅載入到表單，未變更啟用 preset）`);
   };
 
   const handleLoadAutoSearchParams = (
@@ -1312,7 +1312,7 @@ export default function CoreModePage() {
                   </select>
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={handleLoadPreset} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium">
-                      載入此 preset
+                      載入到表單（不啟用）
                     </button>
                     <button type="button" onClick={handleActivatePreset} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium">
                       設為 Advisor 啟用參數
@@ -1321,6 +1321,7 @@ export default function CoreModePage() {
                   <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
                     目前啟用 preset：{activePreset?.name ?? '尚未設定'}
                   </div>
+                  <p className="text-xs text-[var(--color-text-muted)]">若要變更「目前啟用 preset」，請點「設為 Advisor 啟用參數」。</p>
                 </div>
               </details>
             </section>
