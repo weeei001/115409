@@ -15,12 +15,24 @@ import {
   runCoreModeBacktest,
   saveCoreModePreset,
 } from '../lib/api/coreMode';
+import {
+  buildAutoSearchRecommendationSummary,
+  buildAutoSearchRecommendationTagStats,
+  buildAutoSearchRecommendationTags,
+  buildMlSettingsPayload,
+  collectMlValidationWarnings,
+  dedupeAutoSearchResultsForDisplay,
+  localizeAutoSearchSourceTags,
+  normalizeFeatureImportanceItems,
+  PHASE3_DATASET_NOTICE,
+  toWarningBadgeItems,
+  type WarningLevel,
+} from '../lib/coreModeMlValidation';
 import type {
   CoreModeDecisionResponse,
   CoreModeParams,
   CoreModePreset,
   CoreModeRunResponse,
-  CoreModeSchemaResponse,
 } from '../lib/types/coreMode';
 
 function isoDaysAgo(days: number): string {
@@ -37,20 +49,70 @@ function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(4) : '--';
 }
 
+function parseIsoDateValue(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatOrderedDateRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start && !end) return '-- ~ --';
+  if (!start) return `-- ~ ${end ?? '--'}`;
+  if (!end) return `${start} ~ --`;
+
+  const startValue = parseIsoDateValue(start);
+  const endValue = parseIsoDateValue(end);
+  if (startValue == null || endValue == null) return `${start} ~ ${end}`;
+  if (startValue <= endValue) return `${start} ~ ${end}`;
+  return `${end} ~ ${start}`;
+}
+
 function cloneParams(params: CoreModeParams): CoreModeParams {
-  return {
-    breakout_lookback: params.breakout_lookback,
-    momentum_window: params.momentum_window,
-    state_threshold: params.state_threshold,
-    shape_threshold: params.shape_threshold,
-    trend_threshold: params.trend_threshold,
-    max_pullback_depth: params.max_pullback_depth,
-    hard_stop_pct: params.hard_stop_pct,
-    trailing_stop_pct: params.trailing_stop_pct,
-  };
+  return { ...params };
+}
+
+function patchParams(base: CoreModeParams, partial: Partial<CoreModeParams>): CoreModeParams {
+  const next: CoreModeParams = { ...base };
+  for (const [key, value] of Object.entries(partial) as Array<[keyof CoreModeParams, number | undefined]>) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      next[key] = value;
+    }
+  }
+  return next;
 }
 
 type TrendTone = 'bull' | 'bear' | 'sideways' | 'unclear';
+type CoreModeTabKey = 'auto_search' | 'formal_backtest' | 'ml_details';
+type AutoSearchQuality = 'standard' | 'precise' | 'deep';
+
+const AUTO_SEARCH_QUALITY_PRESETS: Record<
+  AutoSearchQuality,
+  { label: string; candidate_pool_size: number; ml_prefilter_top_n: number; final_verify_top_n: number }
+> = {
+  standard: { label: '標準', candidate_pool_size: 150, ml_prefilter_top_n: 40, final_verify_top_n: 15 },
+  precise: { label: '精準', candidate_pool_size: 300, ml_prefilter_top_n: 80, final_verify_top_n: 30 },
+  deep: { label: '深度', candidate_pool_size: 800, ml_prefilter_top_n: 200, final_verify_top_n: 60 },
+};
+
+function clampAutoSearchValue(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+interface LoadedAutoSearchParamsMeta {
+  rank: number;
+  validation_score: number | null;
+  verified_score: number | null;
+  cross_stock_score: number | null;
+  final_holdout_score: number | null;
+  final_holdout_cross_stock_score: number | null;
+  source_tags: string[];
+  loaded_at: string;
+}
+
+interface ViewedAutoSearchParamsState {
+  rank: number;
+  params: Partial<CoreModeParams>;
+}
 
 function resolveTrendTone(conclusion?: string | null): TrendTone {
   if (!conclusion) return 'unclear';
@@ -99,8 +161,19 @@ function normalizeCoreReason(text: string): string {
   return text;
 }
 
+function warningToneClass(level: WarningLevel): string {
+  if (level === 'danger') return 'border-up/30 bg-up-muted text-up';
+  if (level === 'info') return 'border-sky-300/60 bg-sky-50/70 text-sky-900';
+  return 'border-amber-300/60 bg-amber-50/70 text-amber-900';
+}
+
+function recommendationTagClass(tag: string): string {
+  if (tag === '綜合最佳') return 'border-sky-300/60 bg-sky-50 text-sky-900';
+  if (tag === '注意回撤' || tag === '交易偏少') return 'border-amber-300/60 bg-amber-50 text-amber-900';
+  return 'border-emerald-300/60 bg-emerald-50 text-emerald-900';
+}
+
 export default function CoreModePage() {
-  const [schema, setSchema] = useState<CoreModeSchemaResponse | null>(null);
   const [params, setParams] = useState<CoreModeParams | null>(null);
   const [presets, setPresets] = useState<CoreModePreset[]>([]);
   const [activePresetId, setActivePresetId] = useState<string>('');
@@ -113,11 +186,75 @@ export default function CoreModePage() {
   const [runLoading, setRunLoading] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<CoreModeRunResponse | null>(null);
+  const [mlValidationEnabled, setMlValidationEnabled] = useState(true);
+  const [mlEnableModelTraining, setMlEnableModelTraining] = useState(true);
+  const [mlEnableCandidateRanking, setMlEnableCandidateRanking] = useState(true);
+  const [mlSplits, setMlSplits] = useState(5);
+  const [mlTestSize, setMlTestSize] = useState(60);
+  const [mlGap, setMlGap] = useState(20);
+  const [mlPredictionHorizon, setMlPredictionHorizon] = useState(20);
+  const [mlTargetMode, setMlTargetMode] = useState<'future_quality' | 'trade_return' | 'trend_label'>('future_quality');
+  const [mlModelType, setMlModelType] = useState<'random_forest' | 'gradient_boosting' | 'logistic_regression'>(
+    'random_forest'
+  );
+  const [mlCandidateRankingModelType, setMlCandidateRankingModelType] = useState<
+    'random_forest' | 'gradient_boosting' | 'logistic_regression'
+  >('random_forest');
+  const [mlCandidateRankingScoreMode, setMlCandidateRankingScoreMode] = useState<
+    'balanced_score' | 'return_score' | 'ac_score' | 'drawdown_score'
+  >('balanced_score');
+  const [mlCandidateRankingTopN, setMlCandidateRankingTopN] = useState(5);
+  const [mlFutureQualityThreshold, setMlFutureQualityThreshold] = useState(0.55);
+  const [mlMaxTrainSize, setMlMaxTrainSize] = useState<string>('');
+  const [autoSearchMode, setAutoSearchMode] = useState<'single_stock_search' | 'multi_stock_search'>('single_stock_search');
+  const [autoSearchSymbols, setAutoSearchSymbols] = useState('2330');
+  const [autoSearchTopN, setAutoSearchTopN] = useState(10);
+  const [autoSearchQuality, setAutoSearchQuality] = useState<AutoSearchQuality>('precise');
+  const [autoSearchCandidatePoolSize, setAutoSearchCandidatePoolSize] = useState(300);
+  const [autoSearchMlPrefilterTopN, setAutoSearchMlPrefilterTopN] = useState(80);
+  const [autoSearchFinalVerifyTopN, setAutoSearchFinalVerifyTopN] = useState(30);
+  const [autoSearchQualityClampMessage, setAutoSearchQualityClampMessage] = useState('');
+  const [autoSearchScoreMode, setAutoSearchScoreMode] = useState<
+    'balanced_score' | 'return_score' | 'low_drawdown_score' | 'stable_score'
+  >('balanced_score');
+  const [autoSearchUseMlPrefilter, setAutoSearchUseMlPrefilter] = useState(true);
+  const [autoSearchUseTimeSeriesValidation, setAutoSearchUseTimeSeriesValidation] = useState(true);
+  const [autoSearchUseHoldoutValidation, setAutoSearchUseHoldoutValidation] = useState(true);
+  const [autoSearchRequireMinTradeCount, setAutoSearchRequireMinTradeCount] = useState(true);
+  const [autoSearchMinTradeCount, setAutoSearchMinTradeCount] = useState(10);
+  const [autoSearchRuntimeLevel, setAutoSearchRuntimeLevel] = useState<'balanced' | 'deep'>('balanced');
+  const [autoSearchAdaptiveEnabled, setAutoSearchAdaptiveEnabled] = useState(true);
+  const [autoSearchAdaptiveMaxIterations, setAutoSearchAdaptiveMaxIterations] = useState(5);
+  const [autoSearchAdaptiveCandidatesPerIteration, setAutoSearchAdaptiveCandidatesPerIteration] = useState(300);
+  const [autoSearchAdaptiveVerifyTopNPerIteration, setAutoSearchAdaptiveVerifyTopNPerIteration] = useState(50);
+  const [autoSearchAdaptiveKeepEliteN, setAutoSearchAdaptiveKeepEliteN] = useState(10);
+  const [autoSearchAdaptivePatience, setAutoSearchAdaptivePatience] = useState(2);
+  const [autoSearchAdaptiveMinImprovement, setAutoSearchAdaptiveMinImprovement] = useState(0.01);
+  const [autoSearchAdaptiveRefinementStrength, setAutoSearchAdaptiveRefinementStrength] = useState<'small' | 'medium' | 'large'>('medium');
+  const [autoSearchFinalHoldoutEnabled, setAutoSearchFinalHoldoutEnabled] = useState(true);
+  const [autoSearchFinalHoldoutMode, setAutoSearchFinalHoldoutMode] = useState<'ratio' | 'days'>('ratio');
+  const [autoSearchTrainRatio, setAutoSearchTrainRatio] = useState(0.6);
+  const [autoSearchValidationRatio, setAutoSearchValidationRatio] = useState(0.2);
+  const [autoSearchFinalHoldoutRatio, setAutoSearchFinalHoldoutRatio] = useState(0.2);
+  const [autoSearchFinalHoldoutDays, setAutoSearchFinalHoldoutDays] = useState<string>('');
+  const [autoSearchMinFinalHoldoutDays, setAutoSearchMinFinalHoldoutDays] = useState(20);
+  const [activeTab, setActiveTab] = useState<CoreModeTabKey>('auto_search');
+  const [selectedAutoSearchResult, setSelectedAutoSearchResult] = useState<LoadedAutoSearchParamsMeta | null>(null);
+  const [viewedAutoSearchParams, setViewedAutoSearchParams] = useState<ViewedAutoSearchParamsState | null>(null);
+  const [loadedAutoSearchParamsPendingValidation, setLoadedAutoSearchParamsPendingValidation] = useState(false);
+  const [isBacktestResultStale, setIsBacktestResultStale] = useState(false);
+  const [loadedAutoSearchParamsMeta, setLoadedAutoSearchParamsMeta] = useState<LoadedAutoSearchParamsMeta | null>(null);
+  const [showMlSettingsPanel, setShowMlSettingsPanel] = useState(false);
+  const [showMlResultDetail, setShowMlResultDetail] = useState(false);
 
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
   const [presetMessage, setPresetMessage] = useState<string>('');
+  const [currentParamsSource, setCurrentParamsSource] = useState<{ type: 'manual' | 'preset' | 'auto_search'; label: string }>({
+    type: 'manual',
+    label: '手動設定',
+  });
 
   const [analysisSymbol, setAnalysisSymbol] = useState('2330');
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -129,7 +266,6 @@ export default function CoreModePage() {
     Promise.all([fetchCoreModeSchema(), fetchCoreModePresets()])
       .then(([schemaRes, presetRes]) => {
         if (!mounted) return;
-        setSchema(schemaRes);
         setParams(cloneParams(schemaRes.default_params));
         setPresets(presetRes.presets);
         setActivePresetId(presetRes.active_preset_id);
@@ -152,30 +288,79 @@ export default function CoreModePage() {
 
   const activePreset = useMemo(() => presets.find((item) => item.id === activePresetId) ?? null, [presets, activePresetId]);
 
-  const updateParam = (key: keyof CoreModeParams, value: number) => {
-    setParams((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        [key]: value,
-      };
-    });
+  const clearLoadedAutoSearchValidationState = () => {
+    setLoadedAutoSearchParamsPendingValidation(false);
+    setLoadedAutoSearchParamsMeta(null);
+    setSelectedAutoSearchResult(null);
+  };
+
+  const applyAutoSearchQualityPreset = (quality: AutoSearchQuality) => {
+    const preset = AUTO_SEARCH_QUALITY_PRESETS[quality];
+    const nextCandidatePoolSize = clampAutoSearchValue(preset.candidate_pool_size, 50, 1000);
+    const nextMlPrefilterTopN = clampAutoSearchValue(preset.ml_prefilter_top_n, 1, 1000);
+    const nextFinalVerifyTopN = clampAutoSearchValue(preset.final_verify_top_n, 1, 1000);
+
+    setAutoSearchQuality(quality);
+    setAutoSearchCandidatePoolSize(nextCandidatePoolSize);
+    setAutoSearchMlPrefilterTopN(nextMlPrefilterTopN);
+    setAutoSearchFinalVerifyTopN(nextFinalVerifyTopN);
+
+    if (
+      nextCandidatePoolSize !== preset.candidate_pool_size ||
+      nextMlPrefilterTopN !== preset.ml_prefilter_top_n ||
+      nextFinalVerifyTopN !== preset.final_verify_top_n
+    ) {
+      setAutoSearchQualityClampMessage('搜尋品質預設值超出目前可用範圍，已自動套用可用上限/下限。');
+      return;
+    }
+
+    setAutoSearchQualityClampMessage('');
   };
 
   const handleLoadPreset = () => {
     if (!selectedPreset) return;
     setParams(cloneParams(selectedPreset.params));
+    clearLoadedAutoSearchValidationState();
+    setIsBacktestResultStale(true);
+    setCurrentParamsSource({ type: 'preset', label: `preset：${selectedPreset.name}` });
     setPresetMessage(`已載入參數組合：${selectedPreset.name}`);
   };
 
-  const handleResetParams = () => {
-    if (!schema) return;
-    setParams(cloneParams(schema.default_params));
-    setPresetMessage('已重設為核心模式預設參數');
+  const handleLoadAutoSearchParams = (
+    partial: Partial<CoreModeParams>,
+    meta: Pick<
+      LoadedAutoSearchParamsMeta,
+      | 'rank'
+      | 'validation_score'
+      | 'verified_score'
+      | 'cross_stock_score'
+      | 'final_holdout_score'
+      | 'final_holdout_cross_stock_score'
+      | 'source_tags'
+    >
+  ) => {
+    if (!params) return;
+    const next = patchParams(params, partial);
+    setParams(next);
+    const loadedMeta: LoadedAutoSearchParamsMeta = {
+      ...meta,
+      loaded_at: new Date().toISOString(),
+    };
+    setSelectedAutoSearchResult(loadedMeta);
+    setLoadedAutoSearchParamsMeta(loadedMeta);
+    setLoadedAutoSearchParamsPendingValidation(true);
+    setIsBacktestResultStale(true);
+    setCurrentParamsSource({ type: 'auto_search', label: `auto search rank ${meta.rank}` });
+    setPresetMessage('已載入自動搜尋參數，請重新執行回測確認後再手動儲存或啟用。');
+    setActiveTab('formal_backtest');
   };
 
   const handleActivatePreset = async () => {
     if (!selectedPresetId) return;
+    if (loadedAutoSearchParamsPendingValidation || isBacktestResultStale) {
+      const shouldContinue = window.confirm('目前參數尚未重新回測確認，不建議直接儲存或啟用。仍要繼續嗎？');
+      if (!shouldContinue) return;
+    }
     try {
       const data = await activateCoreModePreset(selectedPresetId);
       setPresets(data.presets);
@@ -193,6 +378,10 @@ export default function CoreModePage() {
     if (!name) {
       setPresetMessage('請先輸入參數組合名稱');
       return;
+    }
+    if (loadedAutoSearchParamsPendingValidation || isBacktestResultStale) {
+      const shouldContinue = window.confirm('目前參數尚未重新回測確認，不建議直接儲存或啟用。仍要繼續嗎？');
+      if (!shouldContinue) return;
     }
 
     setSavingPreset(true);
@@ -216,14 +405,37 @@ export default function CoreModePage() {
     }
   };
 
-  const handleRunBacktest = async () => {
+  const handleRunBacktest = async (mode: 'auto_search' | 'formal_backtest') => {
     if (!params) return;
     setRunLoading(true);
     setRunError(null);
 
     try {
+      const normalizedAutoSearchSymbols = autoSearchSymbols
+        .split(',')
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean);
+      const requestSymbol = mode === 'auto_search' ? normalizedAutoSearchSymbols[0] ?? symbol.trim().toUpperCase() : symbol.trim().toUpperCase();
+
+      const mlSettings = buildMlSettingsPayload({
+        enabled: mlValidationEnabled,
+        enable_model_training: mlEnableModelTraining,
+        enable_candidate_ranking: mlEnableCandidateRanking,
+        n_splits: mlSplits,
+        test_size: mlTestSize,
+        gap: mlGap,
+        prediction_horizon: mlPredictionHorizon,
+        target_mode: mlTargetMode,
+        model_type: mlModelType,
+        candidate_ranking_model_type: mlCandidateRankingModelType,
+        candidate_ranking_score_mode: mlCandidateRankingScoreMode,
+        candidate_ranking_top_n: mlCandidateRankingTopN,
+        future_quality_threshold: mlFutureQualityThreshold,
+        max_train_size: mlMaxTrainSize,
+      });
+
       const data = await runCoreModeBacktest({
-        symbol: symbol.trim().toUpperCase(),
+        symbol: requestSymbol,
         date_range: {
           start_date: startDate,
           end_date: endDate,
@@ -231,8 +443,58 @@ export default function CoreModePage() {
         params,
         validation_mode: 'rolling_walk_forward',
         run_optimization: true,
+        ml_settings: mlSettings,
+        auto_search_settings: {
+          enabled: mode === 'auto_search',
+          mode: autoSearchMode,
+          symbols: normalizedAutoSearchSymbols,
+          top_n: autoSearchTopN,
+          candidate_pool_size: autoSearchCandidatePoolSize,
+          ml_prefilter_top_n: autoSearchMlPrefilterTopN,
+          final_verify_top_n: autoSearchFinalVerifyTopN,
+          score_mode: autoSearchScoreMode,
+          use_ml_prefilter: autoSearchUseMlPrefilter,
+          use_time_series_validation: autoSearchUseTimeSeriesValidation,
+          use_holdout_validation: autoSearchUseHoldoutValidation,
+          require_min_trade_count: autoSearchRequireMinTradeCount,
+          min_trade_count: autoSearchMinTradeCount,
+          max_runtime_level: autoSearchRuntimeLevel,
+          adaptive_search_settings: {
+            enabled: autoSearchAdaptiveEnabled,
+            max_iterations: autoSearchAdaptiveMaxIterations,
+            candidates_per_iteration: autoSearchAdaptiveCandidatesPerIteration,
+            verify_top_n_per_iteration: autoSearchAdaptiveVerifyTopNPerIteration,
+            keep_elite_n: autoSearchAdaptiveKeepEliteN,
+            patience: autoSearchAdaptivePatience,
+            min_improvement: autoSearchAdaptiveMinImprovement,
+            use_ml_prefilter: autoSearchUseMlPrefilter,
+            refinement_strength: autoSearchAdaptiveRefinementStrength,
+          },
+          final_holdout_settings: {
+            enabled: autoSearchFinalHoldoutEnabled,
+            mode: autoSearchFinalHoldoutMode,
+            train_ratio: autoSearchTrainRatio,
+            validation_ratio: autoSearchValidationRatio,
+            final_holdout_ratio: autoSearchFinalHoldoutRatio,
+            final_holdout_days:
+              autoSearchFinalHoldoutMode === 'days'
+                ? (() => {
+                    const parsed = Number(autoSearchFinalHoldoutDays);
+                    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+                  })()
+                : null,
+            min_final_holdout_days: Math.max(1, Math.floor(autoSearchMinFinalHoldoutDays || 1)),
+          },
+        },
       });
       setRunResult(data);
+      setParams(cloneParams(data.summary.used_params));
+      setCurrentParamsSource((prev) => (prev.type === 'auto_search' ? prev : { type: 'manual', label: '手動設定' }));
+      if (mode === 'formal_backtest' && (loadedAutoSearchParamsPendingValidation || isBacktestResultStale)) {
+        setLoadedAutoSearchParamsPendingValidation(false);
+        setIsBacktestResultStale(false);
+        setPresetMessage('此組參數已完成重新回測確認。');
+      }
 
       const presetData = await fetchCoreModePresets();
       setPresets(presetData.presets);
@@ -302,6 +564,56 @@ export default function CoreModePage() {
     () => runResult?.summary.reasoning.reason_points.slice(0, 3) ?? [],
     [runResult]
   );
+  const mlWarnings = useMemo(
+    () => collectMlValidationWarnings(runResult?.ml_validation ?? null),
+    [runResult]
+  );
+  const normalizedFeatureImportance = useMemo(
+    () => normalizeFeatureImportanceItems(runResult?.ml_validation ?? null),
+    [runResult]
+  );
+  const runWarningBadges = useMemo(
+    () => toWarningBadgeItems(runResult?.warnings ?? []),
+    [runResult]
+  );
+  const mlWarningBadges = useMemo(
+    () => toWarningBadgeItems(mlWarnings),
+    [mlWarnings]
+  );
+  const autoSearchRawResults = runResult?.auto_search_result?.results ?? [];
+  const autoSearchDisplayData = useMemo(
+    () => dedupeAutoSearchResultsForDisplay(autoSearchRawResults),
+    [autoSearchRawResults]
+  );
+  const autoSearchResults = autoSearchDisplayData.results;
+  const autoSearchMergedCount = autoSearchDisplayData.mergedCount;
+  const autoSearchRecommendationSummary = useMemo(
+    () => buildAutoSearchRecommendationSummary(autoSearchResults),
+    [autoSearchResults]
+  );
+  const autoSearchRecommendationTagStats = useMemo(
+    () => buildAutoSearchRecommendationTagStats(autoSearchResults),
+    [autoSearchResults]
+  );
+  const isMultiStockMode = autoSearchMode === 'multi_stock_search';
+  const autoSearchQualitySummaryText =
+    autoSearchQuality === 'standard'
+      ? '標準：較快，適合初步搜尋'
+      : autoSearchQuality === 'precise'
+      ? '精準：較平衡，建議預設'
+      : '深度：較慢，但搜尋更完整';
+  const finalHoldoutSummaryText = `Train ${(autoSearchTrainRatio * 100).toFixed(0)}% / Validation ${(autoSearchValidationRatio * 100).toFixed(
+    0
+  )}% / Final Holdout ${(autoSearchFinalHoldoutRatio * 100).toFixed(0)}%`;
+  const adaptiveSearchSummaryText = `自適應搜尋：${autoSearchAdaptiveMaxIterations} 輪，每輪 ${autoSearchAdaptiveCandidatesPerIteration} 組候選，驗證前 ${autoSearchAdaptiveVerifyTopNPerIteration} 組。`;
+  const hasPendingAutoSearchValidation = loadedAutoSearchParamsPendingValidation;
+  const shouldHideBacktestResult = loadedAutoSearchParamsPendingValidation || isBacktestResultStale;
+  const currentBacktestSourceLabel =
+    currentParamsSource.type === 'auto_search' && loadedAutoSearchParamsMeta
+      ? `Auto Search Rank ${loadedAutoSearchParamsMeta.rank}`
+      : currentParamsSource.type === 'preset'
+      ? currentParamsSource.label.replace(/^preset：/, 'Preset：')
+      : '手動設定';
 
   return (
     <div className="min-h-screen text-[var(--color-text-primary)]">
@@ -309,235 +621,598 @@ export default function CoreModePage() {
         <title>核心模式參數實驗室｜股海明燈</title>
         <meta
           name="description"
-          content="台股趨勢分析核心模式：8 參數調整、歷史回測、逐窗驗證、最佳參數搜尋與啟用參數組合套用。"
+          content="台股趨勢分析核心模式：自動搜尋最佳參數、正式回測確認、技術驗證細節與啟用參數組合套用。"
         />
       </Head>
 
       <SubpageHeader
         icon={Settings2}
         title="回測核心模式參數實驗室"
-        subtitle="趨勢分析＋回測＋最佳參數搜尋＋啟用參數組合套用"
+        subtitle="自動搜尋參數＋正式回測確認＋技術驗證細節"
       />
 
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
-        {runResult ? (
-          <section className={`bento-cell p-4 sm:p-5 ${toneClassByTrend(trendTone)}`}>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-xs font-semibold">
-                    趨勢判斷：{runResult.summary.trend_conclusion}
-                  </span>
-                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(runResult.summary.confidence_level)}`}>
-                    信心：{runResult.summary.confidence_level}
-                  </span>
-                  <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-xs font-semibold">
-                    預估期間：未來 10~20 個交易日
-                  </span>
-                </div>
-                <h2 className="mt-3 text-2xl font-bold tracking-tight">
-                  {buildConclusionSentence(runResult.summary.trend_conclusion, runResult.summary.confidence_level)}
-                </h2>
-                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-3">
-                    <p className="text-xs text-[var(--color-text-muted)]">早期訊號</p>
-                    <p className="mt-1 text-sm font-semibold">{runResult.summary.signal_status.early_signal ?? '無'}</p>
-                  </div>
-                  <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-3">
-                    <p className="text-xs text-[var(--color-text-muted)]">正式訊號</p>
-                    <p className="mt-1 text-sm font-semibold">{runResult.summary.signal_status.formal_signal ?? '無'}</p>
-                  </div>
-                  <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-3">
-                    <p className="text-xs text-[var(--color-text-muted)]">目前啟用參數組合</p>
-                    <p className="mt-1 text-sm font-semibold">{activePreset?.name ?? '尚未設定'}</p>
-                  </div>
-                </div>
-              </div>
-              <aside className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4">
-                <h3 className="text-sm font-bold">關鍵理由（最多 3 點）</h3>
-                <ul className="mt-3 space-y-2 text-sm">
-                  {highlightedReasons.map((item, idx) => (
-                    <li key={`${item}-${idx}`} className="rounded-lg border border-[var(--color-border)] px-3 py-2">
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </aside>
-            </div>
-          </section>
-        ) : (
-          <section className="bento-cell border-dashed p-6 text-center sm:p-8">
-            <TrendingUp className="mx-auto mb-3 text-[var(--color-text-muted)]" size={28} />
-            <h2 className="text-lg font-bold">先跑一次回測，重點就會出現</h2>
-            <p className="mx-auto mt-2 max-w-2xl text-sm text-[var(--color-text-muted)]">
-              完成回測後，頁面會先顯示趨勢判斷、信心與理由，再往下看合理性、主圖與交易細節。
-            </p>
-          </section>
-        )}
+        <section className="bento-cell p-2">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            {[
+              { key: 'auto_search' as const, label: '自動找最佳參數' },
+              { key: 'formal_backtest' as const, label: '正式回測確認' },
+              { key: 'ml_details' as const, label: '技術驗證細節' },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                  activeTab === tab.key
+                    ? 'bg-[var(--color-brand)] text-white'
+                    : 'border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </section>
 
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <article className="bento-cell p-4 sm:p-5 lg:col-span-2">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-bold">回測執行</h2>
-                <p className="text-xs text-[var(--color-text-muted)]">先選標的與區間，再執行回測與參數搜尋。</p>
+        {runError ? <p className="rounded-lg border border-up/25 bg-up-muted px-3 py-2 text-sm text-up">{runError}</p> : null}
+        {presetMessage ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{presetMessage}</p> : null}
+
+        {activeTab === 'auto_search' ? (
+          <>
+            <section className="bento-cell p-4 sm:p-5">
+              <h2 className="text-base font-bold">自動找最佳參數</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                系統會自動搜尋參數組，不會自動套用，也不會覆蓋 active preset。
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">模式</span>
+                  <select
+                    value={autoSearchMode}
+                    onChange={(e) => setAutoSearchMode(e.target.value as 'single_stock_search' | 'multi_stock_search')}
+                    className="ui-input"
+                  >
+                    <option value="single_stock_search">單股最佳參數</option>
+                    <option value="multi_stock_search">多股泛用參數</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">股票代號</span>
+                  <input
+                    value={autoSearchSymbols}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setAutoSearchSymbols(value);
+                      const firstSymbol = value
+                        .split(',')
+                        .map((item) => item.trim().toUpperCase())
+                        .filter(Boolean)[0];
+                      if (firstSymbol) {
+                        setSymbol(firstSymbol);
+                      }
+                    }}
+                    className="ui-input"
+                    placeholder={isMultiStockMode ? '例如 2330,2317,2454' : '例如 2330'}
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">回測期間（開始）</span>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="ui-input" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">回測期間（結束）</span>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="ui-input" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">搜尋目標</span>
+                  <select
+                    value={autoSearchScoreMode}
+                    onChange={(e) => setAutoSearchScoreMode(e.target.value as 'balanced_score' | 'return_score' | 'low_drawdown_score' | 'stable_score')}
+                    className="ui-input"
+                  >
+                    <option value="balanced_score">平衡型</option>
+                    <option value="return_score">高報酬</option>
+                    <option value="low_drawdown_score">低回撤</option>
+                    <option value="stable_score">高穩定</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">搜尋品質</span>
+                  <select value={autoSearchQuality} onChange={(e) => applyAutoSearchQualityPreset(e.target.value as AutoSearchQuality)} className="ui-input">
+                    <option value="standard">標準</option>
+                    <option value="precise">精準</option>
+                    <option value="deep">深度</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs text-[var(--color-text-muted)]">輸出 Top N</span>
+                  <input type="number" min={1} max={20} value={autoSearchTopN} onChange={(e) => setAutoSearchTopN(Number(e.target.value))} className="ui-input" />
+                </label>
               </div>
-              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-1 text-xs font-semibold">
-                主要操作區
-              </span>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--color-text-muted)]">股票代號</span>
-                <input
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
-                  className="ui-input"
-                  placeholder="例如 2330"
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--color-text-muted)]">起始日期</span>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="ui-input"
-                />
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block text-xs text-[var(--color-text-muted)]">結束日期</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="ui-input"
-                />
-              </label>
-              <div className="flex items-end">
+              {autoSearchQualityClampMessage ? <p className="mt-2 text-xs text-amber-700">{autoSearchQualityClampMessage}</p> : null}
+
+              <p className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
+                一般使用者不需要手動調整參數；系統會依據勾選的驗證方式與搜尋品質自動設定細節。
+              </p>
+              <p className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
+                搜尋品質說明：{autoSearchQualitySummaryText}
+              </p>
+              <p className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
+                Final Holdout 分割（預設 60/20/20）：{finalHoldoutSummaryText}
+              </p>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={autoSearchUseMlPrefilter}
+                      onChange={(e) => setAutoSearchUseMlPrefilter(e.target.checked)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    使用 ML 預篩
+                  </span>
+                  <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
+                    先用 ML 從候選參數中篩出較有潛力的組合，最後排名仍以 validation_score 為準。
+                  </span>
+                </label>
+                <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={autoSearchUseTimeSeriesValidation}
+                      onChange={(e) => setAutoSearchUseTimeSeriesValidation(e.target.checked)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    使用 TimeSeriesSplit 穩定性驗證
+                  </span>
+                  <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
+                    用多個時間切片檢查參數穩定度，避免只在單一區間有效。
+                  </span>
+                </label>
+                <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={autoSearchUseHoldoutValidation}
+                      onChange={(e) => setAutoSearchUseHoldoutValidation(e.target.checked)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    使用 Holdout 驗證
+                  </span>
+                  <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
+                    額外保留部分區間檢查參數表現，降低過度擬合風險。
+                  </span>
+                </label>
+                <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={autoSearchRequireMinTradeCount}
+                      onChange={(e) => setAutoSearchRequireMinTradeCount(e.target.checked)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    強制最低交易次數
+                  </span>
+                  <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
+                    避免只交易少數幾次卻看起來分數很高。
+                  </span>
+                </label>
+                <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={autoSearchAdaptiveEnabled}
+                      onChange={(e) => setAutoSearchAdaptiveEnabled(e.target.checked)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    啟用自適應搜尋
+                  </span>
+                  <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
+                    會多輪逼近較佳參數區域，通常更精準但需要更久。
+                  </span>
+                </label>
+                <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={autoSearchFinalHoldoutEnabled}
+                      onChange={(e) => setAutoSearchFinalHoldoutEnabled(e.target.checked)}
+                      className="accent-[var(--color-brand)]"
+                    />
+                    啟用 Final Holdout 未知區驗證
+                  </span>
+                  <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
+                    最後一段資料不參與選參數，只在 Top N 確定後做上帝視角驗證。
+                  </span>
+                </label>
+              </div>
+
+              <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
+                <p className="font-semibold">進階搜尋摘要（唯讀）</p>
+                <p className="mt-1 text-[var(--color-text-muted)]">
+                  ML 預篩只用來縮小候選範圍，最終仍以 validation_score 排名。
+                </p>
+                <p className="mt-1 text-[var(--color-text-muted)]">
+                  Final Holdout 是最後未知區驗證，不參與 validation_score 排名。
+                </p>
+                <p className="mt-1 text-[var(--color-text-muted)]">
+                  自適應搜尋會多輪逼近最佳參數，可能需要較長時間。
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-[var(--color-text-muted)]">
+                  <li>搜尋品質：{AUTO_SEARCH_QUALITY_PRESETS[autoSearchQuality].label}</li>
+                  <li>ML 預篩：{autoSearchUseMlPrefilter ? '啟用' : '停用'}</li>
+                  <li>TimeSeriesSplit 穩定性驗證：{autoSearchUseTimeSeriesValidation ? '啟用' : '停用'}</li>
+                  <li>Holdout 驗證：{autoSearchUseHoldoutValidation ? '啟用' : '停用'}</li>
+                  <li>最低交易次數：{autoSearchRequireMinTradeCount ? `啟用（${autoSearchMinTradeCount}）` : '停用'}</li>
+                  <li>自適應搜尋：{autoSearchAdaptiveEnabled ? `啟用（${adaptiveSearchSummaryText}）` : '停用'}</li>
+                  <li>Final Holdout：{autoSearchFinalHoldoutEnabled ? `啟用（${finalHoldoutSummaryText}）` : '停用'}</li>
+                </ul>
+              </div>
+
+              {isMultiStockMode ? (
+                <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+                  多股泛用搜尋會以 cross_stock_score 作為最終排序依據，避免只靠單一股票暴賺撐高分數。
+                </p>
+              ) : null}
+              {isMultiStockMode ? (
+                <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+                  目前 ML 預篩可能以主要股票作為排序參考，多股泛用結果仍以 cross_stock_score 作為最終排序依據。
+                </p>
+              ) : null}
+
+              <div className="mt-4">
                 <button
                   type="button"
-                  onClick={handleRunBacktest}
+                  onClick={() => handleRunBacktest('auto_search')}
+                  disabled={runLoading || !params}
+                  className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:brightness-[1.03] disabled:opacity-60"
+                  style={{ background: 'var(--brand-gradient)' }}
+                >
+                  {runLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+                  開始自動搜尋最佳參數
+                </button>
+              </div>
+            </section>
+
+            <section className="bento-cell p-4 sm:p-5">
+              <h2 className="text-base font-bold">Top N 搜尋結果</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                validation_score 用於選參排序；final_holdout_score 僅用於未知區觀察，不直接改變排序。
+              </p>
+              {runResult?.auto_search_result?.ranking_basis ? (
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                  ranking_basis：{runResult.auto_search_result.ranking_basis}
+                </p>
+              ) : null}
+              {autoSearchResults.length ? (
+                <>
+                  {runResult?.auto_search_result?.split_summary ? (
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
+                      <p>
+                        train：{runResult.auto_search_result.split_summary.train_start ?? '--'} ~ {runResult.auto_search_result.split_summary.train_end ?? '--'}（
+                        {runResult.auto_search_result.split_summary.train_count}）
+                      </p>
+                      <p>
+                        validation：{runResult.auto_search_result.split_summary.validation_start ?? '--'} ~{' '}
+                        {runResult.auto_search_result.split_summary.validation_end ?? '--'}（
+                        {runResult.auto_search_result.split_summary.validation_count}）
+                      </p>
+                      <p>
+                        final holdout：{runResult.auto_search_result.split_summary.final_holdout_start ?? '--'} ~{' '}
+                        {runResult.auto_search_result.split_summary.final_holdout_end ?? '--'}（
+                        {runResult.auto_search_result.split_summary.final_holdout_count}）
+                      </p>
+                      {(runResult.auto_search_result.split_summary.warnings ?? []).length ? (
+                        <p className="mt-1 text-amber-700">
+                          {(runResult.auto_search_result.split_summary.warnings ?? []).join(' | ')}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {runResult?.auto_search_result?.adaptive_trace?.enabled ? (
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
+                      <p className="font-semibold">adaptive_trace summary</p>
+                      <p className="mt-1 text-[var(--color-text-muted)]">
+                        stop_reason：{runResult.auto_search_result.adaptive_trace.stop_reason ?? '--'}
+                      </p>
+                      <p className="mt-1 break-all text-[var(--color-text-muted)]">
+                        best_score_progression：
+                        {(runResult.auto_search_result.adaptive_trace.best_score_progression ?? [])
+                          .map((item) => formatNumber(item))
+                          .join(' -> ') || '--'}
+                      </p>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="min-w-full text-left text-[11px]">
+                          <thead>
+                            <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                              <th className="px-2 py-1">iteration</th>
+                              <th className="px-2 py-1">best_score</th>
+                              <th className="px-2 py-1">improvement</th>
+                              <th className="px-2 py-1">verified_count</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(runResult.auto_search_result.adaptive_trace.iterations ?? []).map((item) => (
+                              <tr key={`adaptive-iteration-${item.iteration}`} className="border-b border-[var(--color-border)]/50">
+                                <td className="px-2 py-1">{item.iteration}</td>
+                                <td className="px-2 py-1">{formatNumber(item.best_score)}</td>
+                                <td className="px-2 py-1">{item.improvement == null ? '--' : formatNumber(item.improvement)}</td>
+                                <td className="px-2 py-1">{item.verified_count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                    <p className="text-sm font-semibold">搜尋結果推薦摘要</p>
+                    {autoSearchRecommendationSummary.primary ? (
+                      <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-xs">
+                        <p className="font-semibold">首選 Rank {autoSearchRecommendationSummary.primary.rank}：綜合驗證分數最高。</p>
+                        <p className="mt-1 text-[var(--color-text-muted)]">
+                          validation_score{' '}
+                          {autoSearchRecommendationSummary.primary.validation_score == null
+                            ? '--'
+                            : formatNumber(autoSearchRecommendationSummary.primary.validation_score)}{' '}
+                          ｜ 累積報酬{' '}
+                          {autoSearchRecommendationSummary.primary.summary.cumulative_return == null
+                            ? '--'
+                            : formatPct(autoSearchRecommendationSummary.primary.summary.cumulative_return)}{' '}
+                          ｜ 最大回撤{' '}
+                          {autoSearchRecommendationSummary.primary.summary.max_drawdown == null
+                            ? '--'
+                            : formatPct(autoSearchRecommendationSummary.primary.summary.max_drawdown)}{' '}
+                          ｜ 穩定度{' '}
+                          {autoSearchRecommendationSummary.primary.summary.stability_score == null
+                            ? '--'
+                            : formatNumber(autoSearchRecommendationSummary.primary.summary.stability_score)}{' '}
+                          ｜ 交易次數 {autoSearchRecommendationSummary.primary.summary.trade_count ?? '--'}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {autoSearchRecommendationSummary.alternatives.length ? (
+                      <div className="mt-2 space-y-1 text-xs">
+                        {autoSearchRecommendationSummary.alternatives.map((alternative, index) => (
+                          <p key={`auto-search-alt-${alternative.kind}-${alternative.result.rank}-${index}`}>
+                            {alternative.kind === 'highest_return'
+                              ? `Rank ${alternative.result.rank}：報酬最高，累積報酬 ${
+                                  alternative.result.summary.cumulative_return == null
+                                    ? '--'
+                                    : formatPct(alternative.result.summary.cumulative_return)
+                                }`
+                              : alternative.kind === 'lowest_drawdown'
+                                ? `Rank ${alternative.result.rank}：回撤較低，最大回撤 ${
+                                    alternative.result.summary.max_drawdown == null
+                                      ? '--'
+                                      : formatPct(alternative.result.summary.max_drawdown)
+                                  }`
+                                : `Rank ${alternative.result.rank}：穩定度最高，stability_score ${
+                                    alternative.result.summary.stability_score == null
+                                      ? '--'
+                                      : formatNumber(alternative.result.summary.stability_score)
+                                  }`}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {autoSearchMergedCount > 0 ? (
+                      <p className="mt-2 text-xs text-[var(--color-text-muted)]">已合併 {autoSearchMergedCount} 筆結果相同的候選參數。</p>
+                    ) : null}
+                    <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                      下一步提示：建議先用首選參數重新回測，切換到「正式回測確認」重新回測，再決定是否儲存或設為啟用。
+                    </p>
+                  </div>
+
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                          <th className="px-2 py-2">排名</th>
+                          <th className="px-2 py-2">來源</th>
+                          <th className="px-2 py-2">ML預估</th>
+                          <th className="px-2 py-2">正式驗證（validation_score）</th>
+                          {runResult?.auto_search_result?.mode === 'multi_stock_search' ? (
+                            <th className="px-2 py-2">多股泛用分數</th>
+                          ) : null}
+                          <th className="px-2 py-2">final_holdout_score</th>
+                          {runResult?.auto_search_result?.mode === 'multi_stock_search' ? (
+                            <th className="px-2 py-2">final_holdout_cross_stock_score</th>
+                          ) : null}
+                          <th className="px-2 py-2">final_holdout_summary</th>
+                          <th className="px-2 py-2">累積報酬</th>
+                          <th className="px-2 py-2">最大回撤</th>
+                          <th className="px-2 py-2">穩定度</th>
+                          <th className="px-2 py-2">交易次數</th>
+                          <th className="px-2 py-2">推薦標籤</th>
+                          <th className="px-2 py-2">提醒</th>
+                          <th className="px-2 py-2">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {autoSearchResults.map((item) => {
+                          const recommendationTags = buildAutoSearchRecommendationTags(
+                            item,
+                            autoSearchRecommendationTagStats,
+                            autoSearchMinTradeCount
+                          );
+                          return (
+                            <tr key={`auto-search-${item.rank}`} className="border-b border-[var(--color-border)]/60 align-top">
+                              <td className="px-2 py-2">{item.rank}</td>
+                              <td className="px-2 py-2">{localizeAutoSearchSourceTags(item.source_tags ?? []).join('、') || '--'}</td>
+                              <td className="px-2 py-2">{item.predicted_score == null ? '--' : formatNumber(item.predicted_score)}</td>
+                              <td className="px-2 py-2">{item.validation_score == null ? '--' : formatNumber(item.validation_score)}</td>
+                              {runResult?.auto_search_result?.mode === 'multi_stock_search' ? (
+                                <td className="px-2 py-2">{item.cross_stock_score == null ? '--' : formatNumber(item.cross_stock_score)}</td>
+                              ) : null}
+                              <td className="px-2 py-2">{item.final_holdout_score == null ? '--' : formatNumber(item.final_holdout_score)}</td>
+                              {runResult?.auto_search_result?.mode === 'multi_stock_search' ? (
+                                <td className="px-2 py-2">
+                                  {item.final_holdout_cross_stock_score == null ? '--' : formatNumber(item.final_holdout_cross_stock_score)}
+                                </td>
+                              ) : null}
+                              <td className="px-2 py-2">
+                                {item.final_holdout_summary ? (
+                                  <details>
+                                    <summary className="cursor-pointer text-[11px]">查看</summary>
+                                    <pre className="mt-1 max-w-[280px] overflow-x-auto whitespace-pre-wrap text-[10px]">
+                                      {JSON.stringify(item.final_holdout_summary, null, 2)}
+                                    </pre>
+                                  </details>
+                                ) : (
+                                  '--'
+                                )}
+                              </td>
+                              <td className="px-2 py-2">{item.summary.cumulative_return == null ? '--' : formatPct(item.summary.cumulative_return)}</td>
+                              <td className="px-2 py-2">{item.summary.max_drawdown == null ? '--' : formatPct(item.summary.max_drawdown)}</td>
+                              <td className="px-2 py-2">{item.summary.stability_score == null ? '--' : formatNumber(item.summary.stability_score)}</td>
+                              <td className="px-2 py-2">{item.summary.trade_count ?? '--'}</td>
+                              <td className="px-2 py-2">
+                                {recommendationTags.length ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {recommendationTags.map((tag) => (
+                                      <span
+                                        key={`${item.rank}-${tag}`}
+                                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${recommendationTagClass(tag)}`}
+                                      >
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  '--'
+                                )}
+                              </td>
+                              <td className="px-2 py-2">{(item.warnings ?? []).join(' | ') || '--'}</td>
+                              <td className="px-2 py-2">
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewedAutoSearchParams({ rank: item.rank, params: item.params })}
+                                    className="rounded border border-[var(--color-border)] px-2 py-1 text-xs"
+                                  >
+                                    查看參數
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleLoadAutoSearchParams(item.params, {
+                                        rank: item.rank,
+                                        validation_score: item.validation_score ?? null,
+                                        verified_score: item.verified_score ?? null,
+                                        cross_stock_score: item.cross_stock_score ?? null,
+                                        final_holdout_score: item.final_holdout_score ?? null,
+                                        final_holdout_cross_stock_score: item.final_holdout_cross_stock_score ?? null,
+                                        source_tags: item.source_tags ?? [],
+                                      })
+                                    }
+                                    aria-label={item.rank === 1 ? '用首選重新回測（載入到表單）' : '用此參數重新回測（載入到表單）'}
+                                    className="rounded border border-[var(--color-border)] px-2 py-1 text-xs"
+                                  >
+                                    {item.rank === 1 ? '用首選重新回測' : '用此參數重新回測'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-[var(--color-text-muted)]">目前無可用 auto search 結果。</p>
+              )}
+
+              {viewedAutoSearchParams ? (
+                <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--color-text-muted)]">rank {viewedAutoSearchParams.rank} 參數</p>
+                    <button
+                      type="button"
+                      onClick={() => setViewedAutoSearchParams(null)}
+                      className="rounded border border-[var(--color-border)] px-2 py-1 text-xs"
+                    >
+                      關閉
+                    </button>
+                  </div>
+                  <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[11px]">
+                    {JSON.stringify(viewedAutoSearchParams.params, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
+            </section>
+          </>
+        ) : null}
+
+        {activeTab === 'formal_backtest' ? (
+          <>
+            <section className="bento-cell p-4 sm:p-5">
+              <h2 className="text-base font-bold">目前回測參數</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">這是目前準備拿來正式回測確認的參數。</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <article className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-sm lg:col-span-2">
+                  <p className="text-xs text-[var(--color-text-muted)]">目前參數來源</p>
+                  <p className="mt-1 font-semibold">{currentBacktestSourceLabel}</p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
+                    <p>
+                      validation_score：{loadedAutoSearchParamsMeta?.validation_score == null ? '--' : formatNumber(loadedAutoSearchParamsMeta.validation_score)}
+                    </p>
+                    {loadedAutoSearchParamsMeta?.cross_stock_score != null ? (
+                      <p>cross_stock_score：{formatNumber(loadedAutoSearchParamsMeta.cross_stock_score)}</p>
+                    ) : null}
+                    <p>
+                      final_holdout_score：
+                      {loadedAutoSearchParamsMeta?.final_holdout_score == null ? '--' : formatNumber(loadedAutoSearchParamsMeta.final_holdout_score)}
+                    </p>
+                    {loadedAutoSearchParamsMeta?.final_holdout_cross_stock_score != null ? (
+                      <p>final_holdout_cross_stock_score：{formatNumber(loadedAutoSearchParamsMeta.final_holdout_cross_stock_score)}</p>
+                    ) : null}
+                    <p className="sm:col-span-2">loaded_at：{loadedAutoSearchParamsMeta?.loaded_at ?? '--'}</p>
+                  </div>
+                </article>
+                <article className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-sm">
+                  <p className="text-xs text-[var(--color-text-muted)]">驗證狀態</p>
+                  {shouldHideBacktestResult ? (
+                    <p className="mt-1 inline-flex rounded-full border border-amber-300/60 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+                      已載入自動搜尋參數，尚未重新回測
+                    </p>
+                  ) : (
+                    <p className="mt-1 inline-flex rounded-full border border-emerald-300/60 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">
+                      已重新回測確認
+                    </p>
+                  )}
+                </article>
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => handleRunBacktest('formal_backtest')}
                   disabled={runLoading || !params}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:brightness-[1.03] disabled:opacity-60"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
                   {runLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
-                  執行回測與參數搜尋
+                  重新執行正式回測
                 </button>
               </div>
-            </div>
-            {runError ? <p className="mt-3 rounded-lg border border-up/25 bg-up-muted px-3 py-2 text-sm text-up">{runError}</p> : null}
-          </article>
+            </section>
 
-          <article className="bento-cell p-4 sm:p-5">
-            <h2 className="text-base font-bold">參數組合操作</h2>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">載入、啟用與儲存常用參數組合。</p>
-            <div className="mt-3 space-y-2">
-              <select
-                value={selectedPresetId}
-                onChange={(e) => setSelectedPresetId(e.target.value)}
-                className="ui-input"
-              >
-                {presets.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleLoadPreset}
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium"
-                >
-                  載入
-                </button>
-                <button
-                  type="button"
-                  onClick={handleActivatePreset}
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium"
-                >
-                  設為啟用
-                </button>
-              </div>
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
-                目前啟用：{activePreset?.name ?? '尚未設定'}
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section className="bento-cell p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-base font-bold">核心參數面板（8 項）</h2>
-              <p className="text-xs text-[var(--color-text-muted)]">先用這 8 個關鍵旋鈕做調參，避免過度擬合。</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleResetParams}
-              className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
-            >
-              重設為預設值
-            </button>
-          </div>
-
-          {!schema || !params ? (
-            <div className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-              <Loader2 size={14} className="animate-spin" />
-              參數載入中...
-            </div>
-          ) : (
-            <>
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                {(Object.keys(schema.params) as Array<keyof CoreModeParams>).map((key) => {
-                  const cfg = schema.params[key];
-                  const value = params[key];
-                  const isInt = Number.isInteger(cfg.step);
-                  return (
-                    <div key={key} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold">{cfg.label}</p>
-                          <p className="text-xs text-[var(--color-text-muted)]">{cfg.description}</p>
-                        </div>
-                        <span className="rounded bg-[var(--color-bg-card)] px-2 py-1 text-xs tabular-nums">
-                          {isInt ? Number(value).toFixed(0) : Number(value).toFixed(2)}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={cfg.min}
-                        max={cfg.max}
-                        step={cfg.step}
-                        value={value}
-                        onChange={(e) => updateParam(key, Number(e.target.value))}
-                        className="mt-3 w-full accent-[var(--color-brand)]"
-                      />
-                      <div className="mt-1 flex justify-between text-xs text-[var(--color-text-muted)]">
-                        <span>最小 {cfg.min}</span>
-                        <span>預設 {cfg.default}</span>
-                        <span>最大 {cfg.max}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-                <input
-                  value={presetName}
-                  onChange={(e) => setPresetName(e.target.value)}
-                  placeholder="新參數組合名稱"
-                  className="ui-input"
-                />
-                <input
-                  value={presetDescription}
-                  onChange={(e) => setPresetDescription(e.target.value)}
-                  placeholder="說明（可選）"
-                  className="ui-input md:col-span-2"
-                />
+            <section className="bento-cell p-4 sm:p-5">
+              <h3 className="text-sm font-semibold">儲存目前回測參數</h3>
+              {shouldHideBacktestResult ? (
+                <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+                  目前參數尚未重新回測確認，不建議直接儲存或啟用。
+                </p>
+              ) : null}
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="新參數組合名稱" className="ui-input" />
+                <input value={presetDescription} onChange={(e) => setPresetDescription(e.target.value)} placeholder="說明，可選" className="ui-input md:col-span-2" />
                 <button
                   type="button"
                   onClick={handleSavePreset}
@@ -545,153 +1220,418 @@ export default function CoreModePage() {
                   className="rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:brightness-[1.03] disabled:opacity-60"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
-                  {savingPreset ? '儲存中...' : '儲存參數組合'}
+                  {savingPreset ? '儲存中...' : '儲存目前參數'}
                 </button>
               </div>
-              {presetMessage ? <p className="mt-2 text-sm text-emerald-700">{presetMessage}</p> : null}
-            </>
-          )}
-        </section>
-
-        {runResult ? (
-          <>
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-              <article className="bento-cell p-4 sm:p-5 xl:col-span-3">
-                <h2 className="text-base font-bold">趨勢合理性面板</h2>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">重點檢查是否「真的像趨勢」，不是短期反彈。</p>
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {runResult.summary.reasoning.checks.map((check) => (
-                    <div
-                      key={check.key}
-                      className={`rounded-lg border px-3 py-2 text-sm ${
-                        check.passed ? 'border-up/30 bg-up-muted' : 'border-down/30 bg-down-muted'
-                      }`}
-                    >
-                      <p className="font-semibold">{check.label}</p>
-                      <p className="text-xs">{check.passed ? '通過' : '未通過'}</p>
-                    </div>
-                  ))}
-                </div>
-              </article>
-
-              <article className="bento-cell p-4 sm:p-5 xl:col-span-2">
-                <h2 className="text-base font-bold">回測摘要卡</h2>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">先看準確度、風險與穩定性，再看報酬。</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">準確度</p>
-                    <p className="text-lg font-semibold">{formatPct(runResult.summary.ac)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">勝率</p>
-                    <p className="text-lg font-semibold">{formatPct(runResult.summary.win_rate)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">期望值</p>
-                    <p className="text-lg font-semibold">{formatNumber(runResult.summary.expectancy)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">獲利因子</p>
-                    <p className="text-lg font-semibold">{formatNumber(runResult.summary.profit_factor)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">最大回撤</p>
-                    <p className="text-lg font-semibold">{formatPct(runResult.summary.max_drawdown)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">穩定性</p>
-                    <p className="text-lg font-semibold">{formatPct(runResult.summary.stability)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">累積報酬</p>
-                    <p className="text-lg font-semibold">{formatPct(runResult.summary.cumulative_return)}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5">
-                    <p className="text-[11px] text-[var(--color-text-muted)]">交易次數</p>
-                    <p className="text-lg font-semibold">{runResult.summary.trade_count}</p>
-                  </div>
-                </div>
-                {/* <p className="mt-2 text-xs text-[var(--color-text-muted)]">準確度定義：{runResult.meta.ac_definition}</p>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                  成交規則：{runResult.meta.tail_execution_policy ?? '訊號日 n，成交日 n+1'}
-                </p>
-                {runResult.meta.tail_position_excluded ? (
-                  <p className="mt-1 text-xs text-amber-700">尾端有未平倉部位因無 n+1 交易日，已自正式績效排除。</p>
-                ) : null} */}
-              </article>
             </section>
 
-            <CoreModePriceChart data={runResult.price_chart} />
-            {/* <section className="grid grid-cols-1 gap-3">
-              <CoreModeEChartPanel title="參數候選比較（準確度與最大回撤）" option={candidateScatterOption} height={320} />
-            </section> */}
-            <VirtualTradeTable trades={runResult.trades} />
-
             <section className="bento-cell p-4 sm:p-5">
-              <h2 className="text-base font-bold">分析套用畫面（啟用參數組合）</h2>
-              <p className="mt-1 text-sm text-[var(--color-text-muted)]">目前啟用參數組合：{activePreset?.name ?? '尚未設定'}</p>
+              <h2 className="text-base font-bold">回測結果</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">顯示目前參數重新執行正式回測後的結果。</p>
+            </section>
 
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
-                <input
-                  value={analysisSymbol}
-                  onChange={(e) => setAnalysisSymbol(e.target.value)}
-                  className="ui-input"
-                  placeholder="股票代號，例如 2330"
-                />
-                <button
-                  type="button"
-                  onClick={handleApplyActivePreset}
-                  disabled={analysisLoading}
-                  className="rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-md shadow-brand/25 transition hover:brightness-[1.03] disabled:opacity-60"
-                  style={{ background: 'var(--brand-gradient)' }}
-                >
-                  {analysisLoading ? '分析中...' : '套用啟用參數組合分析'}
-                </button>
-              </div>
-
-              {analysisError ? <p className="mt-2 text-sm text-rose-600">{analysisError}</p> : null}
-
-              {analysisResult ? (
-                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
-                  <div className={`rounded-lg border p-3 ${toneClassByTrend(resolveTrendTone(analysisResult.trend_conclusion))}`}>
-                    <h3 className="text-sm font-semibold">分析摘要</h3>
-                    <p className="mt-2 text-sm">標的：{analysisResult.symbol}</p>
-                    <p className="text-sm">結論：{analysisResult.trend_conclusion}</p>
-                    <p className="text-sm">信心：{analysisResult.confidence_level}</p>
-                    <p className="text-sm">基準日：{analysisResult.as_of_date}</p>
-                    <p className="mt-2">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${recommendationBadge(analysisResult.action_suggestion).className}`}>
-                        建議狀態：{recommendationBadge(analysisResult.action_suggestion).label}
+            {runResult && !shouldHideBacktestResult ? (
+              <>
+                <section className={`bento-cell p-4 sm:p-5 ${toneClassByTrend(trendTone)}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-xs font-semibold">
+                      趨勢判斷：{runResult.summary.trend_conclusion}
+                    </span>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(runResult.summary.confidence_level)}`}>
+                      信心：{runResult.summary.confidence_level}
+                    </span>
+                    {selectedAutoSearchResult ? (
+                      <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1 text-xs">
+                        auto search rank {selectedAutoSearchResult.rank}
                       </span>
-                    </p>
-                    <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-                      {recommendationBadge(analysisResult.action_suggestion).label === '買入'
-                        ? '買入｜趨勢轉強，可考慮分批布局'
-                        : recommendationBadge(analysisResult.action_suggestion).label === '賣出'
-                          ? '賣出｜趨勢轉弱，建議降低部位'
-                          : '持平｜建議先觀察，不急著進場'}
-                    </p>
+                    ) : null}
                   </div>
-                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                    <h3 className="text-sm font-semibold">分數與訊號</h3>
-                    <p className="mt-2 text-sm">狀態分數：{formatNumber(analysisResult.state_score)}</p>
-                    <p className="text-sm">趨勢型態分數：{formatNumber(analysisResult.trend_shape_score)}</p>
-                    <p className="text-sm">綜合趨勢分數：{formatNumber(analysisResult.trend_score)}</p>
-                    <p className="text-sm">早期訊號：{analysisResult.early_signal_status ?? '無'}</p>
-                    <p className="text-sm">正式訊號：{analysisResult.formal_signal_status ?? '無'}</p>
-                  </div>
-                  <div className="rounded-lg border border-[var(--color-border)] p-3">
-                    <h3 className="text-sm font-semibold">理由</h3>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-                      {analysisResult.reason_points.map((item, idx) => (
-                        <li key={`${item}-${idx}`}>{normalizeCoreReason(item)}</li>
+                  <p className="mt-3 text-sm">{buildConclusionSentence(runResult.summary.trend_conclusion, runResult.summary.confidence_level)}</p>
+                </section>
+
+                {runWarningBadges.length ? (
+                  <section className="bento-cell p-4 text-sm">
+                    <h2 className="text-base font-bold">warnings</h2>
+                    <ul className="mt-2 space-y-2">
+                      {runWarningBadges.map((item, idx) => (
+                        <li key={`${item.message}-${idx}`} className={`rounded-lg border px-3 py-2 ${warningToneClass(item.level)}`}>
+                          {item.message}
+                        </li>
                       ))}
                     </ul>
-                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-sm text-[var(--color-text-secondary)]">
-                      目前訊號信心偏低，價格可能仍在盤整區間。若股價跌破 MA20，短線可能轉弱；若進一步跌破 MA60，代表中期結構轉差。
-                    </div>
+                  </section>
+                ) : null}
+
+                <section className="bento-cell p-4 sm:p-5">
+                  <h2 className="text-base font-bold">回測 summary</h2>
+                  <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">AC</p><p className="text-lg font-semibold">{formatPct(runResult.summary.ac)}</p></div>
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">cumulative_return</p><p className="text-lg font-semibold">{formatPct(runResult.summary.cumulative_return)}</p></div>
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">max_drawdown</p><p className="text-lg font-semibold">{formatPct(runResult.summary.max_drawdown)}</p></div>
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">stability_score</p><p className="text-lg font-semibold">{formatPct(runResult.summary.stability)}</p></div>
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">win_rate</p><p className="text-lg font-semibold">{formatPct(runResult.summary.win_rate)}</p></div>
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">trade_count</p><p className="text-lg font-semibold">{runResult.summary.trade_count}</p></div>
+                    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-2.5"><p className="text-[11px] text-[var(--color-text-muted)]">profit_factor</p><p className="text-lg font-semibold">{formatNumber(runResult.summary.profit_factor)}</p></div>
+                  </div>
+                </section>
+                <CoreModePriceChart data={runResult.price_chart} />
+                <VirtualTradeTable trades={runResult.trades} />
+              </>
+            ) : shouldHideBacktestResult ? (
+              <section className="bento-cell border-dashed p-6 text-center sm:p-8">
+                <TrendingUp className="mx-auto mb-3 text-[var(--color-text-muted)]" size={28} />
+                <h2 className="text-lg font-bold">尚未重新回測</h2>
+                <p className="mt-2 text-sm text-[var(--color-text-muted)]">
+                  目前已載入新的參數，但尚未根據這組參數重新計算回測結果。請先點擊「重新執行正式回測」，完成後才會顯示歷史回測交易軌跡與交易明細。
+                </p>
+              </section>
+            ) : (
+              <section className="bento-cell border-dashed p-6 text-center sm:p-8">
+                <TrendingUp className="mx-auto mb-3 text-[var(--color-text-muted)]" size={28} />
+                <h2 className="text-lg font-bold">尚未有正式回測結果</h2>
+                <p className="mt-2 text-sm text-[var(--color-text-muted)]">請先執行「重新執行正式回測」。</p>
+              </section>
+            )}
+
+            <section className="bento-cell p-4 sm:p-5">
+              <details>
+                <summary className="cursor-pointer text-sm font-semibold">已儲存參數組管理</summary>
+                <p className="mt-2 text-xs text-[var(--color-text-muted)]">這裡管理已儲存的 preset，與目前 Auto Search 載入的參數可能不同。</p>
+                {shouldHideBacktestResult ? (
+                  <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+                    目前參數尚未重新回測確認，不建議直接儲存或啟用。
+                  </p>
+                ) : null}
+                <div className="mt-3 space-y-2">
+                  <select value={selectedPresetId} onChange={(e) => setSelectedPresetId(e.target.value)} className="ui-input">
+                    {presets.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={handleLoadPreset} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium">
+                      載入此 preset
+                    </button>
+                    <button type="button" onClick={handleActivatePreset} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium">
+                      設為 Advisor 啟用參數
+                    </button>
+                  </div>
+                  <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-xs">
+                    目前啟用 preset：{activePreset?.name ?? '尚未設定'}
                   </div>
                 </div>
+              </details>
+            </section>
+          </>
+        ) : null}
+
+        {activeTab === 'ml_details' ? (
+          <>
+            <section className="bento-cell p-4 sm:p-5">
+              <h2 className="text-base font-bold">技術驗證細節</h2>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">此區塊是技術驗證細節，不是最終買賣建議。</p>
+              <button type="button" onClick={() => setShowMlSettingsPanel((prev) => !prev)} className="mt-3 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm">
+                {showMlSettingsPanel ? '收合 ML 設定' : '展開 ML 設定'}
+              </button>
+
+              {showMlSettingsPanel ? (
+                <>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-sm">
+                      <input type="checkbox" checked={mlValidationEnabled} onChange={(e) => setMlValidationEnabled(e.target.checked)} className="accent-[var(--color-brand)]" />
+                      啟用 ML 驗證
+                    </label>
+                    <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-sm">
+                      <input type="checkbox" checked={mlEnableModelTraining} onChange={(e) => setMlEnableModelTraining(e.target.checked)} className="accent-[var(--color-brand)]" />
+                      啟用模型訓練
+                    </label>
+                    <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-2 text-sm">
+                      <input type="checkbox" checked={mlEnableCandidateRanking} onChange={(e) => setMlEnableCandidateRanking(e.target.checked)} className="accent-[var(--color-brand)]" />
+                      啟用 ML candidate ranking
+                    </label>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">n_splits</span><input type="number" min={2} step={1} value={mlSplits} onChange={(e) => setMlSplits(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">test_size</span><input type="number" min={1} step={1} value={mlTestSize} onChange={(e) => setMlTestSize(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">gap</span><input type="number" min={0} step={1} value={mlGap} onChange={(e) => setMlGap(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">prediction_horizon</span><input type="number" min={1} step={1} value={mlPredictionHorizon} onChange={(e) => setMlPredictionHorizon(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">target_mode</span>
+                      <select value={mlTargetMode} onChange={(e) => setMlTargetMode(e.target.value as 'future_quality' | 'trade_return' | 'trend_label')} className="ui-input">
+                        <option value="future_quality">future_quality（可用）</option>
+                        <option value="trade_return" disabled>trade_return（尚未啟用）</option>
+                        <option value="trend_label" disabled>trend_label（尚未啟用）</option>
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">model_type</span>
+                      <select value={mlModelType} onChange={(e) => setMlModelType(e.target.value as 'random_forest' | 'gradient_boosting' | 'logistic_regression')} className="ui-input">
+                        <option value="logistic_regression">Logistic Regression</option>
+                        <option value="random_forest">Random Forest</option>
+                        <option value="gradient_boosting">Gradient Boosting</option>
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">ranking_model_type</span>
+                      <select value={mlCandidateRankingModelType} onChange={(e) => setMlCandidateRankingModelType(e.target.value as 'random_forest' | 'gradient_boosting' | 'logistic_regression')} className="ui-input">
+                        <option value="random_forest">Random Forest</option>
+                        <option value="gradient_boosting">Gradient Boosting</option>
+                        <option value="logistic_regression">Logistic Regression</option>
+                      </select>
+                    </label>
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">ranking_score_mode</span>
+                      <select value={mlCandidateRankingScoreMode} onChange={(e) => setMlCandidateRankingScoreMode(e.target.value as 'balanced_score' | 'return_score' | 'ac_score' | 'drawdown_score')} className="ui-input">
+                        <option value="balanced_score">balanced_score</option>
+                        <option value="return_score">return_score</option>
+                        <option value="ac_score">ac_score</option>
+                        <option value="drawdown_score">drawdown_score</option>
+                      </select>
+                    </label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">candidate_ranking_top_n</span><input type="number" min={1} max={20} step={1} value={mlCandidateRankingTopN} onChange={(e) => setMlCandidateRankingTopN(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">future_quality_threshold</span><input type="number" min={0} max={1} step={0.01} value={mlFutureQualityThreshold} onChange={(e) => setMlFutureQualityThreshold(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">max_train_size</span><input type="number" min={1} step={1} value={mlMaxTrainSize} onChange={(e) => setMlMaxTrainSize(e.target.value)} className="ui-input" placeholder="留空 = 不限制" /></label>
+                  </div>
+                </>
+              ) : null}
+            </section>
+
+            <section className="bento-cell p-4 sm:p-5">
+              <button type="button" onClick={() => setShowMlResultDetail((prev) => !prev)} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm">
+                {showMlResultDetail ? '收合驗證結果表格' : '展開驗證結果表格'}
+              </button>
+              {showMlResultDetail ? (
+                runResult ? (
+                  <>
+                    <p className="mt-3 text-xs text-[var(--color-text-muted)]">TimeSeriesSplit / Dataset Summary / Model Validation / Candidate Ranking</p>
+                    <p className="mt-1 text-xs font-semibold text-amber-700">{PHASE3_DATASET_NOTICE}</p>
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
+                      啟用：{runResult.ml_validation?.enabled ? '是' : '否'} ｜ mode：{runResult.ml_validation?.mode ?? '--'} ｜ n_splits：
+                      {runResult.ml_validation?.n_splits ?? '--'} ｜ test_size：{runResult.ml_validation?.test_size ?? '--'} ｜ gap：
+                      {runResult.ml_validation?.gap ?? '--'} ｜ effective_gap：{runResult.ml_validation?.effective_gap ?? '--'}
+                    </div>
+                    {runResult.ml_validation?.dataset_summary ? (
+                      <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                        <h3 className="text-sm font-semibold">ML Dataset Summary</h3>
+                        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                          sample_count={runResult.ml_validation.dataset_summary.sample_count} ｜ feature_count=
+                          {runResult.ml_validation.dataset_summary.feature_count} ｜ positive_rate=
+                          {formatPct(runResult.ml_validation.dataset_summary.positive_rate)}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                      <h3 className="text-sm font-semibold">三段式資料切分 / Final Holdout Unknown Zone</h3>
+                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                        TimeSeriesSplit 是多個 fold 的穩定性驗證；Final Holdout 是最後完全保留的未知區，只在 Top N 確定後才用於最終驗證。兩者不同。
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                        排名依據為 validation_score；final_holdout_score 僅作為未知區觀察，不會回流影響 Rank。
+                      </p>
+                      {runResult.auto_search_result?.split_summary ? (
+                        <div className="mt-2 space-y-2 text-xs">
+                          <div>
+                            <p className="font-semibold">Train</p>
+                            <p>{formatOrderedDateRange(runResult.auto_search_result.split_summary.train_start, runResult.auto_search_result.split_summary.train_end)}</p>
+                            <p>筆數：{runResult.auto_search_result.split_summary.train_count}</p>
+                            <p className="text-[var(--color-text-muted)]">用途：產生候選參數 / ML 預篩</p>
+                          </div>
+                          <div>
+                            <p className="font-semibold">Validation</p>
+                            <p>
+                              {formatOrderedDateRange(
+                                runResult.auto_search_result.split_summary.validation_start,
+                                runResult.auto_search_result.split_summary.validation_end
+                              )}
+                            </p>
+                            <p>筆數：{runResult.auto_search_result.split_summary.validation_count}</p>
+                            <p className="text-[var(--color-text-muted)]">用途：選出 Top N / validation_score 排名依據</p>
+                          </div>
+                          <div>
+                            <p className="font-semibold">Final Holdout</p>
+                            <p>
+                              {formatOrderedDateRange(
+                                runResult.auto_search_result.split_summary.final_holdout_start,
+                                runResult.auto_search_result.split_summary.final_holdout_end
+                              )}
+                            </p>
+                            <p>筆數：{runResult.auto_search_result.split_summary.final_holdout_count}</p>
+                            <p className="text-[var(--color-text-muted)]">用途：最後未知區驗證，不參與排名</p>
+                          </div>
+                          {(runResult.auto_search_result.split_summary.warnings ?? []).length ? (
+                            <p className="text-amber-700">{(runResult.auto_search_result.split_summary.warnings ?? []).join(' | ')}</p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                          尚未取得 Final Holdout 三段式切分資訊。請先在「自動找最佳參數」執行搜尋，或確認 final holdout 已啟用。
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                      <h3 className="text-sm font-semibold">TimeSeriesSplit 結果</h3>
+                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                        TimeSeriesSplit 結果（穩定性驗證，不是 Final Holdout 三段式切分）
+                      </p>
+                      {(runResult.ml_validation?.fold_metrics ?? []).length ? (
+                        <div className="mt-2 overflow-x-auto">
+                          <table className="min-w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                                <th className="px-2 py-2">Fold</th>
+                                <th className="px-2 py-2">Train 區間</th>
+                                <th className="px-2 py-2">Test 區間</th>
+                                <th className="px-2 py-2">AC</th>
+                                <th className="px-2 py-2">累積報酬</th>
+                                <th className="px-2 py-2">MDD</th>
+                                <th className="px-2 py-2">交易數</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(runResult.ml_validation?.fold_metrics ?? []).map((fold) => (
+                                <tr key={`fold-${fold.fold_index}`} className="border-b border-[var(--color-border)]/60">
+                                  <td className="px-2 py-2">{fold.fold_index}</td>
+                                  <td className="px-2 py-2">{formatOrderedDateRange(fold.train_start, fold.train_end)}</td>
+                                  <td className="px-2 py-2">{formatOrderedDateRange(fold.test_start, fold.test_end)}</td>
+                                  <td className="px-2 py-2">{formatPct(fold.ac)}</td>
+                                  <td className="px-2 py-2">{formatPct(fold.cumulative_return)}</td>
+                                  <td className="px-2 py-2">{formatPct(fold.max_drawdown)}</td>
+                                  <td className="px-2 py-2">{fold.trade_count}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">目前無 TimeSeriesSplit fold 結果。</p>
+                      )}
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                      <h3 className="text-sm font-semibold">Model Validation</h3>
+                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                        accuracy_mean={formatNumber(runResult.ml_validation?.ml_model_validation?.metrics?.accuracy_mean ?? 0)} ｜ f1_mean=
+                        {formatNumber(runResult.ml_validation?.ml_model_validation?.metrics?.f1_mean ?? 0)}
+                      </p>
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                      <h3 className="text-sm font-semibold">Feature Importance</h3>
+                      {normalizedFeatureImportance.length ? (
+                        <div className="mt-2 overflow-x-auto">
+                          <table className="min-w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                                <th className="px-2 py-2">feature</th>
+                                <th className="px-2 py-2">importance_mean</th>
+                                <th className="px-2 py-2">importance_std</th>
+                                <th className="px-2 py-2">fold_count</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {normalizedFeatureImportance.map((item) => (
+                                <tr key={`fi-${item.feature}`} className="border-b border-[var(--color-border)]/60">
+                                  <td className="px-2 py-2">{item.feature}</td>
+                                  <td className="px-2 py-2">{formatNumber(item.importance_mean)}</td>
+                                  <td className="px-2 py-2">{formatNumber(item.importance_std)}</td>
+                                  <td className="px-2 py-2">{item.fold_count}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">無可用 feature importance。</p>
+                      )}
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
+                      <h3 className="text-sm font-semibold">Candidate Ranking</h3>
+                      <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                        verified_score 為舊相容欄位，目前語意等同 validation_score；final_holdout_score 不參與排序。
+                      </p>
+                      {(runResult.auto_search_result?.results ?? []).length ? (
+                        <div className="mt-2 overflow-x-auto">
+                          <table className="min-w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                                <th className="px-2 py-2">Rank</th>
+                                <th className="px-2 py-2">predicted_score</th>
+                                <th className="px-2 py-2">validation_score（verified_score 相容欄位）</th>
+                                <th className="px-2 py-2">final_holdout_score</th>
+                                <th className="px-2 py-2">params</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(runResult.auto_search_result?.results ?? []).map((item) => {
+                                const validationScore = item.validation_score ?? item.verified_score;
+                                return (
+                                  <tr key={`ranking-auto-search-${item.rank}`} className="border-b border-[var(--color-border)]/60">
+                                    <td className="px-2 py-2">{item.rank}</td>
+                                    <td className="px-2 py-2">{item.predicted_score == null ? '--' : formatNumber(item.predicted_score)}</td>
+                                    <td className="px-2 py-2">{validationScore == null ? '--' : formatNumber(validationScore)}</td>
+                                    <td className="px-2 py-2">{item.final_holdout_score == null ? '--' : formatNumber(item.final_holdout_score)}</td>
+                                    <td className="px-2 py-2 font-mono text-[11px]">{JSON.stringify(item.params)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (runResult.ml_validation?.ml_candidate_ranking?.ranked_candidates ?? []).length ? (
+                        <div className="mt-2 overflow-x-auto">
+                          <table className="min-w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                                <th className="px-2 py-2">Rank</th>
+                                <th className="px-2 py-2">predicted_score</th>
+                                <th className="px-2 py-2">validation_score（verified_score 相容欄位）</th>
+                                <th className="px-2 py-2">final_holdout_score</th>
+                                <th className="px-2 py-2">params</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(runResult.ml_validation?.ml_candidate_ranking?.ranked_candidates ?? []).map((item) => (
+                                <tr key={`ranking-${item.rank}`} className="border-b border-[var(--color-border)]/60">
+                                  <td className="px-2 py-2">{item.rank}</td>
+                                  <td className="px-2 py-2">{formatNumber(item.predicted_score)}</td>
+                                  <td className="px-2 py-2">{formatNumber(item.verified_score)}</td>
+                                  <td className="px-2 py-2">--</td>
+                                  <td className="px-2 py-2 font-mono text-[11px]">{JSON.stringify(item.params)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">目前無可用 ranked candidates。</p>
+                      )}
+                    </div>
+
+                    {mlWarningBadges.length ? (
+                      <ul className="mt-3 space-y-2 text-sm">
+                        {mlWarningBadges.map((item, idx) => (
+                          <li key={`${item.message}-${idx}`} className={`rounded-lg border px-3 py-2 ${warningToneClass(item.level)}`}>
+                            {item.message}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {(runResult.auto_search_result?.warnings ?? []).length ? (
+                      <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-amber-700">
+                        {(runResult.auto_search_result?.warnings ?? []).map((item, idx) => (
+                          <li key={`auto-search-warning-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-[var(--color-text-muted)]">請先執行回測以產生 ML 驗證細節。</p>
+                )
               ) : null}
             </section>
           </>
@@ -700,4 +1640,3 @@ export default function CoreModePage() {
     </div>
   );
 }
-

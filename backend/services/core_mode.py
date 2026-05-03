@@ -17,14 +17,21 @@ from trend_core import (
     build_score_chart_payload,
     build_trend_reasoning,
     candidate_to_dict,
+    normalize_auto_search_settings,
     normalize_core_mode_params,
+    normalize_time_series_ml_settings,
     params_to_dict,
+    run_auto_parameter_search,
     run_core_mode_pipeline,
     search_best_core_mode_params,
     to_regime_dict,
     to_trade_dict,
 )
 from trend_core.core_mode_validation import ValidationConfig, evaluate_params_with_walk_forward
+from trend_core.core_mode_ml import (
+    build_disabled_time_series_validation_result,
+    evaluate_rule_based_with_time_series_split,
+)
 
 
 class CoreModeService:
@@ -211,7 +218,11 @@ class CoreModeService:
     def activate_preset(self, preset_id: str) -> dict[str, Any]:
         return self.preset_store.activate(preset_id)
 
-    def save_preset(self, *, name: str, description: str, params: dict[str, Any], preset_id: str | None = None) -> dict[str, Any]:
+    def save_preset(self, *, name: str, description: str, params: Any, preset_id: str | None = None) -> dict[str, Any]:
+        if hasattr(params, "model_dump"):
+            params = params.model_dump(exclude_none=True)
+        if not isinstance(params, dict):
+            raise ValueError("params 格式錯誤")
         return self.preset_store.create_or_update_preset(
             name=name,
             description=description,
@@ -315,12 +326,27 @@ class CoreModeService:
             raise ValueError("date_range.start_date 必須早於 end_date")
 
         params = normalize_core_mode_params(request.get("params") or {})
+        ml_settings = normalize_time_series_ml_settings(request.get("ml_settings") or {})
+        raw_auto_search_settings = dict(request.get("auto_search_settings") or {})
+        if not raw_auto_search_settings.get("symbols"):
+            raw_auto_search_settings["symbols"] = [symbol]
+        auto_search_settings = normalize_auto_search_settings(raw_auto_search_settings)
         validation_config = self._resolve_validation_config(request)
 
         all_rows = self._load_market_rows(symbol=symbol, start_date=start_date, end_date=end_date)
         eval_rows = [row for row in all_rows if start_date <= row.date <= end_date]
         if len(eval_rows) < 80:
             raise ValueError("可用資料不足，至少需要約 80 個交易日")
+
+        warnings: list[str] = []
+        auto_search_result: dict[str, Any] = {
+            "enabled": False,
+            "results": [],
+            "warnings": [],
+            "adaptive_trace": {"enabled": False, "stop_reason": None, "best_score_progression": [], "iterations": []},
+        }
+        if eval_rows and all(abs(row.news_score) <= 1e-9 for row in eval_rows):
+            warnings.append("news_score 在本次資料窗中皆為 0，weighted_news_weight 目前不會產生實際貢獻。")
 
         pipeline = run_core_mode_pipeline(eval_rows, params)
         latest_score = pipeline["scores"][-1]
@@ -370,6 +396,7 @@ class CoreModeService:
         }
         comparison_candidates: list[dict[str, Any]] = []
         coarse_stage_candidates: list[dict[str, Any]] = []
+        ranking_candidate_pool = [params]
 
         if run_optimization:
             search = search_best_core_mode_params(eval_rows, params, validation_config=validation_config)
@@ -390,13 +417,18 @@ class CoreModeService:
             )
             top_candidates = [candidate_to_dict(item) for item in search["top_candidates"]]
             coarse_stage_candidates = [candidate_to_dict(item) for item in search["coarse_top_candidates"]]
+            ranking_candidate_pool = [item.params for item in (search["coarse_top_candidates"] + search["top_candidates"])]
+            dedup_pool: list[Any] = []
+            seen_pool: set[tuple[Any, ...]] = set()
+            for item in ranking_candidate_pool:
+                key = tuple(params_to_dict(item).items())
+                if key in seen_pool:
+                    continue
+                seen_pool.add(key)
+                dedup_pool.append(item)
+            ranking_candidate_pool = dedup_pool
 
-            self.preset_store.replace_system_candidates(
-                best_return=best_return,
-                best_stable=best_stable,
-                best_balanced=best_balanced,
-                top_candidates=top_candidates,
-            )
+            warnings.append("optimization 結果僅回傳，不自動寫入 preset（Phase 5 保護機制）。")
 
             optimization_payload = {
                 "best_return_params": best_return,
@@ -411,10 +443,66 @@ class CoreModeService:
         else:
             comparison_candidates = [candidate_to_dict(selected_eval)]
 
+        if not ml_settings.enabled:
+            ml_validation = build_disabled_time_series_validation_result(ml_settings=ml_settings)
+        else:
+            ml_validation = evaluate_rule_based_with_time_series_split(
+                rows=eval_rows,
+                params=params,
+                ml_settings=ml_settings,
+                candidate_params=ranking_candidate_pool,
+            )
+            if ml_settings.enable_candidate_ranking:
+                if run_optimization:
+                    ml_validation.ml_candidate_ranking.warnings.append(
+                        "candidate pool 目前來自 optimization 的 coarse/top candidates（最小可行版本）。"
+                    )
+                else:
+                    ml_validation.ml_candidate_ranking.warnings.append(
+                        "run_optimization=false，candidate pool 僅包含當前參數。"
+                    )
+
         summary = pipeline["summary"]
         summary_dict = asdict(summary)
         # 主摘要的 stability 要與 walk-forward 聚合一致，避免顯示固定 0。
         summary_dict["stability"] = selected_eval.aggregate_summary.stability
+
+        if auto_search_settings.enabled:
+            rows_by_symbol: dict[str, list[MarketRow]] = {}
+            for auto_symbol in auto_search_settings.symbols:
+                if auto_symbol == symbol:
+                    rows_by_symbol[auto_symbol] = eval_rows
+                    continue
+                auto_rows = self._load_market_rows(symbol=auto_symbol, start_date=start_date, end_date=end_date)
+                rows_by_symbol[auto_symbol] = [row for row in auto_rows if start_date <= row.date <= end_date]
+
+            try:
+                _, active_params, _ = self.preset_store.get_active_params()
+                auto_search_result = run_auto_parameter_search(
+                    settings=auto_search_settings,
+                    rows_by_symbol=rows_by_symbol,
+                    active_params=active_params,
+                    base_params=params,
+                    ml_settings=ml_settings,
+                    validation_config=validation_config,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                auto_search_result = {
+                    "enabled": True,
+                    "mode": auto_search_settings.mode,
+                    "symbols": list(auto_search_settings.symbols),
+                    "top_n": auto_search_settings.top_n,
+                    "candidate_count": 0,
+                    "evaluated_candidate_count": 0,
+                    "final_verified_count": 0,
+                    "ranking_basis": "verified_score" if auto_search_settings.mode == "single_stock_search" else "cross_stock_score",
+                    "results": [],
+                    "warnings": [
+                        "自動參數搜尋執行失敗，已跳過本次結果。",
+                        str(exc),
+                    ],
+                    "adaptive_trace": {"enabled": False, "stop_reason": None, "best_score_progression": [], "iterations": []},
+                }
 
         return {
             "meta": {
@@ -438,6 +526,7 @@ class CoreModeService:
                 "tail_execution_policy": "訊號日 n、成交日 n+1；尾端無 n+1 時不開新倉，且未平倉部位不以同日 close 強平、直接排除績效",
                 "tail_position_excluded": bool(pipeline.get("backtest_meta", {}).get("tail_position_excluded")),
             },
+            "warnings": warnings,
             "summary": {
                 **summary_dict,
                 "used_params": params_to_dict(params),
@@ -479,6 +568,8 @@ class CoreModeService:
             "comparison_candidates": comparison_candidates,
             "coarse_stage_candidates": coarse_stage_candidates,
             "optimization": optimization_payload,
+            "ml_validation": asdict(ml_validation),
+            "auto_search_result": auto_search_result,
             "active_preset": self.preset_store.list_presets().get("active_preset"),
         }
 
@@ -513,6 +604,9 @@ class CoreModeService:
             signal_status=signal_status,
             reason_points=latest_signal.reason_points,
         )
+        warnings: list[str] = []
+        if eval_rows and all(abs(row.news_score) <= 1e-9 for row in eval_rows):
+            warnings.append("news_score 在本次資料窗中皆為 0，weighted_news_weight 目前不會產生實際貢獻。")
 
         return {
             "symbol": symbol,
@@ -547,4 +641,5 @@ class CoreModeService:
             "reason_points": decision_payload["reason_points"],
             "action_suggestion": decision_payload["action_suggestion"],
             "key_risks": decision_payload["key_risks"],
+            "warnings": warnings,
         }

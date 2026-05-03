@@ -120,7 +120,12 @@ def compute_feature_rows(rows: list[MarketRow], params: CoreModeParams) -> list[
         if row.k_value is not None and row.d_value is not None:
             kd_score = clip((row.k_value - row.d_value) / 20.0)
 
-        technical_score = clip((0.40 * ma_score) + (0.25 * macd_score) + (0.20 * rsi_score) + (0.15 * kd_score))
+        technical_score = clip(
+            (params.technical_ma_weight * ma_score)
+            + (params.technical_macd_weight * macd_score)
+            + (params.technical_rsi_weight * rsi_score)
+            + (params.technical_kd_weight * kd_score)
+        )
 
         institutional_window = _window(total_nets, idx, 20, include_current=True)
         sum_net = sum(institutional_window)
@@ -137,10 +142,10 @@ def compute_feature_rows(rows: list[MarketRow], params: CoreModeParams) -> list[
         news_score = clip(row.news_score)
 
         weighted_score = clip(
-            (0.38 * technical_score)
-            + (0.30 * institutional_score)
-            + (0.15 * news_score)
-            + (0.17 * momentum_score)
+            (params.weighted_technical_weight * technical_score)
+            + (params.weighted_institutional_weight * institutional_score)
+            + (params.weighted_news_weight * news_score)
+            + (params.weighted_momentum_weight * momentum_score)
         )
 
         features.append(
@@ -182,22 +187,22 @@ def compute_score_rows(rows: list[MarketRow], features: list[FeatureRow], params
         efficiency_score = clip((feature.trend_efficiency - 0.5) / 0.5)
 
         state_score = clip(
-            (0.55 * feature.weighted_score)
-            + (0.25 * feature.momentum_score)
-            + (0.20 * feature.institutional_score)
+            (params.state_weighted_score_weight * feature.weighted_score)
+            + (params.state_momentum_weight * feature.momentum_score)
+            + (params.state_institutional_weight * feature.institutional_score)
         )
 
         trend_shape_score = clip(
-            (0.35 * feature.breakout_strength)
-            + (0.25 * slope_score)
-            + (0.25 * efficiency_score)
-            + (0.15 * pullback_score)
+            (params.shape_breakout_weight * feature.breakout_strength)
+            + (params.shape_slope_weight * slope_score)
+            + (params.shape_efficiency_weight * efficiency_score)
+            + (params.shape_pullback_weight * pullback_score)
         )
 
         trend_score = clip(
-            (0.45 * state_score)
-            + (0.35 * trend_shape_score)
-            + (0.20 * feature.breakout_strength)
+            (params.trend_state_weight * state_score)
+            + (params.trend_shape_weight * trend_shape_score)
+            + (params.trend_breakout_weight * feature.breakout_strength)
         )
 
         breakout_pass = feature.breakout_strength > 0.10

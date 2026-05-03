@@ -30,6 +30,12 @@ interface MarkerDetail {
   detail: string;
 }
 
+interface ChartMarkerSourceItem {
+  time: string;
+  position: 'aboveBar' | 'belowBar';
+  type: AdvisorMarkerType;
+}
+
 interface TrendOverlayData {
   date: string;
   close: number;
@@ -198,6 +204,53 @@ function getVolumeInterpretationText(volumeStateText: VolumeInsight['volumeState
   return '目前成交量資料不足，暫時無法判斷量能是否支持趨勢。';
 }
 
+function buildDisplayMarkers(rawMarkers: CoreModePriceChartData['markers'], options: { showSignalMarkers: boolean }): ChartMarkerSourceItem[] {
+  const groupedByDate = new Map<string, ChartMarkerSourceItem[]>();
+
+  rawMarkers.forEach((marker) => {
+    const markerType = toMarkerType(marker.type);
+    if (!markerType) return;
+    const list = groupedByDate.get(marker.time) ?? [];
+    list.push({
+      time: marker.time,
+      position: marker.position,
+      type: markerType,
+    });
+    groupedByDate.set(marker.time, list);
+  });
+
+  const filtered: ChartMarkerSourceItem[] = [];
+  groupedByDate.forEach((dateMarkers) => {
+    const hasEntry = dateMarkers.some((marker) => marker.type === 'entry');
+    const hasExit = dateMarkers.some((marker) => marker.type === 'exit');
+    const hasActualTrade = hasEntry || hasExit;
+    const dedupedByType = new Map<AdvisorMarkerType, ChartMarkerSourceItem>();
+    dateMarkers.forEach((marker) => {
+      if (!dedupedByType.has(marker.type)) {
+        dedupedByType.set(marker.type, marker);
+      }
+    });
+
+    if (hasActualTrade) {
+      const entry = dedupedByType.get('entry');
+      const exit = dedupedByType.get('exit');
+      if (entry) filtered.push(entry);
+      if (exit) filtered.push(exit);
+      return;
+    }
+
+    if (!options.showSignalMarkers) return;
+
+    const buySignal = dedupedByType.get('state_buy');
+    const sellSignal = dedupedByType.get('state_sell');
+    if (buySignal) filtered.push(buySignal);
+    if (sellSignal) filtered.push(sellSignal);
+    // state_hold is intentionally hidden on the main chart.
+  });
+
+  return filtered;
+}
+
 export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -209,6 +262,12 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
   const markerPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const latestOverlayRef = useRef<TrendOverlayData | null>(null);
   const overlayKeyRef = useRef<string>('');
+  const [showSignalMarkers, setShowSignalMarkers] = useState(false);
+
+  const displayMarkers = useMemo(
+    () => buildDisplayMarkers(data.markers, { showSignalMarkers }),
+    [data.markers, showSignalMarkers]
+  );
 
   const markerDetailsByDate = useMemo(() => {
     const map = new Map<string, MarkerDetail[]>();
@@ -514,10 +573,8 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
     ma20SeriesRef.current.setData(ma20);
     ma60SeriesRef.current.setData(ma60);
 
-    const markers = data.markers.reduce<SeriesMarkerBar<Time>[]>((acc, marker) => {
-      const markerType = toMarkerType(marker.type);
-      if (!markerType) return acc;
-      const markerConfig = MARKER_CONFIG_BY_TYPE[markerType];
+    const markers = displayMarkers.reduce<SeriesMarkerBar<Time>[]>((acc, marker) => {
+      const markerConfig = MARKER_CONFIG_BY_TYPE[marker.type];
       acc.push({
         time: toTime(marker.time),
         position: marker.position as SeriesMarkerBar<Time>['position'],
@@ -557,7 +614,7 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
 
     const visibleRange = getInitialVisibleRange();
     chartRef.current?.timeScale().setVisibleRange(visibleRange);
-  }, [data, ma20ByDate, ma60ByDate, markerDetailsByDate, volumeByDate, priceChangeLabelByDate, volumeInsight.ma20Volume]);
+  }, [data, displayMarkers, ma20ByDate, ma60ByDate, markerDetailsByDate, volumeByDate, priceChangeLabelByDate, volumeInsight.ma20Volume]);
 
   return (
     <>
@@ -578,18 +635,43 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
           </span>
         </div>
         <div className="mt-3 mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">策略標記</div>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-[var(--color-text-muted)]">主圖顯示：</span>
+          <button
+            type="button"
+            onClick={() => setShowSignalMarkers(false)}
+            className={`rounded-md border px-2 py-1 transition ${
+              showSignalMarkers
+                ? 'border-[var(--color-border)] bg-white/70 text-[var(--color-text-secondary)]'
+                : 'border-slate-400 bg-slate-100 text-slate-900'
+            }`}
+          >
+            只顯示實際交易
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSignalMarkers(true)}
+            className={`rounded-md border px-2 py-1 transition ${
+              showSignalMarkers
+                ? 'border-slate-400 bg-slate-100 text-slate-900'
+                : 'border-[var(--color-border)] bg-white/70 text-[var(--color-text-secondary)]'
+            }`}
+          >
+            顯示交易與訊號
+          </button>
+        </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
             <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: CHART_MARKERS.buySignal.color }} />
-            {CHART_MARKERS.buySignal.text}
+            {CHART_MARKERS.buySignal.text}（訊號）
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
             <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: CHART_MARKERS.sellSignal.color }} />
-            {CHART_MARKERS.sellSignal.text}
+            {CHART_MARKERS.sellSignal.text}（訊號）
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_MARKERS.hold.color }} />
-            {CHART_MARKERS.hold.text}
+            {CHART_MARKERS.hold.text}（僅 tooltip）
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
             <span className="font-black" style={{ color: CHART_MARKERS.actualBuy.color }}>▲</span>
@@ -599,6 +681,9 @@ export const CoreModePriceChart: React.FC<Props> = ({ data }) => {
             <span className="font-black" style={{ color: CHART_MARKERS.actualSell.color }}>▼</span>
             {CHART_MARKERS.actualSell.text}
           </span>
+        </div>
+        <div className="mt-2 rounded-md border border-[var(--color-border)] bg-white/60 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">
+          買進 / 賣出代表回測中的實際交易動作；買訊 / 賣訊代表策略訊號，不一定代表成交；持平為中性狀態，預設顯示於 tooltip 或狀態摘要，不顯示在主圖上。
         </div>
         <div className="mt-3 rounded-md border border-[var(--color-border)] bg-white/60 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">
           下方紅綠柱代表每日成交量，柱子越高代表當天交易越熱絡。紅色代表上漲日成交量、綠色代表下跌日成交量。成交量用來輔助判斷趨勢強弱，不是直接買賣訊號。
