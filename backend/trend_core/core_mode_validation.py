@@ -390,21 +390,62 @@ def _dedupe_params(params_list: list[CoreModeParams]) -> list[CoreModeParams]:
     seen: set[tuple[Any, ...]] = set()
     out: list[CoreModeParams] = []
     for item in params_list:
-        key = (
-            item.breakout_lookback,
-            item.momentum_window,
-            round(item.state_threshold, 4),
-            round(item.shape_threshold, 4),
-            round(item.trend_threshold, 4),
-            round(item.max_pullback_depth, 4),
-            round(item.hard_stop_pct, 4),
-            round(item.trailing_stop_pct, 4),
-        )
+        key = tuple(params_to_dict(item).items())
         if key in seen:
             continue
         seen.add(key)
         out.append(item)
     return out
+
+
+def _weighted_profiles() -> dict[str, dict[str, float]]:
+    return {
+        "balanced": {
+            "weighted_technical_weight": 0.38,
+            "weighted_institutional_weight": 0.30,
+            "weighted_news_weight": 0.15,
+            "weighted_momentum_weight": 0.17,
+        },
+        "technical_first": {
+            "weighted_technical_weight": 0.55,
+            "weighted_institutional_weight": 0.20,
+            "weighted_news_weight": 0.05,
+            "weighted_momentum_weight": 0.20,
+        },
+        "institutional_first": {
+            "weighted_technical_weight": 0.25,
+            "weighted_institutional_weight": 0.50,
+            "weighted_news_weight": 0.05,
+            "weighted_momentum_weight": 0.20,
+        },
+        "momentum_first": {
+            "weighted_technical_weight": 0.25,
+            "weighted_institutional_weight": 0.20,
+            "weighted_news_weight": 0.05,
+            "weighted_momentum_weight": 0.50,
+        },
+        "technical_institutional_balance": {
+            "weighted_technical_weight": 0.45,
+            "weighted_institutional_weight": 0.35,
+            "weighted_news_weight": 0.05,
+            "weighted_momentum_weight": 0.15,
+        },
+        "low_news": {
+            "weighted_technical_weight": 0.42,
+            "weighted_institutional_weight": 0.33,
+            "weighted_news_weight": 0.00,
+            "weighted_momentum_weight": 0.25,
+        },
+    }
+
+
+def _build_weighted_profile_candidates(seed_params: list[CoreModeParams]) -> list[CoreModeParams]:
+    profiled: list[CoreModeParams] = []
+    for base in seed_params:
+        base_dict = params_to_dict(base)
+        for profile_weights in _weighted_profiles().values():
+            profiled.append(CoreModeParams(**{**base_dict, **profile_weights}))
+    return _dedupe_params(profiled)
 
 
 def _search_profile(total_rows: int) -> dict[str, Any]:
@@ -648,8 +689,9 @@ def search_best_core_mode_params(
     coarse_top_k = min(profile["coarse_top_k"], len(coarse_results))
     coarse_top_candidates = coarse_results[:coarse_top_k]
     seed = [item.params for item in coarse_top_candidates[: profile["seed_k"]]]
+    weighted_profile_seed = _build_weighted_profile_candidates(seed)
 
-    refined_candidates, refinement_meta = _local_refinement_candidates(seed, total_rows=len(rows))
+    refined_candidates, refinement_meta = _local_refinement_candidates(weighted_profile_seed, total_rows=len(rows))
     refined_results = evaluate_candidates(rows, refined_candidates, validation_config=validation_config)
 
     all_results = coarse_results + refined_results
@@ -678,6 +720,8 @@ def search_best_core_mode_params(
         "refined_count": len(refined_results),
         "search_space": {
             **coarse_meta,
+            "weighted_profiles": _weighted_profiles(),
+            "weighted_profile_seed_count": len(weighted_profile_seed),
             "refinement": refinement_meta,
         },
         "validation_design": build_validation_design(rows, validation_config=validation_config),

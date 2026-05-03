@@ -9,6 +9,8 @@ import type {
   CoreModeSchemaResponse,
 } from '../types/coreMode';
 
+const CORE_MODE_BACKTEST_TIMEOUT_MS = 900000;
+
 export async function fetchCoreModeSchema(): Promise<CoreModeSchemaResponse> {
   const { data } = await apiClient.get<CoreModeSchemaResponse>('/api/backtest/core-mode/schema');
   return data;
@@ -34,7 +36,7 @@ export async function activateCoreModePreset(presetId: string): Promise<CoreMode
 
 export async function runCoreModeBacktest(req: CoreModeRunRequest): Promise<CoreModeRunResponse> {
   const { data } = await apiClient.post<CoreModeRunResponse>('/api/backtest/core-mode/run', req, {
-    timeout: 240000,
+    timeout: CORE_MODE_BACKTEST_TIMEOUT_MS,
   });
   return data;
 }

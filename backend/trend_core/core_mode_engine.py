@@ -120,7 +120,12 @@ def compute_feature_rows(rows: list[MarketRow], params: CoreModeParams) -> list[
         if row.k_value is not None and row.d_value is not None:
             kd_score = clip((row.k_value - row.d_value) / 20.0)
 
-        technical_score = clip((0.40 * ma_score) + (0.25 * macd_score) + (0.20 * rsi_score) + (0.15 * kd_score))
+        technical_score = clip(
+            (params.technical_ma_weight * ma_score)
+            + (params.technical_macd_weight * macd_score)
+            + (params.technical_rsi_weight * rsi_score)
+            + (params.technical_kd_weight * kd_score)
+        )
 
         institutional_window = _window(total_nets, idx, 20, include_current=True)
         sum_net = sum(institutional_window)
@@ -137,10 +142,10 @@ def compute_feature_rows(rows: list[MarketRow], params: CoreModeParams) -> list[
         news_score = clip(row.news_score)
 
         weighted_score = clip(
-            (0.38 * technical_score)
-            + (0.30 * institutional_score)
-            + (0.15 * news_score)
-            + (0.17 * momentum_score)
+            (params.weighted_technical_weight * technical_score)
+            + (params.weighted_institutional_weight * institutional_score)
+            + (params.weighted_news_weight * news_score)
+            + (params.weighted_momentum_weight * momentum_score)
         )
 
         features.append(
@@ -182,22 +187,22 @@ def compute_score_rows(rows: list[MarketRow], features: list[FeatureRow], params
         efficiency_score = clip((feature.trend_efficiency - 0.5) / 0.5)
 
         state_score = clip(
-            (0.55 * feature.weighted_score)
-            + (0.25 * feature.momentum_score)
-            + (0.20 * feature.institutional_score)
+            (params.state_weighted_score_weight * feature.weighted_score)
+            + (params.state_momentum_weight * feature.momentum_score)
+            + (params.state_institutional_weight * feature.institutional_score)
         )
 
         trend_shape_score = clip(
-            (0.35 * feature.breakout_strength)
-            + (0.25 * slope_score)
-            + (0.25 * efficiency_score)
-            + (0.15 * pullback_score)
+            (params.shape_breakout_weight * feature.breakout_strength)
+            + (params.shape_slope_weight * slope_score)
+            + (params.shape_efficiency_weight * efficiency_score)
+            + (params.shape_pullback_weight * pullback_score)
         )
 
         trend_score = clip(
-            (0.45 * state_score)
-            + (0.35 * trend_shape_score)
-            + (0.20 * feature.breakout_strength)
+            (params.trend_state_weight * state_score)
+            + (params.trend_shape_weight * trend_shape_score)
+            + (params.trend_breakout_weight * feature.breakout_strength)
         )
 
         breakout_pass = feature.breakout_strength > 0.10
@@ -637,7 +642,7 @@ def build_price_chart_payload(
                         "time": day,
                         "position": "belowBar",
                         "shape": "arrowUp",
-                        "color": "#ef4444",
+                        "color": "#F43F5E",
                         "text": "訊號：轉為買進",
                         "type": "state_buy",
                     }
@@ -648,7 +653,7 @@ def build_price_chart_payload(
                         "time": day,
                         "position": "aboveBar",
                         "shape": "arrowDown",
-                        "color": "#22c55e",
+                        "color": "#10B981",
                         "text": "訊號：轉為賣出",
                         "type": "state_sell",
                     }
@@ -659,53 +664,20 @@ def build_price_chart_payload(
                         "time": day,
                         "position": "aboveBar",
                         "shape": "circle",
-                        "color": "#64748b",
+                        "color": "#F59E0B",
                         "text": "訊號：轉為持平",
                         "type": "state_hold",
                     }
                 )
             previous_action = action
 
-        if signal.early_signal:
-            markers.append(
-                {
-                    "time": day,
-                    "position": "belowBar",
-                    "shape": "circle",
-                    "color": "#f59e0b",
-                    "text": signal.early_signal,
-                    "type": "early",
-                }
-            )
-        if signal.formal_signal:
-            markers.append(
-                {
-                    "time": day,
-                    "position": "belowBar",
-                    "shape": "arrowUp",
-                    "color": "#ef4444",
-                    "text": signal.formal_signal,
-                    "type": "formal",
-                }
-            )
-        if not score.pullback_ok:
-            markers.append(
-                {
-                    "time": day,
-                    "position": "aboveBar",
-                    "shape": "arrowDown",
-                    "color": "#f97316",
-                    "text": "拉回過深",
-                    "type": "failure",
-                }
-            )
         if row.date in trade_entry_dates:
             markers.append(
                 {
                     "time": day,
                     "position": "belowBar",
                     "shape": "arrowUp",
-                    "color": "#0ea5e9",
+                    "color": "#DC2626",
                     "text": f"成交買進：{trade_entry_dates[row.date].entry_reason}",
                     "type": "entry",
                 }
@@ -716,7 +688,7 @@ def build_price_chart_payload(
                     "time": day,
                     "position": "aboveBar",
                     "shape": "arrowDown",
-                    "color": "#22c55e",
+                    "color": "#059669",
                     "text": f"賣出：{trade_exit_dates[row.date].exit_reason}",
                     "type": "exit",
                 }

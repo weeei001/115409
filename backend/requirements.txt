@@ -33,3 +33,6 @@ schedule==1.2.2
 # --- Tests ---
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+
+# --- ML (Phase 1 placeholder) ---
+scikit-learn>=1.5.0

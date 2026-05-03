@@ -36,8 +36,8 @@ export const VirtualTradeTable: React.FC<Props> = ({ trades }) => {
         <div>出場價</div>
         <div>報酬率</div>
         <div>持有天數</div>
-        <div>MFE</div>
-        <div>MAE</div>
+        <div>最大有利波動</div>
+        <div>最大不利波動</div>
         <div>進場理由</div>
         <div>出場理由</div>
       </div>

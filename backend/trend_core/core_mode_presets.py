@@ -8,6 +8,7 @@ from typing import Any
 
 from .core_mode_types import (
     CORE_MODE_PARAM_SCHEMA,
+    CORE_MODE_WEIGHT_GROUPS,
     CoreModeParams,
     DEFAULT_CORE_MODE_PARAMS,
     normalize_core_mode_params,
@@ -286,8 +287,9 @@ def build_core_mode_schema_payload() -> dict[str, Any]:
     return {
         "mode": "core_mode",
         "title": "核心模式參數設定",
-        "description": "先用 8 個核心參數做穩健調參，避免高維度過度擬合。",
+        "description": "以 8 個核心參數搭配分數權重做穩健調參，避免高維度過度擬合。",
         "params": CORE_MODE_PARAM_SCHEMA,
+        "weight_groups": CORE_MODE_WEIGHT_GROUPS,
         "default_params": params_to_dict(DEFAULT_CORE_MODE_PARAMS),
         "default_active_policy": "優先啟用 best_stable 或 best_balanced",
     }

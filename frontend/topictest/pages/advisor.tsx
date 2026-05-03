@@ -17,11 +17,14 @@ import { toast } from 'sonner';
 import { SubpageHeader } from '../components/SubpageHeader';
 import {
   fetchAdvisorReportProgressive,
+  summarizeAdvisorSignals,
+  type AdvisorSignalPoint,
   type AdvisorBacktestView,
   type AdvisorFetchProgress,
 } from '../lib/api/advisor';
 import { CoreModePriceChart } from '../components/core-mode/CoreModePriceChart';
 import { fetchSymbols } from '../lib/api/stock';
+import { formatVolumeShares } from '../lib/utils/format';
 import type {
   AdvisorAction,
   AdvisorPartialDataEvent,
@@ -60,19 +63,19 @@ function createInitialSteps(): StepView[] {
 }
 
 function actionHintText(action: AdvisorAction): string {
-  if (action === 'buy') return '可續抱或分批布局';
-  if (action === 'sell') return '建議降低持股或暫避風險';
-  return '建議先觀察，不急著進場';
+  if (action === 'buy') return '買入｜趨勢轉強，可考慮分批布局';
+  if (action === 'sell') return '賣出｜趨勢轉弱，建議降低部位';
+  return '持平｜建議先觀察，不急著進場';
 }
 
 function recommendationClass(action: AdvisorAction): string {
   if (action === 'buy') {
-    return 'bg-down-muted text-down';
+    return 'bg-rose-50 text-rose-700 border border-rose-200';
   }
   if (action === 'sell') {
-    return 'bg-up-muted text-up';
+    return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
   }
-  return 'bg-brand/10 text-brand-deep dark:bg-brand/15 dark:text-brand-light';
+  return 'bg-amber-50 text-amber-700 border border-amber-200';
 }
 
 function weightedScoreClass(score: number): string {
@@ -101,7 +104,7 @@ function toDisplayString(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
   if (typeof value === 'string') return value;
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'boolean') return value ? '是' : '否';
   return String(value);
 }
 
@@ -175,36 +178,170 @@ function getColumns(dataset: DisplayDataset): Array<{ key: string; label: string
   ];
 }
 function recommendationText(action: AdvisorAction): string {
-  if (action === 'buy') return '偏多';
-  if (action === 'sell') return '偏空';
-  return '觀望';
-}
-function getInvestorToneSummary(report: AdvisorReport): string {
-  const action = report.recommendation;
-
-  if (action === 'buy') {
-    return `${report.symbol} 目前偏多，股價趨勢、技術動能與籌碼面整體偏正向。已有持股者可續抱觀察；尚未進場者不建議一次追高，可等待拉回或分批布局。`;
-  }
-
-  if (action === 'sell') {
-    return `${report.symbol} 目前偏空，短線風險升高，建議降低持股或先暫避風險。若後續股價重新站回關鍵位置，再重新評估是否進場。`;
-  }
-
-  return `${report.symbol} 目前方向不明，建議先觀望。等待股價、技術面與籌碼面出現更一致的訊號後，再考慮進場。`;
+  if (action === 'buy') return '買入';
+  if (action === 'sell') return '賣出';
+  return '持平';
 }
 
-function getRiskToneText(report: AdvisorReport): string {
-  if (report.risk_notes) return report.risk_notes;
+function signalPointLabel(point: AdvisorSignalPoint | null): string {
+  if (!point) return '—';
+  if (point.action === 'buy') return '買入';
+  if (point.action === 'sell') return '賣出';
+  if (point.action === 'hold') return '持平';
+  return '—';
+}
+
+function signalPointTime(point: AdvisorSignalPoint | null): string {
+  return point?.time ?? '—';
+}
+
+function buildReasonList(report: AdvisorReport): string[] {
+  const raw = [report.reasoning, report.summary, report.recommendation_text]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .flatMap((value) =>
+      value
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+    );
+  const picked = raw.slice(0, 3);
+  if (picked.length >= 2) return picked;
+  if (picked.length === 1) return [picked[0], '—'];
+  return ['—', '—'];
+}
+
+function buildMaPositionSummary(params: {
+  relativeToMA20: 'above' | 'below' | 'equal' | 'unknown';
+  relativeToMA60: 'above' | 'below' | 'equal' | 'unknown';
+}): string {
+  const toText = (target: string, relation: 'above' | 'below' | 'equal' | 'unknown'): string => {
+    if (relation === 'above') return `站上 ${target}`;
+    if (relation === 'below') return `低於 ${target}`;
+    if (relation === 'equal') return `等於 ${target}`;
+    return `${target} 資料不足`;
+  };
+
+  const t20 = toText('MA20', params.relativeToMA20);
+  const t60 = toText('MA60', params.relativeToMA60);
+  return `目前收盤相對均線：${t20}，${t60}`;
+}
+
+function getTrendLabel(recommendation: AdvisorAction): string {
+  if (recommendation === 'buy') return '持平偏多';
+  if (recommendation === 'sell') return '持平偏空';
+  return '持平整理';
+}
+
+function getTrendSummaryText(signalSummary: ReturnType<typeof summarizeAdvisorSignals>): string {
+  if (signalSummary.relativeToMA20 === 'above' && signalSummary.relativeToMA60 === 'above') {
+    return '股價 > MA20 > MA60，短中期趨勢偏多。';
+  }
+  if (signalSummary.relativeToMA20 === 'below' && signalSummary.relativeToMA60 === 'below') {
+    return '股價 < MA20 < MA60，短中期趨勢偏空。';
+  }
+  return '股價與均線位置交錯，短中期趨勢偏整理。';
+}
+
+function getMaStructureSummary(signalSummary: ReturnType<typeof summarizeAdvisorSignals>): string {
+  if (signalSummary.relativeToMA20 === 'above' && signalSummary.relativeToMA60 === 'above') {
+    return '股價 > MA20 > MA60';
+  }
+  if (signalSummary.relativeToMA20 === 'below' && signalSummary.relativeToMA60 === 'below') {
+    return '股價 < MA20 < MA60';
+  }
+  return '股價與均線交錯';
+}
+
+function getVolumeInsight(backtestResult: AdvisorBacktestView | null): {
+  latest: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  ma20DiffPct: number | null;
+  status: string;
+} {
+  const priceChart = backtestResult?.price_chart;
+  if (!priceChart?.volume?.length) {
+    return { latest: null, ma20: null, ma60: null, ma20DiffPct: null, status: '無資料' };
+  }
+  const latestTime = priceChart.candles[priceChart.candles.length - 1].time;
+  const volumePoint = priceChart.volume.find((item) => item.time === latestTime);
+  const latest = volumePoint && Number.isFinite(volumePoint.value) ? volumePoint.value : null;
+  const volumes = priceChart.volume.map((item) => item.value).filter((value) => Number.isFinite(value));
+  const avg = (windowSize: number): number | null => {
+    const segment = volumes.slice(-windowSize);
+    if (!segment.length) return null;
+    return segment.reduce((acc, curr) => acc + curr, 0) / segment.length;
+  };
+  const ma20 = avg(20);
+  const ma60 = avg(60);
+  const ma20DiffPct = latest !== null && ma20 !== null && ma20 > 0 ? ((latest - ma20) / ma20) * 100 : null;
+  let status = '無資料';
+  if (ma20DiffPct !== null) {
+    if (Math.abs(ma20DiffPct) <= 5) {
+      status = '接近均量';
+    } else {
+      status = ma20DiffPct >= 0 ? '量增' : '量縮';
+    }
+  }
+  return { latest, ma20, ma60, ma20DiffPct, status };
+}
+
+function normalizeReasonText(text: string): string {
+  if (text.includes('型態分數是否達標未通過')) return '目前突破力道不足，趨勢還沒有明確延續。';
+  if (text.includes('綜合趨勢分數是否達標未通過')) return '訊號信心偏低，價格可能仍在盤整區間。';
+  if (text.includes('有效趨勢訊號不足')) return '尚未出現明確買盤確認，建議先觀察。';
+  if (text.includes('尚未成有效突破結構')) return '尚未形成明確突破，建議等待更清楚的趨勢訊號。';
+  return text;
+}
+
+function getRiskToneText(report: AdvisorReport, signalSummary: ReturnType<typeof summarizeAdvisorSignals>): string {
+  if (report.risk_notes && report.risk_notes.trim()) return normalizeReasonText(report.risk_notes);
+  const maRisk =
+    signalSummary.relativeToMA20 === 'below' && signalSummary.relativeToMA60 === 'below'
+      ? '目前已跌破 MA20 與 MA60，中期結構轉弱風險較高。'
+      : '若股價跌破 MA20，短線可能轉弱；若進一步跌破 MA60，代表中期結構轉差。';
 
   if (report.recommendation === 'buy') {
-    return '短線若漲幅過快，追價風險會升高。建議設定停損，並留意是否跌破近期支撐。';
+    return `訊號雖偏多，但仍需留意追價風險。${maRisk}因此建議分批布局，不宜一次重倉。`;
   }
 
   if (report.recommendation === 'sell') {
-    return '若股價快速反彈並站回關鍵均線，偏空判斷可能需要重新評估。';
+    return `目前結構偏弱，反彈若無法站回 MA20，弱勢延續機率較高。${maRisk}`;
   }
 
-  return '目前訊號尚未明朗，過早進場容易承擔不必要波動。';
+  return `目前訊號信心偏低，價格可能仍在盤整區間。${maRisk}因此目前不建議重倉，較適合觀察或小部位測試。`;
+}
+
+function mapActionToLabel(action: AdvisorAction): '買入' | '賣出' | '持平' {
+  if (action === 'buy') return '買入';
+  if (action === 'sell') return '賣出';
+  return '持平';
+}
+
+function buildSignalConflictText(params: {
+  recommendation: AdvisorAction;
+  signalLabel: string;
+  volumeStatus: string;
+}): string | null {
+  const recommendationLabel = mapActionToLabel(params.recommendation);
+  const signalLabel = params.signalLabel === '—' ? '持平' : params.signalLabel;
+  if (signalLabel === recommendationLabel) return null;
+
+  if (signalLabel === '買入' && recommendationLabel === '持平') {
+    return '策略訊號偏買入，但最終建議仍為持平，原因是目前尚未出現明確追價確認，進場信心仍不足。';
+  }
+  if (signalLabel === '賣出' && recommendationLabel === '持平') {
+    return '策略訊號偏賣出，但最終建議仍為持平，代表系統判斷雖有轉弱跡象，仍需等待進一步跌破確認。';
+  }
+  if (signalLabel === '持平' && recommendationLabel === '買入') {
+    return params.volumeStatus === '量增'
+      ? '策略訊號目前仍為持平，但最終建議轉為買入，主因是均線與價格結構偏多，且量能放大提供了額外確認。'
+      : '策略訊號目前仍為持平，但最終建議轉為買入，主因是均線與價格結構改善，系統評估可先採分批進場。';
+  }
+  if (signalLabel === '持平' && recommendationLabel === '賣出') {
+    return '策略訊號目前仍為持平，但最終建議轉為賣出，主因是價格與均線結構轉弱，系統優先建議降低部位風險。';
+  }
+  return `策略訊號為${signalLabel}，但最終建議為${recommendationLabel}；系統綜合均線結構、股價位置與量能後，採取較保守的操作建議。`;
 }
 
 function StepIcon({ status }: { status: AdvisorStepStatus }) {
@@ -272,6 +409,50 @@ export default function AdvisorPage() {
     const date = new Date(report.generated_at);
     return Number.isNaN(date.getTime()) ? report.generated_at : date.toLocaleString('zh-TW');
   }, [report?.generated_at]);
+
+  const signalSummary = useMemo(
+    () => summarizeAdvisorSignals(backtestResult?.price_chart ?? null),
+    [backtestResult?.price_chart]
+  );
+  const keyReasons = useMemo(
+    () => (report ? buildReasonList(report).map((item) => normalizeReasonText(item)) : []),
+    [report]
+  );
+  const maPositionSummary = useMemo(
+    () =>
+      buildMaPositionSummary({
+        relativeToMA20: signalSummary.relativeToMA20,
+        relativeToMA60: signalSummary.relativeToMA60,
+      }),
+    [signalSummary.relativeToMA20, signalSummary.relativeToMA60]
+  );
+  const volumeInsight = useMemo(() => getVolumeInsight(backtestResult), [backtestResult]);
+  const signalLabel = useMemo(() => signalPointLabel(signalSummary.currentSignal), [signalSummary.currentSignal]);
+  const maStructureLabel = useMemo(() => {
+    const trendSummary = getTrendSummaryText(signalSummary);
+    if (trendSummary.includes('偏多')) return '偏多';
+    if (trendSummary.includes('偏空')) return '偏空';
+    return '盤整';
+  }, [signalSummary]);
+  const maPositionLabel = useMemo(
+    () => maPositionSummary.replace('目前收盤相對均線：', ''),
+    [maPositionSummary]
+  );
+  const volumeConfirmLabel = useMemo(() => {
+    if (volumeInsight.status === '量增') return '充足';
+    if (volumeInsight.status === '量縮') return '不足';
+    if (volumeInsight.status === '接近均量') return '中性';
+    return '無資料';
+  }, [volumeInsight.status]);
+  const signalConflictText = useMemo(
+    () =>
+      buildSignalConflictText({
+        recommendation: report?.recommendation ?? 'wait',
+        signalLabel,
+        volumeStatus: volumeInsight.status,
+      }),
+    [report?.recommendation, signalLabel, volumeInsight.status]
+  );
 
   const showTracker = loading || steps.some((s) => s.status !== 'pending');
   const showPartialCards =
@@ -641,7 +822,12 @@ export default function AdvisorPage() {
 
             <section className="bento-cell p-5">
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <h2 className="text-base sm:text-lg font-bold">歷史走勢與買賣點</h2>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold">股價走勢圖</h2>
+                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                    收盤線 + MA20 + MA60｜買入訊號 / 賣出訊號 / 實際買進 / 實際賣出 / 持平
+                  </p>
+                </div>
                 <span className="text-xs text-[var(--color-text-muted)]">
                   {backtestResult ? '已完成' : '整理中'}
                 </span>
@@ -696,334 +882,98 @@ export default function AdvisorPage() {
                         <CoreModePriceChart data={backtestResult.price_chart} />
                       </div>
                     ) : (
-                      <p className="mt-3 text-sm text-[var(--color-text-muted)]">此區間沒有可用價格 K 線資料。</p>
+                      <p className="mt-3 text-sm text-[var(--color-text-muted)]">此區間沒有可用三線走勢資料。</p>
                     )}
                   </div>
-
-                  {/* <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">TP</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tp ?? '--'}</p>
-                    </div>
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">FP</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fp ?? '--'}</p>
-                    </div>
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">FN</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.fn ?? '--'}</p>
-                    </div>
-                    <div className="rounded-xl bg-[var(--color-bg-elevated)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">TN</p>
-                      <p className="text-base font-semibold tabular-nums">{backtestResult.overall.tn ?? '--'}</p>
-                    </div>
-                  </div> */}
-
-                  {/* <div className="mt-4 rounded-xl border border-[var(--color-border)] p-4 text-sm">
-                    <h3 className="font-semibold">指標公式與依據（新手版）</h3>
-                    <div className="mt-2 space-y-1 text-[var(--color-text-secondary)]">
-                      <p><strong>Accuracy</strong> = (TP + TN) / (TP + FP + FN + TN)</p>
-                      <p><strong>Precision</strong> = TP / (TP + FP)</p>
-                      <p><strong>Recall</strong> = TP / (TP + FN)</p>
-                      <p><strong>F1</strong> = 2 × Precision × Recall / (Precision + Recall)</p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        這裡把「buy」當正類：TP=預測買且實際漲、FP=預測買但實際跌、FN=預測賣但實際漲、TN=預測賣且實際跌。
-                      </p>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                      <a
-                        href="https://developers.google.com/machine-learning/crash-course/classification/accuracy-precision-recall"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        Google ML Crash Course（Accuracy/F1）
-                      </a>
-                      <a
-                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.accuracy_score.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        scikit-learn: accuracy_score
-                      </a>
-                      <a
-                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.f1_score.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        scikit-learn: f1_score
-                      </a>
-                      <a
-                        href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-brand hover:underline"
-                      >
-                        scikit-learn: confusion_matrix（TP/FP/FN/TN）
-                      </a>
-                    </div>
-                  </div> */}
                 </>
               ) : null}
             </section>
-
-
             <section className="bento-cell p-5">
-              <h2 className="text-base sm:text-lg font-bold">技術指標重點</h2>
-
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {loading && !report.technical_signals?.length ? (
-                  <>
-                    <div className="space-y-2 sm:col-span-2 lg:col-span-3">
-                      <p className="text-sm text-[var(--color-text-muted)] inline-flex items-center gap-2">
-                        <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-                        技術觀察載入中…
-                      </p>
-                      <div className="h-16 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" />
-                      <div className="h-16 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse max-w-[95%]" />
-                    </div>
-                  </>
-                ) : report.technical_signals?.length ? (
-                  report.technical_signals.map((signal) => (
-                    <div
-                      key={`${signal.name}-${String(signal.value ?? '')}`}
-                      className="rounded-xl border border-[var(--color-border)] p-3"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold">{signal.name}</p>
-                        {signal.value !== undefined && signal.value !== null ? (
-                          <span className="px-2 py-0.5 rounded-md text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
-                            {String(signal.value)}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-                        {signal.interpretation}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-[var(--color-text-muted)] sm:col-span-2 lg:col-span-3">
-                    技術指標資料不足
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <section className="bento-cell p-5">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <h2 className="text-base sm:text-lg font-bold">目前看法</h2>
-                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                    先看結論，再看理由與風險。
-                  </p>
-                </div>
-
-                {loading && progress?.pendingFinal ? (
-                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] inline-flex items-center gap-1.5">
-                    <Loader2 size={12} className="animate-spin shrink-0" />
-                    整理中
-                  </span>
-                ) : (
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
-                  >
-                    {recommendationText(report.recommendation)}
-                  </span>
-                )}
+              <div>
+                <h2 className="mt-1 text-base sm:text-lg font-bold text-[var(--color-text-primary)]">
+                  最終建議
+                </h2>
               </div>
 
               {loading && progress?.pendingFinal ? (
-                <div className="mt-3 flex flex-col gap-2 text-sm text-[var(--color-text-muted)]">
-                  <span className="inline-flex items-center gap-2">
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
                     <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-                    正在整理投資觀點…
-                  </span>
-                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
-                  <div className="h-3 rounded-lg bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
+                    正在整理最終觀點…
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-xl" />
+                    <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
+                    <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
+                  </div>
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-4">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="mt-5 space-y-5">
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <span
-                      className={`px-3 py-1 rounded-full text-xs font-semibold ${recommendationClass(report.recommendation)}`}
+                      className={`inline-flex w-fit rounded-full px-3 py-1 text-sm font-semibold ${recommendationClass(
+                        report.recommendation
+                      )}`}
                     >
-                      {report.symbol}：{recommendationText(report.recommendation)}
+                      {recommendationText(report.recommendation)}
                     </span>
-                    <span className="text-xs text-[var(--color-text-muted)]">
+
+                    <span className="text-sm text-[var(--color-text-secondary)]">
                       {actionHintText(report.recommendation)}
                     </span>
                   </div>
 
-                  <p className="mt-3 text-sm leading-6 text-[var(--color-text-primary)]">
-                    {getInvestorToneSummary(report)}
-                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-sm">
+                      <p className="text-xs text-[var(--color-text-muted)]">均線結構</p>
+                      <p className="mt-1 font-semibold text-[var(--color-text-primary)]">{maStructureLabel}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-sm">
+                      <p className="text-xs text-[var(--color-text-muted)]">股價位置</p>
+                      <p className="mt-1 font-semibold text-[var(--color-text-primary)]">{maPositionLabel}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-sm">
+                      <p className="text-xs text-[var(--color-text-muted)]">量能確認</p>
+                      <p className="mt-1 font-semibold text-[var(--color-text-primary)]">{volumeConfirmLabel}</p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-sm">
+                      <p className="text-xs text-[var(--color-text-muted)]">策略訊號</p>
+                      <p className="mt-1 font-semibold text-[var(--color-text-primary)]">{signalLabel}</p>
+                    </div>
+                  </div>
 
-                  {report.summary ? (
-                    <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
-                      {report.summary}
-                    </p>
+                  {signalConflictText ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-800">
+                      {signalConflictText}
+                    </div>
                   ) : null}
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">關鍵理由</h3>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--color-text-secondary)]">
+                      {keyReasons.map((item, index) => (
+                        <li key={`${item}-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/30 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                      <div>
+                        <p className="text-xs font-semibold text-[var(--color-text-primary)]">
+                          風險提醒
+                        </p>
+                        <p className="mt-1 text-sm leading-7 text-[var(--color-text-secondary)]">
+                          {getRiskToneText(report, signalSummary)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </section>
-
-            {/* <section className="bento-cell p-5">
-              <h2 className="text-base sm:text-lg font-bold">加權模型</h2>
-              {report.score_breakdown ? (
-                <>
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <span className="text-sm text-[var(--color-text-muted)]">最終加權分數</span>
-                    <span
-                      className={`text-2xl font-bold tabular-nums ${weightedScoreClass(
-                        report.score_breakdown.weighted_score
-                      )}`}
-                    >
-                      {report.score_breakdown.weighted_score.toFixed(2)}
-                    </span>
-                    <span className="text-xs text-[var(--color-text-muted)]">門檻：偏多 ≥ 0.25，偏空 ≤ -0.25</span>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">技術面</p>
-                      <p className="text-lg font-semibold tabular-nums text-[var(--color-text-primary)]">
-                        {report.score_breakdown.technical_score.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {ADVISOR_MODEL_WEIGHTS.technical.toFixed(2)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">籌碼面</p>
-                      <p className="text-lg font-semibold tabular-nums text-[var(--color-text-primary)]">
-                        {report.score_breakdown.institutional_score.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {ADVISOR_MODEL_WEIGHTS.institutional.toFixed(2)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">新聞 / RAG</p>
-                      <p className="text-lg font-semibold tabular-nums text-[var(--color-text-primary)]">
-                        {report.score_breakdown.news_score.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {ADVISOR_MODEL_WEIGHTS.news.toFixed(2)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="text-xs text-[var(--color-text-muted)]">量價動能</p>
-                      <p className="text-lg font-semibold tabular-nums text-[var(--color-text-primary)]">
-                        {report.score_breakdown.momentum_score.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        權重 {ADVISOR_MODEL_WEIGHTS.momentum.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="font-medium text-[var(--color-text-primary)]">技術面解釋</p>
-                      <p className="mt-1 text-[var(--color-text-secondary)]">{report.score_breakdown.explanations.technical}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="font-medium text-[var(--color-text-primary)]">籌碼面解釋</p>
-                      <p className="mt-1 text-[var(--color-text-secondary)]">{report.score_breakdown.explanations.institutional}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="font-medium text-[var(--color-text-primary)]">新聞面解釋</p>
-                      <p className="mt-1 text-[var(--color-text-secondary)]">{report.score_breakdown.explanations.news}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--color-border)] p-3">
-                      <p className="font-medium text-[var(--color-text-primary)]">量價動能解釋</p>
-                      <p className="mt-1 text-[var(--color-text-secondary)]">{report.score_breakdown.explanations.momentum}</p>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="mt-3 text-sm text-[var(--color-text-muted)]">加權模型資料不足</p>
-              )}
-            </section> */}
-
-
-<section className="bento-cell p-5">
-  <div>
-    <h2 className="mt-1 text-base sm:text-lg font-bold text-[var(--color-text-primary)]">
-      最終建議
-    </h2>
-  </div>
-
-  {loading && progress?.pendingFinal ? (
-    <div className="mt-5 space-y-3">
-      <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-        <Loader2 size={14} className="animate-spin shrink-0 text-brand" />
-        正在整理最終觀點…
-      </div>
-
-      <div className="space-y-2">
-        <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-xl" />
-        <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-lg" />
-        <div className="h-3 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-md" />
-      </div>
-    </div>
-  ) : (
-    <div className="mt-5 space-y-5">
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <span
-            className={`inline-flex w-fit rounded-full px-3 py-1 text-sm font-semibold ${recommendationClass(
-              report.recommendation
-            )}`}
-          >
-            {recommendationText(report.recommendation)}
-          </span>
-
-          <span className="text-sm text-[var(--color-text-secondary)]">
-            {actionHintText(report.recommendation)}
-          </span>
-        </div>
-
-      {report.recommendation_text ? (
-        <div className="border-l-2 border-brand pl-4">
-          <p className="text-xs font-semibold text-brand-deep dark:text-brand-light">
-            操作建議
-          </p>
-          <p className="mt-2 text-sm leading-7 text-[var(--color-text-primary)]">
-            {report.recommendation_text}
-          </p>
-        </div>
-      ) : null}
-
-      {report.reasoning ? (
-        <div>
-          <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            判斷依據
-          </h3>
-          <p className="mt-2 text-sm leading-7 text-[var(--color-text-secondary)] whitespace-pre-wrap">
-            {report.reasoning}
-          </p>
-        </div>
-      ) : null}
-
-      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/30 p-4">
-        <div className="flex items-start gap-3">
-          <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-          <div>
-            <p className="text-xs font-semibold text-[var(--color-text-primary)]">
-              風險提醒
-            </p>
-            <p className="mt-1 text-sm leading-7 text-[var(--color-text-secondary)]">
-              {getRiskToneText(report)}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  )}
-</section>
 
             <section className="bento-cell p-5">
               <h2 className="text-base sm:text-lg font-bold">資料來源</h2>
@@ -1041,7 +991,6 @@ export default function AdvisorPage() {
                     >
                       <p className="font-semibold">{source.title}</p>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                        {source.publisher || '未知來源'}
                         {source.type ? ` ｜ ${source.type}` : ''}
                         {source.published_at ? ` ｜ ${source.published_at}` : ''}
                       </p>
