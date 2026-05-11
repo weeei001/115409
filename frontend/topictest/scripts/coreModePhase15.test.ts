@@ -47,8 +47,8 @@ function nearlyEqual(a: number, b: number): boolean {
 function run(): void {
   const base = makeBaseParams();
 
-  const shapeGroup = WEIGHT_GROUPS.find((item) => item.title === 'trend_shape_score 權重');
-  assert.ok(shapeGroup, '應存在 trend_shape_score 權重群組');
+  const shapeGroup = WEIGHT_GROUPS.find((item) => item.title === '型態分數權重');
+  assert.ok(shapeGroup, '應存在型態分數權重群組');
   assert.deepEqual(shapeGroup?.keys, [
     'shape_breakout_weight',
     'shape_slope_weight',

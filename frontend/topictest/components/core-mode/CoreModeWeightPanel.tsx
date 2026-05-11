@@ -1,5 +1,6 @@
 ﻿import React, { useMemo } from 'react';
 
+import { CORE_MODE_PARAM_LABELS } from '../../lib/coreModeLabels';
 import type { CoreModeParams, CoreModeWeightStrategyKey } from '../../lib/types/coreMode';
 
 export const WEIGHT_STRATEGY_OPTIONS: Array<{ key: CoreModeWeightStrategyKey; label: string }> = [
@@ -14,51 +15,51 @@ export const WEIGHT_STRATEGY_OPTIONS: Array<{ key: CoreModeWeightStrategyKey; la
 
 export const WEIGHT_GROUPS: Array<{ title: string; keys: Array<keyof CoreModeParams>; labels: Record<string, string> }> = [
   {
-    title: 'technical_score 權重',
+    title: '技術分數權重',
     keys: ['technical_ma_weight', 'technical_macd_weight', 'technical_rsi_weight', 'technical_kd_weight'],
     labels: {
-      technical_ma_weight: 'MA',
-      technical_macd_weight: 'MACD',
-      technical_rsi_weight: 'RSI',
-      technical_kd_weight: 'KD',
+      technical_ma_weight: CORE_MODE_PARAM_LABELS.technical_ma_weight,
+      technical_macd_weight: CORE_MODE_PARAM_LABELS.technical_macd_weight,
+      technical_rsi_weight: CORE_MODE_PARAM_LABELS.technical_rsi_weight,
+      technical_kd_weight: CORE_MODE_PARAM_LABELS.technical_kd_weight,
     },
   },
   {
-    title: 'weighted_score 權重',
+    title: '加權分數權重',
     keys: ['weighted_technical_weight', 'weighted_institutional_weight', 'weighted_news_weight', 'weighted_momentum_weight'],
     labels: {
-      weighted_technical_weight: '技術',
-      weighted_institutional_weight: '法人',
-      weighted_news_weight: '新聞',
-      weighted_momentum_weight: '動能',
+      weighted_technical_weight: CORE_MODE_PARAM_LABELS.weighted_technical_weight,
+      weighted_institutional_weight: CORE_MODE_PARAM_LABELS.weighted_institutional_weight,
+      weighted_news_weight: CORE_MODE_PARAM_LABELS.weighted_news_weight,
+      weighted_momentum_weight: CORE_MODE_PARAM_LABELS.weighted_momentum_weight,
     },
   },
   {
-    title: 'state_score 權重',
+    title: '狀態分數權重',
     keys: ['state_weighted_score_weight', 'state_momentum_weight', 'state_institutional_weight'],
     labels: {
-      state_weighted_score_weight: 'weighted_score',
-      state_momentum_weight: 'momentum_score',
-      state_institutional_weight: 'institutional_score',
+      state_weighted_score_weight: CORE_MODE_PARAM_LABELS.state_weighted_score_weight,
+      state_momentum_weight: CORE_MODE_PARAM_LABELS.state_momentum_weight,
+      state_institutional_weight: CORE_MODE_PARAM_LABELS.state_institutional_weight,
     },
   },
   {
-    title: 'trend_score 權重',
+    title: '綜合趨勢分數權重',
     keys: ['trend_state_weight', 'trend_shape_weight', 'trend_breakout_weight'],
     labels: {
-      trend_state_weight: 'state_score',
-      trend_shape_weight: 'trend_shape_score',
-      trend_breakout_weight: 'breakout_strength',
+      trend_state_weight: CORE_MODE_PARAM_LABELS.trend_state_weight,
+      trend_shape_weight: CORE_MODE_PARAM_LABELS.trend_shape_weight,
+      trend_breakout_weight: CORE_MODE_PARAM_LABELS.trend_breakout_weight,
     },
   },
   {
-    title: 'trend_shape_score 權重',
+    title: '型態分數權重',
     keys: ['shape_breakout_weight', 'shape_slope_weight', 'shape_efficiency_weight', 'shape_pullback_weight'],
     labels: {
-      shape_breakout_weight: '突破強度 breakout_strength',
-      shape_slope_weight: 'MA20 斜率 slope_score',
-      shape_efficiency_weight: '趨勢效率 efficiency_score',
-      shape_pullback_weight: '拉回健康度 pullback_score',
+      shape_breakout_weight: CORE_MODE_PARAM_LABELS.shape_breakout_weight,
+      shape_slope_weight: CORE_MODE_PARAM_LABELS.shape_slope_weight,
+      shape_efficiency_weight: CORE_MODE_PARAM_LABELS.shape_efficiency_weight,
+      shape_pullback_weight: CORE_MODE_PARAM_LABELS.shape_pullback_weight,
     },
   },
 ];

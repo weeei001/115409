@@ -28,6 +28,12 @@ import {
   toWarningBadgeItems,
   type WarningLevel,
 } from '../lib/coreModeMlValidation';
+import {
+  formatCoreModeParamRows,
+  localizeCoreModeFeatureName,
+  localizeCoreModeMetricName,
+  localizeCoreModeOption,
+} from '../lib/coreModeLabels';
 import type {
   CoreModeDecisionResponse,
   CoreModeParams,
@@ -47,6 +53,34 @@ function formatPct(unit: number): string {
 
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(4) : '--';
+}
+
+function formatNullableNumber(value: number | null | undefined): string {
+  return value == null ? '--' : formatNumber(value);
+}
+
+function CoreModeParamTable({ params }: { params: Partial<CoreModeParams> | null | undefined }) {
+  const rows = formatCoreModeParamRows(params);
+  if (!rows.length) {
+    return <span className="text-[var(--color-text-muted)]">無參數資料</span>;
+  }
+
+  return (
+    <div className="grid min-w-[260px] grid-cols-1 gap-1 text-[11px]">
+      {rows.map((row) => (
+        <div
+          key={row.key}
+          className="grid grid-cols-[minmax(120px,1fr)_auto] gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1"
+        >
+          <span>
+            <span className="font-semibold text-[var(--color-text-primary)]">{row.label}</span>
+            <span className="ml-1 text-[10px] text-[var(--color-text-muted)]">({row.key})</span>
+          </span>
+          <span className="font-mono tabular-nums">{formatNumber(row.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function parseIsoDateValue(value: string | null | undefined): number | null {
@@ -755,7 +789,7 @@ export default function CoreModePage() {
                     使用 ML 預篩
                   </span>
                   <span className="mt-2 block text-xs text-[var(--color-text-muted)]">
-                    先用 ML 從候選參數中篩出較有潛力的組合，最後排名仍以 validation_score 為準。
+                    先用 ML 從候選參數中篩出較有潛力的組合，最後排名仍以正式驗證分數為準。
                   </span>
                 </label>
                 <label className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3 text-sm">
@@ -833,10 +867,10 @@ export default function CoreModePage() {
               <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
                 <p className="font-semibold">進階搜尋摘要（唯讀）</p>
                 <p className="mt-1 text-[var(--color-text-muted)]">
-                  ML 預篩只用來縮小候選範圍，最終仍以 validation_score 排名。
+                  ML 預篩只用來縮小候選範圍，最終仍以正式驗證分數排名。
                 </p>
                 <p className="mt-1 text-[var(--color-text-muted)]">
-                  Final Holdout 是最後未知區驗證，不參與 validation_score 排名。
+                  Final Holdout 是最後未知區驗證，不參與正式驗證分數排名。
                 </p>
                 <p className="mt-1 text-[var(--color-text-muted)]">
                   自適應搜尋會多輪逼近最佳參數，可能需要較長時間。
@@ -854,12 +888,12 @@ export default function CoreModePage() {
 
               {isMultiStockMode ? (
                 <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
-                  多股泛用搜尋會以 cross_stock_score 作為最終排序依據，避免只靠單一股票暴賺撐高分數。
+                  多股泛用搜尋會以多股泛用分數作為最終排序依據，避免只靠單一股票暴賺撐高分數。
                 </p>
               ) : null}
               {isMultiStockMode ? (
                 <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
-                  目前 ML 預篩可能以主要股票作為排序參考，多股泛用結果仍以 cross_stock_score 作為最終排序依據。
+                  目前 ML 預篩可能以主要股票作為排序參考，多股泛用結果仍以多股泛用分數作為最終排序依據。
                 </p>
               ) : null}
 
@@ -880,11 +914,11 @@ export default function CoreModePage() {
             <section className="bento-cell p-4 sm:p-5">
               <h2 className="text-base font-bold">Top N 搜尋結果</h2>
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                validation_score 用於選參排序；final_holdout_score 僅用於未知區觀察，不直接改變排序。
+                正式驗證分數用於選參排序；未知區驗證分數僅用於觀察，不直接改變排序。
               </p>
               {runResult?.auto_search_result?.ranking_basis ? (
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                  ranking_basis：{runResult.auto_search_result.ranking_basis}
+                  {localizeCoreModeMetricName('ranking_basis')}：{runResult.auto_search_result.ranking_basis}
                 </p>
               ) : null}
               {autoSearchResults.length ? (
@@ -916,10 +950,10 @@ export default function CoreModePage() {
                     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
                       <p className="font-semibold">adaptive_trace summary</p>
                       <p className="mt-1 text-[var(--color-text-muted)]">
-                        stop_reason：{runResult.auto_search_result.adaptive_trace.stop_reason ?? '--'}
+                        停止原因：{runResult.auto_search_result.adaptive_trace.stop_reason ?? '--'}
                       </p>
                       <p className="mt-1 break-all text-[var(--color-text-muted)]">
-                        best_score_progression：
+                        最佳分數進展：
                         {(runResult.auto_search_result.adaptive_trace.best_score_progression ?? [])
                           .map((item) => formatNumber(item))
                           .join(' -> ') || '--'}
@@ -928,10 +962,10 @@ export default function CoreModePage() {
                         <table className="min-w-full text-left text-[11px]">
                           <thead>
                             <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                              <th className="px-2 py-1">iteration</th>
-                              <th className="px-2 py-1">best_score</th>
-                              <th className="px-2 py-1">improvement</th>
-                              <th className="px-2 py-1">verified_count</th>
+                              <th className="px-2 py-1">輪次</th>
+                              <th className="px-2 py-1">最佳分數</th>
+                              <th className="px-2 py-1">改善幅度</th>
+                              <th className="px-2 py-1">驗證組數</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -954,7 +988,7 @@ export default function CoreModePage() {
                       <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-xs">
                         <p className="font-semibold">首選 Rank {autoSearchRecommendationSummary.primary.rank}：綜合驗證分數最高。</p>
                         <p className="mt-1 text-[var(--color-text-muted)]">
-                          validation_score{' '}
+                          正式驗證分數{' '}
                           {autoSearchRecommendationSummary.primary.validation_score == null
                             ? '--'
                             : formatNumber(autoSearchRecommendationSummary.primary.validation_score)}{' '}
@@ -1016,15 +1050,15 @@ export default function CoreModePage() {
                           <th className="px-2 py-2">排名</th>
                           <th className="px-2 py-2">來源</th>
                           <th className="px-2 py-2">ML預估</th>
-                          <th className="px-2 py-2">正式驗證（validation_score）</th>
+                          <th className="px-2 py-2">正式驗證分數</th>
                           {runResult?.auto_search_result?.mode === 'multi_stock_search' ? (
                             <th className="px-2 py-2">多股泛用分數</th>
                           ) : null}
-                          <th className="px-2 py-2">final_holdout_score</th>
+                          <th className="px-2 py-2">未知區驗證分數</th>
                           {runResult?.auto_search_result?.mode === 'multi_stock_search' ? (
-                            <th className="px-2 py-2">final_holdout_cross_stock_score</th>
+                            <th className="px-2 py-2">未知區多股泛用分數</th>
                           ) : null}
-                          <th className="px-2 py-2">final_holdout_summary</th>
+                          <th className="px-2 py-2">未知區摘要</th>
                           <th className="px-2 py-2">累積報酬</th>
                           <th className="px-2 py-2">最大回撤</th>
                           <th className="px-2 py-2">穩定度</th>
@@ -1141,9 +1175,9 @@ export default function CoreModePage() {
                       關閉
                     </button>
                   </div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[11px]">
-                    {JSON.stringify(viewedAutoSearchParams.params, null, 2)}
-                  </pre>
+                  <div className="overflow-x-auto rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2">
+                    <CoreModeParamTable params={viewedAutoSearchParams.params} />
+                  </div>
                 </div>
               ) : null}
             </section>
@@ -1161,19 +1195,18 @@ export default function CoreModePage() {
                   <p className="mt-1 font-semibold">{currentBacktestSourceLabel}</p>
                   <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
                     <p>
-                      validation_score：{loadedAutoSearchParamsMeta?.validation_score == null ? '--' : formatNumber(loadedAutoSearchParamsMeta.validation_score)}
+                      正式驗證分數：{formatNullableNumber(loadedAutoSearchParamsMeta?.validation_score)}
                     </p>
                     {loadedAutoSearchParamsMeta?.cross_stock_score != null ? (
-                      <p>cross_stock_score：{formatNumber(loadedAutoSearchParamsMeta.cross_stock_score)}</p>
+                      <p>多股泛用分數：{formatNumber(loadedAutoSearchParamsMeta.cross_stock_score)}</p>
                     ) : null}
                     <p>
-                      final_holdout_score：
-                      {loadedAutoSearchParamsMeta?.final_holdout_score == null ? '--' : formatNumber(loadedAutoSearchParamsMeta.final_holdout_score)}
+                      未知區驗證分數：{formatNullableNumber(loadedAutoSearchParamsMeta?.final_holdout_score)}
                     </p>
                     {loadedAutoSearchParamsMeta?.final_holdout_cross_stock_score != null ? (
-                      <p>final_holdout_cross_stock_score：{formatNumber(loadedAutoSearchParamsMeta.final_holdout_cross_stock_score)}</p>
+                      <p>未知區多股泛用分數：{formatNumber(loadedAutoSearchParamsMeta.final_holdout_cross_stock_score)}</p>
                     ) : null}
-                    <p className="sm:col-span-2">loaded_at：{loadedAutoSearchParamsMeta?.loaded_at ?? '--'}</p>
+                    <p className="sm:col-span-2">載入時間：{loadedAutoSearchParamsMeta?.loaded_at ?? '--'}</p>
                   </div>
                 </article>
                 <article className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-sm">
@@ -1354,46 +1387,46 @@ export default function CoreModePage() {
                     </label>
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">n_splits</span><input type="number" min={2} step={1} value={mlSplits} onChange={(e) => setMlSplits(Number(e.target.value))} className="ui-input" /></label>
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">test_size</span><input type="number" min={1} step={1} value={mlTestSize} onChange={(e) => setMlTestSize(Number(e.target.value))} className="ui-input" /></label>
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">gap</span><input type="number" min={0} step={1} value={mlGap} onChange={(e) => setMlGap(Number(e.target.value))} className="ui-input" /></label>
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">prediction_horizon</span><input type="number" min={1} step={1} value={mlPredictionHorizon} onChange={(e) => setMlPredictionHorizon(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">切分 fold 數</span><input type="number" min={2} step={1} value={mlSplits} onChange={(e) => setMlSplits(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">每 fold 測試樣本數</span><input type="number" min={1} step={1} value={mlTestSize} onChange={(e) => setMlTestSize(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">訓練/測試間隔</span><input type="number" min={0} step={1} value={mlGap} onChange={(e) => setMlGap(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">預測窗</span><input type="number" min={1} step={1} value={mlPredictionHorizon} onChange={(e) => setMlPredictionHorizon(Number(e.target.value))} className="ui-input" /></label>
                     <label className="text-sm">
-                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">target_mode</span>
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">目標類型</span>
                       <select value={mlTargetMode} onChange={(e) => setMlTargetMode(e.target.value as 'future_quality' | 'trade_return' | 'trend_label')} className="ui-input">
-                        <option value="future_quality">future_quality（可用）</option>
-                        <option value="trade_return" disabled>trade_return（尚未啟用）</option>
-                        <option value="trend_label" disabled>trend_label（尚未啟用）</option>
+                        <option value="future_quality">{localizeCoreModeOption('future_quality')}（可用）</option>
+                        <option value="trade_return" disabled>{localizeCoreModeOption('trade_return')}（尚未啟用）</option>
+                        <option value="trend_label" disabled>{localizeCoreModeOption('trend_label')}（尚未啟用）</option>
                       </select>
                     </label>
                     <label className="text-sm">
-                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">model_type</span>
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">模型類型</span>
                       <select value={mlModelType} onChange={(e) => setMlModelType(e.target.value as 'random_forest' | 'gradient_boosting' | 'logistic_regression')} className="ui-input">
-                        <option value="logistic_regression">Logistic Regression</option>
-                        <option value="random_forest">Random Forest</option>
-                        <option value="gradient_boosting">Gradient Boosting</option>
+                        <option value="logistic_regression">{localizeCoreModeOption('logistic_regression')}</option>
+                        <option value="random_forest">{localizeCoreModeOption('random_forest')}</option>
+                        <option value="gradient_boosting">{localizeCoreModeOption('gradient_boosting')}</option>
                       </select>
                     </label>
                     <label className="text-sm">
-                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">ranking_model_type</span>
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">候選排序模型</span>
                       <select value={mlCandidateRankingModelType} onChange={(e) => setMlCandidateRankingModelType(e.target.value as 'random_forest' | 'gradient_boosting' | 'logistic_regression')} className="ui-input">
-                        <option value="random_forest">Random Forest</option>
-                        <option value="gradient_boosting">Gradient Boosting</option>
-                        <option value="logistic_regression">Logistic Regression</option>
+                        <option value="random_forest">{localizeCoreModeOption('random_forest')}</option>
+                        <option value="gradient_boosting">{localizeCoreModeOption('gradient_boosting')}</option>
+                        <option value="logistic_regression">{localizeCoreModeOption('logistic_regression')}</option>
                       </select>
                     </label>
                     <label className="text-sm">
-                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">ranking_score_mode</span>
+                      <span className="mb-1 block text-xs text-[var(--color-text-muted)]">候選排序目標</span>
                       <select value={mlCandidateRankingScoreMode} onChange={(e) => setMlCandidateRankingScoreMode(e.target.value as 'balanced_score' | 'return_score' | 'ac_score' | 'drawdown_score')} className="ui-input">
-                        <option value="balanced_score">balanced_score</option>
-                        <option value="return_score">return_score</option>
-                        <option value="ac_score">ac_score</option>
-                        <option value="drawdown_score">drawdown_score</option>
+                        <option value="balanced_score">{localizeCoreModeOption('balanced_score')}</option>
+                        <option value="return_score">{localizeCoreModeOption('return_score')}</option>
+                        <option value="ac_score">{localizeCoreModeOption('ac_score')}</option>
+                        <option value="drawdown_score">{localizeCoreModeOption('drawdown_score')}</option>
                       </select>
                     </label>
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">candidate_ranking_top_n</span><input type="number" min={1} max={20} step={1} value={mlCandidateRankingTopN} onChange={(e) => setMlCandidateRankingTopN(Number(e.target.value))} className="ui-input" /></label>
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">future_quality_threshold</span><input type="number" min={0} max={1} step={0.01} value={mlFutureQualityThreshold} onChange={(e) => setMlFutureQualityThreshold(Number(e.target.value))} className="ui-input" /></label>
-                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">max_train_size</span><input type="number" min={1} step={1} value={mlMaxTrainSize} onChange={(e) => setMlMaxTrainSize(e.target.value)} className="ui-input" placeholder="留空 = 不限制" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">候選排序保留數</span><input type="number" min={1} max={20} step={1} value={mlCandidateRankingTopN} onChange={(e) => setMlCandidateRankingTopN(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">未來趨勢品質門檻</span><input type="number" min={0} max={1} step={0.01} value={mlFutureQualityThreshold} onChange={(e) => setMlFutureQualityThreshold(Number(e.target.value))} className="ui-input" /></label>
+                    <label className="text-sm"><span className="mb-1 block text-xs text-[var(--color-text-muted)]">最大訓練樣本數</span><input type="number" min={1} step={1} value={mlMaxTrainSize} onChange={(e) => setMlMaxTrainSize(e.target.value)} className="ui-input" placeholder="留空 = 不限制" /></label>
                   </div>
                 </>
               ) : null}
@@ -1406,42 +1439,42 @@ export default function CoreModePage() {
               {showMlResultDetail ? (
                 runResult ? (
                   <>
-                    <p className="mt-3 text-xs text-[var(--color-text-muted)]">TimeSeriesSplit / Dataset Summary / Model Validation / Candidate Ranking</p>
+                    <p className="mt-3 text-xs text-[var(--color-text-muted)]">時間序列切分 / 資料集摘要 / 模型驗證 / 候選參數排序</p>
                     <p className="mt-1 text-xs font-semibold text-amber-700">{PHASE3_DATASET_NOTICE}</p>
                     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs">
-                      啟用：{runResult.ml_validation?.enabled ? '是' : '否'} ｜ mode：{runResult.ml_validation?.mode ?? '--'} ｜ n_splits：
-                      {runResult.ml_validation?.n_splits ?? '--'} ｜ test_size：{runResult.ml_validation?.test_size ?? '--'} ｜ gap：
-                      {runResult.ml_validation?.gap ?? '--'} ｜ effective_gap：{runResult.ml_validation?.effective_gap ?? '--'}
+                      啟用：{runResult.ml_validation?.enabled ? '是' : '否'} ｜ 模式：{runResult.ml_validation?.mode ?? '--'} ｜ 切分 fold 數：
+                      {runResult.ml_validation?.n_splits ?? '--'} ｜ 每 fold 測試樣本數：{runResult.ml_validation?.test_size ?? '--'} ｜ 訓練/測試間隔：
+                      {runResult.ml_validation?.gap ?? '--'} ｜ 實際間隔：{runResult.ml_validation?.effective_gap ?? '--'}
                     </div>
                     {runResult.ml_validation?.dataset_summary ? (
                       <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                        <h3 className="text-sm font-semibold">ML Dataset Summary</h3>
+                        <h3 className="text-sm font-semibold">ML 資料集摘要</h3>
                         <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                          sample_count={runResult.ml_validation.dataset_summary.sample_count} ｜ feature_count=
-                          {runResult.ml_validation.dataset_summary.feature_count} ｜ positive_rate=
+                          樣本數={runResult.ml_validation.dataset_summary.sample_count} ｜ 特徵數=
+                          {runResult.ml_validation.dataset_summary.feature_count} ｜ 正樣本比例=
                           {formatPct(runResult.ml_validation.dataset_summary.positive_rate)}
                         </p>
                       </div>
                     ) : null}
 
                     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                      <h3 className="text-sm font-semibold">三段式資料切分 / Final Holdout Unknown Zone</h3>
+                      <h3 className="text-sm font-semibold">三段式資料切分 / Final Holdout 未知區</h3>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                         TimeSeriesSplit 是多個 fold 的穩定性驗證；Final Holdout 是最後完全保留的未知區，只在 Top N 確定後才用於最終驗證。兩者不同。
                       </p>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                        排名依據為 validation_score；final_holdout_score 僅作為未知區觀察，不會回流影響 Rank。
+                        排名依據為正式驗證分數；未知區驗證分數僅作為觀察，不會回流影響排名。
                       </p>
                       {runResult.auto_search_result?.split_summary ? (
                         <div className="mt-2 space-y-2 text-xs">
                           <div>
-                            <p className="font-semibold">Train</p>
+                            <p className="font-semibold">訓練區</p>
                             <p>{formatOrderedDateRange(runResult.auto_search_result.split_summary.train_start, runResult.auto_search_result.split_summary.train_end)}</p>
                             <p>筆數：{runResult.auto_search_result.split_summary.train_count}</p>
                             <p className="text-[var(--color-text-muted)]">用途：產生候選參數 / ML 預篩</p>
                           </div>
                           <div>
-                            <p className="font-semibold">Validation</p>
+                            <p className="font-semibold">驗證區</p>
                             <p>
                               {formatOrderedDateRange(
                                 runResult.auto_search_result.split_summary.validation_start,
@@ -1449,10 +1482,10 @@ export default function CoreModePage() {
                               )}
                             </p>
                             <p>筆數：{runResult.auto_search_result.split_summary.validation_count}</p>
-                            <p className="text-[var(--color-text-muted)]">用途：選出 Top N / validation_score 排名依據</p>
+                            <p className="text-[var(--color-text-muted)]">用途：選出 Top N / 正式驗證分數排名依據</p>
                           </div>
                           <div>
-                            <p className="font-semibold">Final Holdout</p>
+                            <p className="font-semibold">未知區驗證</p>
                             <p>
                               {formatOrderedDateRange(
                                 runResult.auto_search_result.split_summary.final_holdout_start,
@@ -1484,8 +1517,8 @@ export default function CoreModePage() {
                             <thead>
                               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
                                 <th className="px-2 py-2">Fold</th>
-                                <th className="px-2 py-2">Train 區間</th>
-                                <th className="px-2 py-2">Test 區間</th>
+                                <th className="px-2 py-2">訓練區間</th>
+                                <th className="px-2 py-2">測試區間</th>
                                 <th className="px-2 py-2">AC</th>
                                 <th className="px-2 py-2">累積報酬</th>
                                 <th className="px-2 py-2">MDD</th>
@@ -1513,30 +1546,33 @@ export default function CoreModePage() {
                     </div>
 
                     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                      <h3 className="text-sm font-semibold">Model Validation</h3>
+                      <h3 className="text-sm font-semibold">模型驗證</h3>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                        accuracy_mean={formatNumber(runResult.ml_validation?.ml_model_validation?.metrics?.accuracy_mean ?? 0)} ｜ f1_mean=
+                        平均準確率={formatNumber(runResult.ml_validation?.ml_model_validation?.metrics?.accuracy_mean ?? 0)} ｜ 平均 F1=
                         {formatNumber(runResult.ml_validation?.ml_model_validation?.metrics?.f1_mean ?? 0)}
                       </p>
                     </div>
 
                     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                      <h3 className="text-sm font-semibold">Feature Importance</h3>
+                      <h3 className="text-sm font-semibold">特徵重要度</h3>
                       {normalizedFeatureImportance.length ? (
                         <div className="mt-2 overflow-x-auto">
                           <table className="min-w-full text-left text-xs">
                             <thead>
                               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                                <th className="px-2 py-2">feature</th>
-                                <th className="px-2 py-2">importance_mean</th>
-                                <th className="px-2 py-2">importance_std</th>
-                                <th className="px-2 py-2">fold_count</th>
+                                <th className="px-2 py-2">特徵</th>
+                                <th className="px-2 py-2">平均重要度</th>
+                                <th className="px-2 py-2">重要度標準差</th>
+                                <th className="px-2 py-2">有效 fold 數</th>
                               </tr>
                             </thead>
                             <tbody>
                               {normalizedFeatureImportance.map((item) => (
                                 <tr key={`fi-${item.feature}`} className="border-b border-[var(--color-border)]/60">
-                                  <td className="px-2 py-2">{item.feature}</td>
+                                  <td className="px-2 py-2">
+                                    {localizeCoreModeFeatureName(item.feature)}
+                                    <span className="ml-1 text-[10px] text-[var(--color-text-muted)]">({item.feature})</span>
+                                  </td>
                                   <td className="px-2 py-2">{formatNumber(item.importance_mean)}</td>
                                   <td className="px-2 py-2">{formatNumber(item.importance_std)}</td>
                                   <td className="px-2 py-2">{item.fold_count}</td>
@@ -1546,25 +1582,25 @@ export default function CoreModePage() {
                           </table>
                         </div>
                       ) : (
-                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">無可用 feature importance。</p>
+                        <p className="mt-2 text-xs text-[var(--color-text-muted)]">無可用特徵重要度。</p>
                       )}
                     </div>
 
                     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
-                      <h3 className="text-sm font-semibold">Candidate Ranking</h3>
+                      <h3 className="text-sm font-semibold">候選參數排序</h3>
                       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                        verified_score 為舊相容欄位，目前語意等同 validation_score；final_holdout_score 不參與排序。
+                        verified_score 為舊相容欄位，目前語意等同正式驗證分數；未知區驗證分數不參與排序。
                       </p>
                       {(runResult.auto_search_result?.results ?? []).length ? (
                         <div className="mt-2 overflow-x-auto">
                           <table className="min-w-full text-left text-xs">
                             <thead>
                               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                                <th className="px-2 py-2">Rank</th>
-                                <th className="px-2 py-2">predicted_score</th>
-                                <th className="px-2 py-2">validation_score（verified_score 相容欄位）</th>
-                                <th className="px-2 py-2">final_holdout_score</th>
-                                <th className="px-2 py-2">params</th>
+                                <th className="px-2 py-2">排名</th>
+                                <th className="px-2 py-2">ML 預估分數</th>
+                                <th className="px-2 py-2">正式驗證分數</th>
+                                <th className="px-2 py-2">未知區驗證分數</th>
+                                <th className="px-2 py-2">參數組合</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1576,7 +1612,7 @@ export default function CoreModePage() {
                                     <td className="px-2 py-2">{item.predicted_score == null ? '--' : formatNumber(item.predicted_score)}</td>
                                     <td className="px-2 py-2">{validationScore == null ? '--' : formatNumber(validationScore)}</td>
                                     <td className="px-2 py-2">{item.final_holdout_score == null ? '--' : formatNumber(item.final_holdout_score)}</td>
-                                    <td className="px-2 py-2 font-mono text-[11px]">{JSON.stringify(item.params)}</td>
+                                    <td className="px-2 py-2"><CoreModeParamTable params={item.params} /></td>
                                   </tr>
                                 );
                               })}
@@ -1588,11 +1624,11 @@ export default function CoreModePage() {
                           <table className="min-w-full text-left text-xs">
                             <thead>
                               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                                <th className="px-2 py-2">Rank</th>
-                                <th className="px-2 py-2">predicted_score</th>
-                                <th className="px-2 py-2">validation_score（verified_score 相容欄位）</th>
-                                <th className="px-2 py-2">final_holdout_score</th>
-                                <th className="px-2 py-2">params</th>
+                                <th className="px-2 py-2">排名</th>
+                                <th className="px-2 py-2">ML 預估分數</th>
+                                <th className="px-2 py-2">正式驗證分數</th>
+                                <th className="px-2 py-2">未知區驗證分數</th>
+                                <th className="px-2 py-2">參數組合</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1602,7 +1638,7 @@ export default function CoreModePage() {
                                   <td className="px-2 py-2">{formatNumber(item.predicted_score)}</td>
                                   <td className="px-2 py-2">{formatNumber(item.verified_score)}</td>
                                   <td className="px-2 py-2">--</td>
-                                  <td className="px-2 py-2 font-mono text-[11px]">{JSON.stringify(item.params)}</td>
+                                  <td className="px-2 py-2"><CoreModeParamTable params={item.params} /></td>
                                 </tr>
                               ))}
                             </tbody>
