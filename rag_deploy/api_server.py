@@ -142,6 +142,40 @@ def _build_user_context_block(user_token: str | None, query: str) -> tuple[str, 
     return block, section
 
 
+async def _generate_actions(query: str, detected_stocks: list[str], answer: str) -> list[dict]:
+    if not openai_client:
+        return []
+    stock_list = "、".join(detected_stocks) if detected_stocks else "無"
+    stocks_json = json.dumps(detected_stocks, ensure_ascii=False)
+    prompt = (
+        f"根據以下台股問答，決定最多 2 個後續行動按鈕（JSON 陣列）。\n\n"
+        f"使用者問題：{query}\n"
+        f"偵測到的股票：{stock_list}\n"
+        f"回答摘要（前 100 字）：{answer[:100]}\n\n"
+        f"規則：\n"
+        f"- 幾乎每次都要給一個 follow_up（建議追問，label 用中文，query 為具體問題）\n"
+        f"- 第二個從以下擇一：涉及走勢/預測給 chart；涉及新聞/事件給 news；涉及主觀判斷/該不該買給 save_view\n"
+        f"- 若只有一個合適的就只給一個\n"
+        f"- stock_id 只能從 {stocks_json} 中選，沒有偵測到股票時省略 stock_id 欄位\n\n"
+        f"只輸出 JSON 陣列，不要其他文字：\n"
+        f'[{{"type":"follow_up","label":"...","query":"..."}},{{"type":"chart","label":"查看 XX 走勢圖","stock_id":"XXXX"}}]'
+    )
+    try:
+        resp = openai_client.chat.completions.create(
+            model="meta/llama-3.1-8b-instruct",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=256, stream=False,
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        actions = json.loads(raw)
+        if isinstance(actions, list):
+            return actions[:2]
+    except Exception:
+        pass
+    return []
+
+
 def get_source_name(source_raw: str) -> str:
     if source_raw in SOURCE_NAME_MAP:
         return SOURCE_NAME_MAP[source_raw]
@@ -331,6 +365,7 @@ class AskResponse(BaseModel):
     tokens: dict
     duration_ms: int
     current_time: str
+    actions: list[dict] = []
 
 
 # ── API Endpoints ────────────────────────────────────
@@ -580,7 +615,8 @@ async def _stream_ask(req):
         if time_fallback:
             clean_text += "\n\n⚠️ 因資料庫中找不到符合指定時間範圍的資料，以上分析僅供參考。"
 
-        yield _sse("done", answer=clean_text, detected_stocks=detected, time_range=time_range_info, sources=[s.model_dump() for s in sources], duration_ms=duration_ms, current_time=current_time_str)
+        actions = await _generate_actions(req.query, detected, clean_text)
+        yield _sse("done", answer=clean_text, detected_stocks=detected, time_range=time_range_info, sources=[s.model_dump() for s in sources], duration_ms=duration_ms, current_time=current_time_str, actions=actions)
 
         try:
             from qa_logger import log_qa
@@ -976,6 +1012,7 @@ async def ask(req: AskRequest):
                tokens_input=tokens_input, tokens_output=tokens_output,
                tokens_thinking=tokens_thinking)
 
+        actions = await _generate_actions(req.query, detected, answer)
         return AskResponse(
             answer=answer,
             detected_stocks=detected,
@@ -984,6 +1021,7 @@ async def ask(req: AskRequest):
             tokens={"input": tokens_input, "output": tokens_output, "thinking": tokens_thinking},
             duration_ms=duration_ms,
             current_time=current_time_str,
+            actions=actions,
         )
 
     except httpx.TimeoutException:

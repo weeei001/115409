@@ -390,6 +390,7 @@ async function doAsk() {
             </div>`;
             answerEl.insertAdjacentHTML("beforebegin", metaHtml);
             renderSources(data.sources, data);
+            renderActions(data.actions);
           } else if (data.type === "error") {
             statusBar.style.display = "none";
             answerEl.textContent = "❌ 錯誤：" + data.message;
@@ -421,12 +422,52 @@ async function doAsk() {
         <div id="answer" style="margin-top:12px">${data.answer}</div>
       </div>`;
       renderSources(data.sources, data);
+      renderActions(data.actions);
     } catch (e) {
       result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
     }
   }
   btn.disabled = false;
   btn.textContent = "送出";
+}
+
+function renderActions(actions) {
+  if (!actions || actions.length === 0) return;
+  const result = document.getElementById("askResult");
+  const card = result.querySelector(".card");
+  if (!card) return;
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;";
+  actions.forEach(a => {
+    const btn = document.createElement("button");
+    btn.textContent = a.label;
+    btn.style.cssText = "padding:7px 14px;border-radius:8px;border:1px solid #546e7a;background:#1e2a35;color:#cfd8dc;cursor:pointer;font-size:13px;transition:background 0.15s;";
+    btn.onmouseenter = () => btn.style.background = "#263238";
+    btn.onmouseleave = () => btn.style.background = "#1e2a35";
+    if (a.type === "follow_up") {
+      btn.onclick = () => {
+        document.getElementById("queryInput").value = a.query;
+        switchTab("ask");
+        document.getElementById("askBtn").click();
+      };
+    } else if (a.type === "chart" && a.stock_id) {
+      btn.onclick = () => {
+        document.getElementById("chartStock").value = a.stock_id;
+        switchTab("chart");
+        loadChart();
+      };
+    } else if (a.type === "news" && a.stock_id) {
+      btn.onclick = () => {
+        document.getElementById("newsStock").value = a.stock_id;
+        switchTab("news");
+        loadNews(1);
+      };
+    } else if (a.type === "save_view") {
+      btn.onclick = () => switchTab("profile");
+    }
+    wrap.appendChild(btn);
+  });
+  card.appendChild(wrap);
 }
 
 function renderSources(sources, meta) {
