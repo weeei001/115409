@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt fastapi uvicorn
 
-COPY api_server.py qa_logger.py .env index.html ./
+COPY api_server.py qa_logger.py .env index.html chart_demo.html ./
 
 # qdrant_db, crawler 從外部掛載（太大不放進 image）
 

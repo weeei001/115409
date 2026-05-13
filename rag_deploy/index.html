@@ -112,14 +112,22 @@
 <div class="page" id="page-chart">
   <div class="input-row">
     <select id="chartStock"></select>
-    <input type="number" id="chartDays" value="180" min="30" max="365" style="width:80px" />
-    <span style="color:#90a4ae;font-size:13px;align-self:center">天</span>
+    <input type="number" id="chartDays" value="120" min="20" max="500" style="width:80px" />
+    <span style="color:#90a4ae;font-size:13px;align-self:center">交易日</span>
     <button onclick="loadChart()">載入</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <button onclick="setDays(20)"  style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近1月</button>
+    <button onclick="setDays(60)"  style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近3月</button>
+    <button onclick="setDays(120)" style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近6月</button>
+    <button onclick="setDays(250)" style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近1年</button>
+    <button onclick="loadTrendPredict()" id="predictBtn" style="padding:4px 14px;font-size:12px;background:#1e3a2a;color:#a5d6a7;border:1px solid #388e3c">🔮 AI 趨勢預測</button>
   </div>
   <div class="card" style="position:relative;min-height:320px">
     <canvas id="priceChart"></canvas>
     <p id="chartLoading" style="color:#4fc3f7;text-align:center;padding:40px 0">請選擇股票後點擊載入</p>
   </div>
+  <div id="predictResult" style="margin-top:12px"></div>
   <div id="newsMarkers" style="margin-top:12px"></div>
 </div>
 
@@ -451,9 +459,40 @@ function renderSources(sources, meta) {
 // ── 走勢圖 ──
 let priceChartInstance = null;
 
+function setDays(days) {
+  document.getElementById("chartDays").value = days;
+  loadChart();
+}
+let chartNewsMap = {};
+let chartAllNews = [];
+
+function renderNewsList(filterDate = null) {
+  const markersEl = document.getElementById("newsMarkers");
+  const list = filterDate
+    ? chartAllNews.filter(n => n.displayDate === filterDate)
+    : chartAllNews.slice(-20).reverse();
+
+  if (list.length === 0) { markersEl.innerHTML = ""; return; }
+
+  const title = filterDate
+    ? `📰 ${filterDate} 新聞（${list.length} 則）<button onclick="renderNewsList()" style="margin-left:12px;background:#253545;color:#90a4ae;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:12px">← 全部</button>`
+    : `📰 近期新聞（紅點標記）`;
+
+  let html = `<div class="card"><h3 style="color:#4fc3f7;margin-bottom:12px">${title}</h3>`;
+  for (const n of list) {
+    html += `<div style="padding:6px 0;border-bottom:1px solid #253545">
+      <span class="badge">${n.date}</span>
+      <span class="badge">${n.source}</span>
+      ${n.url ? `<a href="${n.url}" target="_blank" style="color:#4fc3f7;font-size:12px">${n.title.slice(0,50)}...</a>` : `<span style="font-size:13px">${n.title.slice(0,60)}</span>`}
+    </div>`;
+  }
+  html += `</div>`;
+  markersEl.innerHTML = html;
+}
+
 async function loadChart() {
   const stock = document.getElementById("chartStock").value;
-  const days = parseInt(document.getElementById("chartDays").value) || 180;
+  const tradingDays = parseInt(document.getElementById("chartDays").value) || 120;
   if (!stock) return alert("請選擇股票");
 
   const loading = document.getElementById("chartLoading");
@@ -464,12 +503,22 @@ async function loadChart() {
 
   const end = new Date();
   const start = new Date();
-  start.setDate(start.getDate() - days);
+  // 新聞範圍多抓一點，確保週六日的新聞也能撈到
+  start.setDate(start.getDate() - Math.ceil(tradingDays * 1.5));
   const fmt = d => d.toISOString().slice(0, 10);
+
+  // 週六日日期移到前一個週五
+  function toTradingDate(dateStr) {
+    const d = new Date(dateStr + "T00:00:00");
+    const day = d.getDay();
+    if (day === 6) d.setDate(d.getDate() - 1);
+    else if (day === 0) d.setDate(d.getDate() - 2);
+    return d.toISOString().slice(0, 10);
+  }
 
   try {
     const [priceRes, newsRes] = await Promise.all([
-      fetch(`${API}/api/stock_price?stock_id=${stock}&start_date=${fmt(start)}&end_date=${fmt(end)}`),
+      fetch(`${API}/api/stock_price?stock_id=${stock}&trading_days=${tradingDays}`),
       fetch(`${API}/api/news_timeline?stock_id=${stock}&start_date=${fmt(start)}&end_date=${fmt(end)}`),
     ]);
     if (!priceRes.ok) throw new Error((await priceRes.json()).detail);
@@ -479,14 +528,15 @@ async function loadChart() {
     const labels = priceData.records.map(r => r.date);
     const closes = priceData.records.map(r => r.close);
 
-    // 新聞標記：每個有新聞的日期找最接近的收盤價
-    const newsMap = {};
-    for (const n of newsData.news) {
-      if (!newsMap[n.date]) newsMap[n.date] = [];
-      newsMap[n.date].push(n.title);
+    // 新聞標記：週六日新聞歸到前一個週五
+    chartNewsMap = {};
+    chartAllNews = newsData.news.map(n => ({ ...n, displayDate: toTradingDate(n.date) }));
+    for (const n of chartAllNews) {
+      if (!chartNewsMap[n.displayDate]) chartNewsMap[n.displayDate] = [];
+      chartNewsMap[n.displayDate].push(n.title);
     }
-    const pointColors = labels.map(d => newsMap[d] ? "#ff6b6b" : "transparent");
-    const pointRadius = labels.map(d => newsMap[d] ? 6 : 0);
+    const pointColors = labels.map(d => chartNewsMap[d] ? "#ff6b6b" : "transparent");
+    const pointRadius = labels.map(d => chartNewsMap[d] ? 6 : 0);
 
     if (priceChartInstance) priceChartInstance.destroy();
     loading.style.display = "none";
@@ -512,15 +562,25 @@ async function loadChart() {
       options: {
         responsive: true,
         plugins: {
-          legend: { labels: { color: "#e0e0e0" } },
+          legend: { labels: { color: "#e0e0e0", usePointStyle: true, pointStyleWidth: 20 } },
           tooltip: {
             callbacks: {
               afterBody: (items) => {
                 const date = items[0].label;
-                const news = newsMap[date];
-                return news ? ["", "📰 新聞：", ...news.slice(0, 3).map(t => "• " + t.slice(0, 40))] : [];
+                const news = chartNewsMap[date];
+                if (!news) return [];
+                const lines = ["", `📰 新聞（${news.length} 則）：`];
+                news.forEach(t => lines.push("• " + t.slice(0, 45)));
+                if (news.length > 1) lines.push("（點擊紅點篩選當日新聞）");
+                return lines;
               }
             }
+          }
+        },
+        onClick: (evt, elements) => {
+          if (elements.length > 0) {
+            const date = priceChartInstance.data.labels[elements[0].index];
+            if (chartNewsMap[date]) renderNewsList(date);
           }
         },
         scales: {
@@ -530,23 +590,183 @@ async function loadChart() {
       }
     });
 
-    // 新聞列表
-    const newsList = newsData.news.slice(-20).reverse();
-    if (newsList.length > 0) {
-      let html = `<div class="card"><h3 style="color:#4fc3f7;margin-bottom:12px">📰 近期新聞（紅點標記）</h3>`;
-      for (const n of newsList) {
-        html += `<div style="padding:6px 0;border-bottom:1px solid #253545">
-          <span class="badge">${n.date}</span>
-          <span class="badge">${n.source}</span>
-          ${n.url ? `<a href="${n.url}" target="_blank" style="color:#4fc3f7;font-size:12px">${n.title.slice(0,50)}...</a>` : `<span style="font-size:13px">${n.title.slice(0,60)}</span>`}
-        </div>`;
-      }
-      html += `</div>`;
-      markersEl.innerHTML = html;
-    }
+    renderNewsList();
   } catch (e) {
     loading.textContent = "❌ " + e.message;
   }
+}
+
+function loadTrendPredict() {
+  const stock = document.getElementById("chartStock").value;
+  if (!stock) return alert("請先載入走勢圖");
+  if (!priceChartInstance) return alert("請先載入走勢圖");
+
+  const btn = document.getElementById("predictBtn");
+  const resultEl = document.getElementById("predictResult");
+  btn.disabled = true;
+  btn.textContent = "🔮 預測中...";
+  resultEl.innerHTML = `<div class="card" id="predictProgress">
+    <h3 style="color:#a5d6a7;margin-bottom:12px">🔮 AI 逐週預測中...</h3>
+    <div id="weekProgress" style="display:flex;gap:12px;flex-wrap:wrap">
+      ${[1,2,3,4].map(w=>`<div id="week${w}status" style="padding:8px 14px;border-radius:8px;background:#1a2635;border:1px solid #2a3a4a;font-size:13px;color:#546e7a">第${w}週 ⏳</div>`).join("")}
+    </div>
+  </div>`;
+
+  // 關閉舊連線
+  if (window._predictES) { window._predictES.close(); window._predictES = null; }
+
+  let chartInitDone = false;
+  let existingLen = 0;
+  let futureDatesLen = 0;
+  const collectedNodes = [];
+
+  const es = new EventSource(`${API}/api/trend_predict_stream?stock_id=${stock}`);
+  window._predictES = es;
+
+  es.onmessage = (evt) => {
+    const d = JSON.parse(evt.data);
+    const chart = priceChartInstance;
+
+    if (d.type === "error") {
+      resultEl.innerHTML = `<div class="card"><p style="color:#ef9a9a">❌ ${d.message}</p></div>`;
+      es.close(); btn.disabled = false; btn.textContent = "🔮 AI 趨勢預測";
+      return;
+    }
+
+    if (d.type === "init") {
+      // ── 初始化：加回歸線 datasets，建立空的 AI 預測 dataset ──
+      existingLen = chart.data.labels.length;
+      futureDatesLen = d.future_dates.length;
+      const allLabels = [...chart.data.labels, ...d.future_dates];
+
+      // 移除舊預測 datasets
+      chart.data.datasets = chart.data.datasets.filter(ds =>
+        !["__regr_upper__","__regr_lower__","__regr_hist__","__regr_future__","__ai_future__"].includes(ds._id)
+      );
+
+      chart.data.labels = allLabels;
+      // 補齊主 dataset 長度
+      const mainDs = chart.data.datasets[0];
+      mainDs.data = [...mainDs.data, ...new Array(futureDatesLen).fill(null)];
+      mainDs.pointBackgroundColor = [...mainDs.pointBackgroundColor, ...new Array(futureDatesLen).fill("transparent")];
+      mainDs.pointRadius = [...mainDs.pointRadius, ...new Array(futureDatesLen).fill(0)];
+
+      // 回歸歷史線對齊
+      const firstHistIdx = chart.data.labels.indexOf(d.history_dates[0]);
+      const regrHistData = new Array(existingLen).fill(null);
+      if (firstHistIdx >= 0) {
+        d.regression_history.forEach((v, i) => {
+          if (firstHistIdx + i < regrHistData.length) regrHistData[firstHistIdx + i] = v;
+        });
+      }
+      const upperData = new Array(existingLen).fill(null);
+      const lowerData = new Array(existingLen).fill(null);
+      if (firstHistIdx >= 0 && d.regression_upper) {
+        d.regression_upper.forEach((v, i) => { if (firstHistIdx+i < existingLen) upperData[firstHistIdx+i] = v; });
+        d.regression_lower.forEach((v, i) => { if (firstHistIdx+i < existingLen) lowerData[firstHistIdx+i] = v; });
+      }
+
+      // 只畫未來數學預測線，從最後收盤銜接
+      const regrFutureData = new Array(existingLen).fill(null);
+      regrFutureData[existingLen - 1] = d.last_price;
+      chart.data.datasets.push({ _id:"__regr_future__", label:"數學預測（1個月）",
+        data:[...regrFutureData, ...d.regression_future],
+        borderColor:"rgba(255,213,79,0.85)", borderWidth:2, borderDash:[6,3],
+        pointRadius:0, pointStyle:"line", fill:false, tension:0 });
+
+      // AI 預測線初始：只有銜接點，其餘 null
+      const aiInitData = new Array(existingLen + futureDatesLen).fill(null);
+      aiInitData[existingLen - 1] = d.last_price;
+      chart.data.datasets.push({ _id:"__ai_future__", label:"AI 逐週預測",
+        data: aiInitData,
+        borderColor:"rgba(102,187,106,0.9)", borderWidth:2.5, borderDash:[8,3],
+        pointRadius: new Array(existingLen + futureDatesLen).fill(0),
+        pointBackgroundColor:"rgba(102,187,106,0.9)",
+        pointStyle:"circle", fill:false, tension:0.4, spanGaps:true });
+
+      chart.update("none");
+      chartInitDone = true;
+      return;
+    }
+
+    if (d.type === "node" && chartInitDone) {
+      collectedNodes.push(d);
+      // 更新 AI 預測線在對應位置
+      const aiDs = chart.data.datasets.find(ds => ds._id === "__ai_future__");
+      if (aiDs) {
+        const pos = existingLen + d.day_idx;
+        aiDs.data[pos] = d.price;
+        aiDs.pointRadius[pos] = 6;
+        // 上漲綠/下跌紅
+        const isUp = d.pct >= 0;
+        aiDs.borderColor = isUp ? "rgba(102,187,106,0.9)" : "rgba(239,83,80,0.9)";
+        aiDs.pointBackgroundColor = isUp ? "rgba(102,187,106,0.9)" : "rgba(239,83,80,0.9)";
+        chart.update("none");
+      }
+      // 更新進度 UI
+      const el = document.getElementById(`week${d.week}status`);
+      if (el) {
+        const sign = d.pct >= 0 ? "+" : "";
+        el.style.background = d.pct >= 0 ? "#1b3a2a" : "#3a1b1b";
+        el.style.color = d.pct >= 0 ? "#a5d6a7" : "#ef9a9a";
+        el.style.borderColor = d.pct >= 0 ? "#388e3c" : "#c62828";
+        el.innerHTML = `第${d.week}週 ${sign}${d.pct.toFixed(1)}%<br><span style="font-size:11px;color:#90a4ae">${d.reason.slice(0,30)}...</span>`;
+      }
+      return;
+    }
+
+    if (d.type === "done") {
+      es.close(); window._predictES = null;
+      btn.disabled = false; btn.textContent = "🔮 AI 趨勢預測";
+
+      const dirIcon  = d.total_pct >= 0 ? "📈" : "📉";
+      const dirColor = d.total_pct >= 0 ? "#a5d6a7" : "#ef9a9a";
+      const sign = d.total_pct >= 0 ? "+" : "";
+
+      const nodeRows = d.nodes.map(nd => `
+        <div style="padding:8px 0;border-bottom:1px solid #253545">
+          <span class="badge">第${nd.week}週</span>
+          <span style="color:${nd.pct>=0?'#a5d6a7':'#ef9a9a'};font-weight:600">${nd.pct>=0?'+':''}${nd.pct.toFixed(1)}%</span>
+          <span style="color:#78909c;font-size:12px"> NT$${nd.price}</span>
+          <div style="color:#90a4ae;font-size:12px;margin-top:3px">${nd.reason}</div>
+        </div>`).join("");
+
+      resultEl.innerHTML = `
+        <div class="card">
+          <h3 style="color:#a5d6a7;margin-bottom:12px">${dirIcon} AI 逐週預測結果</h3>
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+            <div><span style="color:#78909c;font-size:12px">一個月預測方向</span><br>
+              <span style="color:${dirColor};font-size:20px;font-weight:700">${d.total_pct>=0?"看漲 ▲":"看跌 ▼"}</span></div>
+            <div><span style="color:#78909c;font-size:12px">預估漲跌幅</span><br>
+              <span style="color:${dirColor};font-size:20px;font-weight:700">${sign}${d.total_pct}%</span></div>
+            <div><span style="color:#78909c;font-size:12px">目標價</span><br>
+              <span style="color:#e0e0e0;font-size:20px;font-weight:700">NT$ ${d.target_price}</span></div>
+          </div>
+          <div style="margin-bottom:12px">${nodeRows}</div>
+          <p style="font-size:11px;color:#546e7a">⚠️ 本預測僅供參考，不構成投資建議。股市有風險，投資需謹慎。</p>
+          <button onclick="clearTrendPredict()" style="margin-top:12px;background:#253545;color:#90a4ae;font-size:12px;padding:4px 12px">✕ 清除預測線</button>
+        </div>`;
+    }
+  };
+
+  es.onerror = () => {
+    es.close(); window._predictES = null;
+    btn.disabled = false; btn.textContent = "🔮 AI 趨勢預測";
+    if (resultEl.querySelector("#predictProgress"))
+      resultEl.innerHTML = `<div class="card"><p style="color:#ef9a9a">❌ 串流連線中斷</p></div>`;
+  };
+}
+
+function clearTrendPredict() {
+  if (!priceChartInstance) return;
+  const chart = priceChartInstance;
+  // 移除預測 datasets
+  chart.data.datasets = chart.data.datasets.filter(ds =>
+    !["__regr_upper__", "__regr_lower__", "__regr_hist__", "__regr_future__", "__ai_future__"].includes(ds._id)
+  );
+  // 還原 labels 和主 dataset 到無未來日期的狀態（重新載入最乾淨）
+  chart.update();
+  document.getElementById("predictResult").innerHTML = "";
 }
 
 // ── 新聞瀏覽 ──

@@ -563,6 +563,8 @@ async def _stream_ask(req):
         )
         full_text = ""
         async for chunk in stream_resp:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta.content
             if delta:
                 full_text += delta
@@ -1637,8 +1639,30 @@ async def get_trend_predict(
 
     future_dates = next_trading_days(last_date_str, 20)
 
-    # 加權回歸外推（未來 20 天）
-    regression_future = [round(slope * (n + i) + intercept, 2) for i in range(20)]
+    # ── 短期動能 + 均值回歸曲線預測 ──
+    # 短期斜率：最近 5 天加權回歸
+    n5 = min(5, n)
+    closes5 = closes[-n5:]
+    x5 = list(range(n5))
+    w5 = [_math.exp(0.2 * i) for i in range(n5)]
+    w5s = sum(w5)
+    x5mw = sum(w5[i] * x5[i] for i in range(n5)) / w5s
+    y5mw = sum(w5[i] * closes5[i] for i in range(n5)) / w5s
+    n5d  = sum(w5[i] * (x5[i]-x5mw)**2 for i in range(n5))
+    short_slope = sum(w5[i]*(x5[i]-x5mw)*(closes5[i]-y5mw) for i in range(n5)) / n5d if n5d else slope
+
+    # 長期均線（MA20）作為均值回歸目標
+    ma20 = sum(closes[-20:]) / min(20, n)
+    # 每日往 MA20 方向拉力（分 20 步回歸）
+    mean_pull_per_day = (ma20 - last_price) / 20
+
+    regression_future = []
+    price = last_price
+    for i in range(20):
+        decay = _math.exp(-0.18 * i)          # 動能指數衰減
+        daily_move = decay * short_slope + (1 - decay) * mean_pull_per_day
+        price = round(price + daily_move, 2)
+        regression_future.append(price)
 
     # ── 4. 取最近 20 則新聞 ──
     recent_news_titles = []
@@ -1820,7 +1844,27 @@ async def trend_predict_stream(
         return days
 
     future_dates = next_trading_days(last_date_str, 20)
-    regression_future = [round(slope * (n + i) + intercept, 2) for i in range(20)]
+
+    # 短期動能 + 均值回歸曲線
+    n5 = min(5, n)
+    closes5 = closes[-n5:]
+    x5 = list(range(n5))
+    w5 = [_math.exp(0.2 * i) for i in range(n5)]
+    w5s = sum(w5)
+    x5mw = sum(w5[i] * x5[i] for i in range(n5)) / w5s
+    y5mw = sum(w5[i] * closes5[i] for i in range(n5)) / w5s
+    n5d  = sum(w5[i] * (x5[i]-x5mw)**2 for i in range(n5))
+    short_slope = sum(w5[i]*(x5[i]-x5mw)*(closes5[i]-y5mw) for i in range(n5)) / n5d if n5d else slope
+    ma20 = sum(closes[-20:]) / min(20, n)
+    mean_pull_per_day = (ma20 - last_price) / 20
+
+    regression_future = []
+    price = last_price
+    for i in range(20):
+        decay = _math.exp(-0.18 * i)
+        daily_move = decay * short_slope + (1 - decay) * mean_pull_per_day
+        price = round(price + daily_move, 2)
+        regression_future.append(price)
 
     # ── 4. 取近期新聞 ──
     recent_news_titles = []
@@ -1876,7 +1920,7 @@ async def trend_predict_stream(
             day_idx = week * 5 - 1  # 第 4、9、14、19 天（0-indexed）
             prior_ctx = ""
             if prior_nodes:
-                lines = [f"  第{w}週末：{p:+.2f}%，{r}" for w, p, r in prior_nodes]
+                lines = [f"  第{w}週末：{p:+.2f}%，{r}" for w, p, r, _ in prior_nodes]
                 prior_ctx = "\n\n## 前幾週已預測結果\n" + "\n".join(lines)
 
             prompt = f"""你是台股分析師。請根據以下資訊，獨立預測 {stock_name}（{stock_id}）第 {week} 週末（未來第 {week*5} 個交易日）的漲跌幅。
@@ -1949,3 +1993,7 @@ async def trend_predict_stream(
 @app.get("/")
 async def serve_frontend():
     return FileResponse("index.html", media_type="text/html")
+
+@app.get("/chart_demo")
+async def serve_chart_demo():
+    return FileResponse("chart_demo.html", media_type="text/html")
