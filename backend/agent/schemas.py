@@ -35,10 +35,10 @@ class DBData(BaseModel):
 
 
 class ScoreWeights(BaseModel):
-    technical: float = 0.38
-    institutional: float = 0.30
-    news: float = 0.15
-    momentum: float = 0.17
+    technical: float = 0.35
+    institutional: float = 0.25
+    news: float = 0.25
+    momentum: float = 0.15
 
 
 class ScoreExplanations(BaseModel):

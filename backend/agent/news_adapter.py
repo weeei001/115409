@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import time
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -53,16 +52,7 @@ async def fetch_from_rag_api(
             if rag_key:
                 headers["Authorization"] = f"Bearer {rag_key}"
 
-            started_at = time.perf_counter()
             resp = await client.post(rag_url, json=payload, headers=headers)
-            elapsed_ms = (time.perf_counter() - started_at) * 1000
-            print(
-                "[timing.rag] symbols={symbols} elapsed_ms={elapsed_ms:.1f} status_code={status_code}".format(
-                    symbols=",".join(symbols),
-                    elapsed_ms=elapsed_ms,
-                    status_code=resp.status_code,
-                )
-            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -87,13 +77,5 @@ async def fetch_from_rag_api(
         return chunks[:5], rag_summary, False
 
     except Exception:
-        if "started_at" in locals():
-            elapsed_ms = (time.perf_counter() - started_at) * 1000
-            print(
-                "[timing.rag] symbols={symbols} elapsed_ms={elapsed_ms:.1f} status=error".format(
-                    symbols=",".join(symbols),
-                    elapsed_ms=elapsed_ms,
-                )
-            )
         logger.exception("RAG API call failed")
         return [], "", True

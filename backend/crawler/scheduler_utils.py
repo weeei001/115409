@@ -33,9 +33,6 @@ TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
 def _python_executable() -> str:
-    project_venv_python = CRAWLER_DIR.parent / "env" / "Scripts" / "python.exe"
-    if project_venv_python.exists():
-        return str(project_venv_python)
     return sys.executable
 
 
