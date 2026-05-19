@@ -37,3 +37,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# 爬蟲csv檔案
+crawler/finmind/finmind_output

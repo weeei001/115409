@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+SCENARIO_PROJECTION_DAYS = [5, 10, 15, 20, 25, 30, 35, 40]
+
+TrendState = Literal[
+    "bullish",
+    "mildly_bullish",
+    "neutral",
+    "mildly_bearish",
+    "bearish",
+    "uncertain",
+]
+ConfidenceLevel = Literal["low", "medium", "high"]
+RiskLevel = Literal["low", "medium", "high"]
+
+
+class StockBehaviorAnalyzeRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=10)
+    as_of_date: str = Field(..., description="YYYY-MM-DD")
+    horizon_days: int = Field(40, ge=5, le=60)
+    recent_lookback_days: int = Field(365, ge=20, le=365)
+    news_lookback_days: int = Field(60, ge=7, le=120)
+    max_news_events: int = Field(10, ge=1, le=20)
+    analysis_language: str = "zh-TW"
+
+
+class StockBehaviorRagRequest(BaseModel):
+    symbols: List[str] = Field(
+        ...,
+        min_length=1,
+        description="股票代號陣列。Swagger 與目前後端流程只會使用第一個有效代號。",
+        examples=[["2330"]],
+    )
+
+
+class AnalyzeNewsSourceItem(BaseModel):
+    id: str = Field(default="", description="新聞唯一識別碼。")
+    title: str = Field(default="", description="新聞標題。")
+    summary: str = Field(default="", description="新聞摘要或內容節錄。")
+    timestamp: str = Field(default="", description="新聞時間，ISO 8601 格式。")
+    url: Optional[str] = Field(default=None, description="原始新聞網址。")
+
+
+class StockBehaviorAiRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=10, description="單一股票代號，例如 2330。")
+    news_sources: List[AnalyzeNewsSourceItem] = Field(
+        default_factory=list,
+        description="RAG 新聞來源列表，通常直接使用 `/analyze/stock-behavior/rag` 的 response.news_sources。",
+    )
+    fallback_mode: bool = Field(
+        default=False,
+        description="是否為 RAG fallback 模式。通常直接使用 `/analyze/stock-behavior/rag` 的 response.fallback_mode。",
+    )
+    raw_answer: str = Field(
+        default="",
+        description="RAG 原始摘要文字。通常直接使用 `/analyze/stock-behavior/rag` 的 response.raw_answer。",
+    )
+
+
+class TrendAssessment(BaseModel):
+    state: TrendState = "uncertain"
+    confidence_level: ConfidenceLevel = "low"
+    summary: str = ""
+
+
+class SubjectiveView(BaseModel):
+    opinion: str = ""
+    supported_evidence: List[str] = Field(default_factory=list)
+    invalidation_conditions: List[str] = Field(default_factory=list)
+
+
+class ProjectionPoint(BaseModel):
+    day: int
+    relative_price: float = 1.0
+    predicted_close: Optional[float] = None
+    predicted_volume: Optional[float] = None
+    direction: str = "uncertain"
+    reason: str = ""
+
+
+class ScenarioProjection(BaseModel):
+    horizon_days: int = 40
+    scenario_key: str = "primary"
+    scenario_name: str = "主情境"
+    user_interpretation: str = ""
+    summary_for_user: str = ""
+    trigger_conditions: List[str] = Field(default_factory=list)
+    invalidation_conditions: List[str] = Field(default_factory=list)
+    points: List[ProjectionPoint] = Field(default_factory=list)
+    line_disclaimer: str = "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
+
+    @field_validator("points")
+    @classmethod
+    def validate_projection_days(cls, value: List[ProjectionPoint]) -> List[ProjectionPoint]:
+        actual_days = [item.day for item in value]
+        if actual_days != SCENARIO_PROJECTION_DAYS:
+            raise ValueError(f"projection.points days must be exactly {SCENARIO_PROJECTION_DAYS}")
+        return value
+
+
+class RiskItem(BaseModel):
+    risk_type: str = ""
+    description: str = ""
+    watch_condition: str = ""
+
+
+class RagReferenceAnalysis(BaseModel):
+    raw_answer_used_as: Literal["reference_only"] = "reference_only"
+    rag_sentiment: Literal["bullish", "neutral", "bearish", "mixed", "unknown"] = "unknown"
+    rag_summary: str = ""
+    news_sources_count: int = 0
+    is_confirmed_by_price_volume: bool = False
+    is_confirmed_by_chip: bool = False
+    is_confirmed_by_technical: bool = False
+    conflicts: List[str] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+
+
+class EvidenceUsed(BaseModel):
+    price_volume: List[str] = Field(default_factory=list)
+    chip: List[str] = Field(default_factory=list)
+    technical: List[str] = Field(default_factory=list)
+    news: List[str] = Field(default_factory=list)
+
+
+class StockBehaviorAnalysisPayload(BaseModel):
+    data_gap: List[str] = Field(default_factory=list)
+    observations: List[str] = Field(default_factory=list)
+    inferences: List[str] = Field(default_factory=list)
+    summary: str = ""
+    current_trend_assessment: TrendAssessment = Field(default_factory=TrendAssessment)
+    subjective_view: SubjectiveView = Field(default_factory=SubjectiveView)
+    projection: ScenarioProjection = Field(default_factory=ScenarioProjection)
+    risk_level: RiskLevel = "medium"
+    risk_analysis: List[RiskItem] = Field(default_factory=list)
+    rag_reference_analysis: RagReferenceAnalysis = Field(default_factory=RagReferenceAnalysis)
+    evidence_used: EvidenceUsed = Field(default_factory=EvidenceUsed)
+    limitations: List[str] = Field(default_factory=list)
+
+
+class StockBehaviorPublicProjectionPoint(BaseModel):
+    day: int
+    predicted_close: Optional[float] = None
+    predicted_volume: Optional[float] = None
+    direction: str = "uncertain"
+    reason: str = ""
+
+
+class StockBehaviorPublicScenarioProjection(BaseModel):
+    horizon_days: int = 40
+    scenario_name: str = ""
+    user_interpretation: str = ""
+    summary_for_user: str = ""
+    trigger_conditions: List[str] = Field(default_factory=list)
+    invalidation_conditions: List[str] = Field(default_factory=list)
+    points: List[StockBehaviorPublicProjectionPoint] = Field(default_factory=list)
+
+
+class StockBehaviorPublicAnalysisPayload(BaseModel):
+    observations: List[str] = Field(default_factory=list)
+    inferences: List[str] = Field(default_factory=list)
+    summary: str = ""
+    current_trend_assessment: TrendAssessment = Field(default_factory=TrendAssessment)
+    subjective_view: SubjectiveView = Field(default_factory=SubjectiveView)
+    projection: StockBehaviorPublicScenarioProjection = Field(default_factory=StockBehaviorPublicScenarioProjection)
+    risk_level: RiskLevel = "medium"
+    risk_analysis: List[RiskItem] = Field(default_factory=list)
+    evidence_used: EvidenceUsed = Field(default_factory=EvidenceUsed)
+
+
+class StockBehaviorBasicResponse(BaseModel):
+    symbol: str
+    as_of_date: str
+    stored_behavior_profile: Dict[str, Any] = Field(default_factory=dict)
+    recent_evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StockBehaviorRagResponse(BaseModel):
+    news_sources: List[AnalyzeNewsSourceItem] = Field(default_factory=list, description="RAG 回傳的新聞來源列表。")
+    fallback_mode: bool = Field(default=False, description="是否啟用 fallback 模式。")
+    raw_answer: str = Field(default="", description="RAG 回傳的原始摘要文字。")
+
+
+class StockBehaviorAiResponse(BaseModel):
+    symbol: str
+    as_of_date: str
+    llm_analysis: StockBehaviorPublicAnalysisPayload

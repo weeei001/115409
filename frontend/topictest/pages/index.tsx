@@ -313,19 +313,6 @@ export default function Home() {
                 </div>
               </button>
 
-              <button
-                onClick={() => router.push('/advisor')}
-                className="group flex items-center gap-3 p-4 rounded-xl border border-[var(--color-border)]
-                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
-              >
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-[var(--color-bg-elevated)]">
-                  <BarChart3 size={18} className="text-brand" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold group-hover:text-brand transition-colors">投資顧問報告</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5">整合分析與建議</p>
-                </div>
-              </button>
 
               <button
                 onClick={() => router.push('/compare')}

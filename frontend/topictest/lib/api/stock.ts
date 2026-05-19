@@ -9,6 +9,10 @@ import type {
   PriceStatistics,
   MultiStockResponse,
   DateRangeResponse,
+  InstitutionalTradeListResponse,
+  ChipsVolumeChartResponse,
+  TechnicalIndicatorListResponse,
+  IntegratedChartResponse,
 } from '../types';
 
 export async function fetchSymbols(): Promise<string[]> {
@@ -119,6 +123,67 @@ export async function fetchMultipleStocks(
   const { data } = await apiClient.get<MultiStockResponse>(
     '/stocks/compare/multiple',
     { params: { symbols, start_date, end_date } }
+  );
+  return data;
+}
+
+// New endpoints for chips and institutional trades
+export async function fetchInstitutionalTrades(
+  symbol: string,
+  start_date: string,
+  end_date: string
+): Promise<InstitutionalTradeListResponse> {
+  const { data } = await apiClient.get<InstitutionalTradeListResponse>(
+    `/stocks/${symbol}/institutional-trades`,
+    { params: { start_date, end_date } }
+  );
+  return data;
+}
+
+export async function fetchChipsVolumeChart(
+  symbol: string,
+  start_date: string,
+  end_date: string
+): Promise<ChipsVolumeChartResponse> {
+  const { data } = await apiClient.get<ChipsVolumeChartResponse>(
+    `/stocks/${symbol}/chart/chips-volume`,
+    { params: { start_date, end_date } }
+  );
+  return data;
+}
+
+export async function fetchVolumeWithChips(
+  symbol: string,
+  start_date: string,
+  end_date: string
+): Promise<ChipsVolumeChartResponse> {
+  const { data } = await apiClient.get<ChipsVolumeChartResponse>(
+    `/stocks/${symbol}/volume-with-chips`,
+    { params: { start_date, end_date } }
+  );
+  return data;
+}
+
+export async function fetchTechnicalIndicators(
+  symbol: string,
+  start_date: string,
+  end_date: string
+): Promise<TechnicalIndicatorListResponse> {
+  const { data } = await apiClient.get<TechnicalIndicatorListResponse>(
+    `/stocks/${symbol}/technical-indicators`,
+    { params: { start_date, end_date } }
+  );
+  return data;
+}
+
+export async function fetchIntegratedChart(
+  symbol: string,
+  start_date: string,
+  end_date: string
+): Promise<IntegratedChartResponse> {
+  const { data } = await apiClient.get<IntegratedChartResponse>(
+    `/stocks/${symbol}/integrated-chart`,
+    { params: { start_date, end_date } }
   );
   return data;
 }

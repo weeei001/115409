@@ -7,11 +7,9 @@ from database import engine, Base
 from routers import (
     stock_router,
     news_router,
-    indicator_router,
     simulated_order_router,
-    institutional_trade_router,
-    chat_router,
     auth_router,
+    stock_behavior_router,
 )
 from config import get_settings
 from models.user import User  # noqa: F401 — 註冊至 Base.metadata 供 create_all 建表
@@ -98,11 +96,9 @@ app.add_middleware(
 # 註冊路由
 app.include_router(stock_router)
 app.include_router(news_router)
-app.include_router(indicator_router)
 app.include_router(simulated_order_router)
-app.include_router(institutional_trade_router)
-app.include_router(chat_router)
 app.include_router(auth_router)
+app.include_router(stock_behavior_router)
 
 
 @app.get("/")

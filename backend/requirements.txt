@@ -17,6 +17,8 @@ requests==2.32.3
 urllib3==2.2.3
 httpx>=0.27.0
 openai>=1.0.0
+langchain-core>=0.2.0
+langchain-openai>=0.1.0
 
 # --- Crypto (DB / TLS) ---
 cryptography==43.0.1

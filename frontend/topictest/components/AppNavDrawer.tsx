@@ -4,7 +4,6 @@ import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Bot,
-  BrainCircuit,
   GitCompareArrows,
   House,
   LogIn,
@@ -35,7 +34,6 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { path: '/', label: '首頁', icon: House },
-  { path: '/advisor', label: '投資顧問', icon: BrainCircuit },
   { path: '/ai', label: 'AI 顧問', icon: Bot },
   { path: '/order', label: '模擬下單', icon: ShoppingCart },
   { path: '/compare', label: '多股比較', icon: GitCompareArrows },
