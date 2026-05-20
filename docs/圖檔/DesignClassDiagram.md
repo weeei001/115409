@@ -5,9 +5,10 @@ classDiagram
 %% 1. ORM Models (SQLAlchemy)
 %% ========================================
 
+namespace ORM_Models {
+
 %% 系統使用者實體，儲存登入信箱與授權資訊
 class 使用者User {
-    <<ORM Model>>
     +id: Integer
     +電子信箱: String
     +密碼雜湊: String
@@ -21,7 +22,6 @@ class 使用者User {
 
 %% 模擬下單紀錄，儲存買賣委託、預計賣出日等
 class 模擬訂單SimulatedOrder {
-    <<ORM Model>>
     +id: BIGINT
     +使用者識別: String
     +股票代號: String
@@ -38,7 +38,6 @@ class 模擬訂單SimulatedOrder {
 
 %% 密碼重設金鑰，儲存雜湊 Token 與過期時間
 class 密碼重設金鑰PasswordResetToken {
-    <<ORM Model>>
     +id: Integer
     +使用者識別: Integer
     +金鑰雜湊: String
@@ -48,7 +47,6 @@ class 密碼重設金鑰PasswordResetToken {
 
 %% 股票每日交易價格與成交量資料表
 class 每日股價DailyPrice {
-    <<ORM Model>>
     +日期: Date
     +股票代號: String
     +開盤價: DECIMAL
@@ -64,7 +62,6 @@ class 每日股價DailyPrice {
 
 %% 三大法人每日買賣超(外資/投信/自營商)資料表
 class 三大法人交易InstitutionalTrade {
-    <<ORM Model>>
     +日期: Date
     +股票代號: String
     +股票名稱: String
@@ -80,7 +77,6 @@ class 三大法人交易InstitutionalTrade {
 
 %% 股票每日技術指標(MA/KD/RSI/MACD等)
 class 技術指標TechnicalIndicator {
-    <<ORM Model>>
     +日期: Date
     +股票代號: String
     +5日均線: DECIMAL
@@ -95,7 +91,6 @@ class 技術指標TechnicalIndicator {
 
 %% 鉅亨網台股新聞，儲存新聞標題與內文
 class 鉅亨網台股新聞CnyesTWStockNews {
-    <<ORM Model>>
     +id: BigInteger
     +新聞編號: BigInteger
     +新聞標題: String
@@ -107,22 +102,23 @@ class 鉅亨網台股新聞CnyesTWStockNews {
     +更新時間: DateTime
     +repr(): 字串表示法
 }
+}
 
 %% ========================================
 %% 2. Pydantic Schemas (DTO / Validation)
 %% ========================================
 
+namespace Pydantic_Schemas {
+
 %% 註冊請求，負責驗證 Email 與密碼格式
 class 註冊請求RegisterRequest {
-    <<Pydantic Schema>>
     +電子信箱: EmailStr
     +密碼: str
     +顯示名稱: str | None
 }
 
-%% 建立模擬訂單的請求，驗證買賣邏輯與日期合理性
-class 建立模擬訂單SimulatedOrderCreate {
-    <<Pydantic Schema>>
+%% 模擬訂單基底，包含所有共用欄位
+class 模擬訂單基底SimulatedOrderBase {
     +使用者識別: str
     +股票代號: str
     +買賣方向: Literal["buy", "sell"]
@@ -130,25 +126,24 @@ class 建立模擬訂單SimulatedOrderCreate {
     +委託數量: int
     +賣出計畫: Literal["long_term", "by_date"] | None
     +預計賣出日: date | None
+}
+
+%% 建立模擬訂單的請求，繼承基底並加上驗證邏輯
+class 建立模擬訂單SimulatedOrderCreate {
     +validate_user_id(): 驗證使用者識別$
     +validate_symbol(): 驗證股票代號$
     +normalize_sell_order_fields(): 正規化賣單欄位$
     +validate_simulated_order(): 驗證模擬訂單
 }
 
-%% 模擬訂單的回應結構，包含計算後的損益率
+%% 模擬訂單的回應結構，繼承基底並擴充系統產生之欄位
 class 模擬訂單回應SimulatedOrderResponse {
-    <<Pydantic Schema>>
     +委託編號: str
-    +使用者識別: str
-    +股票代號: str
-    +買賣方向: Literal["buy", "sell"]
-    +模擬下單日期: date
-    +委託數量: int
-    +賣出計畫: str | None
-    +預計賣出日: date | None
     +委託狀態: Literal["pending", "filled", "cancelled"]
     +預估成交金額: int
+    +試算依據: Literal["latest", "planned_sell", "fifo_realized"] | None
+    +參考收盤所屬交易日: date | None
+    +參考收盤價: float | None
     +試算損益金額: int | None
     +試算收益率: float | None
     +建立時間: datetime
@@ -156,7 +151,6 @@ class 模擬訂單回應SimulatedOrderResponse {
 
 %% 顧問分析請求，包含回測參數與驗證模式設定
 class 顧問分析請求AdvisorOverviewRequest {
-    <<Pydantic Schema>>
     +股票代號: str
     +分析基準日: date | None
     +指定參數ID: str | None
@@ -167,13 +161,36 @@ class 顧問分析請求AdvisorOverviewRequest {
     +保留期設定: CoreModeHoldoutSettings | None
 }
 
+%% 顧問分析總覽回應，包含趨勢結論、分數與圖表資料
+class 顧問分析回應AdvisorOverviewResponse {
+    +request_id: str
+    +job_id: str
+    +股票代號: str
+    +trend_conclusion: str
+    +confidence_level: str
+    +technical_snapshot: TechnicalSnapshot
+    +institutional_snapshot: InstitutionalSnapshot
+}
+
+%% 顧問報告任務回應，包含完整的 LLM 報告與新聞
+class 顧問報告任務回應AdvisorReportJobResponse {
+    +job_id: str
+    +股票代號: str
+    +status: str
+    +rule_summary: list[str] | None
+    +news: dict | None
+    +full_report: dict | None
+}
+}
+
 %% ========================================
 %% 3. Core Business Logic (Services)
 %% ========================================
 
+namespace Services {
+
 %% 核心策略服務，負責執行趨勢回測、計算分數並優化策略參數
 class 核心策略服務CoreModeService {
-    <<Service>>
     -參數存儲庫: CoreModePresetStore
     +get_schema(): 取得設定綱要
     +get_presets(): 取得參數列表
@@ -187,7 +204,6 @@ class 核心策略服務CoreModeService {
 
 %% 顧問協調器，負責整合市場快照、核心決策並調度背景報告
 class 顧問協調器AdvisorOrchestrator {
-    <<Service>>
     -執行期存儲庫: AdvisorRuntimeStore
     -市場快照服務: MarketSnapshotService
     -核心決策服務: CoreDecisionService
@@ -201,7 +217,6 @@ class 顧問協調器AdvisorOrchestrator {
 
 %% 核心決策服務，負責產生趨勢結論、信心等級與行動建議
 class 核心決策服務CoreDecisionService {
-    <<Service>>
     -參數存儲庫: CoreModePresetStore
     +build_decision(): 產生核心決策
     -_resolve_preset(): 解析指定參數
@@ -209,7 +224,6 @@ class 核心決策服務CoreDecisionService {
 
 %% 顧問報告服務，負責串接新聞與LLM，在背景非同步生成完整的AI分析報告
 class 顧問報告服務AdvisorReportService {
-    <<Service>>
     -執行期存儲庫: AdvisorRuntimeStore
     -新聞上下文服務: NewsContextService
     -市場快照服務: MarketSnapshotService
@@ -224,11 +238,23 @@ class 顧問報告服務AdvisorReportService {
 
 %% LLM代理客戶端，負責與外部OpenAI相容API溝通並解析JSON
 class 語言模型客戶端LLMClient {
-    <<Agent / API Client>>
     +非同步API客戶端: AsyncOpenAI
     +模型名稱: str | None
     +complete(): 請求文本生成
     +complete_json(): 請求JSON生成
+}
+}
+
+%% ========================================
+%% 外部服務 (External APIs)
+%% ========================================
+namespace External_Services {
+    class NVIDIANIM {
+        <<External API>>
+    }
+    class GoogleOAuth {
+        <<External API>>
+    }
 }
 
 %% ========================================
@@ -236,8 +262,18 @@ class 語言模型客戶端LLMClient {
 %% ========================================
 
 %% ORM 內部關聯
-使用者User "1" *-- "*" 密碼重設金鑰PasswordResetToken
-使用者User "1" *-- "*" 模擬訂單SimulatedOrder
+密碼重設金鑰PasswordResetToken "*" --* "1" 使用者User
+模擬訂單SimulatedOrder "*" --* "1" 使用者User
+模擬訂單SimulatedOrder "*" --> "1" 每日股價DailyPrice
+
+%% 市場資料 ORM 關聯
+    每日股價DailyPrice "1" -- "0..1" 三大法人交易InstitutionalTrade
+    每日股價DailyPrice "1" -- "0..1" 技術指標TechnicalIndicator
+鉅亨網台股新聞CnyesTWStockNews "*" -- "*" 每日股價DailyPrice
+
+%% 定義 Schema 之間的繼承關係
+模擬訂單基底SimulatedOrderBase <|-- 建立模擬訂單SimulatedOrderCreate
+模擬訂單基底SimulatedOrderBase <|-- 模擬訂單回應SimulatedOrderResponse
 
 %% 資料傳輸綁定 (Schema 與 ORM 映射)
 建立模擬訂單SimulatedOrderCreate ..> 模擬訂單SimulatedOrder
@@ -250,6 +286,8 @@ class 語言模型客戶端LLMClient {
 
 %% Service 與 Schema (DTO) 的相依
 顧問協調器AdvisorOrchestrator ..> 顧問分析請求AdvisorOverviewRequest
+顧問協調器AdvisorOrchestrator ..> 顧問分析回應AdvisorOverviewResponse
+顧問報告服務AdvisorReportService ..> 顧問報告任務回應AdvisorReportJobResponse
 
 %% Service 與 ORM 的資料讀取相依 (DB CRUD)
 核心策略服務CoreModeService ..> 每日股價DailyPrice
@@ -262,6 +300,10 @@ class 語言模型客戶端LLMClient {
 顧問協調器AdvisorOrchestrator --> 顧問報告服務AdvisorReportService
 顧問報告服務AdvisorReportService --> 核心決策服務CoreDecisionService
 顧問報告服務AdvisorReportService --> 語言模型客戶端LLMClient
-核心決策服務CoreDecisionService ..> 核心策略服務CoreModeService
+核心決策服務CoreDecisionService --> 核心策略服務CoreModeService
+
+%% 外部 API 依賴
+語言模型客戶端LLMClient ..> NVIDIANIM
+使用者User ..> GoogleOAuth : 授權登入
 
 ```

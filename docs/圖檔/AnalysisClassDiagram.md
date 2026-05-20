@@ -5,8 +5,9 @@ classDiagram
     %% ==========================================
     
     class 會員User {
-        登入Email
-        暱稱
+        電子信箱
+        顯示名稱
+        是否啟用
     }
     
     class 模擬訂單SimulatedOrder {
@@ -18,14 +19,7 @@ classDiagram
         預計賣出日
         委託狀態
         預估成交金額
-        損益金額（動態計算）
-        +清空不必要欄位()
-        +驗證訂單()
-    }
-    
-    class 模擬下單服務SimulatedOrderController {
-        <<Service>>
-        +結算損益(會員)
+        損益金額
     }
 
     %% ==========================================
@@ -45,24 +39,23 @@ classDiagram
         成交筆數
     }
     
-    class 三大法人籌碼InstitutionalTrade {
-        交易日期
-        證券代號
+    class 三大法人交易InstitutionalTrade {
+        日期
+        股票代號
         外陸資買賣超
         外資自營商買賣超
         投信買賣超
-        自營商買賣超總計
-        三大法人買賣超總計
+        自營商買賣超
+        三大法人買賣超
     }
     
     class 技術指標TechnicalIndicator {
         日期
         股票代號
-        各週期均線（5/10/20/60日）
-        KD指標K與D值
+        各週期均線（5/20/60日）
         14日RSI
         MACD線
-        布林通道
+        MACD柱狀圖
         5日均量
     }
 
@@ -71,59 +64,44 @@ classDiagram
         新聞內文
         發布時間
         關聯股票
-        原始新聞網址
+        原始網址
     }
 
     %% ==========================================
     %% 模組 3：AI 報告分析 (Advisor)
     %% ==========================================
     
-    class AI報告AdvisorReport {
-        <<Interface>>
+    class AI核心決策CoreDecision {
+        趨勢結論
+        信心等級
+        狀態分數
+        趨勢分數
+        行動建議
+        理由點
+    }
+    
+    class AI完整報告AdvisorReport {
         股票代號
-        操作建議
-        摘要
-        推論邏輯
-    }
-    
-    class 評分表ScoreBreakdown {
-        <<Interface>>
-        技術面得分
-        籌碼面得分
-        新聞分數
-        動能分數
-        總分
-    }
-    
-    class 技術訊號明細AdvisorTechnicalSignal {
-        <<Interface>>
-        訊號名稱
-        數值
-        解釋
-    }
-    
-    class 文獻與來源AdvisorSource {
-        <<Interface>>
-        標題
-        連結
-        機構
-        摘要
+        分析基準日
+        工作狀態
+        規則摘要
+        新聞與RAG整理結果
+        完整報告內容
     }
 
     %% ==========================================
     %% 實體關聯 (Relationships)
     %% ==========================================
     
-    會員User "1" --> "*" 模擬訂單SimulatedOrder
-    
-    模擬下單服務SimulatedOrderController ..> 模擬訂單SimulatedOrder
-    模擬下單服務SimulatedOrderController ..> 每日股價DailyPrice
-    
-    每日股價DailyPrice "1" -- "1" 三大法人籌碼InstitutionalTrade
+    %% 模組內部關聯
+    模擬訂單SimulatedOrder "*" --> "1" 會員User
+    每日股價DailyPrice "1" -- "1" 三大法人交易InstitutionalTrade
     每日股價DailyPrice "1" -- "1" 技術指標TechnicalIndicator
-    台股新聞CnyesTWStockNews "*" -- "1" 每日股價DailyPrice
+    台股新聞CnyesTWStockNews "*" -- "*" 每日股價DailyPrice
+    AI完整報告AdvisorReport "1" *-- "1" AI核心決策CoreDecision
     
-    AI報告AdvisorReport *-- "1" 評分表ScoreBreakdown
-    AI報告AdvisorReport *-- "*" 技術訊號明細AdvisorTechnicalSignal
-    AI報告AdvisorReport *-- "*" 文獻與來源AdvisorSource
+    %% 跨模組邏輯關聯 (Cross-Module)
+    模擬訂單SimulatedOrder "*" --> "1" 每日股價DailyPrice
+    AI完整報告AdvisorReport "*" --> "1" 會員User
+    AI完整報告AdvisorReport "*" --> "1" 每日股價DailyPrice
 ```
