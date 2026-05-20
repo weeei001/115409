@@ -24,6 +24,16 @@ class DailyPriceResponse(DailyPriceBase):
         from_attributes = True
 
 
+class SymbolDateRangeResponseBase(BaseModel):
+    symbol: str
+    start_date: Date
+    end_date: Date
+
+
+class TotalSymbolDateRangeResponseBase(SymbolDateRangeResponseBase):
+    total: int
+
+
 # K線圖數據 Schema（前端繪圖用）
 class CandlestickData(BaseModel):
     date: str = Field(..., description="日期（YYYY-MM-DD 格式）")
@@ -48,20 +58,12 @@ class PriceStatistics(BaseModel):
 
 
 # 歷史價格列表 Schema
-class HistoricalPriceList(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
-    total: int
+class HistoricalPriceList(TotalSymbolDateRangeResponseBase):
     data: List[DailyPriceResponse]
 
 
 # K線圖數據列表 Schema
-class CandlestickResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
-    total: int
+class CandlestickResponse(TotalSymbolDateRangeResponseBase):
     data: List[CandlestickData]
 
 
@@ -90,10 +92,7 @@ class CandlestickWithMA(BaseModel):
     change: float
 
 
-class CandlestickWithMAResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
+class CandlestickWithMAResponse(SymbolDateRangeResponseBase):
     dates: List[str]
     candlestick: List[CandlestickWithMA]
     moving_averages: dict  # {"MA5": [...], "MA10": [...], "MA20": [...]}
@@ -108,10 +107,7 @@ class VolumeData(BaseModel):
     change: float
 
 
-class VolumeAnalysisResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
+class VolumeAnalysisResponse(SymbolDateRangeResponseBase):
     data: List[VolumeData]
 
 
@@ -123,10 +119,7 @@ class PriceChangeData(BaseModel):
     change_percent: float
 
 
-class PriceChangeResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
+class PriceChangeResponse(SymbolDateRangeResponseBase):
     data: List[PriceChangeData]
 
 
@@ -140,17 +133,11 @@ class ChipsVolumeData(BaseModel):
     total_institutional_net: Optional[int] = None
 
 
-class ChipsVolumeChartResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
+class ChipsVolumeChartResponse(SymbolDateRangeResponseBase):
     data: List[ChipsVolumeData]
 
 
-class IntegratedChartResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
+class IntegratedChartResponse(SymbolDateRangeResponseBase):
     price_volume: List[dict]
     institutional_trades: List[dict]
     volume_with_chips: List[ChipsVolumeData]

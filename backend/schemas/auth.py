@@ -1,9 +1,14 @@
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+NewPassword = Annotated[str, Field(min_length=8, max_length=128)]
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
     display_name: str | None = Field(default=None, max_length=255)
 
 
@@ -37,12 +42,12 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=20, max_length=512)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: NewPassword
 
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: NewPassword
 
 
 class MessageResponse(BaseModel):

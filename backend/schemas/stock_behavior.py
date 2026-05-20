@@ -47,20 +47,23 @@ class AnalyzeNewsSourceItem(BaseModel):
     url: Optional[str] = Field(default=None, description="原始新聞網址。")
 
 
-class StockBehaviorAiRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=10, description="單一股票代號，例如 2330。")
+class StockBehaviorRagPayload(BaseModel):
     news_sources: List[AnalyzeNewsSourceItem] = Field(
         default_factory=list,
-        description="RAG 新聞來源列表，通常直接使用 `/analyze/stock-behavior/rag` 的 response.news_sources。",
+        description="RAG 回傳的新聞來源列表。",
     )
     fallback_mode: bool = Field(
         default=False,
-        description="是否為 RAG fallback 模式。通常直接使用 `/analyze/stock-behavior/rag` 的 response.fallback_mode。",
+        description="是否啟用 fallback 模式。",
     )
     raw_answer: str = Field(
         default="",
-        description="RAG 原始摘要文字。通常直接使用 `/analyze/stock-behavior/rag` 的 response.raw_answer。",
+        description="RAG 回傳的原始摘要文字。",
     )
+
+
+class StockBehaviorAiRequest(StockBehaviorRagPayload):
+    symbol: str = Field(..., min_length=1, max_length=10, description="單一股票代號，例如 2330。")
 
 
 class TrendAssessment(BaseModel):
@@ -75,7 +78,7 @@ class SubjectiveView(BaseModel):
     invalidation_conditions: List[str] = Field(default_factory=list)
 
 
-class ProjectionPoint(BaseModel):
+class ProjectionPointBase(BaseModel):
     day: int
     relative_price: float = 1.0
     predicted_close: Optional[float] = None
@@ -86,14 +89,21 @@ class ProjectionPoint(BaseModel):
     evidence_ids: List[str] = Field(default_factory=list)
 
 
-class ScenarioProjection(BaseModel):
+class ProjectionPoint(ProjectionPointBase):
+    pass
+
+
+class ScenarioProjectionBase(BaseModel):
     horizon_days: int = 40
-    scenario_key: str = "primary"
     scenario_name: str = "主情境"
     user_interpretation: str = ""
     summary_for_user: str = ""
     trigger_conditions: List[str] = Field(default_factory=list)
     invalidation_conditions: List[str] = Field(default_factory=list)
+
+
+class ScenarioProjection(ScenarioProjectionBase):
+    scenario_key: str = "primary"
     points: List[ProjectionPoint] = Field(default_factory=list)
     line_disclaimer: str = "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
 
@@ -152,24 +162,12 @@ class StockBehaviorAnalysisPayload(BaseModel):
     limitations: List[str] = Field(default_factory=list)
 
 
-class StockBehaviorPublicProjectionPoint(BaseModel):
-    day: int
-    relative_price: float = 1.0
-    predicted_close: Optional[float] = None
-    predicted_volume: Optional[float] = None
-    direction: ProjectionDirection = "uncertain"
-    reason: str = ""
-    plain_language_explanation: str = ""
-    evidence_ids: List[str] = Field(default_factory=list)
+class StockBehaviorPublicProjectionPoint(ProjectionPointBase):
+    pass
 
 
-class StockBehaviorPublicScenarioProjection(BaseModel):
-    horizon_days: int = 40
+class StockBehaviorPublicScenarioProjection(ScenarioProjectionBase):
     scenario_name: str = ""
-    user_interpretation: str = ""
-    summary_for_user: str = ""
-    trigger_conditions: List[str] = Field(default_factory=list)
-    invalidation_conditions: List[str] = Field(default_factory=list)
     points: List[StockBehaviorPublicProjectionPoint] = Field(default_factory=list)
 
 
@@ -203,15 +201,8 @@ class StockBehaviorDataInventory(BaseModel):
     missing_fields: List[str] = Field(default_factory=list)
 
 
-class StockBehaviorAiProjectionPoint(BaseModel):
-    day: int
-    relative_price: float = 1.0
-    predicted_close: Optional[float] = None
-    predicted_volume: Optional[float] = None
-    direction: ProjectionDirection = "uncertain"
-    reason: str = ""
-    plain_language_explanation: str = ""
-    evidence_ids: List[str] = Field(default_factory=list)
+class StockBehaviorAiProjectionPoint(ProjectionPointBase):
+    pass
 
 
 class StockBehaviorAiProjection(BaseModel):
@@ -231,22 +222,21 @@ class StockBehaviorAiProjection(BaseModel):
         return value
 
 
-class StockBehaviorBasicResponse(BaseModel):
+class StockBehaviorResponseBase(BaseModel):
     symbol: str
     as_of_date: str
+
+
+class StockBehaviorBasicResponse(StockBehaviorResponseBase):
     stored_behavior_profile: Dict[str, Any] = Field(default_factory=dict)
     recent_evidence: Dict[str, Any] = Field(default_factory=dict)
 
 
-class StockBehaviorRagResponse(BaseModel):
-    news_sources: List[AnalyzeNewsSourceItem] = Field(default_factory=list, description="RAG 回傳的新聞來源列表。")
-    fallback_mode: bool = Field(default=False, description="是否啟用 fallback 模式。")
-    raw_answer: str = Field(default="", description="RAG 回傳的原始摘要文字。")
+class StockBehaviorRagResponse(StockBehaviorRagPayload):
+    pass
 
 
-class StockBehaviorAiResponse(BaseModel):
-    symbol: str
-    as_of_date: str
+class StockBehaviorAiResponse(StockBehaviorResponseBase):
     generated_by: str
     data_inventory: StockBehaviorDataInventory = Field(default_factory=StockBehaviorDataInventory)
     projection: StockBehaviorAiProjection = Field(default_factory=StockBehaviorAiProjection)

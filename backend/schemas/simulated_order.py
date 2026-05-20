@@ -5,13 +5,16 @@ import re
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class SimulatedOrderCreate(BaseModel):
+OrderSide = Literal["buy", "sell"]
+SellPlan = Optional[Literal["long_term", "by_date"]]
+
+
+class SimulatedOrderBase(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）")
     symbol: str = Field(..., min_length=1, max_length=12, description="股票代號")
-    side: Literal["buy", "sell"] = Field(..., description="買賣方向")
-    trade_date: Optional[date] = Field(None, description="模擬下單日期（可指定過去日期）")
+    side: OrderSide = Field(..., description="買賣方向")
     quantity: int = Field(..., gt=0, description="委託數量（張）")
-    sell_plan: Optional[Literal["long_term", "by_date"]] = Field(
+    sell_plan: SellPlan = Field(
         default=None,
         description="僅買進：長期持有或指定預計賣出日；賣出單應為 null（無預計賣出計畫）",
     )
@@ -19,6 +22,10 @@ class SimulatedOrderCreate(BaseModel):
         None,
         description="預計賣出日（僅買進且 sell_plan=by_date 時必填）",
     )
+
+
+class SimulatedOrderCreate(SimulatedOrderBase):
+    trade_date: Optional[date] = Field(None, description="模擬下單日期（可指定過去日期）")
 
     @field_validator("user_id")
     @classmethod
@@ -71,15 +78,9 @@ class SimulatedOrderCreate(BaseModel):
         return self
 
 
-class SimulatedOrderResponse(BaseModel):
+class SimulatedOrderResponse(SimulatedOrderBase):
     id: str = Field(..., description="委託編號")
-    user_id: str = Field(..., max_length=128, description="使用者識別（前端匿名 user id）")
-    symbol: str = Field(..., description="股票代號")
-    side: Literal["buy", "sell"] = Field(..., description="買賣方向")
     trade_date: date = Field(..., description="模擬下單日期")
-    quantity: int = Field(..., description="委託數量（張）")
-    sell_plan: Optional[Literal["long_term", "by_date"]] = Field(None, description="賣出計畫；賣出單為 null")
-    planned_sell_date: Optional[date] = Field(None, description="預計賣出日")
     status: Literal["pending", "filled", "cancelled"] = Field(..., description="委託狀態")
     estimated_amount: int = Field(..., description="預估成交金額（元）")
     markup_basis: Optional[Literal["latest", "planned_sell", "fifo_realized"]] = Field(

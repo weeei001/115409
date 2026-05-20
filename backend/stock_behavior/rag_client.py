@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 
 class RagResponse(BaseModel):
-    news_sources: List[Dict[str, Any]] = Field(default_factory=list)
+    news_sources: list[dict[str, Any]] = Field(default_factory=list)
     fallback_mode: bool = False
     raw_answer: str = ""
 
 
-def _build_reference_materials(*, fallback_mode: bool, raw_answer: str, news_sources: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _build_reference_materials(
+    *,
+    fallback_mode: bool,
+    raw_answer: str,
+    news_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
     return {
         "rag_api_response": {
             "usage": "reference_only",
@@ -24,7 +29,30 @@ def _build_reference_materials(*, fallback_mode: bool, raw_answer: str, news_sou
     }
 
 
-def _parse_timestamp(value: Any) -> Optional[datetime]:
+def _build_rag_news_payload(
+    *,
+    news_sources: list[dict[str, Any]],
+    fallback_mode: bool,
+    raw_answer: str,
+) -> dict[str, Any]:
+    return {
+        "news_sources": news_sources,
+        "fallback_mode": fallback_mode,
+        "raw_answer": raw_answer,
+        "raw_answer_usage": "reference_only",
+        "reference_materials": _build_reference_materials(
+            fallback_mode=fallback_mode,
+            raw_answer=raw_answer,
+            news_sources=news_sources,
+        ),
+    }
+
+
+def _fallback_rag_news_payload() -> dict[str, Any]:
+    return _build_rag_news_payload(news_sources=[], fallback_mode=True, raw_answer="")
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value
     if not isinstance(value, str):
@@ -39,7 +67,7 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
         return None
 
 
-def _parse_news_source_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     raw_items = data.get("news_sources") or data.get("results") or data.get("items") or []
     if not isinstance(raw_items, list):
         return []
@@ -78,22 +106,11 @@ async def fetch_rag_news(
     lookback_days: int,
     max_events: int,
     timeout_seconds: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not rag_api_url:
-        empty_sources: list[dict[str, Any]] = []
-        return {
-            "news_sources": empty_sources,
-            "fallback_mode": True,
-            "raw_answer": "",
-            "raw_answer_usage": "reference_only",
-            "reference_materials": _build_reference_materials(
-                fallback_mode=True,
-                raw_answer="",
-                news_sources=empty_sources,
-            ),
-        }
+        return _fallback_rag_news_payload()
 
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     if rag_api_key:
         headers["Authorization"] = f"Bearer {rag_api_key}"
 
@@ -112,18 +129,7 @@ async def fetch_rag_news(
             }
         )
     except (httpx.HTTPError, ValidationError, ValueError):
-        empty_sources: list[dict[str, Any]] = []
-        return {
-            "news_sources": empty_sources,
-            "fallback_mode": True,
-            "raw_answer": "",
-            "raw_answer_usage": "reference_only",
-            "reference_materials": _build_reference_materials(
-                fallback_mode=True,
-                raw_answer="",
-                news_sources=empty_sources,
-            ),
-        }
+        return _fallback_rag_news_payload()
 
     deduped: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -153,14 +159,8 @@ async def fetch_rag_news(
         if len(deduped) >= max_events:
             break
 
-    return {
-        "news_sources": deduped,
-        "fallback_mode": parsed.fallback_mode,
-        "raw_answer": parsed.raw_answer,
-        "raw_answer_usage": "reference_only",
-        "reference_materials": _build_reference_materials(
-            fallback_mode=parsed.fallback_mode,
-            raw_answer=parsed.raw_answer,
-            news_sources=deduped,
-        ),
-    }
+    return _build_rag_news_payload(
+        news_sources=deduped,
+        fallback_mode=parsed.fallback_mode,
+        raw_answer=parsed.raw_answer,
+    )
