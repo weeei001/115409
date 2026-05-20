@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,16 +18,6 @@ TrendState = Literal[
 ConfidenceLevel = Literal["low", "medium", "high"]
 RiskLevel = Literal["low", "medium", "high"]
 ProjectionDirection = Literal["up", "down", "neutral", "uncertain"]
-
-
-class StockBehaviorAnalyzeRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=10)
-    as_of_date: str = Field(..., description="YYYY-MM-DD")
-    horizon_days: int = Field(40, ge=5, le=60)
-    recent_lookback_days: int = Field(365, ge=20, le=365)
-    news_lookback_days: int = Field(60, ge=7, le=120)
-    max_news_events: int = Field(10, ge=1, le=20)
-    analysis_language: str = "zh-TW"
 
 
 class StockBehaviorRagRequest(BaseModel):
@@ -225,11 +215,6 @@ class StockBehaviorAiProjection(BaseModel):
 class StockBehaviorResponseBase(BaseModel):
     symbol: str
     as_of_date: str
-
-
-class StockBehaviorBasicResponse(StockBehaviorResponseBase):
-    stored_behavior_profile: Dict[str, Any] = Field(default_factory=dict)
-    recent_evidence: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StockBehaviorRagResponse(StockBehaviorRagPayload):

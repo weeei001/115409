@@ -1,6 +1,5 @@
 ﻿from __future__ import annotations
 
-import uuid
 from datetime import date, timedelta
 from typing import Any
 
@@ -11,13 +10,10 @@ from crud.daily_price import get_price_range
 from crud.institutional_trade import get_by_symbol_range
 from crud.technical_indicator import get_indicators
 from schemas.stock_behavior import (
-    SCENARIO_PROJECTION_DAYS,
     StockBehaviorAiProjection,
     StockBehaviorAiResponse,
     StockBehaviorAiRequest,
     StockBehaviorAnalysisPayload,
-    StockBehaviorAnalyzeRequest,
-    StockBehaviorBasicResponse,
     StockBehaviorDataInventory,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
@@ -37,15 +33,13 @@ from stock_behavior.tools import (
     serialize_price_window_rows,
     serialize_technical_window_rows,
 )
-from stock_behavior.utils import PolicyViolationError, parse_date
+from stock_behavior.utils import PolicyViolationError
 
 
-CHART_HISTORY_LOOKBACK_DAYS = 365
 MAX_LLM_RAW_ANSWER_CHARS = 4000
 MAX_LLM_NEWS_SOURCES = 8
 AI_ANALYSIS_WINDOW_DAYS = 90
 AI_DEFAULT_HORIZON_DAYS = 40
-AI_DEFAULT_RECENT_LOOKBACK_DAYS = 365
 AI_DEFAULT_LANGUAGE = "zh-TW"
 RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60
 RAG_DEFAULT_MAX_NEWS_EVENTS = 10
@@ -62,25 +56,15 @@ class StockBehaviorOrchestrator:
         self._llm = StockBehaviorLlmService(settings)
 
     @staticmethod
-    def _prepare_request_context(req: StockBehaviorAnalyzeRequest) -> tuple[str, date]:
-        symbol = req.symbol.strip().upper()
-        as_of_date = parse_date(req.as_of_date)
-        return symbol, as_of_date
-
-    @staticmethod
-    def _prepare_rag_request_context(req: StockBehaviorRagRequest) -> tuple[str, date]:
+    def _prepare_rag_request_context(req: StockBehaviorRagRequest) -> str:
         symbols = [symbol.strip().upper() for symbol in req.symbols if symbol and symbol.strip()]
         if not symbols:
             raise PolicyViolationError("symbols must contain at least one non-empty symbol")
-        return symbols[0], date.today()
+        return symbols[0]
 
-    def _new_executor(self, *, symbol: str, as_of_date: date) -> ToolExecutor:
+    def _new_executor(self) -> ToolExecutor:
         return ToolExecutor(
-            db=self._db,
             settings=self._settings,
-            request_id=uuid.uuid4().hex,
-            symbol=symbol,
-            as_of_date=as_of_date,
         )
 
     @staticmethod
@@ -435,37 +419,6 @@ class StockBehaviorOrchestrator:
                         rag_api_response["news_sources"] = news_sources[:MAX_LLM_NEWS_SOURCES]
         return payload
 
-    def _collect_basic_evidence_with_executor(
-        self,
-        *,
-        req: StockBehaviorAnalyzeRequest,
-        executor: ToolExecutor,
-        symbol: str,
-        as_of_date: date,
-    ) -> dict[str, Any]:
-        recent_start, recent_end = _analysis_window(as_of_date, req.recent_lookback_days)
-        recent_evidence = {
-            "price_window": executor.get_price_volume_window(
-                symbol=symbol,
-                start_date=recent_start,
-                end_date=recent_end,
-            ),
-            "chip_window": executor.get_chip_window(
-                symbol=symbol,
-                start_date=recent_start,
-                end_date=recent_end,
-            ),
-            "technical_window": executor.get_technical_window(
-                symbol=symbol,
-                start_date=recent_start,
-                end_date=recent_end,
-            ),
-        }
-        return {
-            "stored_profile": {"profile": {}},
-            "recent_evidence": recent_evidence,
-        }
-
     def _collect_llm_evidence_from_crud(
         self,
         *,
@@ -515,11 +468,9 @@ class StockBehaviorOrchestrator:
         *,
         executor: ToolExecutor,
         symbol: str,
-        as_of_date: date,
     ) -> dict[str, Any]:
         rag_news = await executor.get_rag_news(
             symbol=symbol,
-            as_of_date=as_of_date,
             lookback_days=RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
             max_events=RAG_DEFAULT_MAX_NEWS_EVENTS,
         )
@@ -562,29 +513,12 @@ class StockBehaviorOrchestrator:
             },
         }
 
-    async def collect_basic_evidence(self, req: StockBehaviorAnalyzeRequest) -> StockBehaviorBasicResponse:
-        symbol, as_of_date = self._prepare_request_context(req)
-        executor = self._new_executor(symbol=symbol, as_of_date=as_of_date)
-        basic = self._collect_basic_evidence_with_executor(
-            req=req,
-            executor=executor,
-            symbol=symbol,
-            as_of_date=as_of_date,
-        )
-        return StockBehaviorBasicResponse(
-            symbol=symbol,
-            as_of_date=as_of_date.isoformat(),
-            stored_behavior_profile=basic["stored_profile"].get("profile", {}),
-            recent_evidence=basic["recent_evidence"],
-        )
-
     async def collect_rag_news(self, req: StockBehaviorRagRequest) -> StockBehaviorRagResponse:
-        symbol, as_of_date = self._prepare_rag_request_context(req)
-        executor = self._new_executor(symbol=symbol, as_of_date=as_of_date)
+        symbol = self._prepare_rag_request_context(req)
+        executor = self._new_executor()
         rag = await self._collect_rag_news_with_executor(
             executor=executor,
             symbol=symbol,
-            as_of_date=as_of_date,
         )
         return StockBehaviorRagResponse.model_validate(rag["rag_news"])
 

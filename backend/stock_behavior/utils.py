@@ -31,10 +31,6 @@ class PolicyViolationError(ValueError):
         return self.message
 
 
-def parse_date(value: str) -> date:
-    return datetime.strptime(value, "%Y-%m-%d").date()
-
-
 def date_to_str(d: date) -> str:
     return d.isoformat()
 
@@ -53,14 +49,6 @@ def to_jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
     return value
-
-
-def clamp_date_window(*, start_date: date, end_date: date, as_of_date: date) -> tuple[date, date]:
-    if end_date > as_of_date:
-        raise PolicyViolationError("end_date must be <= as_of_date")
-    if start_date > end_date:
-        raise PolicyViolationError("start_date must be <= end_date")
-    return start_date, end_date
 
 
 def start_date_by_lookback(*, as_of_date: date, lookback_days: int) -> date:

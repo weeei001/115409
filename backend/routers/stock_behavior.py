@@ -12,8 +12,6 @@ from database import get_db
 from schemas.stock_behavior import (
     StockBehaviorAiResponse,
     StockBehaviorAiRequest,
-    StockBehaviorAnalyzeRequest,
-    StockBehaviorBasicResponse,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
 )
@@ -40,19 +38,6 @@ async def _run_stock_behavior_task(task: Awaitable[ResponseT]) -> ResponseT:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="分析逾時，請稍後重試") from None
     except PolicyViolationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_policy_error_detail(exc)) from exc
-
-
-@router.post(
-    "/basic",
-    response_model=StockBehaviorBasicResponse,
-    summary="取得股票基本圖表與近期證據資料",
-)
-async def get_stock_behavior_basic(
-    req: StockBehaviorAnalyzeRequest,
-    db: Session = Depends(get_db),
-) -> StockBehaviorBasicResponse:
-    orchestrator = _build_orchestrator(db)
-    return await _run_stock_behavior_task(orchestrator.collect_basic_evidence(req))
 
 
 @router.post(
