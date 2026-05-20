@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -26,10 +26,12 @@ class RawProjectionPoint(BaseModel):
     direction: Any = "uncertain"
     reason: Any = ""
     description: Any = None
+    plain_language_explanation: Any = ""
     price: Any = None
     close: Any = None
     volume: Any = None
     volume_shares: Any = None
+    evidence_ids: Any = Field(default_factory=list)
 
 
 class RawProjection(BaseModel):
@@ -45,6 +47,10 @@ class RawProjection(BaseModel):
     base_line: Any = None
     base: Any = None
     line_disclaimer: Any = None
+
+
+class RawProjectionResponse(BaseModel):
+    projection: RawProjection = Field(default_factory=RawProjection)
 
 
 class RawScenarioProjection(BaseModel):

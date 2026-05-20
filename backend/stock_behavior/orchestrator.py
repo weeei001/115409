@@ -12,12 +12,13 @@ from crud.institutional_trade import get_by_symbol_range
 from crud.technical_indicator import get_indicators
 from schemas.stock_behavior import (
     SCENARIO_PROJECTION_DAYS,
+    StockBehaviorAiProjection,
     StockBehaviorAiResponse,
     StockBehaviorAiRequest,
     StockBehaviorAnalysisPayload,
     StockBehaviorAnalyzeRequest,
     StockBehaviorBasicResponse,
-    StockBehaviorPublicAnalysisPayload,
+    StockBehaviorDataInventory,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
 )
@@ -26,6 +27,10 @@ from stock_behavior.normalizer import (
     build_stock_behavior_analysis_fallback,
     normalize_llm_analysis_payload,
     normalize_projection_points,
+)
+from stock_behavior.public_projection_guard import (
+    public_projection_disclaimer,
+    sanitize_public_projection_point,
 )
 from stock_behavior.tools import ToolExecutor
 from stock_behavior.utils import PolicyViolationError, parse_date
@@ -81,6 +86,319 @@ class StockBehaviorOrchestrator:
     @staticmethod
     def _to_int(value: Any) -> int | None:
         return int(value) if value is not None else None
+
+    @staticmethod
+    def _latest_row(window_payload: dict[str, Any]) -> dict[str, Any]:
+        rows = window_payload.get("data")
+        if not isinstance(rows, list) or not rows:
+            return {}
+        latest = rows[-1]
+        return latest if isinstance(latest, dict) else {}
+
+    @staticmethod
+    def _value_present(value: Any) -> bool:
+        return value is not None and value != ""
+
+    @staticmethod
+    def _date_part(value: Any) -> str | None:
+        if not value:
+            return None
+        return str(value).split("T", 1)[0]
+
+    @classmethod
+    def _streak_days(cls, rows: list[Any], field: str) -> int | None:
+        if not rows:
+            return None
+        latest = rows[-1] if isinstance(rows[-1], dict) else {}
+        latest_value = latest.get(field) if isinstance(latest, dict) else None
+        if not isinstance(latest_value, (int, float)) or latest_value == 0:
+            return None
+
+        direction = 1 if latest_value > 0 else -1
+        streak = 0
+        for row in reversed(rows):
+            if not isinstance(row, dict):
+                break
+            value = row.get(field)
+            if not isinstance(value, (int, float)) or value == 0:
+                break
+            if (value > 0 and direction > 0) or (value < 0 and direction < 0):
+                streak += 1
+                continue
+            break
+        return streak or None
+
+    @staticmethod
+    def _recent_numeric_values(rows: list[Any], field: str, periods: int) -> list[float] | None:
+        recent_rows = [row for row in rows if isinstance(row, dict)][-periods:]
+        if len(recent_rows) < periods:
+            return None
+        values: list[float] = []
+        for row in recent_rows:
+            value = row.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            values.append(float(value))
+        return values
+
+    @classmethod
+    def _recent_sum(cls, rows: list[Any], field: str, periods: int) -> float | None:
+        values = cls._recent_numeric_values(rows, field, periods)
+        if values is None:
+            return None
+        return sum(values)
+
+    @classmethod
+    def _recent_average(cls, rows: list[Any], field: str, periods: int) -> float | None:
+        values = cls._recent_numeric_values(rows, field, periods)
+        if values is None:
+            return None
+        return sum(values) / periods
+
+    @classmethod
+    def _build_data_inventory(
+        cls,
+        *,
+        llm_evidence: dict[str, Any],
+        rag_news: dict[str, Any],
+    ) -> dict[str, Any]:
+        price_window = llm_evidence.get("price_window") if isinstance(llm_evidence.get("price_window"), dict) else {}
+        chip_window = llm_evidence.get("chip_window") if isinstance(llm_evidence.get("chip_window"), dict) else {}
+        technical_window = (
+            llm_evidence.get("technical_window") if isinstance(llm_evidence.get("technical_window"), dict) else {}
+        )
+
+        price_latest = cls._latest_row(price_window)
+        chip_latest = cls._latest_row(chip_window)
+        technical_latest = cls._latest_row(technical_window)
+        price_rows = price_window.get("data") if isinstance(price_window.get("data"), list) else []
+        chip_rows = chip_window.get("data") if isinstance(chip_window.get("data"), list) else []
+
+        missing_fields: list[str] = []
+        price_volume: list[dict[str, Any]] = []
+        chip: list[dict[str, Any]] = []
+        technical: list[dict[str, Any]] = []
+        news: list[dict[str, Any]] = []
+
+        def add_item(
+            bucket: list[dict[str, Any]],
+            *,
+            prefix: str,
+            field: str,
+            date_value: Any,
+            value: Any,
+            streak_days: int | None = None,
+            reference_only: bool | None = None,
+            record_missing: bool = True,
+        ) -> None:
+            if not cls._value_present(value):
+                if record_missing:
+                    missing_fields.append(field)
+                return
+            item: dict[str, Any] = {
+                "id": f"{prefix}_{len(bucket) + 1:02d}",
+                "field": field,
+                "date": cls._date_part(date_value),
+                "value": value,
+            }
+            if streak_days is not None:
+                item["streak_days"] = streak_days
+            if reference_only is not None:
+                item["reference_only"] = reference_only
+            bucket.append(item)
+
+        price_date = price_latest.get("date") or technical_latest.get("date")
+        add_item(
+            price_volume,
+            prefix="pv",
+            field="close",
+            date_value=price_date,
+            value=price_latest.get("close"),
+        )
+        add_item(
+            price_volume,
+            prefix="pv",
+            field="volume_shares",
+            date_value=price_date,
+            value=price_latest.get("volume_shares"),
+        )
+        add_item(
+            price_volume,
+            prefix="pv",
+            field="volume_ma5",
+            date_value=technical_latest.get("date") or price_date,
+            value=technical_latest.get("volume_ma5"),
+        )
+        volume_ma20 = cls._recent_average(price_rows, "volume_shares", 20)
+        if volume_ma20 is None:
+            missing_fields.append("volume_ma20")
+        else:
+            add_item(
+                price_volume,
+                prefix="pv",
+                field="volume_ma20",
+                date_value=price_date,
+                value=round(volume_ma20, 2),
+            )
+
+        chip_date = chip_latest.get("date")
+        add_item(
+            chip,
+            prefix="ch",
+            field="foreign_net",
+            date_value=chip_date,
+            value=chip_latest.get("foreign_net"),
+            streak_days=cls._streak_days(chip_rows, "foreign_net"),
+        )
+        foreign_net_10d_sum = cls._recent_sum(chip_rows, "foreign_net", 10)
+        if foreign_net_10d_sum is None:
+            missing_fields.append("foreign_net 近 10 日累計")
+        else:
+            add_item(
+                chip,
+                prefix="ch",
+                field="foreign_net_10d_sum",
+                date_value=chip_date,
+                value=int(foreign_net_10d_sum),
+            )
+        add_item(
+            chip,
+            prefix="ch",
+            field="trust_net",
+            date_value=chip_date,
+            value=chip_latest.get("investment_trust_net"),
+            streak_days=cls._streak_days(chip_rows, "investment_trust_net"),
+        )
+        add_item(
+            chip,
+            prefix="ch",
+            field="dealer_net",
+            date_value=chip_date,
+            value=chip_latest.get("dealer_net"),
+            streak_days=cls._streak_days(chip_rows, "dealer_net"),
+        )
+
+        technical_date = technical_latest.get("date")
+        technical_fields = [
+            ("rsi_5", "rsi5", True),
+            ("kd_k", "kd_k9", True),
+            ("macd_diff", "macd_dif", True),
+            ("macd_histogram", "macd_hist", False),
+            ("ma20", "ma20", True),
+            ("ma60", "ma60", True),
+            ("boll_mid20", "boll_mid20", False),
+            ("boll_upper20", "boll_upper20", False),
+            ("boll_lower20", "boll_lower20", False),
+        ]
+        for public_field, source_field, record_missing in technical_fields:
+            add_item(
+                technical,
+                prefix="tc",
+                field=public_field,
+                date_value=technical_date,
+                value=technical_latest.get(source_field),
+                record_missing=record_missing,
+            )
+
+        news_sources = rag_news.get("news_sources") if isinstance(rag_news.get("news_sources"), list) else []
+        for source in news_sources:
+            if not isinstance(source, dict):
+                continue
+            title = source.get("title") or source.get("summary")
+            if not cls._value_present(title):
+                continue
+            news.append(
+                {
+                    "id": f"nw_{len(news) + 1:02d}",
+                    "field": "title",
+                    "date": cls._date_part(source.get("timestamp")),
+                    "value": title,
+                    "reference_only": True,
+                }
+            )
+
+        if not any(item["field"] == "boll_upper20" for item in technical) or not any(
+            item["field"] == "boll_lower20" for item in technical
+        ):
+            missing_fields.append("布林通道上下軌")
+
+        return {
+            "price_volume": price_volume,
+            "chip": chip,
+            "technical": technical,
+            "news": news,
+            "missing_fields": list(dict.fromkeys(missing_fields)),
+        }
+
+    @staticmethod
+    def _inventory_ids(data_inventory: dict[str, Any]) -> set[str]:
+        ids: set[str] = set()
+        for key in ("price_volume", "chip", "technical", "news"):
+            items = data_inventory.get(key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    ids.add(item["id"])
+        return ids
+
+    @staticmethod
+    def _inventory_value(data_inventory: dict[str, Any], field: str) -> Any:
+        for key in ("price_volume", "chip", "technical"):
+            items = data_inventory.get(key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict) and item.get("field") == field:
+                    return item.get("value")
+        return None
+
+    @classmethod
+    def _build_public_projection(
+        cls,
+        *,
+        validated: StockBehaviorAnalysisPayload,
+        data_inventory: dict[str, Any],
+        horizon_days: int,
+    ) -> StockBehaviorAiProjection:
+        allowed_ids = cls._inventory_ids(data_inventory)
+        projection = validated.projection.model_dump(mode="python")
+        points = []
+        for point in projection.get("points", []):
+            evidence_ids = [
+                evidence_id
+                for evidence_id in point.get("evidence_ids", [])
+                if evidence_id in allowed_ids
+            ]
+            sanitized_point = sanitize_public_projection_point(
+                {**point, "evidence_ids": evidence_ids},
+                data_inventory=data_inventory,
+            )
+            sanitized_point["evidence_ids"] = [
+                evidence_id
+                for evidence_id in sanitized_point.get("evidence_ids", [])
+                if evidence_id in allowed_ids
+            ]
+            points.append(sanitized_point)
+
+        base_volume = cls._inventory_value(data_inventory, "volume_ma5")
+        if base_volume is None:
+            base_volume = cls._inventory_value(data_inventory, "volume_shares")
+
+        disclaimer = projection.get("line_disclaimer") or (
+            "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。"
+        )
+
+        return StockBehaviorAiProjection.model_validate(
+            {
+                "horizon_days": projection.get("horizon_days") or horizon_days,
+                "scenario_key": projection.get("scenario_key") or "primary",
+                "base_close": cls._inventory_value(data_inventory, "close"),
+                "base_volume": base_volume,
+                "disclaimer": public_projection_disclaimer(disclaimer, data_inventory),
+                "points": points,
+            }
+        )
 
     @classmethod
     def _serialize_price_window_rows(
@@ -416,6 +734,10 @@ class StockBehaviorOrchestrator:
         rag_news = self._build_client_rag_news_payload(req)
         if not rag_news.get("news_sources") and not rag_news.get("raw_answer"):
             rag_news = self._empty_rag_news_payload()
+        data_inventory = self._build_data_inventory(
+            llm_evidence=llm_evidence,
+            rag_news=rag_news,
+        )
 
         task_packet = self._build_llm_task_packet(
             {
@@ -431,6 +753,7 @@ class StockBehaviorOrchestrator:
                 "chip_window": llm_evidence["chip_window"],
                 "technical_window": llm_evidence["technical_window"],
                 "rag_news": rag_news,
+                "data_inventory": data_inventory,
                 "reference_materials": rag_news.get("reference_materials", {}),
                 "analysis_mode": "prefetched_db_with_client_rag",
             }
@@ -449,6 +772,7 @@ class StockBehaviorOrchestrator:
                 },
             ) from exc
 
+        normalized_llm_response: dict[str, Any] = {}
         try:
             normalized_llm_response = normalize_llm_analysis_payload(
                 raw_llm_response,
@@ -461,13 +785,19 @@ class StockBehaviorOrchestrator:
                 f"LLM 分析結構驗證失敗：{formatted_errors}",
                 horizon_days=AI_DEFAULT_HORIZON_DAYS,
             )
+            if isinstance(normalized_llm_response.get("projection"), dict):
+                fallback_payload["projection"] = normalized_llm_response["projection"]
             validated = StockBehaviorAnalysisPayload.model_validate(fallback_payload)
 
-        public_payload = StockBehaviorPublicAnalysisPayload.model_validate(
-            validated.model_dump(mode="python")
+        public_projection = self._build_public_projection(
+            validated=validated,
+            data_inventory=data_inventory,
+            horizon_days=AI_DEFAULT_HORIZON_DAYS,
         )
         return StockBehaviorAiResponse(
             symbol=symbol,
             as_of_date=as_of_date.isoformat(),
-            llm_analysis=public_payload,
+            generated_by=getattr(self._llm, "model_name", self._settings.ADVISOR_LLM_MODEL or ""),
+            data_inventory=StockBehaviorDataInventory.model_validate(data_inventory),
+            projection=public_projection,
         )

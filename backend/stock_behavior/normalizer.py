@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -16,9 +16,13 @@ TREND_STATES = {
 CONFIDENCE_LEVELS = {"low", "medium", "high"}
 RISK_LEVELS = {"low", "medium", "high"}
 RAG_SENTIMENTS = {"bullish", "neutral", "bearish", "mixed", "unknown"}
+PROJECTION_DIRECTIONS = {"up", "down", "neutral", "uncertain"}
 DEFAULT_LINE_DISCLAIMER = "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
 FALLBACK_LIMITATION = "LLM 結構化輸出失敗，請視為占位結果。"
 FALLBACK_SUMMARY = "此為 fallback 結果，代表 LLM 結構化輸出失敗，非有效分析結果。"
+DEFAULT_POINT_PLAIN_LANGUAGE_EXPLANATION = (
+    "此節點資料不足以形成完整白話說明，請將其視為 AI 情境推演的一個節點，而不是確定預測或投資建議。"
+)
 
 
 def _text(value: Any) -> str:
@@ -62,6 +66,13 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_direction(value: Any) -> str:
+    normalized = _text(value).lower()
+    if normalized in {"sideways", "flat", "hold"}:
+        return "neutral"
+    return normalized if normalized in PROJECTION_DIRECTIONS else "uncertain"
 
 
 def _projection_points_candidates(raw: dict[str, Any]) -> list[Any]:
@@ -134,6 +145,7 @@ def normalize_projection_points(points: Any, *, fallback_reason: str) -> list[di
     normalized_points: list[dict[str, Any]] = []
     for day in SCENARIO_PROJECTION_DAYS:
         item = by_day.get(day, {})
+        reason = _text(item.get("reason") or item.get("description")) or fallback_reason
         normalized_points.append(
             {
                 "day": day,
@@ -144,8 +156,12 @@ def normalize_projection_points(points: Any, *, fallback_reason: str) -> list[di
                 "predicted_volume": _optional_float(
                     item.get("predicted_volume") or item.get("volume") or item.get("volume_shares")
                 ),
-                "direction": _text(item.get("direction")) or "uncertain",
-                "reason": _text(item.get("reason") or item.get("description")) or fallback_reason,
+                "direction": _normalize_direction(item.get("direction")),
+                "reason": reason,
+                "plain_language_explanation": _text(item.get("plain_language_explanation"))
+                or reason
+                or DEFAULT_POINT_PLAIN_LANGUAGE_EXPLANATION,
+                "evidence_ids": _list_of_text(item.get("evidence_ids")),
             }
         )
 
@@ -246,7 +262,29 @@ def normalize_rag_reference_analysis(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_evidence_used(raw: dict[str, Any]) -> dict[str, list[str]]:
+def _normalize_evidence_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    items: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            items.append(
+                {
+                    "field": _text(item.get("field")),
+                    "date": _text(item.get("date") or item.get("date_range")),
+                    "value": item.get("value"),
+                    "usage": _text(item.get("usage")),
+                }
+            )
+            continue
+        text = _text(item)
+        if text:
+            items.append({"field": text, "date": "", "value": None, "usage": ""})
+    return items
+
+
+def normalize_evidence_used(raw: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     evidence_used = raw.get("evidence_used")
     if isinstance(evidence_used, list):
         return {
@@ -258,10 +296,10 @@ def normalize_evidence_used(raw: dict[str, Any]) -> dict[str, list[str]]:
 
     evidence_used = evidence_used if isinstance(evidence_used, dict) else {}
     return {
-        "price_volume": _list_of_text(evidence_used.get("price_volume")),
-        "chip": _list_of_text(evidence_used.get("chip")),
-        "technical": _list_of_text(evidence_used.get("technical")),
-        "news": _list_of_text(evidence_used.get("news")),
+        "price_volume": _normalize_evidence_items(evidence_used.get("price_volume")),
+        "chip": _normalize_evidence_items(evidence_used.get("chip")),
+        "technical": _normalize_evidence_items(evidence_used.get("technical")),
+        "news": _normalize_evidence_items(evidence_used.get("news")),
     }
 
 
@@ -298,6 +336,8 @@ def build_stock_behavior_analysis_fallback(reason: str, *, horizon_days: int = 4
                     "predicted_volume": None,
                     "direction": "uncertain",
                     "reason": fallback_reason,
+                    "plain_language_explanation": DEFAULT_POINT_PLAIN_LANGUAGE_EXPLANATION,
+                    "evidence_ids": [],
                 }
                 for day in SCENARIO_PROJECTION_DAYS
             ],

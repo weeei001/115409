@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from typing import Any
@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - local test fallback
     ChatOpenAI = None
 
-from stock_behavior.llm_schema import RawStructuredAnalysisPayload
+from stock_behavior.llm_schema import RawProjection, RawProjectionResponse, RawStructuredAnalysisPayload
 from stock_behavior.prompt_templates import (
     STOCK_ANALYST_SYSTEM_PROMPT,
     build_stock_behavior_prefetched_evidence_user_prompt,
@@ -23,7 +23,7 @@ from stock_behavior.prompt_templates import (
 
 
 LLM_ANALYSIS_OUTPUT_PARSER = (
-    PydanticOutputParser(pydantic_object=RawStructuredAnalysisPayload)
+    PydanticOutputParser(pydantic_object=RawProjectionResponse)
     if PydanticOutputParser is not None
     else None
 )
@@ -40,8 +40,35 @@ def _coerce_llm_text(content: str | list[Any] | None) -> str:
     return content if isinstance(content, str) else ""
 
 
+def _load_json_object(text: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            parsed = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _is_projection_payload(value: dict[str, Any]) -> bool:
+    return "points" in value and "projection" not in value
+
+
 def _parse_structured_analysis_payload(content: str | list[Any] | None) -> dict[str, Any]:
     text = _coerce_llm_text(content)
+    loaded = _load_json_object(text)
+    if loaded is not None:
+        if _is_projection_payload(loaded):
+            parsed_projection = RawProjection.model_validate(loaded)
+            return {"projection": parsed_projection.model_dump(mode="python")}
+        parsed = RawStructuredAnalysisPayload.model_validate(loaded)
+        return parsed.model_dump(mode="python")
+
     if LLM_ANALYSIS_OUTPUT_PARSER is None:
         parsed = RawStructuredAnalysisPayload.model_validate(json.loads(text))
         return parsed.model_dump(mode="python")
@@ -74,6 +101,10 @@ class StockBehaviorLlmService:
     def enabled(self) -> bool:
         return self._enabled
 
+    @property
+    def model_name(self) -> str:
+        return self._model
+
     async def generate_analysis_from_evidence(
         self,
         *,
@@ -93,7 +124,7 @@ class StockBehaviorLlmService:
             format_instructions=(
                 LLM_ANALYSIS_OUTPUT_PARSER.get_format_instructions()
                 if LLM_ANALYSIS_OUTPUT_PARSER is not None
-                else json.dumps(RawStructuredAnalysisPayload.model_json_schema(), ensure_ascii=False)
+                else json.dumps(RawProjectionResponse.model_json_schema(), ensure_ascii=False)
             ),
         )
         messages = [

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
@@ -17,6 +17,7 @@ TrendState = Literal[
 ]
 ConfidenceLevel = Literal["low", "medium", "high"]
 RiskLevel = Literal["low", "medium", "high"]
+ProjectionDirection = Literal["up", "down", "neutral", "uncertain"]
 
 
 class StockBehaviorAnalyzeRequest(BaseModel):
@@ -79,8 +80,10 @@ class ProjectionPoint(BaseModel):
     relative_price: float = 1.0
     predicted_close: Optional[float] = None
     predicted_volume: Optional[float] = None
-    direction: str = "uncertain"
+    direction: ProjectionDirection = "uncertain"
     reason: str = ""
+    plain_language_explanation: str = ""
+    evidence_ids: List[str] = Field(default_factory=list)
 
 
 class ScenarioProjection(BaseModel):
@@ -121,11 +124,17 @@ class RagReferenceAnalysis(BaseModel):
     notes: List[str] = Field(default_factory=list)
 
 
+class EvidenceUsedObjective(BaseModel):
+    field: str = ""
+    date: str = ""
+    value: Any = None
+    usage: str = ""
+
 class EvidenceUsed(BaseModel):
-    price_volume: List[str] = Field(default_factory=list)
-    chip: List[str] = Field(default_factory=list)
-    technical: List[str] = Field(default_factory=list)
-    news: List[str] = Field(default_factory=list)
+    price_volume: List[EvidenceUsedObjective] = Field(default_factory=list)
+    chip: List[EvidenceUsedObjective] = Field(default_factory=list)
+    technical: List[EvidenceUsedObjective] = Field(default_factory=list)
+    news: List[EvidenceUsedObjective] = Field(default_factory=list)
 
 
 class StockBehaviorAnalysisPayload(BaseModel):
@@ -145,10 +154,13 @@ class StockBehaviorAnalysisPayload(BaseModel):
 
 class StockBehaviorPublicProjectionPoint(BaseModel):
     day: int
+    relative_price: float = 1.0
     predicted_close: Optional[float] = None
     predicted_volume: Optional[float] = None
-    direction: str = "uncertain"
+    direction: ProjectionDirection = "uncertain"
     reason: str = ""
+    plain_language_explanation: str = ""
+    evidence_ids: List[str] = Field(default_factory=list)
 
 
 class StockBehaviorPublicScenarioProjection(BaseModel):
@@ -173,6 +185,52 @@ class StockBehaviorPublicAnalysisPayload(BaseModel):
     evidence_used: EvidenceUsed = Field(default_factory=EvidenceUsed)
 
 
+class StockBehaviorInventoryItem(BaseModel):
+    id: str
+    field: str
+    date: Optional[str] = None
+    date_range: Optional[str] = None
+    value: Any
+    streak_days: Optional[int] = None
+    reference_only: Optional[bool] = None
+
+
+class StockBehaviorDataInventory(BaseModel):
+    price_volume: List[StockBehaviorInventoryItem] = Field(default_factory=list)
+    chip: List[StockBehaviorInventoryItem] = Field(default_factory=list)
+    technical: List[StockBehaviorInventoryItem] = Field(default_factory=list)
+    news: List[StockBehaviorInventoryItem] = Field(default_factory=list)
+    missing_fields: List[str] = Field(default_factory=list)
+
+
+class StockBehaviorAiProjectionPoint(BaseModel):
+    day: int
+    relative_price: float = 1.0
+    predicted_close: Optional[float] = None
+    predicted_volume: Optional[float] = None
+    direction: ProjectionDirection = "uncertain"
+    reason: str = ""
+    plain_language_explanation: str = ""
+    evidence_ids: List[str] = Field(default_factory=list)
+
+
+class StockBehaviorAiProjection(BaseModel):
+    horizon_days: int = 40
+    scenario_key: str = "primary"
+    base_close: Optional[float] = None
+    base_volume: Optional[float] = None
+    disclaimer: str = "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。"
+    points: List[StockBehaviorAiProjectionPoint] = Field(default_factory=list)
+
+    @field_validator("points")
+    @classmethod
+    def validate_projection_days(cls, value: List[StockBehaviorAiProjectionPoint]) -> List[StockBehaviorAiProjectionPoint]:
+        actual_days = [item.day for item in value]
+        if actual_days != SCENARIO_PROJECTION_DAYS:
+            raise ValueError(f"projection.points days must be exactly {SCENARIO_PROJECTION_DAYS}")
+        return value
+
+
 class StockBehaviorBasicResponse(BaseModel):
     symbol: str
     as_of_date: str
@@ -189,4 +247,6 @@ class StockBehaviorRagResponse(BaseModel):
 class StockBehaviorAiResponse(BaseModel):
     symbol: str
     as_of_date: str
-    llm_analysis: StockBehaviorPublicAnalysisPayload
+    generated_by: str
+    data_inventory: StockBehaviorDataInventory = Field(default_factory=StockBehaviorDataInventory)
+    projection: StockBehaviorAiProjection = Field(default_factory=StockBehaviorAiProjection)
