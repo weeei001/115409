@@ -1,21 +1,307 @@
 from __future__ import annotations
 
-from datetime import date
-from typing import Any
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any, Callable
 
+import httpx
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from models.daily_price import DailyPrice
 from models.institutional_trade import InstitutionalTrade
 from models.technical_indicator import TechnicalIndicator
-from stock_behavior.policy import POLICY
-from stock_behavior.rag_client import fetch_rag_news
-from stock_behavior.serializers import (
-    serialize_chip_window_rows,
-    serialize_price_window_rows,
-    serialize_technical_window_rows,
-)
 from stock_behavior.utils import PolicyViolationError, clamp_date_window
+
+
+FieldConverter = Callable[[Any], Any]
+FieldSpec = tuple[str, str, FieldConverter]
+
+
+@dataclass(frozen=True)
+class ToolPolicy:
+    max_tool_calls_per_request: int = 10
+    max_lookback_days_recent_analysis: int = 120
+    max_profile_chunk_months: int = 6
+    max_news_events: int = 10
+    allowed_symbols: tuple[str, ...] = ("2317", "2330", "2408", "2454", "2615", "2881")
+
+
+POLICY = ToolPolicy()
+
+
+def _optional_float(value: Any) -> float | None:
+    return float(value) if value is not None else None
+
+
+def _optional_int(value: Any) -> int | None:
+    return int(value) if value is not None else None
+
+
+def _zero_default_int(value: Any) -> int:
+    return int(value or 0)
+
+
+PRICE_FIELD_SPECS: tuple[FieldSpec, ...] = (
+    ("open", "open", _optional_float),
+    ("high", "high", _optional_float),
+    ("low", "low", _optional_float),
+    ("close", "close", _optional_float),
+    ("volume_shares", "volume_shares", _optional_int),
+    ("amount", "amount", _optional_int),
+    ("change", "change", _optional_float),
+)
+
+CHIP_FIELD_SPECS: tuple[FieldSpec, ...] = (
+    ("foreign_buy", "foreign_buy", _zero_default_int),
+    ("foreign_sell", "foreign_sell", _zero_default_int),
+    ("foreign_net", "foreign_net", _zero_default_int),
+    ("investment_trust_buy", "investment_trust_buy", _zero_default_int),
+    ("investment_trust_sell", "investment_trust_sell", _zero_default_int),
+    ("investment_trust_net", "investment_trust_net", _zero_default_int),
+    ("dealer_buy", "dealer_buy", _zero_default_int),
+    ("dealer_sell", "dealer_sell", _zero_default_int),
+    ("dealer_net", "dealer_net", _zero_default_int),
+    ("total_institutional_buy", "total_institutional_buy", _zero_default_int),
+    ("total_institutional_sell", "total_institutional_sell", _zero_default_int),
+    ("total_institutional_net", "total_institutional_net", _zero_default_int),
+)
+
+TECHNICAL_FIELD_SPECS: tuple[FieldSpec, ...] = (
+    ("close", "close", _optional_float),
+    ("ma5", "ma5", _optional_float),
+    ("ma10", "ma10", _optional_float),
+    ("ma20", "ma20", _optional_float),
+    ("ma60", "ma60", _optional_float),
+    ("ma120", "ma120", _optional_float),
+    ("ma240", "ma240", _optional_float),
+    ("rsi5", "rsi5", _optional_float),
+    ("rsi10", "rsi10", _optional_float),
+    ("rsv9", "rsv9", _optional_float),
+    ("kd_k9", "kd_k9", _optional_float),
+    ("kd_d9", "kd_d9", _optional_float),
+    ("kd_j9", "kd_j9", _optional_float),
+    ("ema12", "ema12", _optional_float),
+    ("ema26", "ema26", _optional_float),
+    ("macd_dif", "macd_dif", _optional_float),
+    ("macd_dea", "macd_dea", _optional_float),
+    ("macd_signal", "macd_signal", _optional_float),
+    ("macd_hist", "macd_hist", _optional_float),
+    ("boll_mid20", "boll_mid20", _optional_float),
+    ("boll_upper20", "boll_upper20", _optional_float),
+    ("boll_lower20", "boll_lower20", _optional_float),
+    ("volume_ma5", "volume_ma5", _optional_float),
+)
+
+
+def serialize_window_rows(
+    rows: list[Any],
+    *,
+    field_specs: tuple[FieldSpec, ...],
+    start_date: date,
+    end_date: date,
+) -> dict[str, Any]:
+    data = [
+        {
+            "date": row.date.isoformat(),
+            **{
+                output_field: converter(getattr(row, source_field, None))
+                for output_field, source_field, converter in field_specs
+            },
+        }
+        for row in rows
+    ]
+    return {
+        "window": f"{start_date.isoformat()}~{end_date.isoformat()}",
+        "data": data,
+        "count": len(data),
+    }
+
+
+def serialize_price_window_rows(rows: list[Any], *, start_date: date, end_date: date) -> dict[str, Any]:
+    return serialize_window_rows(
+        rows,
+        field_specs=PRICE_FIELD_SPECS,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def serialize_chip_window_rows(rows: list[Any], *, start_date: date, end_date: date) -> dict[str, Any]:
+    return serialize_window_rows(
+        rows,
+        field_specs=CHIP_FIELD_SPECS,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def serialize_technical_window_rows(rows: list[Any], *, start_date: date, end_date: date) -> dict[str, Any]:
+    return serialize_window_rows(
+        rows,
+        field_specs=TECHNICAL_FIELD_SPECS,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+class RagResponse(BaseModel):
+    news_sources: list[dict[str, Any]] = Field(default_factory=list)
+    fallback_mode: bool = False
+    raw_answer: str = ""
+
+
+def _build_reference_materials(
+    *,
+    fallback_mode: bool,
+    raw_answer: str,
+    news_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "rag_api_response": {
+            "usage": "reference_only",
+            "fallback_mode": fallback_mode,
+            "raw_answer": raw_answer,
+            "news_sources": news_sources,
+        },
+    }
+
+
+def _build_rag_news_payload(
+    *,
+    news_sources: list[dict[str, Any]],
+    fallback_mode: bool,
+    raw_answer: str,
+) -> dict[str, Any]:
+    return {
+        "news_sources": news_sources,
+        "fallback_mode": fallback_mode,
+        "raw_answer": raw_answer,
+        "raw_answer_usage": "reference_only",
+        "reference_materials": _build_reference_materials(
+            fallback_mode=fallback_mode,
+            raw_answer=raw_answer,
+            news_sources=news_sources,
+        ),
+    }
+
+
+def _fallback_rag_news_payload() -> dict[str, Any]:
+    return _build_rag_news_payload(news_sources=[], fallback_mode=True, raw_answer="")
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_items = data.get("news_sources") or data.get("results") or data.get("items") or []
+    if not isinstance(raw_items, list):
+        return []
+
+    parsed_items: list[dict[str, Any]] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        ts = _parse_timestamp(raw_item.get("timestamp") or raw_item.get("publish_time") or raw_item.get("date"))
+        if ts is None:
+            continue
+        title = str(raw_item.get("title") or "").strip()
+        if not title:
+            continue
+        source_id = str(raw_item.get("id") or "").strip()
+        summary = str(raw_item.get("summary") or raw_item.get("content") or "").strip()
+        url_value = raw_item.get("url")
+        parsed_items.append(
+            {
+                "id": source_id,
+                "title": title,
+                "summary": summary,
+                "timestamp": ts,
+                "url": str(url_value).strip() if isinstance(url_value, str) and url_value.strip() else None,
+            }
+        )
+    return parsed_items
+
+
+async def fetch_rag_news(
+    *,
+    rag_api_url: str,
+    rag_api_key: str,
+    symbol: str,
+    as_of_date: date,
+    lookback_days: int,
+    max_events: int,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    if not rag_api_url:
+        return _fallback_rag_news_payload()
+
+    headers: dict[str, str] = {}
+    if rag_api_key:
+        headers["Authorization"] = f"Bearer {rag_api_key}"
+
+    payload = {"symbols": [symbol]}
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.post(rag_api_url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        parsed = RagResponse.model_validate(
+            {
+                "news_sources": _parse_news_source_items(data),
+                "fallback_mode": bool(data.get("fallback_mode", False)),
+                "raw_answer": str(data.get("raw_answer") or ""),
+            }
+        )
+    except (httpx.HTTPError, ValidationError, ValueError):
+        return _fallback_rag_news_payload()
+
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in parsed.news_sources:
+        timestamp = item.get("timestamp")
+        if not isinstance(timestamp, datetime):
+            continue
+
+        item_id = str(item.get("id") or "").strip()
+        item_url = item.get("url")
+        item_title = str(item.get("title") or "").strip()
+        item_summary = str(item.get("summary") or "").strip()
+
+        dedupe_key = item_id or item_url or f"{item_title}:{timestamp.isoformat()}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        deduped.append(
+            {
+                "id": item_id,
+                "title": item_title,
+                "summary": item_summary,
+                "timestamp": timestamp.isoformat(),
+                "url": item_url,
+            }
+        )
+        if len(deduped) >= max_events:
+            break
+
+    return _build_rag_news_payload(
+        news_sources=deduped,
+        fallback_mode=parsed.fallback_mode,
+        raw_answer=parsed.raw_answer,
+    )
 
 
 class ToolExecutor:
