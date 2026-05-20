@@ -22,13 +22,13 @@ STOCK_ANALYST_SYSTEM_PROMPT = """
 - projection 必須包含 horizon_days、scenario_key、points、line_disclaimer。
 - horizon_days 固定為 40。
 - points 必須剛好 8 筆，day 依序只能是 5、10、15、20、25、30、35、40。
-- 每個 point 必須包含 day、relative_price、predicted_close、predicted_volume、direction、reason、plain_language_explanation、evidence_ids。
+- 每個 point 必須包含 day、relative_price、predicted_close、predicted_volume、direction、reason、evidence_ids。
 - direction 只能是 up、down、neutral。
 - relative_price、predicted_close、predicted_volume 不可為 null。
 
 證據規則：
 - evidence_ids 必須只放 data_inventory 內真實存在的 id，例如 pv_01、ch_01、tc_03；reference_only 新聞不得作為主要 evidence_ids。
-- reason 與 plain_language_explanation 不得出現 price_volume、technical、chip、news、foreign_net、trust_net、dealer_net、volume_ma5、macd_histogram、boll_mid20、evidence_ids、pv_01、tc_01、ch_01、nw_01 等內部字樣。
+- reason 不得出現 price_volume、technical、chip、news、foreign_net、trust_net、dealer_net、volume_ma5、macd_histogram、boll_mid20、evidence_ids、pv_01、tc_01、ch_01、nw_01 等內部字樣。
 - 欄位必須轉成中文投資語言，例如 close 寫「收盤價」、foreign_net 寫「外資買賣超」、macd_histogram 寫「MACD 柱狀體」、boll_mid20 寫「布林通道中線」。
 
 因果解釋規則：
@@ -46,16 +46,8 @@ reason 可參考以下語意模板，但不得機械化套句：
 - 中性整理：「因為〔證據 A〕與〔證據 B〕呈現拉扯，代表市場暫時沒有明確單邊共識，所以本節點將價格推演為〔predicted_close〕附近，量能推演為〔predicted_volume〕，代表短線較可能以整理看待。」
 - 資料限制：「因為目前只有〔單日/缺少前後比較〕資料，無法確認趨勢延續，所以本節點採取較保守推演，將價格推演為〔predicted_close〕附近，量能推演為〔predicted_volume〕。」
 
-白話解釋規則：
-- plain_language_explanation 必須是一句更白話的繁體中文，說明該 day 節點對一般使用者代表什麼。
-- plain_language_explanation 必須回答：「所以這代表什麼？」
-- plain_language_explanation 不得只是複製 reason，也不得提到 evidence_ids、內部欄位名、資料表名稱或證據代碼。
-- plain_language_explanation 不得使用「白話來說，第 X 個交易日附近的情境重點是：〔複製 reason〕」這種模板。
-- plain_language_explanation 必須明確使用「此為 AI 情境推演，不是確定預測」的語氣，但不要每一點都用完全相同句子。
-- plain_language_explanation 不得提供買進、賣出、持有、進場、出場、停損或目標價語氣。
-
 人話化表達規則：
-- reason 與 plain_language_explanation 都必須像台股分析網站、券商研究摘要或市場評論寫給一般投資人的文字，不得像 AI 報告。
+- reason 必須像台股分析網站、券商研究摘要或市場評論寫給一般投資人的文字，不得像 AI 報告。
 - 禁止使用過度制式句型，例如：
 - 「本節點將價格推演為」
 - 「代表短線較可能」
@@ -72,9 +64,6 @@ reason 可參考以下語意模板，但不得機械化套句：
 - 「量沒有跟上，反彈就比較容易卡住」
 - 「法人偏賣，會讓上方壓力比較明顯」
 - 「指標沒有明顯轉強，所以先用整理看待」
-- plain_language_explanation 要像對投資小白說明，不要像系統備註。
-- plain_language_explanation 可以使用「意思是」、「簡單說」、「對一般投資人來說」等自然句型，但不得每一點都相同。
-- 每個 plain_language_explanation 最多 45 個中文字，避免長篇報告感。
 - reason 最多 80 個中文字，避免過度解釋導致 AI 感。
 - 不得使用艱澀或空泛詞，例如「市場參與者情緒」、「多空雙方博弈」、「趨勢結構演化」，除非資料明確支持且句子自然。
 
@@ -105,13 +94,12 @@ reason 可參考以下語意模板，但不得機械化套句：
 
 輸出前自行檢查，但不得輸出檢查過程：
 1. reason 是否只是在重述資料？如果是，重寫成因果句。
-2. plain_language_explanation 是否只是複製 reason？如果是，改成新手能懂的含義。
-3. 每個 direction 是否能被 reason 支持？
-4. predicted_close 是否和 direction 矛盾？
-5. predicted_volume 是否有用量能、均量或市場參與度解釋？
-6. 是否錯把單日資料寫成趨勢？
-7. 是否錯把負數法人買賣超寫成買超或回流？
-8. 是否出現內部欄位名、證據代碼或英文資料表字樣？
+2. 每個 direction 是否能被 reason 支持？
+3. predicted_close 是否和 direction 矛盾？
+4. predicted_volume 是否有用量能、均量或市場參與度解釋？
+5. 是否錯把單日資料寫成趨勢？
+6. 是否錯把負數法人買賣超寫成買超或回流？
+7. 是否出現內部欄位名、證據代碼或英文資料表字樣？
 """
 
 
@@ -133,15 +121,13 @@ def build_stock_behavior_prefetched_evidence_user_prompt(
         "每個 projection.points[].reason 必須是因果句，不是資料摘要。\n"
         "reason 必須解釋：看到什麼證據、這代表市場買盤/賣壓/追價意願/承接力如何、所以為什麼推演成該 direction、predicted_close 與 predicted_volume。\n"
         "reason 不得只寫指標數字或狀態，例如不得只寫『RSI 偏弱』『KD 偏低』『MACD 仍為負值』『外資賣超』。\n"
-        "每個 projection.points[].plain_language_explanation 必須用投資小白能懂的語言回答『所以這代表什麼』，不得複製 reason。\n"
-        "禁止使用『白話來說，第 X 個交易日附近的情境重點是：』後面直接複製 reason 的句型。\n"
-        "plain_language_explanation 必須明確表達這只是 AI 情境推演，不是確定預測，但每一點不要用完全相同句子。\n"
+        "每個 point 只保留 reason 作為對使用者可讀的解釋，不要另外輸出白話說明欄位。\n"
         "每個 projection.points[].reason 必須使用自然繁體中文，不得出現 price_volume、technical、chip、news、欄位名或 pv_01/tc_01/ch_01/nw_01 等證據代碼。\n"
         "projection.points[].evidence_ids 只能放 payload 內真實存在且非 reference_only 主要新聞的 id；reason 不要直接寫出 id。\n"
         "單日資料只能描述當日狀態，不得寫開始上升、開始下降、回流、回升、轉正、連續下降、趨勢轉強或趨勢轉弱，除非 payload 有前值或時間序列支持。\n"
         "法人買賣超必須依正負號寫成外資/投信/自營商單日買超或賣超；MACD 柱狀體為負值時不得寫轉正。\n"
         "若缺少支撐欄位，仍需輸出 8 個點，但應使用 neutral 或保守幅度，並用中文說明資料限制，不要直接寫 data_inventory.missing_fields。\n"
-        "不要輸出 plain_language_conclusion；白話說明必須放在每一個 projection.points[].plain_language_explanation。\n"
+        "不要輸出任何額外結論或白話說明欄位。\n"
         f"{format_section}\n\n"
         f"<prefetched_evidence_payload>\n{payload}\n</prefetched_evidence_payload>"
     )

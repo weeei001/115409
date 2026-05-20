@@ -75,7 +75,6 @@ class ProjectionPointBase(BaseModel):
     predicted_volume: Optional[float] = None
     direction: ProjectionDirection = "uncertain"
     reason: str = ""
-    plain_language_explanation: str = ""
     evidence_ids: List[str] = Field(default_factory=list)
 
 

@@ -44,7 +44,6 @@ class RawProjectionPoint(BaseModel):
     direction: Any = "uncertain"
     reason: Any = ""
     description: Any = None
-    plain_language_explanation: Any = ""
     price: Any = None
     close: Any = None
     volume: Any = None

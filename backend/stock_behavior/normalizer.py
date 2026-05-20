@@ -20,9 +20,6 @@ PROJECTION_DIRECTIONS = {"up", "down", "neutral", "uncertain"}
 DEFAULT_LINE_DISCLAIMER = "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
 FALLBACK_LIMITATION = "LLM 結構化輸出失敗，請視為占位結果。"
 FALLBACK_SUMMARY = "此為 fallback 結果，代表 LLM 結構化輸出失敗，非有效分析結果。"
-DEFAULT_POINT_PLAIN_LANGUAGE_EXPLANATION = (
-    "此節點資料不足以形成完整白話說明，請將其視為 AI 情境推演的一個節點，而不是確定預測或投資建議。"
-)
 
 
 def _text(value: Any) -> str:
@@ -158,9 +155,6 @@ def normalize_projection_points(points: Any, *, fallback_reason: str) -> list[di
                 ),
                 "direction": _normalize_direction(item.get("direction")),
                 "reason": reason,
-                "plain_language_explanation": _text(item.get("plain_language_explanation"))
-                or reason
-                or DEFAULT_POINT_PLAIN_LANGUAGE_EXPLANATION,
                 "evidence_ids": _list_of_text(item.get("evidence_ids")),
             }
         )
@@ -336,7 +330,6 @@ def build_stock_behavior_analysis_fallback(reason: str, *, horizon_days: int = 4
                     "predicted_volume": None,
                     "direction": "uncertain",
                     "reason": fallback_reason,
-                    "plain_language_explanation": DEFAULT_POINT_PLAIN_LANGUAGE_EXPLANATION,
                     "evidence_ids": [],
                 }
                 for day in SCENARIO_PROJECTION_DAYS
