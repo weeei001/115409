@@ -2,7 +2,7 @@
 
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 SCENARIO_PROJECTION_DAYS = [5, 10, 15, 20, 25, 30, 35, 40]
@@ -27,6 +27,8 @@ class StockBehaviorRagRequest(BaseModel):
         description="股票代號陣列。Swagger 與目前後端流程只會使用第一個有效代號。",
         examples=[["2330"]],
     )
+
+    model_config = ConfigDict(json_schema_extra={"example": {"symbols": ["2330"]}})
 
 
 class AnalyzeNewsSourceItem(BaseModel):
@@ -55,11 +57,30 @@ class StockBehaviorRagPayload(BaseModel):
 class StockBehaviorAiRequest(StockBehaviorRagPayload):
     symbol: str = Field(..., min_length=1, max_length=10, description="單一股票代號，例如 2330。")
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "symbol": "2330",
+                "news_sources": [
+                    {
+                        "id": "news-001",
+                        "title": "台積電法說會展望受關注",
+                        "summary": "市場關注先進製程需求與資本支出展望。",
+                        "timestamp": "2026-05-20T09:30:00",
+                        "url": "https://example.com/news/news-001",
+                    }
+                ],
+                "fallback_mode": False,
+                "raw_answer": "近期新聞以先進製程需求與法說會展望為主。",
+            }
+        }
+    )
+
 
 class TrendAssessment(BaseModel):
-    state: TrendState = "uncertain"
-    confidence_level: ConfidenceLevel = "low"
-    summary: str = ""
+    state: TrendState = Field("uncertain", description="趨勢判斷")
+    confidence_level: ConfidenceLevel = Field("low", description="信心水準")
+    summary: str = Field("", description="趨勢判斷摘要")
 
 
 class SubjectiveView(BaseModel):
@@ -212,15 +233,66 @@ class StockBehaviorAiProjection(BaseModel):
 
 
 class StockBehaviorResponseBase(BaseModel):
-    symbol: str
-    as_of_date: str
+    symbol: str = Field(..., description="股票代號")
+    as_of_date: str = Field(..., description="分析基準日期")
 
 
 class StockBehaviorRagResponse(StockBehaviorRagPayload):
-    pass
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "news_sources": [
+                    {
+                        "id": "news-001",
+                        "title": "台積電法說會展望受關注",
+                        "summary": "市場關注先進製程需求與資本支出展望。",
+                        "timestamp": "2026-05-20T09:30:00",
+                        "url": "https://example.com/news/news-001",
+                    }
+                ],
+                "fallback_mode": False,
+                "raw_answer": "近期新聞以先進製程需求與法說會展望為主。",
+            }
+        }
+    )
 
 
 class StockBehaviorAiResponse(StockBehaviorResponseBase):
-    generated_by: str
+    generated_by: str = Field(..., description="產生分析的模型或後端策略名稱")
     data_inventory: StockBehaviorDataInventory = Field(default_factory=StockBehaviorDataInventory)
     projection: StockBehaviorAiProjection = Field(default_factory=StockBehaviorAiProjection)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "symbol": "2330",
+                "as_of_date": "2026-05-20",
+                "generated_by": "primary",
+                "data_inventory": {
+                    "price_volume": [],
+                    "chip": [],
+                    "technical": [],
+                    "news": [],
+                    "missing_fields": [],
+                },
+                "projection": {
+                    "horizon_days": 40,
+                    "scenario_key": "primary",
+                    "base_close": 920.0,
+                    "base_volume": 32100000.0,
+                    "disclaimer": "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。",
+                    "points": [
+                        {
+                            "day": 5,
+                            "relative_price": 1.01,
+                            "predicted_close": 929.2,
+                            "predicted_volume": 33000000.0,
+                            "direction": "up",
+                            "reason": "短期新聞與價量資料偏正向。",
+                            "evidence_ids": ["news-001"],
+                        }
+                    ],
+                },
+            }
+        }
+    )

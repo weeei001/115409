@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import List, Literal, Optional
 import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 OrderSide = Literal["buy", "sell"]
@@ -26,6 +26,20 @@ class SimulatedOrderBase(BaseModel):
 
 class SimulatedOrderCreate(SimulatedOrderBase):
     trade_date: Optional[date] = Field(None, description="模擬下單日期（可指定過去日期）")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user_id": "guest-001",
+                "symbol": "2330",
+                "side": "buy",
+                "quantity": 2,
+                "sell_plan": "long_term",
+                "planned_sell_date": None,
+                "trade_date": "2026-05-20",
+            }
+        }
+    )
 
     @field_validator("user_id")
     @classmethod
@@ -99,11 +113,34 @@ class SimulatedOrderResponse(SimulatedOrderBase):
     )
     created_at: datetime = Field(..., description="建立時間")
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "ORD-000001",
+                "user_id": "guest-001",
+                "symbol": "2330",
+                "side": "buy",
+                "quantity": 2,
+                "sell_plan": "long_term",
+                "planned_sell_date": None,
+                "trade_date": "2026-05-20",
+                "status": "filled",
+                "estimated_amount": 1840000,
+                "markup_basis": "latest",
+                "reference_date": "2026-05-20",
+                "reference_close": 920.0,
+                "markup_amount": 0,
+                "markup_rate": 0.0,
+                "created_at": "2026-05-20T10:30:00",
+            }
+        }
+    )
+
 
 class SimulatedOrderListResponse(BaseModel):
-    user_id: str
-    total: int
-    data: List[SimulatedOrderResponse]
+    user_id: str = Field(..., description="使用者識別")
+    total: int = Field(..., description="委託筆數")
+    data: List[SimulatedOrderResponse] = Field(..., description="委託列表，依建立時間倒序")
 
 
 class AvailableLotsResponse(BaseModel):
@@ -128,3 +165,25 @@ class SimulatedOrderCategoryProfitResponse(BaseModel):
     priced_orders: int = Field(..., description="可估值委託筆數")
     unpriced_orders: int = Field(..., description="無最新行情委託筆數")
     data: List[SimulatedOrderCategoryProfitItem] = Field(default_factory=list, description="依股票代號彙總之收益統計")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user_id": "guest-001",
+                "total_orders": 2,
+                "priced_orders": 2,
+                "unpriced_orders": 0,
+                "data": [
+                    {
+                        "category": "2330",
+                        "order_count": 2,
+                        "symbols": ["2330"],
+                        "cost_amount": 1840000,
+                        "market_amount": 1860000,
+                        "profit_amount": 20000,
+                        "profit_rate": 1.09,
+                    }
+                ],
+            }
+        }
+    )

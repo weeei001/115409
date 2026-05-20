@@ -1,7 +1,7 @@
 from datetime import date as Date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InstitutionalTradeBase(BaseModel):
@@ -25,13 +25,32 @@ class InstitutionalTradeBase(BaseModel):
 
 
 class InstitutionalTradeResponse(InstitutionalTradeBase):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "date": "2026-05-20",
+                "symbol": "2330",
+                "foreign_buy": 12000000,
+                "foreign_sell": 9500000,
+                "foreign_net": 2500000,
+                "investment_trust_buy": 1800000,
+                "investment_trust_sell": 900000,
+                "investment_trust_net": 900000,
+                "dealer_buy": 700000,
+                "dealer_sell": 1000000,
+                "dealer_net": -300000,
+                "total_institutional_buy": 14500000,
+                "total_institutional_sell": 11400000,
+                "total_institutional_net": 3100000,
+            }
+        },
+    )
 
 
 class InstitutionalTradeListResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
-    total: int
-    data: List[InstitutionalTradeResponse]
+    symbol: str = Field(..., description="股票代號")
+    start_date: Date = Field(..., description="查詢開始日期")
+    end_date: Date = Field(..., description="查詢結束日期")
+    total: int = Field(..., description="資料筆數")
+    data: List[InstitutionalTradeResponse] = Field(..., description="三大法人買賣超列表")

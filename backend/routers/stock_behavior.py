@@ -45,9 +45,15 @@ async def _run_stock_behavior_task(task: Awaitable[ResponseT]) -> ResponseT:
     response_model=StockBehaviorRagResponse,
     summary="取得股票相關 RAG 新聞回覆",
     description=(
+        "依股票代號呼叫 RAG 新聞服務，取得可供 AI 分析使用的新聞來源與原始摘要。"
         "Request 只接受 `symbols` 陣列，目前後端只會使用第一個有效股票代號。"
-        "Response 直接回傳 `news_sources`、`fallback_mode`、`raw_answer`。"
+        "若 RAG 服務不可用，可能回傳 `fallback_mode=true` 與 fallback 摘要。"
     ),
+    responses={
+        200: {"description": "成功取得 RAG 新聞摘要"},
+        422: {"description": "股票代號或政策檢查未通過"},
+        504: {"description": "RAG 蒐集逾時"},
+    },
 )
 async def get_stock_behavior_rag(
     req: StockBehaviorRagRequest,
@@ -62,9 +68,15 @@ async def get_stock_behavior_rag(
     response_model=StockBehaviorAiResponse,
     summary="產生股票 AI 建議分析",
     description=(
-        "Request 只接受 `symbol`、`news_sources`、`fallback_mode`、`raw_answer`。"
+        "依股票代號、RAG 新聞來源與後端資料庫中的價量/籌碼/技術指標產生 AI 情境分析。"
         "通常可直接把 `/analyze/stock-behavior/rag` 的 response 欄位帶入。"
+        "模型選擇由後端環境設定控制，API 請求不可指定模型。"
     ),
+    responses={
+        200: {"description": "成功產生 AI 分析"},
+        422: {"description": "請求資料或政策檢查未通過"},
+        504: {"description": "AI 分析逾時"},
+    },
 )
 async def get_stock_behavior_ai(
     req: StockBehaviorAiRequest,
