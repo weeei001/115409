@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from database import get_db
 from schemas.daily_price import (
     DailyPriceResponse,
+    DateRangeResponse,
     HistoricalPriceList,
     PriceStatistics,
     MultiStockResponse,
@@ -169,7 +170,19 @@ def get_latest_price(symbol: str, db: Session = Depends(get_db)):
         )
     return price
 
-@router.get("/{symbol}/history", response_model=HistoricalPriceList)
+@router.get(
+    "/{symbol}/history",
+    response_model=HistoricalPriceList,
+    summary="查詢歷史股價列表",
+    description=(
+        "查詢指定股票在日期區間內的日線資料，支援分頁。"
+        "未提供日期時，預設查詢最近 30 天。"
+    ),
+    responses={
+        200: {"description": "成功返回歷史股價列表"},
+        422: {"description": "日期格式、skip 或 limit 驗證失敗"},
+    },
+)
 def get_historical_prices(
     symbol: str,
     start_date: Optional[date] = Query(None, description="開始日期"),
@@ -210,7 +223,17 @@ def get_historical_prices(
         "data": prices
     }
 
-@router.get("/{symbol}/statistics", response_model=PriceStatistics)
+@router.get(
+    "/{symbol}/statistics",
+    response_model=PriceStatistics,
+    summary="查詢股價統計數據",
+    description="依指定日期區間計算最高價、最低價、平均收盤價、總成交量、總成交金額與交易天數。",
+    responses={
+        200: {"description": "成功返回統計數據"},
+        404: {"description": "指定日期範圍內無交易資料"},
+        422: {"description": "日期格式驗證失敗"},
+    },
+)
 def get_statistics(
     symbol: str,
     start_date: date = Query(..., description="開始日期"),
@@ -328,7 +351,16 @@ def compare_multiple_stocks(
     }
 
 
-@router.get("/{symbol}/date-range")
+@router.get(
+    "/{symbol}/date-range",
+    response_model=DateRangeResponse,
+    summary="查詢股票資料日期範圍",
+    description="取得指定股票目前在資料庫中可查詢的最早與最新交易日，可用於前端日期選擇器限制範圍。",
+    responses={
+        200: {"description": "成功返回日期範圍"},
+        404: {"description": "找不到該股票資料"},
+    },
+)
 def get_symbol_date_range(symbol: str, db: Session = Depends(get_db)):
     """獲取指定股票的日期範圍"""
     date_range = crud_price.get_date_range_for_symbol(db, symbol=symbol.upper())
@@ -720,6 +752,15 @@ def get_chips_volume_chart(
     response_model=ChipsVolumeChartResponse,
     summary="成交量與三大法人整合數據",
     tags=["三大法人"],
+    description=(
+        "取得成交量、收盤價與三大法人買賣超整合資料。"
+        "此端點回傳格式與 `/stocks/{symbol}/chart/chips-volume` 相同，供前端既有呼叫相容使用。"
+    ),
+    responses={
+        200: {"description": "成功返回成交量與三大法人整合資料"},
+        404: {"description": "指定日期範圍內無完整資料"},
+        422: {"description": "日期格式驗證失敗"},
+    },
 )
 def get_volume_with_chips(
     symbol: str,
@@ -736,6 +777,14 @@ def get_volume_with_chips(
     response_model=TechnicalIndicatorListResponse,
     summary="獲取技術指標數據",
     tags=["技術指標"],
+    description=(
+        "查詢指定股票於日期區間內的技術指標資料，包含均線、RSI、KD、MACD、布林通道與成交量均線。"
+    ),
+    responses={
+        200: {"description": "成功返回技術指標資料"},
+        404: {"description": "指定日期範圍內無技術指標資料"},
+        422: {"description": "日期格式驗證失敗"},
+    },
 )
 def get_technical_indicators(
     symbol: str,
@@ -772,6 +821,15 @@ def get_technical_indicators(
     response_model=IntegratedChartResponse,
     summary="整合股票圖表數據",
     tags=["進階繪圖"],
+    description=(
+        "一次返回價量、三大法人、籌碼成交量與技術指標資料，適合前端頁面初始化或快取後切換不同圖表。"
+        "若某類資料不存在，該陣列會為空；只有全部資料皆不存在時才回傳 404。"
+    ),
+    responses={
+        200: {"description": "成功返回整合圖表資料"},
+        404: {"description": "指定日期範圍內沒有任何圖表資料"},
+        422: {"description": "日期格式驗證失敗"},
+    },
 )
 def get_integrated_chart(
     symbol: str,

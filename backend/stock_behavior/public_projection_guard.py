@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import re
-from difflib import SequenceMatcher
 from typing import Any
 
 
@@ -72,13 +71,11 @@ MARKET_WORDS = [
     "量能不足",
 ]
 PROJECTION_TERMS = ["價格推演", "量能推演", "推演在", "推演為", "將價格", "將量能"]
-BAD_PLAIN_PREFIX = "白話來說，第"
 
 MISSING_TREND_LIMITATION = "因缺少外資近 10 日累計與二十日均量，中期資金趨勢與量能趨勢判斷可信度有限。"
 DEFAULT_PUBLIC_REASON = (
     "因為目前可用資料不足，無法判斷買盤、賣壓或量能確認是否延續，所以本節點採保守情境推演。"
 )
-DEFAULT_PUBLIC_PLAIN_LANGUAGE = "意思是資料還不夠完整，AI 只能先用保守方式描繪可能情境；此為 AI 情境推演，不是確定預測。"
 
 
 def _index_inventory(data_inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -306,33 +303,14 @@ def _has_missing_trend_fields(data_inventory: dict[str, Any]) -> bool:
     return "foreign_net 近 10 日累計" in missing_text and "volume_ma20" in missing_text
 
 
-def _compact_text(value: str) -> str:
-    return re.sub(r"\s+", "", value)
-
-
-def _text_similarity(left: str, right: str) -> float:
-    left_compact = _compact_text(left)
-    right_compact = _compact_text(right)
-    if not left_compact or not right_compact:
-        return 0.0
-    return SequenceMatcher(None, left_compact, right_compact).ratio()
-
-
 def _has_projection_link(reason: str) -> bool:
     return any(term in reason for term in PROJECTION_TERMS)
 
 
 def is_low_quality_projection_point(point: dict[str, Any]) -> bool:
     reason = str(point.get("reason") or "")
-    plain = str(point.get("plain_language_explanation") or "")
 
-    if not reason or not plain:
-        return True
-
-    if any(prefix in plain for prefix in [BAD_PLAIN_PREFIX, "情境重點是："]):
-        return True
-
-    if reason in plain or plain in reason or _text_similarity(reason, plain) >= 0.85:
+    if not reason:
         return True
 
     if not any(word in reason for word in CAUSE_WORDS):
@@ -417,20 +395,12 @@ def _direction_scene(direction: Any) -> str:
     return "整理觀望"
 
 
-def _plain_language_for_day(direction: str, score: float) -> str:
-    if direction == "down" or score <= -1.0:
-        return "意思是市場比較像有人想賣、但買方還沒有強到一路往上推，AI 先把這段看成震盪偏弱情境，並不是確定預測。"
-    if direction == "up" or score >= 1.5:
-        return "可以理解成目前仍看得到買方承接，但後面能不能延續還要看量能配合；此為 AI 情境推演，不是確定預測。"
-    return "白話說，買方和賣方暫時沒有哪一邊明顯勝出，所以 AI 先用整理觀望來描繪這段情境，這不是確定預測。"
-
-
 def _reason_for_day(
     day: int,
     indexed: dict[str, dict[str, Any]],
     data_inventory: dict[str, Any],
     point: dict[str, Any],
-) -> tuple[str, str, list[str], float]:
+) -> tuple[str, list[str], float]:
     sentences: list[str] = []
     fields: list[str] = []
 
@@ -499,7 +469,7 @@ def _reason_for_day(
     )
     if reason and not reason.endswith("。"):
         reason = f"{reason}。"
-    return reason, _plain_language_for_day(direction, score), _evidence_ids(indexed, fields), score
+    return reason, _evidence_ids(indexed, fields), score
 
 
 def _contains_forbidden_reason_text(reason: str) -> bool:
@@ -528,7 +498,7 @@ def sanitize_public_projection_point(
 ) -> dict[str, Any]:
     indexed = _index_inventory(data_inventory)
     day = int(point.get("day") or 0)
-    generated_reason, generated_plain, generated_evidence_ids, score = _reason_for_day(
+    generated_reason, generated_evidence_ids, score = _reason_for_day(
         day,
         indexed,
         data_inventory,
@@ -537,24 +507,19 @@ def sanitize_public_projection_point(
     candidate_point = {
         **point,
         "reason": str(point.get("reason") or ""),
-        "plain_language_explanation": str(point.get("plain_language_explanation") or ""),
     }
     if (
         _contains_forbidden_reason_text(candidate_point["reason"])
-        or _contains_forbidden_reason_text(candidate_point["plain_language_explanation"])
         or is_low_quality_projection_point(candidate_point)
     ):
         reason = generated_reason
-        plain_language_explanation = generated_plain
         evidence_ids = generated_evidence_ids
     else:
         reason = candidate_point["reason"]
-        plain_language_explanation = candidate_point["plain_language_explanation"]
         evidence_ids = list(point.get("evidence_ids", []))
 
     if _contains_forbidden_reason_text(reason):
         reason = re.sub(r"\s+", " ", DEFAULT_PUBLIC_REASON).strip()
-        plain_language_explanation = DEFAULT_PUBLIC_PLAIN_LANGUAGE
         evidence_ids = []
     evidence_ids = _ensure_line_pair_evidence(reason, indexed, evidence_ids)
     reference_only_ids = _reference_only_news_ids(data_inventory)
@@ -563,6 +528,5 @@ def sanitize_public_projection_point(
         **point,
         "direction": _direction_from_score(point.get("direction"), score),
         "reason": reason,
-        "plain_language_explanation": plain_language_explanation,
         "evidence_ids": evidence_ids,
     }

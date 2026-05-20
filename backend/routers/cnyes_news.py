@@ -30,6 +30,10 @@ router = APIRouter(prefix="/news", tags=["新聞查詢"])
 - `sort_by`: `publish_time` / `created_at` / `updated_at`
 - `sort_order`: `asc` / `desc`
     """,
+    responses={
+        200: {"description": "成功返回新聞分頁列表"},
+        422: {"description": "查詢參數格式驗證失敗"},
+    },
 )
 def list_news(
     page: int = Query(1, ge=1, description="頁碼（從 1 開始）"),
