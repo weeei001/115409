@@ -29,7 +29,7 @@
 - `crud/`：資料查詢/彙整邏輯
 - `models/`：SQLAlchemy Model
 - `schemas/`：Pydantic request/response schema
-- `agent/`：AI pipeline（raw/quick/final/report/stream）
+- `agent/`：AI 分析輔助模組（LLM client、prompt、scoring、data adapter）
 
 ---
 
@@ -469,6 +469,147 @@ curl -N -X POST http://localhost:8000/analyze/stream \
 常見注意事項：
 
 - `POST /analyze/*` 請求必須提供 `symbols` 陣列。
+
+## 11. LLM-only Stock Behavior API
+
+Stock Behavior API 已改為三段式端點：
+
+- `POST /analyze/stock-behavior/basic`
+- `POST /analyze/stock-behavior/rag`
+- `POST /analyze/stock-behavior/ai`
+- `POST /analyze/stock-behavior/profile/build`
+- `POST /analyze/stock-behavior/debug`
+
+### 11.1 `POST /analyze/stock-behavior/basic`
+
+Request:
+
+```json
+{
+  "symbols": [
+    "2330"
+  ]
+}
+```
+
+Response 重點欄位：
+
+- `symbol`
+- `as_of_date`
+- `stored_behavior_profile`
+- `recent_evidence`
+
+### 11.2 `POST /analyze/stock-behavior/rag`
+
+Request:
+
+```json
+{
+  "symbol": "2330",
+  "as_of_date": "2026-05-14",
+  "horizon_days": 20,
+  "recent_lookback_days": 90,
+  "news_lookback_days": 60,
+  "max_news_events": 10,
+  "analysis_language": "zh-TW"
+}
+```
+
+Response 重點欄位：
+
+- `news_sources`
+- `fallback_mode`
+- `raw_answer`
+
+說明：
+
+- `/rag` request 只接受 `symbols` 陣列。
+- 目前後端只會取 `symbols` 的第一個有效值做查詢。
+- `/rag` 內部固定使用伺服器當天日期、`news_lookback_days=60`、`max_news_events=10`。
+
+Response 範例：
+
+```json
+{
+  "news_sources": [
+    {
+      "id": "n1",
+      "title": "新聞標題",
+      "summary": "新聞摘要",
+      "timestamp": "2026-05-14T10:00:00+08:00",
+      "url": "https://example.com/news/1"
+    }
+  ],
+  "fallback_mode": false,
+  "raw_answer": "最近新聞摘要..."
+}
+```
+
+### 11.3 `POST /analyze/stock-behavior/ai`
+
+Request:
+
+```json
+{
+  "symbol": "2330",
+  "news_sources": [
+    {
+      "id": "n1",
+      "title": "新聞標題",
+      "summary": "新聞摘要",
+      "timestamp": "2026-05-14T10:00:00+08:00",
+      "url": "https://example.com/news/1"
+    }
+  ],
+  "fallback_mode": false,
+  "raw_answer": "最近新聞摘要..."
+}
+```
+
+說明：
+
+- `/ai` request 只接受 `symbol`、`news_sources`、`fallback_mode`、`raw_answer`。
+- `/ai` 不會再次呼叫 RAG；模型只把這些新聞欄位視為參考資料。
+- 基本證據由後端在呼叫 LLM 前固定預先取得：以伺服器當天日期往前 90 日的價量、三大法人籌碼與技術指標資料餵給模型。
+- `/ai` 不會把工具或 API 呼叫能力交給 LLM；若 LLM 回應不是可解析 JSON 或正規化後無法通過 strict schema，系統會回傳合法的 fallback payload，而不是 500。
+- `/ai` 內部固定使用 `horizon_days=40`、`recent_lookback_days=90`、`analysis_language=zh-TW`，目前不由 request 覆寫。
+- `llm_analysis.projection.points` 是前端唯一需要依賴的 40 個交易日 AI 價量情境推演節點，每 5 個交易日一點，正式 API 不再回傳 `scenario_projections` 或 `llm_scenario_trend_line`。每個節點公開 `predicted_close`、`predicted_volume`、`direction`、`reason`；`predicted_close` 與 `predicted_volume` 都只是情境節點，不是統計預測、目標價、成交量預測或投資建議。
+
+Response 重點欄位：
+
+- `symbol`
+- `as_of_date`
+- `llm_analysis`
+
+### 11.4 `POST /analyze/stock-behavior/profile/build`
+
+Request:
+
+```json
+{
+  "symbol": "2330",
+  "profile_start_date": "2021-01-01",
+  "as_of_date": "2026-05-14",
+  "chunk_granularity": "quarter",
+  "include_news": true,
+  "analysis_language": "zh-TW"
+}
+```
+
+說明：
+
+- 目前僅回傳即時計算的 profile 結果，不再寫入 `stock_behavior_profiles`。
+- `saved` 會固定為 `false`。
+
+### 11.5 `POST /analyze/stock-behavior/debug`
+
+回應會額外包含：
+
+- `tool_plan`
+- `tool_trace`
+- `evidence_packet`
+- `raw_llm_response`
+- `validation_result`
 - `POST /simulated-orders/` 建立委託必填 `user_id`（請使用目前 schema 欄位）。
 - `/auth/me` 與 `/auth/change-password` 以外端點目前不需 Bearer Token。
 - 忘記密碼流程若未設定 SMTP，開發模式僅寫入 log，不會寄出郵件。

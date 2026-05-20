@@ -128,3 +128,30 @@ class PriceChangeResponse(BaseModel):
     start_date: Date
     end_date: Date
     data: List[PriceChangeData]
+
+
+class ChipsVolumeData(BaseModel):
+    date: str
+    close: Optional[float] = None
+    volume: Optional[int] = None
+    foreign_net: Optional[int] = None
+    investment_trust_net: Optional[int] = None
+    dealer_net: Optional[int] = None
+    total_institutional_net: Optional[int] = None
+
+
+class ChipsVolumeChartResponse(BaseModel):
+    symbol: str
+    start_date: Date
+    end_date: Date
+    data: List[ChipsVolumeData]
+
+
+class IntegratedChartResponse(BaseModel):
+    symbol: str
+    start_date: Date
+    end_date: Date
+    price_volume: List[dict]
+    institutional_trades: List[dict]
+    volume_with_chips: List[ChipsVolumeData]
+    technical_indicators: List[dict]

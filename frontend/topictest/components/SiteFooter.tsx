@@ -4,7 +4,6 @@ import Link from 'next/link';
 const NAV_ITEMS = [
   { href: '/', label: '首頁' },
   { href: '/compare', label: '多股比較' },
-  { href: '/advisor', label: '投資顧問' },
   { href: '/ai', label: 'AI 投資顧問' },
   { href: '/order', label: '模擬下單' },
 ] as const;

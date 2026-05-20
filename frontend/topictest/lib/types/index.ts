@@ -23,36 +23,6 @@ export interface ChatMessage {
   streamStatus?: string;
 }
 
-// ── Advisor Report Types ──
-
-export type AdvisorAction = 'buy' | 'sell' | 'wait';
-
-export interface AdvisorSource {
-  title: string;
-  url?: string | null;
-  publisher?: string | null;
-  published_at?: string | null;
-  type?: string | null;
-  /** 來自 /analyze news_sources */
-  summary?: string | null;
-}
-
-export interface AdvisorTechnicalSignal {
-  name: string;
-  value?: string | number | null;
-  interpretation: string;
-}
-
-export interface AdvisorInstitutionalFlowItem {
-  name: string;
-  net_amount: number | null;
-  trend?: string | null;
-}
-
-export interface AdvisorInstitutionalFlow {
-  summary?: string | null;
-  items: AdvisorInstitutionalFlowItem[];
-}
 
 export interface ScoreWeights {
   technical: number;
@@ -78,55 +48,6 @@ export interface ScoreBreakdown {
   explanations: ScoreExplanations;
 }
 
-export interface AdvisorReport {
-  symbol: string;
-  generated_at: string;
-  summary: string;
-  technical_signals: AdvisorTechnicalSignal[];
-  institutional_flow: AdvisorInstitutionalFlow;
-  recommendation: AdvisorAction;
-  reasoning: string;
-  risk_notes?: string | null;
-  sources: AdvisorSource[];
-  /** 分析資料起始日（來自 /analyze） */
-  date_start?: string;
-  /** 分析資料結束日（來自 /analyze） */
-  date_end?: string;
-  /** 多空情緒分數 -1～1（來自 /analyze） */
-  sentiment_score?: number;
-  /** 後端操作建議原文（與三態 badge 不同） */
-  recommendation_text?: string;
-  /** 後端加權模型分數明細 */
-  score_breakdown?: ScoreBreakdown;
-  /** 三大法人逐日明細（與卡片最新一日並列） */
-  institutional_rows?: AnalyzeInstitutionalRow[];
-}
-
-export type AdvisorStepKey = 'institutional' | 'news' | 'cross_check' | 'final';
-export type AdvisorStepStatus = 'pending' | 'running' | 'done' | 'error';
-
-export interface AdvisorStepUpdate {
-  request_id: string;
-  step_key: AdvisorStepKey;
-  step_label?: string;
-  status: AdvisorStepStatus;
-  message?: string;
-}
-
-export type AdvisorPartialDataset =
-  | 'institutional'
-  | 'prices'
-  | 'indicators'
-  | 'quick_insights'
-  | 'news';
-
-export interface AdvisorPartialDataEvent {
-  request_id: string;
-  step_key: AdvisorStepKey;
-  dataset: AdvisorPartialDataset;
-  summary?: Record<string, unknown>;
-  preview?: Record<string, unknown>[];
-}
 
 // ── POST /analyze (ChatRequest / ChatResponse) ──
 
@@ -544,4 +465,88 @@ export interface SimulatedOrderCategoryProfitResponse {
   priced_orders: number;
   unpriced_orders: number;
   data?: SimulatedOrderCategoryProfitItem[];
+}
+
+// ── Institutional Trade & Chips Types ──
+
+export interface InstitutionalTradeData {
+  date: string;
+  symbol: string;
+  foreign_net?: number | null;
+  investment_trust_net?: number | null;
+  dealer_net?: number | null;
+  total_institutional_net?: number | null;
+  [key: string]: unknown;
+}
+
+export interface InstitutionalTradeListResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  total: number;
+  data: InstitutionalTradeData[];
+}
+
+export interface ChipsVolumeData {
+  date: string;
+  close?: number | null;
+  volume?: number | null;
+  volume_shares?: number | null;
+  foreign_net?: number | null;
+  investment_trust_net?: number | null;
+  trust_net?: number | null;
+  dealer_net?: number | null;
+  total_institutional_net?: number | null;
+  total_net?: number | null;
+}
+
+export interface ChipsVolumeChartResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  data: ChipsVolumeData[];
+}
+
+export interface TechnicalIndicatorData {
+  date: string;
+  symbol?: string;
+  close?: number | string | null;
+  ma5?: number | string | null;
+  ma10?: number | string | null;
+  ma20?: number | string | null;
+  ma60?: number | string | null;
+  rsi5?: number | string | null;
+  rsi10?: number | string | null;
+  rsi14?: number | string | null;
+  rsv9?: number | string | null;
+  kd_k9?: number | string | null;
+  kd_d9?: number | string | null;
+  kd_j9?: number | string | null;
+  ema12?: number | string | null;
+  ema26?: number | string | null;
+  macd_dif?: number | string | null;
+  macd_dea?: number | string | null;
+  macd_signal?: number | string | null;
+  macd_hist?: number | string | null;
+  macd?: number | string | null;
+  volume_ma5?: number | string | null;
+  [key: string]: unknown;
+}
+
+export interface TechnicalIndicatorListResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  total: number;
+  data: TechnicalIndicatorData[];
+}
+
+export interface IntegratedChartResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  price_volume: Array<Record<string, unknown>>;
+  institutional_trades: Array<Record<string, unknown>>;
+  volume_with_chips: ChipsVolumeData[];
+  technical_indicators: TechnicalIndicatorData[];
 }

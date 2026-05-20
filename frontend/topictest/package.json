@@ -1,5 +1,5 @@
 {
-  "name": "Topic-Test",
+  "name": "topic-test",
   "private": true,
   "version": "0.0.0",
   "scripts": {
@@ -9,12 +9,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.13.12",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@sentry/nextjs": "^10.46.0",
     "@tailwindcss/postcss": "^4.2.1",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.12",
     "@types/three": "^0.183.1",
     "@vercel/analytics": "^2.0.1",
     "axios": "^1.13.6",
@@ -22,6 +22,8 @@
     "dotenv": "^17.2.3",
     "echarts": "^6.0.0",
     "eslint-config-next": "^16.1.6",
+    "highcharts": "^12.6.0",
+    "highcharts-react-official": "^3.2.3",
     "lightweight-charts": "^5.0.9",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",

@@ -1,0 +1,90 @@
+﻿from __future__ import annotations
+
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from config import get_settings
+from database import get_db
+from schemas.stock_behavior import (
+    StockBehaviorAiResponse,
+    StockBehaviorAiRequest,
+    StockBehaviorAnalyzeRequest,
+    StockBehaviorBasicResponse,
+    StockBehaviorRagRequest,
+    StockBehaviorRagResponse,
+)
+from stock_behavior.orchestrator import StockBehaviorOrchestrator
+from stock_behavior.utils import PolicyViolationError
+
+router = APIRouter(prefix="/analyze/stock-behavior", tags=["AI 分析"])
+
+
+def _policy_error_detail(exc: PolicyViolationError) -> dict:
+    return exc.to_detail()
+
+
+@router.post(
+    "/basic",
+    response_model=StockBehaviorBasicResponse,
+    summary="取得股票基本圖表與近期證據資料",
+)
+async def get_stock_behavior_basic(
+    req: StockBehaviorAnalyzeRequest,
+    db: Session = Depends(get_db),
+) -> StockBehaviorBasicResponse:
+    orchestrator = StockBehaviorOrchestrator(db=db, settings=get_settings())
+    try:
+        result = await asyncio.wait_for(orchestrator.collect_basic_evidence(req), timeout=1200)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="分析逾時，請稍後重試") from None
+    except PolicyViolationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_policy_error_detail(exc)) from exc
+    return result
+
+
+@router.post(
+    "/rag",
+    response_model=StockBehaviorRagResponse,
+    summary="取得股票相關 RAG 新聞回覆",
+    description=(
+        "Request 只接受 `symbols` 陣列，目前後端只會使用第一個有效股票代號。"
+        "Response 直接回傳 `news_sources`、`fallback_mode`、`raw_answer`。"
+    ),
+)
+async def get_stock_behavior_rag(
+    req: StockBehaviorRagRequest,
+    db: Session = Depends(get_db),
+) -> StockBehaviorRagResponse:
+    orchestrator = StockBehaviorOrchestrator(db=db, settings=get_settings())
+    try:
+        result = await asyncio.wait_for(orchestrator.collect_rag_news(req), timeout=1200)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="分析逾時，請稍後重試") from None
+    except PolicyViolationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_policy_error_detail(exc)) from exc
+    return result
+
+
+@router.post(
+    "/ai",
+    response_model=StockBehaviorAiResponse,
+    summary="產生股票 AI 建議分析",
+    description=(
+        "Request 只接受 `symbol`、`news_sources`、`fallback_mode`、`raw_answer`。"
+        "通常可直接把 `/analyze/stock-behavior/rag` 的 response 欄位帶入。"
+    ),
+)
+async def get_stock_behavior_ai(
+    req: StockBehaviorAiRequest,
+    db: Session = Depends(get_db),
+) -> StockBehaviorAiResponse:
+    orchestrator = StockBehaviorOrchestrator(db=db, settings=get_settings())
+    try:
+        result = await asyncio.wait_for(orchestrator.generate_llm_analysis(req), timeout=1200)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="分析逾時，請稍後重試") from None
+    except PolicyViolationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_policy_error_detail(exc)) from exc
+    return result

@@ -16,16 +16,15 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# 定期更新流程固定於此：若要改時間、腳本或是否跑三大法人，請直接改常數。
+# 定期更新流程固定於此：若要改時間或腳本，請直接改常數。
 CRAWLER_DIR = Path(__file__).resolve().parent
-SCHEDULE_TIME = "15:00"  # 台股盤後資料約 14:00–15:00 釋出，預設收盤後一小時執行
-INSTITUTIONAL_TRADES_SCHEDULE_TIME = "17:00"
-TWSE_CRAWLER_SCRIPT = CRAWLER_DIR / "twse_crawler.py"
 CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
-INDICATOR_SCRIPT = CRAWLER_DIR / "technical_indicator_job.py"
-INSTITUTIONAL_TRADES_SCRIPT = CRAWLER_DIR / "institutional_trades_job.py"
-RUN_TECHNICAL_INDICATOR_AFTER_CRAWL = True
-RUN_INSTITUTIONAL_TRADES_DAILY = True
+FINMIND_FETCH_SCRIPT = CRAWLER_DIR / "finmind" / "fetch_finmind.py"
+FINMIND_IMPORT_SCRIPT = CRAWLER_DIR / "finmind" / "import_finmind_csv.py"
+FINMIND_OUT_DIR = CRAWLER_DIR / "finmind" / "finmind_output"
+FINMIND_START_DATE = "2021-01-01"
+FINMIND_SCHEDULE_TIME = "17:00"  
+FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
 CNYES_SCHEDULE_LOOKBACK_DAYS = 5
@@ -33,9 +32,6 @@ TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
 def _python_executable() -> str:
-    project_venv_python = CRAWLER_DIR.parent / "env" / "Scripts" / "python.exe"
-    if project_venv_python.exists():
-        return str(project_venv_python)
     return sys.executable
 
 
@@ -43,134 +39,71 @@ def _subprocess_text_encoding() -> str:
     return locale.getpreferredencoding(False) or "utf-8"
 
 
-def _twse_backfill_range_yyyymm() -> tuple[str, str]:
-    """Return (start, end) as YYYYMM for a rolling 2-month window in Asia/Taipei."""
-    now = datetime.now(tz=TZ_TAIPEI)
-    end_yyyymm = f"{now.year}{now.month:02d}"
-    if now.month == 1:
-        start_yyyymm = f"{now.year - 1}12"
-    else:
-        start_yyyymm = f"{now.year}{now.month - 1:02d}"
-    return start_yyyymm, end_yyyymm
+def _finmind_end_date() -> str:
+    return datetime.now(tz=TZ_TAIPEI).strftime("%Y-%m-%d")
 
-def run_crawler_job():
-    """
-    執行爬蟲作業的核心邏輯
-    我們會透過 subprocess 來呼叫你的爬蟲腳本
-    """
-    log.info("===================================")
-    log.info("🚀 開始執行收盤後台股資料爬取作業...")
 
-    script_path = TWSE_CRAWLER_SCRIPT
+def _run_python_command(command: list[str], job_name: str) -> bool:
+    output_encoding = _subprocess_text_encoding()
+    log.info("%s", job_name)
+    log.info("執行指令: %s", " ".join(command))
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding=output_encoding,
+        errors="replace",
+    )
+    if result.returncode == 0:
+        return True
+    log.error("%s 失敗 (Return code: %s)", job_name, result.returncode)
+    if result.stderr:
+        log.error("錯誤訊息：\n%s", result.stderr)
+    return False
+
+
+def run_finmind_job() -> None:
+    script_path = FINMIND_FETCH_SCRIPT
+    import_script_path = FINMIND_IMPORT_SCRIPT
     python_cmd = _python_executable()
 
-    # 確認爬蟲檔案是否存在
     if not script_path.exists():
-        log.error("找不到爬蟲檔案 '%s'。", script_path)
+        log.error("找不到 FinMind 爬蟲檔案 '%s'。", script_path)
+        return
+    if not import_script_path.exists():
+        log.error("找不到 FinMind 匯入腳本 '%s'。", import_script_path)
         return
 
-    try:
-        # 加上 --batch 參數，關閉所有互動式輸入
-        start_yyyymm, end_yyyymm = _twse_backfill_range_yyyymm()
-        command = [
-            python_cmd,
-            str(script_path),
-            "--batch",
-            "--start",
-            start_yyyymm,
-            "--end",
-            end_yyyymm,
-        ]
-        output_encoding = _subprocess_text_encoding()
-        log.info("TWSE backfill window: %s -> %s", start_yyyymm, end_yyyymm)
-        
-        log.info(f"執行指令: {' '.join(command)}")
-        
-        # 執行指令並等待完成
-        result = subprocess.run(
-            command,
-            capture_output=True, # 捕捉 stdout 和 stderr
-            text=True,           # 以字串格式回傳
-            encoding=output_encoding,
-            errors="replace"     # 遇到非目標編碼字元時避免崩潰
-        )
+    start_date = FINMIND_START_DATE
+    end_date = _finmind_end_date()
+    symbols = ",".join(FINMIND_SYMBOLS)
 
-        # 根據回傳碼判斷是否成功 (0 代表成功)
-        if result.returncode == 0:
-            log.info("✅ 爬取作業順利完成！")
-            if RUN_TECHNICAL_INDICATOR_AFTER_CRAWL:
-                run_indicator_job(python_cmd)
-            # 如果想看爬蟲的輸出，可以把下面這行解除註解
-            # print(result.stdout)
-        else:
-            log.error(f"❌ 爬取作業發生錯誤 (Return code: {result.returncode})")
-            log.error(f"錯誤訊息：\n{result.stderr}")
-            
-    except Exception as e:
-        log.error(f"執行爬蟲時發生未預期的例外錯誤: {e}")
-
-
-def run_institutional_trades_job(python_cmd: str) -> None:
-    """三大法人 T86：單次執行僅對「一個交易日」發一筆 GET（腳本內保證不連發）。"""
-    script_path = INSTITUTIONAL_TRADES_SCRIPT
-    if not script_path.exists():
-        log.error(f"找不到三大法人腳本 '{script_path}'，略過。")
+    fetch_command = [
+        python_cmd,
+        str(script_path),
+        "--stocks",
+        symbols,
+        "--start",
+        start_date,
+        "--end",
+        end_date,
+        "--out",
+        str(FINMIND_OUT_DIR),
+    ]
+    log.info("開始執行 FinMind 抓取作業（%s -> %s）...", start_date, end_date)
+    if not _run_python_command(fetch_command, "FinMind 抓取"):
         return
 
-    try:
-        command = [python_cmd, str(script_path)]
-        output_encoding = _subprocess_text_encoding()
-        log.info("🏛️ 開始抓取三大法人買賣超（單日單請求）...")
-        log.info(f"執行指令: {' '.join(command)}")
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding=output_encoding,
-            errors="replace",
-        )
-
-        if result.returncode == 0:
-            log.info("✅ 三大法人資料寫入完成！")
-        else:
-            log.error(f"❌ 三大法人作業失敗 (Return code: {result.returncode})")
-            log.error(f"錯誤訊息：\n{result.stderr}")
-    except Exception as e:
-        log.error(f"執行三大法人腳本時發生未預期例外: {e}")
-
-
-def run_scheduled_institutional_trades_job() -> None:
-    run_institutional_trades_job(_python_executable())
-
-
-def run_indicator_job(python_cmd: str) -> None:
-    script_path = INDICATOR_SCRIPT
-    if not script_path.exists():
-        log.error(f"找不到技術指標腳本 '{script_path}'，略過技術指標計算。")
+    import_command = [
+        python_cmd,
+        str(import_script_path),
+        "--input-dir",
+        str(FINMIND_OUT_DIR),
+    ]
+    if not _run_python_command(import_command, "FinMind CSV 匯入 MySQL"):
         return
 
-    try:
-        command = [python_cmd, str(script_path)]
-        output_encoding = _subprocess_text_encoding()
-        log.info("📈 開始計算技術指標...")
-        log.info(f"執行指令: {' '.join(command)}")
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding=output_encoding,
-            errors="replace",
-        )
-
-        if result.returncode == 0:
-            log.info("✅ 技術指標計算完成！")
-        else:
-            log.error(f"❌ 技術指標計算失敗 (Return code: {result.returncode})")
-            log.error(f"錯誤訊息：\n{result.stderr}")
-    except Exception as e:
-        log.error(f"執行技術指標腳本時發生未預期例外: {e}")
+    log.info("✅ FinMind 抓取與匯入完成！")
 
 
 def run_cnyes_job() -> None:
@@ -208,28 +141,13 @@ def main():
     排程器主程式
     """
     log.info("🕒 啟動台股爬蟲排程器...")
-    
-    schedule_time = SCHEDULE_TIME
 
-    # 設定每天執行一次
-    schedule.every().day.at(schedule_time).do(run_crawler_job)
+    schedule.every().day.at(FINMIND_SCHEDULE_TIME).do(run_finmind_job)
     log.info(
-        "✅ 已設定每天 %s 執行：%s",
-        schedule_time,
-        TWSE_CRAWLER_SCRIPT.name,
+        "✅ 已設定每日 %s 執行：FinMind（起點 %s，迄今日）",
+        FINMIND_SCHEDULE_TIME,
+        FINMIND_START_DATE,
     )
-    if RUN_TECHNICAL_INDICATOR_AFTER_CRAWL:
-        log.info("  ↳ 技術指標計算：爬蟲成功後自動執行")
-
-    if RUN_INSTITUTIONAL_TRADES_DAILY:
-        schedule.every().day.at(INSTITUTIONAL_TRADES_SCHEDULE_TIME).do(
-            run_scheduled_institutional_trades_job
-        )
-        log.info(
-            "✅ 已設定每日 %s 執行：%s（三大法人買賣超）",
-            INSTITUTIONAL_TRADES_SCHEDULE_TIME,
-            INSTITUTIONAL_TRADES_SCRIPT.name,
-        )
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)
@@ -244,7 +162,7 @@ def main():
     # ----------------------------------------------------
     # [開發測試用] 
     # 如果你想先測試排程器是否會動，可以暫時解開下一行註解 (每分鐘執行一次)：
-    # schedule.every(1).minutes.do(run_crawler_job)
+    # schedule.every(1).minutes.do(run_cnyes_job)
     # ----------------------------------------------------
 
     # 進入無窮迴圈，持續檢查是否到達排程時間
