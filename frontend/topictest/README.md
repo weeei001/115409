@@ -1,3 +1,3 @@
 # Taiwan Equity Insight (TEI)
 
-AI-powered stock analysis platform focusing on trend prediction and RAG insights. Built with Next.js (Pages Router), TypeScript, and SCSS.
+Frontend for Taiwan equity browsing, news, comparison, and the general `/ai` chat experience. The dedicated `/stock-ai` analysis page has been removed; stock-behavior and LLM-focused work now stays in backend APIs.

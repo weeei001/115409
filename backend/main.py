@@ -1,87 +1,173 @@
-from __future__ import annotations
-
-from contextlib import asynccontextmanager
-
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+import uvicorn
 
-from config import get_settings
-from database import Base, engine
-from models.password_reset_token import PasswordResetToken  # noqa: F401
-from models.user import User  # noqa: F401
+from database import engine, Base
 from routers import (
-    advisor_report_router,
-    advisor_router,
-    auth_router,
-    core_mode_router,
-    indicator_router,
-    institutional_trade_router,
+    stock_router,
     news_router,
     simulated_order_router,
-    stock_router,
+    auth_router,
+    stock_behavior_router,
 )
+from config import get_settings
+from models.user import User  # noqa: F401 — 註冊至 Base.metadata 供 create_all 建表
+from models.password_reset_token import PasswordResetToken  # noqa: F401
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """應用啟動和關閉時的生命週期管理"""
+    # 啟動時創建資料庫表
+    print("正在創建資料庫表...")
     Base.metadata.create_all(bind=engine)
+    print("資料庫表創建完成")
     yield
+    # 關閉時的清理工作
+    print("應用關閉")
 
 
+# OpenAPI：標籤說明（Swagger /docs 左側分組）
 _OPENAPI_TAGS = [
-    {"name": "Advisor 體驗 API", "description": "Advisor 頁面首屏與漸進事件串流。"},
-    {"name": "Advisor 報告 Domain API", "description": "Advisor 完整報告背景工作管理。"},
-    {"name": "Core Mode API", "description": "Core Mode 能力層 API（decision/backtest/presets）。"},
-    {"name": "股票價格", "description": "股票價格查詢與圖表資料 API。"},
-    {"name": "新聞", "description": "新聞查詢 API。"},
-    {"name": "技術指標", "description": "技術指標查詢 API。"},
-    {"name": "法人籌碼", "description": "三大法人資料查詢 API。"},
-    {"name": "模擬下單", "description": "模擬交易 API。"},
-    {"name": "身份驗證", "description": "註冊、登入、Google 登入與帳號管理 API。"},
+    {
+        "name": "系統",
+        "description": "`GET /` 與 `GET /health`，用於取得服務基本資訊與健康檢查。",
+    },
+    {
+        "name": "AI 分析",
+        "description": (
+            "股票 AI 分析流程：`POST /analyze/stock-behavior/rag` 取得新聞摘要，"
+            "`POST /analyze/stock-behavior/ai` 產生 AI 情境分析。\n\n"
+            "**模型**：由後端環境設定決定，API 請求不得指定模型。\n\n"
+            "**錯誤**：HTTP 4xx/5xx 時 body 通常為 `{\"detail\": \"...\"}`；"
+            "參數驗證失敗時為 `422`。"
+        ),
+    },
+    {
+        "name": "股價查詢",
+        "description": (
+            "`/stocks` 底下的股票資料查詢，包含可用代號、最新股價、歷史股價、"
+            "區間統計、多股比較與部分圖表資料。"
+        ),
+    },
+    {
+        "name": "新聞查詢",
+        "description": "`GET /news`，查詢鉅亨新聞列表，支援分頁、關鍵字、股票與發布時間篩選。",
+    },
+    {
+        "name": "技術指標",
+        "description": "`GET /stocks/{symbol}/technical-indicators`，查詢均線、RSI、KD、MACD 等技術指標。",
+    },
+    {
+        "name": "三大法人",
+        "description": (
+            "三大法人與籌碼相關查詢，包含 `/stocks/{symbol}/institutional-trades`、"
+            "`/stocks/{symbol}/chart/chips-volume`、`/stocks/{symbol}/volume-with-chips`。"
+        ),
+    },
+    {
+        "name": "進階繪圖",
+        "description": "`GET /stocks/{symbol}/integrated-chart`，一次取得前端圖表初始化所需的整合資料。",
+    },
+    {
+        "name": "模擬下單",
+        "description": "`/simulated-orders` 底下的模擬委託建立、列表、可賣張數與依股票代號彙總損益。",
+    },
+    {
+        "name": "認證",
+        "description": (
+            "`/auth` 底下的註冊、帳密登入、Google 登入、目前使用者、變更密碼與忘記密碼流程。"
+            "同一 email 可合併密碼帳與 Google 帳。"
+        ),
+    },
 ]
 
+# 創建 FastAPI 應用
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description=(
-        "台股分析與 Advisor 後端服務。\n\n"
-        "- 文件：`/docs`、`/redoc`\n"
-        "- 健康檢查：`/health`\n"
-        "- Advisor 首屏保證不依賴 LLM，完整報告於背景流程補回"
+        "台股相關 **FastAPI + MySQL** 後端，提供股價查詢、新聞查詢、技術指標、三大法人、模擬下單與 AI 分析 API。\n\n"
+        "- **互動文件**：本頁 Swagger UI（`/docs`）或 ReDoc（`/redoc`）。\n"
+        "- **OpenAPI JSON**：`/openapi.json`。\n"
+        "- **健康檢查**：`GET /health`。\n"
+        "- **日期格式**：所有日期查詢使用 `YYYY-MM-DD`；日期時間使用 ISO 8601。\n"
+        "- **認證方式**：需要登入的端點使用 `Authorization: Bearer <access_token>`。\n"
+        "- **AI 分析**：見標籤「AI 分析」；建議先呼叫 `/analyze/stock-behavior/rag`，再將結果帶入 `/analyze/stock-behavior/ai`。\n\n"
+        "實際部署網域、CORS 與外部服務金鑰請依環境調整。"
     ),
     openapi_tags=_OPENAPI_TAGS,
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": 1,
+        "displayRequestDuration": True,
+        "filter": True,
+    },
     lifespan=lifespan,
 )
 
+# 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # 生產環境中應該設置具體的域名
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 註冊路由
 app.include_router(stock_router)
 app.include_router(news_router)
-app.include_router(indicator_router)
 app.include_router(simulated_order_router)
-app.include_router(institutional_trade_router)
 app.include_router(auth_router)
-app.include_router(core_mode_router)
-app.include_router(advisor_router)
-app.include_router(advisor_report_router)
+app.include_router(stock_behavior_router)
 
 
-@app.get("/", summary="服務資訊", tags=["系統"])
+@app.get(
+    "/",
+    tags=["系統"],
+    summary="取得 API 基本資訊",
+    description="返回服務歡迎訊息、目前版本與 Swagger 文件路徑。",
+    responses={
+        200: {
+            "description": "成功返回 API 基本資訊",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "歡迎使用 FastAPI + MySQL 後端應用",
+                        "version": "1.0.0",
+                        "docs": "/docs",
+                    }
+                }
+            },
+        }
+    },
+)
 def read_root():
-    return {"message": "FastAPI service is running", "version": settings.APP_VERSION, "docs": "/docs"}
+    """根路徑"""
+    return {
+        "message": "歡迎使用 FastAPI + MySQL 後端應用",
+        "version": settings.APP_VERSION,
+        "docs": "/docs"
+    }
 
 
-@app.get("/health", summary="健康檢查", tags=["系統"])
+@app.get(
+    "/health",
+    tags=["系統"],
+    summary="健康檢查",
+    description="檢查 API 服務是否可回應。此端點不檢查外部 RAG、LLM 或 SMTP 服務。",
+    responses={
+        200: {
+            "description": "服務可回應",
+            "content": {"application/json": {"example": {"status": "healthy"}}},
+        }
+    },
+)
 def health_check():
+    """健康檢查"""
     return {"status": "healthy"}
 
 
