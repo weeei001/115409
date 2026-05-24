@@ -1,47 +1,56 @@
 from datetime import date as Date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InstitutionalTradeBase(BaseModel):
     date: Date = Field(..., description="交易日期")
     symbol: str = Field(..., description="證券代號")
-    stock_name: Optional[str] = Field(None, description="證券名稱")
-
-    foreign_excl_dealer_buy: Optional[int] = Field(None, description="外陸資買進股數(不含外資自營商)")
-    foreign_excl_dealer_sell: Optional[int] = Field(None, description="外陸資賣出股數(不含外資自營商)")
-    foreign_excl_dealer_net: Optional[int] = Field(None, description="外陸資買賣超股數(不含外資自營商)")
-    foreign_dealer_buy: Optional[int] = Field(None, description="外資自營商買進股數")
-    foreign_dealer_sell: Optional[int] = Field(None, description="外資自營商賣出股數")
-    foreign_dealer_net: Optional[int] = Field(None, description="外資自營商買賣超股數")
+    foreign_buy: Optional[int] = Field(None, description="外資買進股數")
+    foreign_sell: Optional[int] = Field(None, description="外資賣出股數")
+    foreign_net: Optional[int] = Field(None, description="外資買賣超股數")
 
     investment_trust_buy: Optional[int] = Field(None, description="投信買進股數")
     investment_trust_sell: Optional[int] = Field(None, description="投信賣出股數")
     investment_trust_net: Optional[int] = Field(None, description="投信買賣超股數")
 
-    dealer_net_total: Optional[int] = Field(None, description="自營商買賣超股數")
-    dealer_self_buy: Optional[int] = Field(None, description="自營商買進股數(自行買賣)")
-    dealer_self_sell: Optional[int] = Field(None, description="自營商賣出股數(自行買賣)")
-    dealer_self_net: Optional[int] = Field(None, description="自營商買賣超股數(自行買賣)")
-    dealer_hedge_buy: Optional[int] = Field(None, description="自營商買進股數(避險)")
-    dealer_hedge_sell: Optional[int] = Field(None, description="自營商賣出股數(避險)")
-    dealer_hedge_net: Optional[int] = Field(None, description="自營商買賣超股數(避險)")
+    dealer_buy: Optional[int] = Field(None, description="自營商買進股數")
+    dealer_sell: Optional[int] = Field(None, description="自營商賣出股數")
+    dealer_net: Optional[int] = Field(None, description="自營商買賣超股數")
 
-    total_net: Optional[int] = Field(None, description="三大法人買賣超股數")
+    total_institutional_buy: Optional[int] = Field(None, description="三大法人買進股數")
+    total_institutional_sell: Optional[int] = Field(None, description="三大法人賣出股數")
+    total_institutional_net: Optional[int] = Field(None, description="三大法人買賣超股數")
 
 
 class InstitutionalTradeResponse(InstitutionalTradeBase):
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "date": "2026-05-20",
+                "symbol": "2330",
+                "foreign_buy": 12000000,
+                "foreign_sell": 9500000,
+                "foreign_net": 2500000,
+                "investment_trust_buy": 1800000,
+                "investment_trust_sell": 900000,
+                "investment_trust_net": 900000,
+                "dealer_buy": 700000,
+                "dealer_sell": 1000000,
+                "dealer_net": -300000,
+                "total_institutional_buy": 14500000,
+                "total_institutional_sell": 11400000,
+                "total_institutional_net": 3100000,
+            }
+        },
+    )
 
 
 class InstitutionalTradeListResponse(BaseModel):
-    symbol: str
-    start_date: Date
-    end_date: Date
-    total: int
-    data: List[InstitutionalTradeResponse]
+    symbol: str = Field(..., description="股票代號")
+    start_date: Date = Field(..., description="查詢開始日期")
+    end_date: Date = Field(..., description="查詢結束日期")
+    total: int = Field(..., description="資料筆數")
+    data: List[InstitutionalTradeResponse] = Field(..., description="三大法人買賣超列表")

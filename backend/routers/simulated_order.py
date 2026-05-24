@@ -52,6 +52,16 @@ def _serialize_order(
     "/",
     response_model=SimulatedOrderResponse,
     summary="建立模擬委託",
+    description=(
+        "依指定交易日收盤價建立買進或賣出模擬委託。"
+        "買進可選擇長期持有或指定預計賣出日；賣出會依使用者既有委託推算可賣張數，避免超賣。"
+    ),
+    responses={
+        200: {"description": "模擬委託建立成功"},
+        400: {"description": "委託時間順序錯誤、持股不足或欄位邏輯不合法"},
+        404: {"description": "指定股票在交易日沒有日線資料"},
+        422: {"description": "請求欄位格式驗證失敗"},
+    },
 )
 def create_simulated_order(payload: SimulatedOrderCreate, db: Session = Depends(get_db)):
     trade_date = payload.trade_date or date.today()
@@ -97,6 +107,15 @@ def create_simulated_order(payload: SimulatedOrderCreate, db: Session = Depends(
     "/available-lots",
     response_model=AvailableLotsResponse,
     summary="查詢可賣張數（依委託推算）",
+    description=(
+        "依指定使用者與股票代號，從既有買進/賣出委託推算目前可賣張數。"
+        "`sell_plan=by_date` 且已過預計賣出日的買進單不計入持倉。"
+    ),
+    responses={
+        200: {"description": "成功返回可賣張數"},
+        400: {"description": "股票代號不可為空"},
+        422: {"description": "查詢參數驗證失敗"},
+    },
 )
 def get_available_lots(
     user_id: str = Query(..., min_length=1, max_length=128, description="使用者識別"),
@@ -114,6 +133,11 @@ def get_available_lots(
     "/",
     response_model=SimulatedOrderListResponse,
     summary="查詢模擬委託列表",
+    description="依使用者識別查詢最近的模擬委託，並回傳估值、試算損益與參考收盤資訊。",
+    responses={
+        200: {"description": "成功返回模擬委託列表"},
+        422: {"description": "查詢參數驗證失敗"},
+    },
 )
 def get_simulated_orders(
     user_id: str = Query(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）"),
@@ -134,6 +158,14 @@ def get_simulated_orders(
     "/profit-by-category",
     response_model=SimulatedOrderCategoryProfitResponse,
     summary="依股票代號彙總模擬收益",
+    description=(
+        "依使用者識別彙總各股票的成本、市值、損益金額與收益率。"
+        "此 API 的 `category` 代表股票代號，保留名稱是為了相容既有前端。"
+    ),
+    responses={
+        200: {"description": "成功返回股票代號彙總收益"},
+        422: {"description": "查詢參數驗證失敗"},
+    },
 )
 def get_profit_by_category(
     user_id: str = Query(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）"),
