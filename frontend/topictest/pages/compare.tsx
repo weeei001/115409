@@ -36,12 +36,6 @@ interface SymbolMetricFetchResult {
   volumeResult: PromiseSettledResult<VolumeAnalysisResponse>;
 }
 
-const MODE_BUTTONS: Array<{ key: CompareChartMode; label: string }> = [
-  { key: 'price', label: '報價' },
-  { key: 'index100', label: 'Index=100' },
-  { key: 'cumulativeReturn', label: '累積報酬%' },
-];
-
 const MAX_COMPARE_STOCKS = 6;
 const METRICS_BATCH_SIZE = 3;
 
@@ -96,6 +90,7 @@ export default function ComparePage() {
 
   const compareCacheRef = useRef<Map<string, MultiStockResponse>>(new Map());
   const metricsCacheRef = useRef<Map<string, MetricsCacheEntry>>(new Map());
+  const compareRequestSeq = useRef(0);
 
   useEffect(() => {
     fetchSymbols()
@@ -181,6 +176,7 @@ export default function ComparePage() {
       return;
     }
 
+    const seq = ++compareRequestSeq.current;
     const symbolsParam = selected.join(',');
     const queryKey = `${symbolsParam}|${startDate}|${endDate}`;
 
@@ -192,10 +188,10 @@ export default function ComparePage() {
     setWarnings([]);
 
     const cachedCompare = compareCacheRef.current.get(queryKey);
-    if (cachedCompare) setCompareData(cachedCompare);
+    if (cachedCompare && seq === compareRequestSeq.current) setCompareData(cachedCompare);
 
     const cachedMetrics = metricsCacheRef.current.get(queryKey);
-    if (cachedMetrics) {
+    if (cachedMetrics && seq === compareRequestSeq.current) {
       setViewModel(cachedMetrics.viewModel);
       setWarnings(cachedMetrics.fetchWarnings);
       setMetricsLoading(false);
@@ -205,16 +201,18 @@ export default function ComparePage() {
     try {
       if (!cachedCompare) {
         const res = await fetchMultipleStocks(symbolsParam, startDate, endDate);
+        if (seq !== compareRequestSeq.current) return;
         setCompareData(res);
         compareCacheRef.current.set(queryKey, res);
       }
     } catch (err) {
+      if (seq !== compareRequestSeq.current) return;
       const msg = err instanceof Error ? err.message : '載入比較資料失敗';
       setError(msg);
       toast.error(msg);
       setCompareData(null);
     } finally {
-      setChartLoading(false);
+      if (seq === compareRequestSeq.current) setChartLoading(false);
     }
 
     try {
@@ -224,8 +222,12 @@ export default function ComparePage() {
         selected,
         startDate,
         endDate,
-        (done, total) => setMetricsProgress({ done, total }),
+        (done, total) => {
+          if (seq === compareRequestSeq.current) setMetricsProgress({ done, total });
+        },
       );
+
+      if (seq !== compareRequestSeq.current) return;
 
       const nextPriceChangeMap: Record<string, PriceChangeResponse | null> = {};
       const nextVolumeMap: Record<string, VolumeAnalysisResponse | null> = {};
@@ -266,19 +268,22 @@ export default function ComparePage() {
         fetchWarnings,
       });
     } catch (err) {
+      if (seq !== compareRequestSeq.current) return;
       const msg = err instanceof Error ? err.message : '載入比較指標失敗';
       setMetricsError(msg);
       toast.error(msg);
     } finally {
-      setMetricsLoading(false);
-      setMetricsProgress(null);
+      if (seq === compareRequestSeq.current) {
+        setMetricsLoading(false);
+        setMetricsProgress(null);
+      }
     }
   }, [selected, startDate, endDate]);
 
   const availableSymbols = allSymbols.filter((s) => !selected.includes(s));
 
   return (
-    <div className="min-h-screen flex flex-col text-[var(--color-text-primary)]">
+    <div className="min-h-[100dvh] flex flex-col text-[var(--color-text-primary)]">
       <Head>
         <title>股海明燈｜多股比較</title>
         <meta
@@ -290,10 +295,10 @@ export default function ComparePage() {
       <SubpageHeader
         icon={GitCompare}
         title="多股比較"
-        subtitle="前端運算比較，後端提供原始行情資料"
+        subtitle="選擇多支股票，比較走勢、累積報酬與相關係數（展示／專題用途）"
       />
 
-      <div className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
         <motion.div
           className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-5 sm:p-6 flex flex-col gap-4"
           initial={{ opacity: 0, y: 20 }}
@@ -319,13 +324,13 @@ export default function ComparePage() {
             />
           </div>
 
-          <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-text-muted)]">
+          <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-text-secondary)]">
             <p>已選 {selected.length}/{MAX_COMPARE_STOCKS}；至少 2 檔才可比較。</p>
             {selected.length > 0 && (
               <button
                 type="button"
                 onClick={clearSymbols}
-                className="px-2.5 py-1 rounded-lg border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-up/50 hover:text-up cursor-pointer"
+                className="px-2.5 py-1 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-up/50 hover:text-up cursor-pointer"
               >
                 清空全部
               </button>
@@ -354,13 +359,13 @@ export default function ComparePage() {
           )}
 
           {error && (
-            <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
+            <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up-emphasis">
               {error}
             </div>
           )}
 
           {metricsError && (
-            <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
+            <div className="px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up-emphasis">
               {metricsError}
             </div>
           )}
@@ -378,7 +383,7 @@ export default function ComparePage() {
             onClick={handleCompare}
             disabled={chartLoading || metricsLoading || selected.length < 2}
             className="w-full sm:w-auto sm:self-start px-8 py-3 rounded-2xl text-white text-[15px] font-semibold shadow-md shadow-brand/25
-                       hover:shadow-lg hover:brightness-[1.02] transition-all disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none"
+                       hover:shadow-lg hover:brightness-[1.02] transition-[box-shadow,filter,opacity] disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none"
             style={{ background: 'var(--brand-gradient)' }}
           >
             {chartLoading ? '載入主圖資料...' : metricsLoading ? '計算比較指標...' : '開始比較'}
@@ -393,62 +398,6 @@ export default function ComparePage() {
             </div>
           )}
 
-          {compareData && (
-            <div
-              className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] w-full sm:w-fit"
-              role="tablist"
-              aria-label="圖表顯示模式"
-              onKeyDown={(e) => {
-                const keys = MODE_BUTTONS.map((m) => m.key);
-                const idx = keys.indexOf(chartMode);
-                let next = idx;
-                switch (e.key) {
-                  case 'ArrowRight':
-                  case 'ArrowDown':
-                    e.preventDefault();
-                    next = (idx + 1) % keys.length;
-                    break;
-                  case 'ArrowLeft':
-                  case 'ArrowUp':
-                    e.preventDefault();
-                    next = (idx - 1 + keys.length) % keys.length;
-                    break;
-                  case 'Home':
-                    e.preventDefault();
-                    next = 0;
-                    break;
-                  case 'End':
-                    e.preventDefault();
-                    next = keys.length - 1;
-                    break;
-                  default:
-                    return;
-                }
-                setChartMode(keys[next]);
-                const btn = e.currentTarget.querySelector<HTMLElement>(`[data-tab="${keys[next]}"]`);
-                btn?.focus();
-              }}
-            >
-              {MODE_BUTTONS.map((m) => (
-                <button
-                  key={m.key}
-                  data-tab={m.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={chartMode === m.key}
-                  tabIndex={chartMode === m.key ? 0 : -1}
-                  onClick={() => setChartMode(m.key)}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-                    chartMode === m.key
-                      ? 'bg-[var(--color-bg-card)] text-brand-deep dark:text-brand shadow-sm ring-1 ring-brand/30'
-                      : 'text-[var(--color-text-muted)] hover:text-brand-deep dark:hover:text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          )}
         </motion.div>
 
         {viewModel && <CompareInsightsPanel insights={viewModel.insights} symbolColors={viewModel.symbolColors} />}
@@ -457,6 +406,7 @@ export default function ComparePage() {
           <ComparisonChart
             data={compareData}
             mode={chartMode}
+            onModeChange={setChartMode}
             symbolColors={viewModel?.symbolColors}
           />
         )}
@@ -479,7 +429,7 @@ export default function ComparePage() {
             />
           </section>
         )}
-      </div>
+      </main>
     </div>
   );
 }

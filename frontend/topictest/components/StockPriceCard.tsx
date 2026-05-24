@@ -2,44 +2,42 @@ import React, { useCallback, useRef } from 'react';
 import { motion } from 'motion/react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import type { DailyPriceResponse } from '../lib/types';
+import { getStockDisplayName } from '../lib/utils/symbolNames';
 import { AnimatedCounter } from './AnimatedCounter';
+import { StockSparkline, type SparklineTrend } from './StockSparkline';
+import { useCanHoverTilt } from '../lib/useCanHoverTilt';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 
 interface Props {
   data: DailyPriceResponse;
   onNavigate?: (symbol: string) => void;
   index?: number;
+  sparkline?: number[];
 }
 
-const STOCK_NAMES: Record<string, string> = {
-  '2330': '台積電',
-  '2317': '鴻海',
-  '2408': '南亞科',
-  '2454': '聯發科',
-  '2615': '萬海',
-  '2881': '富邦金',
-  '2882': '國泰金',
-  '2303': '聯電',
-  '2308': '台達電',
-  '3711': '日月光投控',
-  '2412': '中華電',
-  '2886': '兆豐金',
-};
-
-export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, onNavigate, index = 0 }) {
+export const StockPriceCard = React.memo<Props>(function StockPriceCard({
+  data,
+  onNavigate,
+  index = 0,
+  sparkline,
+}) {
   const cardRef = useRef<HTMLButtonElement>(null);
+  const canHoverTilt = useCanHoverTilt();
+  const reduceMotion = usePrefersReducedMotionClient();
 
   const handleClick = useCallback(() => {
     onNavigate?.(data.symbol);
   }, [onNavigate, data.symbol]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!canHoverTilt) return;
     const el = cardRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width - 0.5) * 10;
     const y = ((e.clientY - rect.top) / rect.height - 0.5) * -10;
     el.style.transform = `perspective(600px) rotateY(${x}deg) rotateX(${y}deg) scale3d(1.03,1.03,1.03)`;
-  }, []);
+  }, [canHoverTilt]);
 
   const handleMouseLeave = useCallback(() => {
     const el = cardRef.current;
@@ -54,6 +52,7 @@ export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, 
   const changePct = prevClose !== 0 ? (change / prevClose) * 100 : 0;
   const isUp = change > 0;
   const isDown = change < 0;
+  const sparklineTrend: SparklineTrend = isUp ? 'up' : isDown ? 'down' : 'flat';
 
   const colorClass = isUp ? 'text-up' : isDown ? 'text-down' : 'text-[var(--color-text-muted)]';
   const badgeBg = isUp
@@ -68,7 +67,8 @@ export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, 
       ? 'rgba(100, 154, 126, 0.18)'
       : 'var(--glow-brand)';
 
-  const name = STOCK_NAMES[data.symbol] || '';
+  const name = getStockDisplayName(data.symbol);
+  const showName = name !== data.symbol;
 
   return (
     <motion.button
@@ -82,12 +82,17 @@ export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, 
       }}
       className="bento-cell w-full text-left px-4 py-4 cursor-pointer"
       style={{
-        transition: 'transform 0.15s ease-out, box-shadow 0.3s ease, border-color 0.3s ease',
-        willChange: 'transform',
+        transition: canHoverTilt
+          ? 'transform 0.15s ease-out, box-shadow 0.3s ease, border-color 0.3s ease'
+          : 'box-shadow 0.3s ease, border-color 0.3s ease',
       }}
-      initial={{ opacity: 0, y: 24, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.45, delay: index * 0.07, ease: [0.25, 0.46, 0.45, 0.94] }}
+      initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : { duration: 0.35, delay: index * 0.05, ease: [0.25, 0.46, 0.45, 0.94] }
+      }
     >
       <div className="flex items-start justify-between mb-2">
         <div>
@@ -108,6 +113,12 @@ export const StockPriceCard = React.memo<Props>(function StockPriceCard({ data, 
           {isUp ? '+' : ''}{change.toFixed(2)}
         </div>
       </div>
+
+      {sparkline && sparkline.length >= 2 ? (
+        <div className="mt-3 min-w-0">
+          <StockSparkline values={sparkline} trend={sparklineTrend} />
+        </div>
+      ) : null}
 
       <div className="mt-2 text-[11px] text-[var(--color-text-muted)] tabular-nums">
         {data.date}

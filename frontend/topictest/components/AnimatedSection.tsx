@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 
 type Preset = 'fadeUp' | 'fadeIn' | 'scaleIn' | 'slideLeft' | 'slideRight';
 
@@ -37,11 +38,17 @@ export function AnimatedSection({
   once = true,
   stagger,
 }: Props) {
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
+  const reducedFromMotionConfig = useReducedMotion();
+  const skipAnim = reduceMotion || reducedFromMotionConfig;
   const config = presets[preset];
 
-  if (reduceMotion) {
-    return <div className={className}>{children}</div>;
+  if (skipAnim) {
+    return (
+      <motion.div className={className} initial={false} animate={config.visible}>
+        {children}
+      </motion.div>
+    );
   }
 
   if (stagger) {
@@ -49,6 +56,7 @@ export function AnimatedSection({
       <motion.div
         className={className}
         initial="hidden"
+        animate="visible"
         whileInView="visible"
         viewport={{ once, margin: '-80px' }}
         variants={{
@@ -81,6 +89,7 @@ export function AnimatedSection({
     <motion.div
       className={className}
       initial={config.hidden}
+      animate={config.visible}
       whileInView={config.visible}
       viewport={{ once, margin: '-80px' }}
       transition={{ duration, delay, ease: [...EASE] }}

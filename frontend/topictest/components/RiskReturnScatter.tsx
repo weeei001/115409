@@ -16,6 +16,7 @@ import type { CompareMetricsRow } from '../lib/types';
 import { COMPARE_COLOR_PALETTE } from '../lib/utils/compare';
 import { useTheme } from '../lib/ThemeContext';
 import { getChartPalette } from '../lib/chartTheme';
+import { ChartResizeContainer } from './ChartResizeContainer';
 
 interface Props {
   rows: CompareMetricsRow[];
@@ -44,7 +45,19 @@ export const RiskReturnScatter: React.FC<Props> = ({ rows, symbolColors = {} }) 
       color: symbolColors[r.symbol] ?? fallbackColor(r.symbol),
     }));
 
-  if (data.length === 0) return null;
+  if (data.length === 0) {
+    return (
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm px-5 py-12 text-center">
+          <p className="text-sm text-[var(--color-text-muted)]">資料不足，無法繪製風險報酬散點圖</p>
+        </div>
+      </motion.section>
+    );
+  }
 
   const avgX = data.reduce((sum, item) => sum + item.x, 0) / data.length;
   const avgY = data.reduce((sum, item) => sum + item.y, 0) / data.length;
@@ -62,9 +75,15 @@ export const RiskReturnScatter: React.FC<Props> = ({ rows, symbolColors = {} }) 
             X 軸為波動度、Y 軸為區間報酬；右上角代表高報酬且高波動。
           </p>
         </div>
-        <div className="p-4" style={{ height: 320 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 16, right: 24, bottom: 16, left: 8 }}>
+        <div className="p-4 h-[320px] min-h-0 min-w-0">
+          <ChartResizeContainer
+            className="h-full"
+            role="img"
+            aria-label="風險報酬散點圖：X 軸波動度、Y 軸區間報酬"
+          >
+            {(size) => (
+            <ResponsiveContainer width={size.width} height={size.height}>
+            <ScatterChart margin={{ top: 16, right: 24, bottom: 16, left: 8 }} accessibilityLayer>
               <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
               <ReferenceLine
                 x={avgX}
@@ -117,6 +136,8 @@ export const RiskReturnScatter: React.FC<Props> = ({ rows, symbolColors = {} }) 
               </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
+            )}
+          </ChartResizeContainer>
         </div>
       </div>
     </motion.section>

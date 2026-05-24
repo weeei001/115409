@@ -9,7 +9,6 @@ export interface RAGSource {
 
 export interface AITrendAnalysis {
   conclusion: string;
-  confidence: number;
   summary: string;
   sources: RAGSource[];
 }
@@ -43,63 +42,19 @@ export interface AdvisorTechnicalSignal {
   interpretation: string;
 }
 
-export interface AdvisorInstitutionalFlowItem {
-  name: string;
-  net_amount: number | null;
-  trend?: string | null;
-}
-
-export interface AdvisorInstitutionalFlow {
-  summary?: string | null;
-  items: AdvisorInstitutionalFlowItem[];
-}
-
-export interface ScoreWeights {
-  technical: number;
-  institutional: number;
-  news: number;
-  momentum: number;
-}
-
-export interface ScoreExplanations {
-  technical: string;
-  institutional: string;
-  news: string;
-  momentum: string;
-}
-
-export interface ScoreBreakdown {
-  technical_score: number;
-  institutional_score: number;
-  news_score: number;
-  momentum_score: number;
-  weighted_score: number;
-  weights: ScoreWeights;
-  explanations: ScoreExplanations;
-}
-
 export interface AdvisorReport {
   symbol: string;
   generated_at: string;
   summary: string;
   technical_signals: AdvisorTechnicalSignal[];
-  institutional_flow: AdvisorInstitutionalFlow;
   recommendation: AdvisorAction;
   reasoning: string;
   risk_notes?: string | null;
   sources: AdvisorSource[];
-  /** 分析資料起始日（來自 /analyze） */
   date_start?: string;
-  /** 分析資料結束日（來自 /analyze） */
   date_end?: string;
-  /** 多空情緒分數 -1～1（來自 /analyze） */
-  sentiment_score?: number;
   /** 後端操作建議原文（與三態 badge 不同） */
   recommendation_text?: string;
-  /** 後端加權模型分數明細 */
-  score_breakdown?: ScoreBreakdown;
-  /** 三大法人逐日明細（與卡片最新一日並列） */
-  institutional_rows?: AnalyzeInstitutionalRow[];
 }
 
 export type AdvisorStepKey = 'institutional' | 'news' | 'cross_check' | 'final';
@@ -128,105 +83,14 @@ export interface AdvisorPartialDataEvent {
   preview?: Record<string, unknown>[];
 }
 
-// ── POST /analyze (ChatRequest / ChatResponse) ──
-
-export interface AnalyzeInstitutionalRow {
-  date: string;
-  foreign_net?: number;
-  trust_net?: number;
-  dealer_net?: number;
-  total_net?: number;
-}
+// ── Analyze news source (shared with stockBehavior) ──
 
 export interface AnalyzeNewsSourceItem {
   id?: string;
-  title: string;
+  title?: string;
   summary?: string;
   timestamp?: string;
   url?: string | null;
-}
-
-export interface AnalyzeRequest {
-  symbols: string[];
-  with_news?: boolean;
-}
-
-export interface AnalyzeResponse {
-  symbol?: string;
-  date_start?: string;
-  date_end?: string;
-  summary?: string;
-  sentiment_score?: number;
-  technical_highlights?: string[];
-  institutional_data?: AnalyzeInstitutionalRow[];
-  recommendation?: string;
-  recommendation_basis?: string[];
-  score_breakdown?: ScoreBreakdown;
-  news_sources?: AnalyzeNewsSourceItem[];
-}
-
-/** 拆分 analyze 共用請求（勿帶 model／lookback_days） */
-export interface AnalyzeSplitRequest {
-  symbols: string[];
-}
-
-/** POST /analyze/raw/prices */
-export interface AnalyzeRawPricesResponse {
-  status: 'prices_ready';
-  symbol?: string;
-  date_start?: string;
-  date_end?: string;
-  prices?: Record<string, unknown>[];
-}
-
-/** POST /analyze/raw/indicators */
-export interface AnalyzeRawIndicatorsResponse {
-  status: 'indicators_ready';
-  symbol?: string;
-  date_start?: string;
-  date_end?: string;
-  indicators?: Record<string, unknown>[];
-}
-
-/** POST /analyze/raw/institutional */
-export interface AnalyzeRawInstitutionalResponse {
-  status: 'institutional_ready';
-  symbol?: string;
-  date_start?: string;
-  date_end?: string;
-  institutional_data?: AnalyzeInstitutionalRow[];
-}
-
-/** POST /analyze/quick-insights */
-export interface AnalyzeQuickInsightsResponse {
-  symbol?: string;
-  date_start?: string;
-  date_end?: string;
-  points?: string[];
-  fallback_mode?: boolean;
-}
-
-/** POST /analyze/final（無 technical_highlights、institutional_data） */
-export interface AnalyzeFinalResponse {
-  symbol?: string;
-  date_start?: string;
-  date_end?: string;
-  summary?: string;
-  sentiment_score?: number;
-  recommendation?: string;
-  recommendation_basis?: string[];
-  score_breakdown?: ScoreBreakdown;
-  news_sources?: AnalyzeNewsSourceItem[];
-  fallback_mode?: boolean;
-  raw_answer?: string;
-  status?: string;
-}
-
-/** POST /analyze/report */
-export interface AnalyzeReportResponse extends AnalyzeFinalResponse {
-  quick_points?: string[];
-  quick_fallback_mode?: boolean;
-  institutional_data?: AnalyzeInstitutionalRow[];
 }
 
 // ── Auth (JWT) ──
@@ -253,13 +117,13 @@ export interface MessageResponse {
 export interface DailyPriceResponse {
   date: string;
   symbol: string;
-  open: string | null;
-  high: string | null;
-  low: string | null;
-  close: string | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
   volume_shares: number | null;
   amount: number | null;
-  change: string | null;
+  change: number | null;
   trades: number | null;
 }
 
@@ -341,9 +205,9 @@ export interface PriceStatistics {
   symbol: string;
   start_date: string;
   end_date: string;
-  highest_price: string | null;
-  lowest_price: string | null;
-  average_close: string | null;
+  highest_price: number | null;
+  lowest_price: number | null;
+  average_close: number | null;
   total_volume: number | null;
   total_amount: number | null;
   trading_days: number;
@@ -412,10 +276,94 @@ export interface CompareViewModel {
   symbolColors: Record<string, string>;
 }
 
+/** openapi: GET /stocks/{symbol}/date-range */
 export interface DateRangeResponse {
   symbol: string;
-  earliest_date: string;
-  latest_date: string;
+  min_date: string;
+  max_date: string;
+}
+
+/** openapi: InstitutionalTradeResponse */
+export interface InstitutionalTradeApiRow {
+  date: string;
+  symbol: string;
+  foreign_buy?: number | null;
+  foreign_sell?: number | null;
+  foreign_net?: number | null;
+  investment_trust_buy?: number | null;
+  investment_trust_sell?: number | null;
+  investment_trust_net?: number | null;
+  dealer_buy?: number | null;
+  dealer_sell?: number | null;
+  dealer_net?: number | null;
+  total_institutional_buy?: number | null;
+  total_institutional_sell?: number | null;
+  total_institutional_net?: number | null;
+}
+
+/** openapi: InstitutionalTradeListResponse */
+export interface InstitutionalTradeListApiResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  total: number;
+  data: InstitutionalTradeApiRow[];
+}
+
+/** openapi: TechnicalIndicatorResponse */
+export interface TechnicalIndicatorApiRow {
+  date: string;
+  symbol: string;
+  close?: string | null;
+  ma5?: string | null;
+  ma10?: string | null;
+  ma20?: string | null;
+  ma60?: string | null;
+  ma120?: string | null;
+  ma240?: string | null;
+  rsi5?: string | null;
+  rsi10?: string | null;
+  rsv9?: string | null;
+  kd_k9?: string | null;
+  kd_d9?: string | null;
+  kd_j9?: string | null;
+  ema12?: string | null;
+  ema26?: string | null;
+  macd_dif?: string | null;
+  macd_dea?: string | null;
+  macd_signal?: string | null;
+  macd_hist?: string | null;
+  boll_mid20?: string | null;
+  boll_upper20?: string | null;
+  boll_lower20?: string | null;
+  volume_ma5?: string | null;
+}
+
+/** openapi: ChipsVolumeChartResponse row */
+export interface ChipsVolumeChartRow {
+  date: string;
+  close?: number | null;
+  volume?: number | null;
+  foreign_net?: number | null;
+  investment_trust_net?: number | null;
+  dealer_net?: number | null;
+  total_institutional_net?: number | null;
+}
+
+export interface ChipsVolumeChartResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  data: ChipsVolumeChartRow[];
+}
+
+/** openapi: TechnicalIndicatorListResponse */
+export interface TechnicalIndicatorListApiResponse {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  total: number;
+  data: TechnicalIndicatorApiRow[];
 }
 
 // ── News API Response Types ──
@@ -437,24 +385,6 @@ export interface PaginatedNewsResponse {
   page_size: number;
   total: number;
   items: News[];
-}
-
-// ── Auth Types ──
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface RegisterRequest {
-  name: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-}
-
-export interface ForgotPasswordRequest {
-  email: string;
 }
 
 // ── Order Types ──
@@ -545,3 +475,13 @@ export interface SimulatedOrderCategoryProfitResponse {
   unpriced_orders: number;
   data?: SimulatedOrderCategoryProfitItem[];
 }
+
+export type {
+  InstitutionalDayRow,
+  InstitutionalTradeListResponse,
+  InstitutionalTradeResponse,
+  TechnicalIndicatorDayRow,
+  TechnicalIndicatorListResponse,
+  TechnicalIndicatorResponse,
+} from './stockDashboard';
+

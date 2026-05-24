@@ -3,6 +3,8 @@ import { motion } from 'motion/react';
 import { Bot, User, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatMessage as ChatMessageType } from '../lib/types';
+import { RagStructuredReply } from './RagStructuredReply';
+import { isStructuredRagReply } from '../lib/utils/parseRagStructuredReply';
 
 interface Props {
   message: ChatMessageType;
@@ -65,6 +67,7 @@ export const ChatMessage: React.FC<Props> = ({
   const showTypingCursor =
     !isUser &&
     (streamActive || (useFakeTyping && !done));
+  const useStructuredReply = !isUser && isStructuredRagReply(bodyText);
 
   const handleCopy = useCallback(async () => {
     if (isUser) return;
@@ -103,7 +106,11 @@ export const ChatMessage: React.FC<Props> = ({
       </div>
 
       <div
-        className={`flex-1 max-w-[min(92vw,85%)] sm:max-w-[75%] rounded-2xl px-4 py-3 border border-[var(--color-border)] ${
+        className={`flex-1 rounded-2xl px-4 py-3 border border-[var(--color-border)] ${
+          useStructuredReply
+            ? 'max-w-[min(96vw,92%)] sm:max-w-[88%]'
+            : 'max-w-[min(92vw,85%)] sm:max-w-[75%]'
+        } ${
           isUser
             ? 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)]'
             : 'bg-[var(--color-bg-card)] shadow-[var(--shadow-card)]'
@@ -119,15 +126,22 @@ export const ChatMessage: React.FC<Props> = ({
                 {message.streamStatus}
               </p>
             )}
-            <p className="whitespace-pre-wrap">
-            {bodyText}
-            {showTypingCursor && (
-              <span
-                className="inline-block w-0.5 h-4 ml-0.5 bg-brand align-text-bottom"
-                style={{ animation: 'cursor-blink 1s step-end infinite' }}
+            {useStructuredReply ? (
+              <RagStructuredReply
+                content={bodyText}
+                showCursor={showTypingCursor}
               />
+            ) : (
+              <p className="whitespace-pre-wrap">
+                {bodyText}
+                {showTypingCursor && (
+                  <span
+                    className="inline-block w-0.5 h-4 ml-0.5 bg-brand align-text-bottom"
+                    style={{ animation: 'cursor-blink 1s step-end infinite' }}
+                  />
+                )}
+              </p>
             )}
-            </p>
           </div>
           {!isUser && done && message.content.trim().length > 0 && (
             <button

@@ -35,8 +35,58 @@ export const COMPARE_COLOR_PALETTE = [
   '#0284c7', '#9333ea', '#0d9488', '#b45309',
 ];
 
+export interface CompareSeriesCoverage {
+  symbol: string;
+  firstDate: string | null;
+  lastDate: string | null;
+  validDays: number;
+}
+
+export interface CompareSeriesCoverageSummary {
+  series: CompareSeriesCoverage[];
+  chartLastDate: string | null;
+  /** 任一股的最後有效交易日早於圖表最後一日 */
+  hasUnevenEnd: boolean;
+}
+
+function isValidPrice(price: number | null | undefined): price is number {
+  return typeof price === 'number' && Number.isFinite(price);
+}
+
+/** 各股在主圖資料中的實際覆蓋區間（用於解釋走勢線提前結束） */
+export function getCompareSeriesCoverage(data: MultiStockResponse): CompareSeriesCoverageSummary {
+  const chartLastDate = data.data.at(-1)?.date ?? null;
+  const series = data.symbols.map((symbol) => {
+    let firstDate: string | null = null;
+    let lastDate: string | null = null;
+    let validDays = 0;
+
+    for (const row of data.data) {
+      const price = row.prices[symbol];
+      if (!isValidPrice(price)) continue;
+      validDays += 1;
+      if (!firstDate) firstDate = row.date;
+      lastDate = row.date;
+    }
+
+    return { symbol, firstDate, lastDate, validDays };
+  });
+
+  const hasUnevenEnd = Boolean(
+    chartLastDate && series.some((item) => item.lastDate && item.lastDate < chartLastDate),
+  );
+
+  return { series, chartLastDate, hasUnevenEnd };
+}
+
 export function toPriceChartData(data: MultiStockResponse): CompareChartPoint[] {
-  return data.data.map((d) => ({ date: d.date, ...d.prices }));
+  return data.data.map((row) => {
+    const point: CompareChartPoint = { date: row.date };
+    for (const sym of data.symbols) {
+      point[sym] = isValidPrice(row.prices[sym]) ? row.prices[sym] : null;
+    }
+    return point;
+  });
 }
 
 export function toIndex100ChartData(data: MultiStockResponse): CompareChartPoint[] {

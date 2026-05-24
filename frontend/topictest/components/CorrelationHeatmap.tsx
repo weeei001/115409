@@ -34,7 +34,19 @@ export const CorrelationHeatmap: React.FC<Props> = ({ symbols, matrix }) => {
   const isDark = theme === 'dark';
   const c = getChartPalette(isDark);
 
-  if (symbols.length < 2) return null;
+  if (symbols.length < 2) {
+    return (
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm px-5 py-12 text-center">
+          <p className="text-sm text-[var(--color-text-muted)]">資料不足，至少需要 2 檔股票才能計算相關性</p>
+        </div>
+      </motion.section>
+    );
+  }
 
   return (
     <motion.section
