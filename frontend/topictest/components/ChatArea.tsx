@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 import { Bot } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import type { ChatMessage as ChatMessageType } from '../lib/types';
@@ -45,7 +46,7 @@ export const ChatArea: React.FC<Props> = ({
   onExampleSelect,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
   const scrollKey = messages.map((m) => `${m.id}:${m.content.length}`).join('|');
 
   useEffect(() => {
@@ -86,7 +87,7 @@ export const ChatArea: React.FC<Props> = ({
                   className="text-left text-xs sm:text-sm px-3 py-2.5 rounded-xl border border-[var(--color-border)]
                              bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]
                              hover:border-brand/40 hover:text-brand hover:bg-brand/5
-                             transition-all min-h-[44px]"
+                             transition-[color,background-color,border-color,transform] min-h-[44px]"
                 >
                   {q}
                 </button>

@@ -8,7 +8,6 @@ out/
 .env*
 !.env.example
 
-.vercel/
 .next/
 API_DOCS.md
 chat_api_openapi.json
@@ -17,3 +16,10 @@ simulated-order-api.md
 openapi.json
 *.tsbuildinfo
 .cursor/
+.claude/
+.agents/
+.impeccable.md
+skills-lock.json
+scripts/
+design-system/
+docs/

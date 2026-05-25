@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 import { UserPlus, Mail, Lock, Eye, EyeOff, User, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
-import { GoogleSignInButton } from '../components/GoogleSignInButton';
+import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
 import { authGoogle, authRegister } from '../lib/api/auth';
 import { ApiRequestError } from '../lib/api/client';
 import { setAuth } from '../lib/auth/storage';
@@ -101,16 +102,16 @@ export default function RegisterPage() {
   const inputClass =
     'w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand focus:shadow-[0_0_16px_rgba(255,169,90,0.12)] transition-shadow disabled:opacity-60';
 
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
 
   return (
-    <div className="min-h-screen flex flex-col relative">
+    <div className="min-h-[100dvh] flex flex-col relative">
       <Head>
         <title>股海明燈｜註冊</title>
         <meta name="description" content="建立股海明燈帳號。" />
       </Head>
 
-      <div className="relative z-10 flex flex-col min-h-screen">
+      <div className="relative z-10 flex flex-col min-h-[100dvh]">
         <SubpageHeader icon={UserPlus} title="股海明燈" subtitle="建立帳號" />
 
         <main className="flex-1 flex items-center justify-center px-4 py-12">
@@ -249,7 +250,7 @@ export default function RegisterPage() {
                 aria-busy={loading}
                 className="relative w-full py-3 rounded-xl bg-gradient-to-r from-brand to-brand-light text-white font-semibold
                            shadow-lg shadow-brand/20 hover:shadow-[0_0_24px_var(--glow-brand-strong)]
-                           transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
+                           transition-[opacity,box-shadow,transform] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
               >
                 {loading ? (
                   <Loader2 size={18} className="animate-spin" />
@@ -262,16 +263,21 @@ export default function RegisterPage() {
               </button>
             </form>
 
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[var(--color-border)]" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-3 bg-[var(--color-bg-elevated)]/60 rounded text-[var(--color-text-muted)] backdrop-blur-sm">或使用</span>
-              </div>
-            </div>
-
-            <GoogleSignInButton onCredential={handleGoogleCredential} />
+            {isGoogleSignInConfigured() ? (
+              <>
+                <div className="relative my-8">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-[var(--color-border)]" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="px-3 bg-[var(--color-bg-elevated)]/60 rounded text-[var(--color-text-muted)] backdrop-blur-sm">
+                      或使用
+                    </span>
+                  </div>
+                </div>
+                <GoogleSignInButton onCredential={handleGoogleCredential} />
+              </>
+            ) : null}
 
             <div className="mt-6 text-center text-sm text-[var(--color-text-muted)]">
               已有帳號？{' '}

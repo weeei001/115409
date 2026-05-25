@@ -35,7 +35,26 @@ export default function MePage() {
       return;
     }
     setUser(getStoredUser());
-    setChecked(true);
+    let active = true;
+    void authMe()
+      .then((me) => {
+        if (!active) return;
+        updateStoredUser(me);
+        setUser(me);
+      })
+      .catch((err) => {
+        if (!active) return;
+        if (err instanceof ApiRequestError && err.status === 401) {
+          clearAuth();
+          void router.replace({ pathname: '/login', query: { returnUrl: '/me' } });
+        }
+      })
+      .finally(() => {
+        if (active) setChecked(true);
+      });
+    return () => {
+      active = false;
+    };
   }, [router, router.isReady]);
 
   const handleRefresh = useCallback(async () => {
@@ -111,7 +130,7 @@ export default function MePage() {
 
   if (!checked) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-[100dvh] flex flex-col">
         <Head>
           <title>股海明燈｜個人中心</title>
         </Head>
@@ -124,7 +143,7 @@ export default function MePage() {
 
   if (!getToken()) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-[100dvh] flex flex-col">
         <Head>
           <title>股海明燈｜個人中心</title>
         </Head>
@@ -136,7 +155,7 @@ export default function MePage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col">
       <Head>
         <title>股海明燈｜個人中心</title>
         <meta name="description" content="檢視帳號資訊與登出。" />
@@ -187,21 +206,33 @@ export default function MePage() {
             </p>
 
             {passwordError && (
-              <div className="mb-4 px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up">
+              <div
+                id="me-password-error"
+                role="alert"
+                className="mb-4 px-4 py-3 rounded-xl bg-up-muted border border-up/20 text-sm text-up"
+              >
                 {passwordError}
               </div>
             )}
 
             <form onSubmit={(e) => void handleChangePassword(e)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">目前密碼</label>
+                <label
+                  htmlFor="me-current-password"
+                  className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+                >
+                  目前密碼
+                </label>
                 <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" aria-hidden />
                   <input
+                    id="me-current-password"
                     type={showCurrent ? 'text' : 'password'}
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     autoComplete="current-password"
+                    aria-invalid={passwordError ? true : undefined}
+                    aria-describedby={passwordError ? 'me-password-error' : undefined}
                     className={pwdInputClass}
                   />
                   <button
@@ -216,14 +247,22 @@ export default function MePage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">新密碼</label>
+                <label
+                  htmlFor="me-new-password"
+                  className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+                >
+                  新密碼
+                </label>
                 <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" aria-hidden />
                   <input
+                    id="me-new-password"
                     type={showNew ? 'text' : 'password'}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     autoComplete="new-password"
+                    aria-invalid={passwordError ? true : undefined}
+                    aria-describedby={passwordError ? 'me-password-error' : undefined}
                     className={pwdInputClass}
                   />
                   <button
@@ -238,14 +277,22 @@ export default function MePage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">確認新密碼</label>
+                <label
+                  htmlFor="me-confirm-password"
+                  className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+                >
+                  確認新密碼
+                </label>
                 <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" aria-hidden />
                   <input
+                    id="me-confirm-password"
                     type={showConfirmNew ? 'text' : 'password'}
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     autoComplete="new-password"
+                    aria-invalid={passwordError ? true : undefined}
+                    aria-describedby={passwordError ? 'me-password-error' : undefined}
                     className={pwdInputClass}
                   />
                   <button
@@ -262,7 +309,7 @@ export default function MePage() {
               <button
                 type="submit"
                 disabled={passwordLoading}
-                className="w-full py-3 rounded-xl text-white text-sm font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3 rounded-xl text-white text-sm font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-[opacity,box-shadow,transform] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                 style={{ background: 'var(--brand-gradient)' }}
               >
                 {passwordLoading ? <Loader2 size={18} className="animate-spin" /> : '更新密碼'}

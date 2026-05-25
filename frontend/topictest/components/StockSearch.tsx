@@ -119,14 +119,15 @@ export const StockSearch: React.FC<Props> = ({
   const activeDescendant = activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined;
 
   return (
-    <div ref={ref} className={clsx('relative w-full', !className && 'max-w-md', className)}>
-      <div className="relative">
+    <div ref={ref} className={clsx('relative w-full min-h-0', !className && 'max-w-md', className)}>
+      <div className="relative h-11">
         <Search size={18} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
         <input
           type="text"
           role="combobox"
+          aria-label="搜尋股票代號"
           aria-expanded={isExpanded}
-          aria-controls={listboxId}
+          aria-controls={isExpanded ? listboxId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={activeDescendant}
           value={query}
@@ -144,36 +145,35 @@ export const StockSearch: React.FC<Props> = ({
           }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-4 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text-primary)]
+          className="h-11 w-full min-w-0 box-border pl-10 pr-4 text-sm leading-none rounded-2xl border border-[var(--color-border)] text-[var(--color-text-primary)]
                      focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand
-                     bg-[var(--color-bg-elevated)] text-base shadow-sm"
+                     bg-[var(--color-bg-elevated)] shadow-sm"
         />
       </div>
-      <ul
-        id={listboxId}
-        role="listbox"
-        className={clsx(
-          'absolute top-full left-0 right-0 mt-1 bg-[var(--color-bg-card)] rounded-xl border border-[var(--color-border)] shadow-lg z-50 max-h-60 overflow-y-auto',
-          !isExpanded && 'hidden',
-        )}
-      >
-        {filtered.map((s, i) => (
-          <li
-            key={s}
-            id={`${listboxId}-option-${i}`}
-            role="option"
-            aria-selected={i === activeIndex}
-            onClick={() => selectItem(s)}
-            onMouseEnter={() => setActiveIndex(i)}
-            className={clsx(
-              'w-full text-left px-4 py-2.5 text-sm text-[var(--color-text-secondary)] hover:bg-brand/10 hover:text-brand transition-colors font-mono cursor-pointer',
-              i === activeIndex && 'bg-brand/10 text-brand',
-            )}
-          >
-            {s}
-          </li>
-        ))}
-      </ul>
+      {isExpanded ? (
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute top-full left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-lg"
+        >
+          {filtered.map((s, i) => (
+            <li
+              key={s}
+              id={`${listboxId}-option-${i}`}
+              role="option"
+              aria-selected={i === activeIndex}
+              onClick={() => selectItem(s)}
+              onMouseEnter={() => setActiveIndex(i)}
+              className={clsx(
+                'w-full cursor-pointer px-4 py-2.5 text-left font-mono text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-brand/10 hover:text-brand',
+                i === activeIndex && 'bg-brand/10 text-brand',
+              )}
+            >
+              {s}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 };

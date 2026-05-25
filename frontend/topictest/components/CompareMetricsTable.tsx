@@ -1,9 +1,10 @@
-﻿import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { CompareMetricsRow } from '../lib/types';
 import type { CompareSortState } from '../lib/utils/compare';
 import { COMPARE_COLOR_PALETTE, sortMetricsRows } from '../lib/utils/compare';
 import { fmtVolume } from '../lib/utils/format';
+import { TableScrollHint } from './TableScrollHint';
 
 function fallbackSymbolColor(symbol: string): string {
   let hash = 0;
@@ -52,6 +53,7 @@ function twReturnClass(v: number | null): string {
 
 export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }) => {
   const [sort, setSort] = useState<CompareSortState>({ key: 'totalReturnPct', direction: 'desc' });
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const sortedRows = useMemo(() => sortMetricsRows(rows, sort), [rows, sort]);
 
@@ -69,12 +71,13 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }
         <div className="px-5 py-4 border-b border-[var(--color-border)]">
           <h3 className="text-base font-bold text-[var(--color-text-primary)]">比較指標表</h3>
         </div>
-        <div className="overflow-x-auto touch-pan-x overscroll-x-contain">
-          <table className="w-full text-sm min-w-[720px]">
+        <TableScrollHint scrollRef={scrollRef} className="px-5" />
+        <div ref={scrollRef} className="overflow-x-auto touch-pan-x overscroll-x-contain">
+          <table className="w-full text-sm">
             <thead className="bg-[var(--color-bg-elevated)]">
               <tr>
                 {headers.map((h) => (
-                  <th key={h.key} scope="col" className="px-4 py-3 text-left whitespace-nowrap">
+                  <th key={h.key} scope="col" className="px-3 sm:px-4 py-3 text-left whitespace-nowrap">
                     <button
                       type="button"
                       className="font-semibold text-[var(--color-text-secondary)] hover:text-brand transition-colors cursor-pointer"
@@ -106,19 +109,23 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }
                   className="border-t border-[var(--color-border)] hover:bg-[color-mix(in_srgb,var(--color-bg-elevated)_85%,transparent)]"
                 >
                   <td
-                    className="px-4 py-3 font-mono font-semibold"
+                    className="px-3 sm:px-4 py-3 font-mono font-semibold whitespace-nowrap"
                     style={{ color: symbolColors[r.symbol] ?? fallbackSymbolColor(r.symbol) }}
                   >
                     {r.symbol}
                   </td>
-                  <td className={`px-4 py-3 tabular-nums ${twReturnClass(r.totalReturnPct)}`}>{fmtPct(r.totalReturnPct)}</td>
-                  <td className="px-4 py-3">{fmtPct(r.volatilityPct)}</td>
-                  <td className="px-4 py-3">{fmtPct(r.maxDrawdownPct)}</td>
-                  <td className="px-4 py-3">{fmtPct(r.winRatePct)}</td>
-                  <td className="px-4 py-3 text-up">{fmtPct(r.maxDailyGainPct)}</td>
-                  <td className="px-4 py-3 text-down">{fmtPct(r.maxDailyLossPct)}</td>
-                  <td className="px-4 py-3">{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
-                  <td className="px-4 py-3">{fmtNum(r.avgAmount)}</td>
+                  <td className={`px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap ${twReturnClass(r.totalReturnPct)}`}>
+                    {fmtPct(r.totalReturnPct)}
+                  </td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPct(r.volatilityPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPct(r.maxDrawdownPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPct(r.winRatePct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap text-up">{fmtPct(r.maxDailyGainPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap text-down">{fmtPct(r.maxDailyLossPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">
+                    {r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}
+                  </td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtNum(r.avgAmount)}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 import { KeyRound, Lock, Eye, EyeOff, Loader2, LogIn, CheckCircle, ArrowLeft } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { authResetPassword } from '../lib/api/auth';
@@ -79,10 +80,10 @@ export default function ResetPasswordPage() {
     'w-full pl-10 pr-4 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-60';
 
   const ready = router.isReady;
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col">
       <Head>
         <title>股海明燈｜設定新密碼</title>
         <meta name="description" content="以電子郵件連結重設登入密碼。" />
@@ -142,7 +143,7 @@ export default function ResetPasswordPage() {
                 <button
                   type="button"
                   onClick={() => void router.push('/login')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-all cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-[opacity,box-shadow,transform] cursor-pointer"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
                   <LogIn size={16} />
@@ -229,7 +230,7 @@ export default function ResetPasswordPage() {
                     type="submit"
                     disabled={loading}
                     aria-busy={loading}
-                    className="w-full py-3 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-3 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-[opacity,box-shadow,transform] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                     style={{ background: 'var(--brand-gradient)' }}
                   >
                     {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : '重設密碼'}

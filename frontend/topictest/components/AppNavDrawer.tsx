@@ -17,6 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser } from '../lib/auth/storage';
 import type { UserPublic } from '../lib/types';
+import { PRIMARY_NAV } from '../lib/nav';
 
 function avatarLetter(user: UserPublic): string {
   const name = user.display_name?.trim();
@@ -32,12 +33,18 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { path: '/', label: '首頁', icon: House },
-  { path: '/ai', label: 'AI 顧問', icon: Bot },
-  { path: '/order', label: '模擬下單', icon: ShoppingCart },
-  { path: '/compare', label: '多股比較', icon: GitCompareArrows },
-];
+const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
+  '/': House,
+  '/ai': Bot,
+  '/order': ShoppingCart,
+  '/compare': GitCompareArrows,
+};
+
+const NAV_ITEMS: NavItem[] = PRIMARY_NAV.map((item) => ({
+  path: item.path,
+  label: item.label,
+  icon: NAV_ICONS[item.path],
+}));
 
 const containerVariants = {
   hidden: {},
@@ -173,7 +180,7 @@ export const AppNavDrawer: React.FC = () => {
                 onClick={() => setOpen(false)}
                 className="flex h-10 w-10 items-center justify-center rounded-full
                   bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]
-                  transition-all hover:bg-brand/10 hover:text-brand active:scale-90"
+                  transition-[color,background-color,transform] hover:bg-brand/10 hover:text-brand active:scale-90"
                 aria-label="關閉選單"
               >
                 <X size={18} aria-hidden />
@@ -200,7 +207,7 @@ export const AppNavDrawer: React.FC = () => {
                         variants={itemVariants}
                         onClick={() => navigate(item.path)}
                         className={`group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 min-h-12
-                          text-left text-sm font-medium transition-all duration-200 active:scale-[0.98]
+                          text-left text-sm font-medium transition-[color,background-color,transform] duration-200 active:scale-[0.98]
                           ${active
                             ? 'bg-brand/10 text-brand-deep dark:text-brand-light'
                             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]'
@@ -251,7 +258,7 @@ export const AppNavDrawer: React.FC = () => {
                     <motion.button
                       type="button" variants={itemVariants}
                       className="group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 min-h-12
-                        text-left text-sm font-medium text-[var(--color-text-secondary)] transition-all duration-200
+                        text-left text-sm font-medium text-[var(--color-text-secondary)] transition-[color,background-color,transform] duration-200
                         hover:bg-[var(--color-bg-elevated)] active:scale-[0.98]"
                       onClick={() => navigate('/me')}
                     >
@@ -264,7 +271,7 @@ export const AppNavDrawer: React.FC = () => {
                     <motion.button
                       type="button" variants={itemVariants}
                       className="group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 min-h-12
-                        text-left text-sm font-medium text-[var(--color-text-secondary)] transition-all duration-200
+                        text-left text-sm font-medium text-[var(--color-text-secondary)] transition-[color,background-color,transform] duration-200
                         hover:bg-up-muted hover:text-up active:scale-[0.98]"
                       onClick={() => { clearAuth(); setUser(null); setOpen(false); }}
                     >
@@ -277,7 +284,7 @@ export const AppNavDrawer: React.FC = () => {
                 ) : (
                   <motion.button
                     type="button" onClick={navigateLogin} variants={itemVariants} initial="hidden" animate="visible"
-                    className="relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl
+                    className="btn-shimmer-hover relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl
                       px-4 py-3 min-h-12 text-sm font-semibold text-white
                       shadow-lg transition-shadow hover:shadow-xl active:scale-[0.98]"
                     style={{ background: 'var(--brand-gradient)' }}
@@ -285,8 +292,8 @@ export const AppNavDrawer: React.FC = () => {
                     <LogIn size={18} aria-hidden />
                     登入
                     <span
-                      className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                      style={{ animation: 'shimmer 3s infinite' }} aria-hidden
+                      className="btn-shimmer-overlay pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                      aria-hidden
                     />
                   </motion.button>
                 )}
@@ -313,7 +320,7 @@ export const AppNavDrawer: React.FC = () => {
         onClick={() => setOpen(true)}
         className="flex items-center gap-2 rounded-xl border border-[var(--color-border)]
           bg-[var(--color-bg-card)] px-3 py-3 min-h-11
-          text-sm font-medium text-[var(--color-text-secondary)] shadow-sm transition-all
+          text-sm font-medium text-[var(--color-text-secondary)] shadow-sm transition-[color,border-color,box-shadow,transform]
           hover:border-brand/40 hover:text-brand hover:shadow-md active:scale-95"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -321,7 +328,9 @@ export const AppNavDrawer: React.FC = () => {
         aria-controls={open ? 'app-nav-drawer-panel' : undefined}
       >
         <Menu size={20} className="shrink-0 text-brand" aria-hidden />
-        <span className={user ? 'inline' : 'hidden sm:inline'}>選單</span>
+        <span className={user ? 'inline text-[var(--color-text-primary)]' : 'hidden sm:inline text-[var(--color-text-primary)]'}>
+          選單
+        </span>
       </button>
       {mounted ? createPortal(drawer, document.body) : null}
     </>

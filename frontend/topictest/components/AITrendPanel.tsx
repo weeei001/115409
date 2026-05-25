@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { BookOpen, TrendingUp } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import type { AITrendAnalysis } from '../lib/types';
 import styles from '../styles/components/AITrendPanel.module.scss';
 
@@ -11,6 +11,16 @@ interface Props {
 }
 
 export const AITrendPanel: React.FC<Props> = ({ analysis, sourcesSectionTitle = 'RAG 引用來源' }) => {
+  const conclusionLength = analysis.conclusion?.length ?? 0;
+  const conclusionSizeClass =
+    conclusionLength > 120
+      ? styles.conclusionXs
+      : conclusionLength > 70
+        ? styles.conclusionSm
+        : conclusionLength > 30
+          ? styles.conclusionMd
+          : styles.conclusionLg;
+
   return (
     <motion.div
       className={styles.panel}
@@ -20,20 +30,7 @@ export const AITrendPanel: React.FC<Props> = ({ analysis, sourcesSectionTitle = 
     >
       <div className={styles.conclusionWrap}>
         <span className={styles.label}>AI 趨勢推測</span>
-        <h1 className={styles.conclusion}>{analysis.conclusion}</h1>
-        
-        <div className={styles.confidence}>
-          <TrendingUp size={16} className="text-brand shrink-0" aria-hidden />
-          <span className={styles.text}>信心指數 {analysis.confidence}%</span>
-          <div className={styles.bar}>
-            <motion.div
-              className={styles.fill}
-              initial={{ width: 0 }}
-              animate={{ width: `${analysis.confidence}%` }}
-              transition={{ duration: 1, delay: 0.3 }}
-            />
-          </div>
-        </div>
+        <h2 className={`${styles.conclusion} ${conclusionSizeClass}`}>{analysis.conclusion}</h2>
       </div>
 
       <p className={styles.summary}>{analysis.summary}</p>

@@ -3,27 +3,20 @@ import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
-import '../sentry.client.config';
+
 import '../styles/main.css';
 import { ThemeProvider } from '../lib/ThemeContext';
+import { ThemeColorMeta } from '../components/ThemeColorMeta';
 import { SiteFooter } from '../components/SiteFooter';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { Toaster } from 'sonner';
 import { Analytics } from '@vercel/analytics/react';
 
-/** 改為 `'particle'` 可恢復原本粒子背景 */
-const BACKGROUND_MODE: 'particle' | 'money' = 'particle';
-
 const ParticleBackground = dynamic(() => import('../components/ParticleBackground'), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 bg-[var(--color-bg)]" aria-hidden />,
-});
-
-const MoneyBackground = dynamic(() => import('../components/MoneyBackground'), {
-  ssr: false,
-  loading: () => <div className="absolute inset-0 bg-[var(--color-bg)]" aria-hidden />,
+  loading: () => <div className="absolute inset-0 bg-transparent" aria-hidden />,
 });
 
 const DEFAULT_TITLE = '股海明燈｜即時股價與財經新聞';
@@ -33,17 +26,30 @@ const DEFAULT_DESCRIPTION =
 /**
  * 粒子與內容分層：用 isolate + 明確 z-index，避免與 body／#__next 堆疊時效應導致背景整層被遮住。
  */
-function AppChrome({ children }: { children: ReactNode }) {
+function isAnalysisRoute(pathname: string, asPath: string): boolean {
+  if (pathname.startsWith('/stock') || asPath.startsWith('/stock/')) return true;
+  return ['/compare'].some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
+function AppChrome({
+  children,
+  showParticles,
+}: {
+  children: ReactNode;
+  showParticles: boolean;
+}) {
   return (
     <div className="relative isolate min-h-[100dvh] w-full">
       <div
         className="pointer-events-none fixed inset-0 z-[1] h-[100dvh] w-full min-h-[100dvh]"
         aria-hidden
       >
-        {BACKGROUND_MODE === 'particle' ? (
+        {showParticles ? (
           <ParticleBackground />
         ) : (
-          <MoneyBackground />
+          <div className="absolute inset-0 bg-[var(--color-bg)]" />
         )}
       </div>
       <div className="relative z-[2] flex min-h-[100dvh] w-full flex-col bg-transparent pb-[env(safe-area-inset-bottom)]">
@@ -58,7 +64,9 @@ export default function App({ Component, pageProps }: AppProps) {
   const reduceMotion = usePrefersReducedMotionClient();
 
   return (
+    <MotionConfig reducedMotion="user">
     <ThemeProvider>
+      <ThemeColorMeta />
       <Head>
         <title>{DEFAULT_TITLE}</title>
         <meta name="description" content={DEFAULT_DESCRIPTION} />
@@ -66,7 +74,6 @@ export default function App({ Component, pageProps }: AppProps) {
           name="viewport"
           content="width=device-width, initial-scale=1, viewport-fit=cover"
         />
-        <meta name="theme-color" content="#ffa95a" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="股海明燈" />
         <meta property="og:title" content={DEFAULT_TITLE} />
@@ -76,24 +83,28 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta name="twitter:title" content={DEFAULT_TITLE} />
         <meta name="twitter:description" content={DEFAULT_DESCRIPTION} />
       </Head>
-      <AppChrome>
+      <AppChrome showParticles={!isAnalysisRoute(router.pathname, router.asPath)}>
         <div
           id="main-content"
           className="flex min-h-0 flex-1 flex-col min-w-0 outline-none"
           tabIndex={-1}
         >
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={router.route}
-              initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
-              transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-              className="flex min-h-0 flex-1 flex-col min-w-0 bg-transparent"
-            >
-              <Component {...pageProps} />
-            </motion.div>
-          </AnimatePresence>
+          {reduceMotion ? (
+            <Component {...pageProps} />
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={router.route}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.1, ease: 'easeOut' }}
+                className="flex min-h-0 flex-1 flex-col min-w-0 bg-transparent"
+              >
+                <Component {...pageProps} />
+              </motion.div>
+            </AnimatePresence>
+          )}
         </div>
         <SiteFooter />
         <ScrollToTop />
@@ -101,5 +112,6 @@ export default function App({ Component, pageProps }: AppProps) {
       <Toaster richColors position="top-center" closeButton />
       <Analytics />
     </ThemeProvider>
+    </MotionConfig>
   );
 }

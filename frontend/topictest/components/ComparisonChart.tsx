@@ -20,10 +20,18 @@ import {
   toggleHiddenSymbol,
   visibleSymbolsFromHidden,
 } from '../lib/utils/compare';
+import { ChartResizeContainer } from './ChartResizeContainer';
+
+const CHART_MODE_OPTIONS: Array<{ key: CompareChartMode; label: string }> = [
+  { key: 'price', label: '報價' },
+  { key: 'index100', label: '指數化' },
+  { key: 'cumulativeReturn', label: '累積報酬%' },
+];
 
 interface Props {
   data: MultiStockResponse;
-  mode?: CompareChartMode;
+  mode: CompareChartMode;
+  onModeChange: (mode: CompareChartMode) => void;
   symbolColors?: Record<string, string>;
 }
 
@@ -40,9 +48,9 @@ const MODE_META: Record<CompareChartMode, ModeMeta> = {
     yAxisLabel: '收盤價（元）',
   },
   index100: {
-    title: '多股 Index=100 比較',
+    title: '多股指數化比較',
     description: '以區間首日收盤價設為 100，對齊不同價位股票的相對走勢。',
-    yAxisLabel: 'Index（首日=100）',
+    yAxisLabel: '指數（首日=100）',
   },
   cumulativeReturn: {
     title: '多股累積報酬比較',
@@ -63,7 +71,73 @@ function fallbackColor(symbol: string, index: number): string {
   return COMPARE_COLOR_PALETTE[index % COMPARE_COLOR_PALETTE.length];
 }
 
-export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolColors = {} }) => {
+function CompareChartModeTabs({
+  mode,
+  onModeChange,
+}: {
+  mode: CompareChartMode;
+  onModeChange: (mode: CompareChartMode) => void;
+}) {
+  const keys = CHART_MODE_OPTIONS.map((m) => m.key);
+
+  return (
+    <div
+      className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] w-full sm:w-fit shrink-0"
+      role="tablist"
+      aria-label="圖表顯示模式"
+      onKeyDown={(e) => {
+        const idx = keys.indexOf(mode);
+        let next = idx;
+        switch (e.key) {
+          case 'ArrowRight':
+          case 'ArrowDown':
+            e.preventDefault();
+            next = (idx + 1) % keys.length;
+            break;
+          case 'ArrowLeft':
+          case 'ArrowUp':
+            e.preventDefault();
+            next = (idx - 1 + keys.length) % keys.length;
+            break;
+          case 'Home':
+            e.preventDefault();
+            next = 0;
+            break;
+          case 'End':
+            e.preventDefault();
+            next = keys.length - 1;
+            break;
+          default:
+            return;
+        }
+        onModeChange(keys[next]);
+        const btn = e.currentTarget.querySelector<HTMLElement>(`[data-tab="${keys[next]}"]`);
+        btn?.focus();
+      }}
+    >
+      {CHART_MODE_OPTIONS.map((m) => (
+        <button
+          key={m.key}
+          data-tab={m.key}
+          type="button"
+          role="tab"
+          aria-selected={mode === m.key}
+          tabIndex={mode === m.key ? 0 : -1}
+          onClick={() => onModeChange(m.key)}
+          className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
+            mode === m.key
+              ? 'bg-[var(--color-bg-card)] text-brand-deep dark:text-brand shadow-sm ring-1 ring-brand/30'
+              : 'text-[var(--color-text-muted)] hover:text-brand-deep dark:hover:text-[var(--color-text-primary)]'
+          }`}
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export const ComparisonChart: React.FC<Props> = ({ data, mode, onModeChange, symbolColors = {} }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const c = getChartPalette(isDark);
@@ -94,26 +168,43 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
 
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4 }}
     >
       <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
-        <div className="px-5 pt-4 pb-3 border-b border-[var(--color-border)] space-y-1">
-          <h3 className="text-base font-bold text-[var(--color-text-primary)]">{modeMeta.title}</h3>
-          <p className="text-xs text-[var(--color-text-muted)]">{modeMeta.description}</p>
+        <div className="px-5 pt-4 pb-3 border-b border-[var(--color-border)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0 flex-1 space-y-1">
+              <h3 className="text-base font-bold text-[var(--color-text-primary)]">{modeMeta.title}</h3>
+              <p className="text-xs text-[var(--color-text-muted)]">{modeMeta.description}</p>
+            </div>
+            <CompareChartModeTabs mode={mode} onModeChange={onModeChange} />
+          </div>
         </div>
 
-        <div className="p-4 h-[260px] sm:h-[340px] lg:h-[420px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 12, left: 4 }}>
+        <div className="p-4 h-[260px] sm:h-[340px] lg:h-[420px] min-h-0 min-w-0">
+          <ChartResizeContainer
+            className="h-full"
+            role="img"
+            aria-label={`${modeMeta.title}：${visibleSymbols.join('、') || '無股票'}`}
+          >
+            {(size) => (
+            <ResponsiveContainer width={size.width} height={size.height}>
+            <LineChart
+              data={chartData}
+              margin={{ top: 8, right: 12, bottom: 16, left: 0 }}
+              accessibilityLayer
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
               <XAxis
                 dataKey="date"
                 tick={{ fontSize: 11, fill: c.tick }}
                 tickLine={false}
                 axisLine={false}
-                interval={Math.max(Math.floor(chartData.length / 8), 1)}
+                tickMargin={8}
+                minTickGap={28}
+                interval="preserveStartEnd"
               />
               <YAxis
                 tick={{ fontSize: 11, fill: c.tick }}
@@ -139,7 +230,7 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
                   if (typeof value !== 'number') return [String(value), String(name ?? '')];
 
                   if (mode === 'price') return [`${value.toFixed(2)} 元`, String(name ?? '')];
-                  if (mode === 'index100') return [value.toFixed(2), `${String(name ?? '')}（Index）`];
+                  if (mode === 'index100') return [value.toFixed(2), `${String(name ?? '')}（指數）`];
                   return [`${value.toFixed(2)}%`, `${String(name ?? '')}（累積報酬）`];
                 }}
               />
@@ -157,6 +248,8 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
               ))}
             </LineChart>
           </ResponsiveContainer>
+            )}
+          </ChartResizeContainer>
 
           {visibleSymbols.length === 0 && (
             <p className="mt-2 text-xs text-[var(--color-brand-deep)] dark:text-brand">已隱藏全部股票，請用下方圖例重新開啟或按「重設」。</p>
@@ -178,13 +271,6 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
               className="px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand cursor-pointer"
             >
               全隱藏
-            </button>
-            <button
-              type="button"
-              onClick={() => setHiddenSymbols([])}
-              className="px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand cursor-pointer"
-            >
-              重設
             </button>
             <span className="px-2.5 py-1 text-xs rounded-full bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
               已顯示 {visibleSymbols.length}/{data.symbols.length}
@@ -219,6 +305,36 @@ export const ComparisonChart: React.FC<Props> = ({ data, mode = 'price', symbolC
           <p className="text-[11px] text-[var(--color-text-muted)]">
             圖例色彩與摘要卡、風險報酬散點一致；Y 軸口徑：{modeMeta.yAxisLabel}。點擊圖例可切換顯示。
           </p>
+          {chartData.length > 0 ? (
+            <div className="sr-only">
+              <p>圖表資料摘要（最後一個交易日）</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">日期</th>
+                    {data.symbols.map((sym) => (
+                      <th key={`th-${sym}`} scope="col">
+                        {sym}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>{chartData[chartData.length - 1]?.date ?? '—'}</td>
+                    {data.symbols.map((sym) => {
+                      const v = chartData[chartData.length - 1]?.[sym];
+                      return (
+                        <td key={`td-${sym}`}>
+                          {typeof v === 'number' ? v.toFixed(2) : '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
       </div>
     </motion.section>

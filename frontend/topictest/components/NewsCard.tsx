@@ -3,10 +3,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Clock, ExternalLink, Tag, ChevronDown } from 'lucide-react';
 import type { News } from '../lib/types';
 import { formatTime } from '../lib/utils/date';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 
 interface Props {
   news: News;
   index?: number;
+  defaultExpanded?: boolean;
 }
 
 function parseStocks(raw: string | null): string[] {
@@ -34,20 +36,27 @@ function safeExternalUrl(rawUrl: string | null): string | null {
   }
 }
 
-export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 }) {
-  const [expanded, setExpanded] = useState(false);
+export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0, defaultExpanded = false }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const reduceMotion = usePrefersReducedMotionClient();
   const stocks = parseStocks(news.related_stocks);
   const hasContent = !!news.content?.trim();
   const snippet = truncateContent(news.content);
   const safeUrl = safeExternalUrl(news.url);
+  const contentPanelId = `news-content-${news.id ?? index}`;
+  const expandLabel = expanded ? '收合新聞內文' : '展開新聞內文';
 
   return (
     <motion.article
       className="group border-b border-[var(--color-border)] last:border-b-0 py-4 first:pt-0
                  relative pl-4 hover:-translate-y-0.5 transition-transform duration-200"
-      initial={{ opacity: 0, x: -16 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.35, delay: index * 0.04, ease: [0.25, 0.46, 0.45, 0.94] }}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : { duration: 0.25, delay: index * 0.04, ease: [0.25, 0.46, 0.45, 0.94] }
+      }
     >
       <div className="absolute left-0 top-4 bottom-4 w-0.5 rounded-full bg-gradient-to-b from-brand to-brand-light opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
       <div className="flex items-start gap-3">
@@ -59,13 +68,13 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
                 className="inline-flex items-center gap-0.5 text-[11px] font-mono font-medium
                            text-brand bg-brand/8 px-1.5 py-0.5 rounded"
               >
-                <Tag size={9} />
+                <Tag size={9} aria-hidden />
                 {s}
               </span>
             ))}
             {news.publish_time && (
               <span className="inline-flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
-                <Clock size={10} />
+                <Clock size={10} aria-hidden />
                 {formatTime(news.publish_time)}
               </span>
             )}
@@ -86,32 +95,47 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed line-clamp-2">{snippet}</p>
           )}
 
-          <AnimatePresence>
-            {expanded && hasContent && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                className="overflow-hidden"
-              >
-                <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed mt-1 whitespace-pre-line">
-                  {news.content?.replace(/<[^>]*>/g, '').trim()}
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {hasContent && (
+            <div id={contentPanelId} hidden={!expanded} className={expanded ? 'mt-1' : undefined}>
+              {expanded &&
+                (reduceMotion ? (
+                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-line">
+                    {news.content?.replace(/<[^>]*>/g, '').trim()}
+                  </p>
+                ) : (
+                  <AnimatePresence initial={false}>
+                    <motion.div
+                      key="expanded"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15, ease: 'easeOut' }}
+                    >
+                      <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-line">
+                        {news.content?.replace(/<[^>]*>/g, '').trim()}
+                      </p>
+                    </motion.div>
+                  </AnimatePresence>
+                ))}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-1 pt-1 shrink-0">
           {hasContent && (
             <button
+              type="button"
               onClick={() => setExpanded(!expanded)}
-              className="p-1.5 rounded-lg hover:bg-[var(--color-bg-elevated)] transition-colors
-                         text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              aria-expanded={expanded}
+              aria-controls={contentPanelId}
+              aria-label={expandLabel}
+              className="p-1.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-[var(--color-bg-elevated)] transition-colors
+                         text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]
+                         focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               <ChevronDown
                 size={14}
+                aria-hidden
                 className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
               />
             </button>
@@ -121,10 +145,12 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0 })
               href={safeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 rounded-lg hover:bg-[var(--color-bg-elevated)] transition-colors
-                         text-[var(--color-text-muted)] hover:text-brand"
+              aria-label={`開啟原文：${news.title ?? '新聞'}（新分頁）`}
+              className="p-1.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-[var(--color-bg-elevated)] transition-colors
+                         text-[var(--color-text-muted)] hover:text-brand
+                         focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
-              <ExternalLink size={14} />
+              <ExternalLink size={14} aria-hidden />
             </a>
           )}
         </div>
