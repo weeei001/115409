@@ -259,6 +259,7 @@ class StockBehaviorRagResponse(StockBehaviorRagPayload):
 
 class StockBehaviorAiResponse(StockBehaviorResponseBase):
     generated_by: str = Field(..., description="產生分析的模型或後端策略名稱")
+    summary: str = Field("", description="AI 分析摘要，供前端直接呈現。")
     data_inventory: StockBehaviorDataInventory = Field(default_factory=StockBehaviorDataInventory)
     projection: StockBehaviorAiProjection = Field(default_factory=StockBehaviorAiProjection)
 
@@ -268,6 +269,7 @@ class StockBehaviorAiResponse(StockBehaviorResponseBase):
                 "symbol": "2330",
                 "as_of_date": "2026-05-20",
                 "generated_by": "primary",
+                "summary": "價量與技術面顯示短線動能偏強，但法人籌碼仍需觀察，後續情境以溫和震盪偏多為主。",
                 "data_inventory": {
                     "price_volume": [],
                     "chip": [],

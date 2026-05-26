@@ -67,6 +67,7 @@ class RawProjection(BaseModel):
 
 
 class RawProjectionResponse(BaseModel):
+    summary: Any = ""
     projection: RawProjection = Field(default_factory=RawProjection)
 
 

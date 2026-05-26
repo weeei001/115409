@@ -333,6 +333,31 @@ class StockBehaviorOrchestrator:
                     return item.get("value")
         return None
 
+    @staticmethod
+    def _to_positive_float(value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
+
+    @classmethod
+    def _fill_projection_point_price(cls, point: dict[str, Any], *, base_close: Any) -> dict[str, Any]:
+        if cls._to_positive_float(point.get("predicted_close")) is not None:
+            return point
+
+        base_close_value = cls._to_positive_float(base_close)
+        if base_close_value is None:
+            return point
+
+        relative_price = cls._to_positive_float(point.get("relative_price")) or 1.0
+        return {
+            **point,
+            "predicted_close": round(base_close_value * relative_price, 2),
+        }
+
     @classmethod
     def _build_public_projection(
         cls,
@@ -343,8 +368,10 @@ class StockBehaviorOrchestrator:
     ) -> StockBehaviorAiProjection:
         allowed_ids = cls._inventory_ids(data_inventory)
         projection = validated.projection.model_dump(mode="python")
+        base_close = cls._inventory_value(data_inventory, "close")
         points = []
         for point in projection.get("points", []):
+            point = cls._fill_projection_point_price(point, base_close=base_close)
             evidence_ids = [
                 evidence_id
                 for evidence_id in point.get("evidence_ids", [])
@@ -373,7 +400,7 @@ class StockBehaviorOrchestrator:
             {
                 "horizon_days": projection.get("horizon_days") or horizon_days,
                 "scenario_key": projection.get("scenario_key") or "primary",
-                "base_close": cls._inventory_value(data_inventory, "close"),
+                "base_close": base_close,
                 "base_volume": base_volume,
                 "disclaimer": public_projection_disclaimer(disclaimer, data_inventory),
                 "points": points,
@@ -597,6 +624,7 @@ class StockBehaviorOrchestrator:
             symbol=symbol,
             as_of_date=as_of_date.isoformat(),
             generated_by=getattr(self._llm, "model_name", self._settings.ADVISOR_LLM_MODEL or ""),
+            summary=validated.summary,
             data_inventory=StockBehaviorDataInventory.model_validate(data_inventory),
             projection=public_projection,
         )
