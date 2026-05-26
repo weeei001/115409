@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -22,6 +23,7 @@ import type {
 } from '../lib/types';
 import { ApiRequestError } from '../lib/api/client';
 import { SubpageHeader } from '../components/SubpageHeader';
+import { TableScrollHint } from '../components/TableScrollHint';
 import {
   createSimulatedOrder,
   fetchSimulatedOrders,
@@ -302,7 +304,7 @@ export default function OrderPage() {
     symbolTrimmed.length > 0 && /^[0-9A-Z.]+$/.test(symbolTrimmed);
 
   return (
-    <div className="min-h-screen flex flex-col text-[var(--color-text-primary)]">
+    <div className="min-h-[100dvh] flex flex-col text-[var(--color-text-primary)]">
       <Head>
         <title>股海明燈｜模擬下單</title>
         <meta
@@ -317,6 +319,16 @@ export default function OrderPage() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+        {!identityFromLogin ? (
+          <p className="text-sm text-[var(--color-text-secondary)] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-3">
+            目前以瀏覽器匿名 ID 記錄模擬單。
+            <Link href="/login?returnUrl=/order" className="ml-1 text-brand font-medium hover:underline">
+              登入
+            </Link>
+            後可改以帳號 Email 跨裝置同步（選用）。
+          </p>
+        ) : null}
+
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -397,30 +409,43 @@ export default function OrderPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">買賣方向</label>
-                <div className="grid grid-cols-2 gap-3">
+                <span
+                  id="order-side-label"
+                  className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+                >
+                  買賣方向
+                </span>
+                <div
+                  role="radiogroup"
+                  aria-labelledby="order-side-label"
+                  className="grid grid-cols-2 gap-3"
+                >
                   <button
                     type="button"
+                    role="radio"
+                    aria-checked={side === 'buy'}
                     onClick={() => setSide('buy')}
-                    className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
+                    className={`flex min-h-11 items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-[color,background-color,border-color] cursor-pointer ${
                       side === 'buy'
                         ? 'border-up bg-up-muted text-up'
                         : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
                     }`}
                   >
-                    <ArrowUpCircle size={16} />
+                    <ArrowUpCircle size={16} aria-hidden />
                     買進
                   </button>
                   <button
                     type="button"
+                    role="radio"
+                    aria-checked={side === 'sell'}
                     onClick={() => setSide('sell')}
-                    className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-all cursor-pointer ${
+                    className={`flex min-h-11 items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold transition-[color,background-color,border-color] cursor-pointer ${
                       side === 'sell'
                         ? 'border-down bg-down-muted text-down'
                         : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
                     }`}
                   >
-                    <ArrowDownCircle size={16} />
+                    <ArrowDownCircle size={16} aria-hidden />
                     賣出
                   </button>
                 </div>
@@ -451,20 +476,29 @@ export default function OrderPage() {
 
               {side === 'buy' && (
                 <div className="min-w-0">
-                  <span className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+                  <span
+                    id="order-sell-plan-label"
+                    className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+                  >
                     賣出時間
                     <span className="text-[var(--color-text-muted)] font-normal ml-1">
                       （買進時可記錄未來預計賣出日，僅紀錄用）
                     </span>
                   </span>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="order-sell-plan-label"
+                    className="grid grid-cols-2 gap-2"
+                  >
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={sellPlan === 'long_term'}
                       onClick={() => {
                         setSellPlan('long_term');
                         setPlannedSellDate('');
                       }}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-[color,background-color,border-color] cursor-pointer ${
                         sellPlan === 'long_term'
                           ? 'border-brand bg-brand/5 dark:bg-brand/15 text-brand-deep dark:text-brand'
                           : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
@@ -474,8 +508,10 @@ export default function OrderPage() {
                     </button>
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={sellPlan === 'by_date'}
                       onClick={() => setSellPlan('by_date')}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-[color,background-color,border-color] cursor-pointer ${
                         sellPlan === 'by_date'
                           ? 'border-brand bg-brand/5 dark:bg-brand/15 text-brand-deep dark:text-brand'
                           : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-hover)]'
@@ -593,7 +629,7 @@ export default function OrderPage() {
                     (availableLotsLoading || availableLots === null || availableLots <= 0))
                 }
                 onClick={handleSubmit}
-                className={`shrink-0 self-end sm:self-auto px-8 py-3 rounded-xl font-semibold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`shrink-0 self-end sm:self-auto px-8 py-3 rounded-xl font-semibold shadow-lg transition-[opacity,box-shadow,transform] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   side === 'buy'
                     ? 'bg-up hover:bg-up/90 text-white shadow-up/20'
                     : 'bg-down hover:bg-down/90 text-white shadow-down/20'
@@ -717,7 +753,7 @@ export default function OrderPage() {
           )}
 
           <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden mb-8">
-            <p className="px-5 pt-3 pb-0 text-[11px] text-[var(--color-text-muted)] sm:hidden">← 左右滑動查看完整表格 →</p>
+            <TableScrollHint className="px-5" />
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -788,7 +824,7 @@ export default function OrderPage() {
           </div>
 
           <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm overflow-hidden">
-            <p className="px-5 pt-3 pb-0 text-[11px] text-[var(--color-text-muted)] sm:hidden">← 左右滑動查看完整表格 →</p>
+            <TableScrollHint className="px-5" />
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>

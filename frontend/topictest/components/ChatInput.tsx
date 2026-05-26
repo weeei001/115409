@@ -50,7 +50,7 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
         disabled={!value.trim() || disabled}
         aria-label="送出訊息"
         className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center
-                   text-white shadow-lg transition-all
+                   text-white shadow-lg transition-[opacity,box-shadow,transform]
                    disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
         style={{ background: 'var(--brand-gradient)' }}
       >

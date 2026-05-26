@@ -30,7 +30,8 @@
   --color-down-muted: rgba(100, 154, 126, 0.12);
 
   /* ── Typography ── */
-  --font-display: "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-display: "Noto Sans TC", "PingFang TC", "Inter", system-ui, sans-serif;
+  --font-editorial: "Noto Serif TC", "Noto Sans TC", serif;
   --font-mono: "Fira Code", ui-monospace, monospace;
 }
 
@@ -45,8 +46,9 @@
   --glow-brand-strong: rgba(255, 169, 90, 0.45);
 
   --color-text-primary: #1A1A1A;
-  --color-text-secondary: #6B7280;
-  --color-text-muted: #9CA3AF;
+  /* WCAG AA 4.5:1+ on #fff / #F8F9FA (was #6B7280 / #9CA3AF ≈ 2.5:1 muted) */
+  --color-text-secondary: #4B5563;
+  --color-text-muted: #6B7280;
 
   --color-bg: #F8F9FA;
   --color-bg-card: #FFFFFF;
@@ -61,6 +63,15 @@
 
   --brand-gradient: linear-gradient(135deg, #f0a050, #ffa95a);
   --brand-text-gradient: linear-gradient(135deg, #e07830, #ffa95a);
+  /* 漲跌說明文字在 muted 底上（圖表仍用 --color-up / --color-down） */
+  --color-up-emphasis: #9f3a3a;
+  --color-down-emphasis: #3d6b56;
+
+  --color-success-bg: rgba(100, 154, 126, 0.12);
+  --color-success-border: rgba(100, 154, 126, 0.35);
+  --color-success-text: #3d6b56;
+
+  --app-header-height: 5.5rem;
 }
 
 /* ── CSS Variables: Dark (Midnight Morandi) ── */
@@ -74,8 +85,9 @@
   --glow-brand-strong: rgba(255, 169, 90, 0.35);
 
   --color-text-primary: #E8E6E3;
-  --color-text-secondary: #9A9896;
-  --color-text-muted: #6B6966;
+  /* WCAG AA 4.5:1+ on #161618 / #0A0A0B (was #6B6966 muted ≈ 3.3:1 on card) */
+  --color-text-secondary: #A8A6A3;
+  --color-text-muted: #9A9896;
 
   --color-bg: #0A0A0B;
   --color-bg-card: #161618;
@@ -90,6 +102,13 @@
 
   --brand-gradient: linear-gradient(135deg, #ffa95a, #ffd6b8);
   --brand-text-gradient: linear-gradient(135deg, #ffa95a, #ffd6b8);
+
+  --color-up-emphasis: #e8a8a8;
+  --color-down-emphasis: #8fb89a;
+
+  --color-success-bg: rgba(100, 154, 126, 0.18);
+  --color-success-border: rgba(143, 184, 154, 0.4);
+  --color-success-text: #8fb89a;
 }
 
 /* ═══════════════════════════
@@ -194,6 +213,20 @@ summary:focus-visible {
   50% { box-shadow: 0 0 16px var(--glow-brand-strong), 0 0 40px var(--glow-brand); }
 }
 
+.anim-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* 登入按鈕：僅精細指標 hover 時播放一次 shimmer */
+.btn-shimmer-overlay {
+  transform: translateX(-100%);
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn-shimmer-hover:hover .btn-shimmer-overlay {
+    animation: shimmer 0.85s ease-out forwards;
+  }
+}
+
 @keyframes float-gentle {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
@@ -279,6 +312,42 @@ summary:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* 表單：日期等原生控制項沿用語意色（避免系統灰字對比不足） */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  color: var(--color-text-primary);
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.75;
+}
+
+/* 錯誤／漲色說明文字在淡色底上（對比度 AA） */
+.text-up-emphasis {
+  color: var(--color-up-emphasis);
+}
+.text-down-emphasis {
+  color: var(--color-down-emphasis);
+}
+
+.ui-alert-success {
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.text-success-emphasis {
+  color: var(--color-success-text);
+}
+
+.bg-success-muted {
+  background: var(--color-success-bg);
+}
+
+.border-success {
+  border-color: var(--color-success-border);
+}
+
 /* ═══════════════════════════
    Theme Transition Stagger
    ═══════════════════════════ */
@@ -300,6 +369,10 @@ summary:focus-visible {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+  }
+
+  .anim-glow-pulse {
+    animation: none !important;
   }
 }
 

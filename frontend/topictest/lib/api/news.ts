@@ -1,5 +1,6 @@
 import apiClient from './client';
-import type { News, PaginatedNewsResponse } from '../types';
+import type { PaginatedNewsResponse } from '../types';
+import { dedupeFetch } from '../utils/inFlight';
 
 export interface FetchNewsParams {
   page?: number;
@@ -14,31 +15,15 @@ export interface FetchNewsParams {
   sort_order?: 'asc' | 'desc';
 }
 
+function newsRequestKey(params?: FetchNewsParams): string {
+  return `GET /news ${JSON.stringify(params ?? {})}`;
+}
+
+/** openapi: GET /news */
 export async function fetchNews(params?: FetchNewsParams): Promise<PaginatedNewsResponse> {
-  const { data } = await apiClient.get<PaginatedNewsResponse>('/news', { params });
-  return data;
-}
-
-export async function fetchNewsById(id: number): Promise<News> {
-  const { data } = await apiClient.get<News>(`/news/${id}`);
-  return data;
-}
-
-export async function fetchNewsByNewsId(newsId: number): Promise<News> {
-  const { data } = await apiClient.get<News>(`/news/by-news-id/${newsId}`);
-  return data;
-}
-
-export interface FetchNewsCountParams {
-  news_id?: number;
-  id?: number;
-  keyword?: string;
-  stock?: string;
-  start_time?: string;
-  end_time?: string;
-}
-
-export async function fetchNewsCount(params?: FetchNewsCountParams): Promise<number> {
-  const { data } = await apiClient.get<{ count: number }>('/news/stats/count', { params });
-  return data.count;
+  const key = newsRequestKey(params);
+  return dedupeFetch(key, async () => {
+    const { data } = await apiClient.get<PaginatedNewsResponse>('/news', { params });
+    return data;
+  });
 }

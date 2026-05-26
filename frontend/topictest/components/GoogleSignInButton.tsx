@@ -57,6 +57,10 @@ export interface GoogleSignInButtonProps {
   onCredential: (credential: string) => void;
 }
 
+export function isGoogleSignInConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim());
+}
+
 /**
  * Google Identity Services「使用 Google 帳戶登入」按鈕。需設定 NEXT_PUBLIC_GOOGLE_CLIENT_ID。
  */
@@ -102,11 +106,7 @@ export function GoogleSignInButton({ onCredential }: GoogleSignInButtonProps) {
   }, [clientId]);
 
   if (!clientId) {
-    return (
-      <p className="text-xs text-center text-brand-deep dark:text-brand">
-        未設定 NEXT_PUBLIC_GOOGLE_CLIENT_ID，無法使用 Google 登入
-      </p>
-    );
+    return null;
   }
 
   return (

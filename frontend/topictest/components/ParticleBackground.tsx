@@ -14,11 +14,14 @@ function ParticleField({
   count = 1200,
   isDark = true,
   slowMotion = false,
+  sphereSegments = 10,
 }: {
   count?: number;
   isDark?: boolean;
   /** 系統偏好減少動態時：只放慢漂移，仍保持漂浮（不凍結） */
   slowMotion?: boolean;
+  /** 球體網格細分；行動裝置降低以減少 GPU 負擔 */
+  sphereSegments?: number;
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const mouseRef = useRef({ x: 0, y: 0 });
@@ -101,7 +104,7 @@ function ParticleField({
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
       <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
-        <sphereGeometry args={[1, 10, 10]} />
+        <sphereGeometry args={[1, sphereSegments, sphereSegments]} />
         <meshBasicMaterial
           transparent
           opacity={isDark ? 0.28 : 0.24}
@@ -115,21 +118,36 @@ function ParticleField({
   );
 }
 
+function useMobileViewport() {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 640px)');
+    const onChange = () => setMobile(mql.matches);
+    mql.addEventListener('change', onChange);
+    setMobile(mql.matches);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
+
 function Scene({
   isDark,
   lowPower,
+  isMobile,
   slowMotion,
 }: {
   isDark: boolean;
   lowPower: boolean;
+  isMobile: boolean;
   slowMotion: boolean;
 }) {
-  const count = lowPower ? 420 : 720;
+  const count = isMobile ? (lowPower ? 72 : 120) : lowPower ? 320 : 560;
+  const segments = isMobile ? 6 : 10;
   return (
     <>
       <ambientLight intensity={isDark ? 0.22 : 0.42} />
       <pointLight position={[5, 5, 5]} intensity={isDark ? 0.45 : 0.38} color="#ffd6b8" />
-      <ParticleField count={count} isDark={isDark} slowMotion={slowMotion} />
+      <ParticleField count={count} isDark={isDark} slowMotion={slowMotion} sphereSegments={segments} />
     </>
   );
 }
@@ -165,25 +183,45 @@ function useLowPowerCanvas() {
   return low;
 }
 
+function usePageVisible() {
+  const [visible, setVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
+  );
+  useEffect(() => {
+    const onVisibility = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+  return visible;
+}
+
 function ParticleBackgroundInner({ className = '' }: ParticleBackgroundProps) {
   const isDark = useHtmlDarkClass();
   const reducedMotion = useReducedMotionMedia();
   const lowPower = useLowPowerCanvas();
+  const isMobile = useMobileViewport();
+  const pageVisible = usePageVisible();
 
   return (
     <div className={`absolute inset-0 h-full min-h-[100dvh] w-full ${className}`} aria-hidden>
       <Canvas
         className="h-full w-full touch-none"
-        dpr={[1, 1.5]}
+        dpr={isMobile ? 1 : [1, 1.5]}
+        frameloop={pageVisible ? 'always' : 'never'}
         camera={{ position: [0, 0, 6], fov: 60 }}
         style={{ pointerEvents: 'none', display: 'block' }}
         gl={{
-          antialias: true,
+          antialias: !isMobile,
           alpha: true,
-          powerPreference: 'high-performance',
+          powerPreference: isMobile || lowPower ? 'low-power' : 'high-performance',
         }}
       >
-        <Scene isDark={isDark} lowPower={lowPower} slowMotion={reducedMotion} />
+        <Scene
+          isDark={isDark}
+          lowPower={lowPower}
+          isMobile={isMobile}
+          slowMotion={reducedMotion}
+        />
       </Canvas>
     </div>
   );
