@@ -83,12 +83,6 @@ class TrendAssessment(BaseModel):
     summary: str = Field("", description="趨勢判斷摘要")
 
 
-class SubjectiveView(BaseModel):
-    opinion: str = ""
-    supported_evidence: List[str] = Field(default_factory=list)
-    invalidation_conditions: List[str] = Field(default_factory=list)
-
-
 class ProjectionPointBase(BaseModel):
     day: int
     relative_price: float = 1.0
@@ -163,7 +157,6 @@ class StockBehaviorAnalysisPayload(BaseModel):
     inferences: List[str] = Field(default_factory=list)
     summary: str = ""
     current_trend_assessment: TrendAssessment = Field(default_factory=TrendAssessment)
-    subjective_view: SubjectiveView = Field(default_factory=SubjectiveView)
     projection: ScenarioProjection = Field(default_factory=ScenarioProjection)
     risk_level: RiskLevel = "medium"
     risk_analysis: List[RiskItem] = Field(default_factory=list)
@@ -186,7 +179,6 @@ class StockBehaviorPublicAnalysisPayload(BaseModel):
     inferences: List[str] = Field(default_factory=list)
     summary: str = ""
     current_trend_assessment: TrendAssessment = Field(default_factory=TrendAssessment)
-    subjective_view: SubjectiveView = Field(default_factory=SubjectiveView)
     projection: StockBehaviorPublicScenarioProjection = Field(default_factory=StockBehaviorPublicScenarioProjection)
     risk_level: RiskLevel = "medium"
     risk_analysis: List[RiskItem] = Field(default_factory=list)

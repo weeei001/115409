@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -17,10 +18,7 @@ try:
 except ImportError:  # pragma: no cover - local test fallback
     ChatOpenAI = None
 
-from stock_behavior.prompt_templates import (
-    STOCK_ANALYST_SYSTEM_PROMPT,
-    build_stock_behavior_prefetched_evidence_user_prompt,
-)
+from stock_behavior.prompt_templates import STOCK_ANALYST_SYSTEM_PROMPT
 
 
 class RawTrendAssessment(BaseModel):
@@ -28,12 +26,6 @@ class RawTrendAssessment(BaseModel):
     confidence: Any = None
     confidence_level: Any = None
     summary: Any = ""
-
-
-class RawSubjectiveView(BaseModel):
-    opinion: Any = ""
-    supported_evidence: Any = Field(default_factory=list)
-    invalidation_conditions: Any = Field(default_factory=list)
 
 
 class RawProjectionPoint(BaseModel):
@@ -125,7 +117,6 @@ class RawStructuredAnalysisPayload(BaseModel):
     inferences: Any = Field(default_factory=list)
     summary: Any = ""
     current_trend_assessment: RawTrendAssessment = Field(default_factory=RawTrendAssessment)
-    subjective_view: RawSubjectiveView = Field(default_factory=RawSubjectiveView)
     projection: RawProjection | None = None
     scenario_projections: RawScenarioProjections | None = None
     llm_scenario_trend_line: RawScenarioTrendLine | None = None
@@ -142,6 +133,21 @@ LLM_ANALYSIS_OUTPUT_PARSER = (
     else None
 )
 LLM_MAX_COMPLETION_TOKENS = 4096
+THINKING_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>\s*", re.IGNORECASE | re.DOTALL)
+CODE_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
+JSON_NUMBER_RE = r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"
+JSON_NUMERIC_EXPR_RE = re.compile(
+    rf"(?P<prefix>:\s*)(?P<left>{JSON_NUMBER_RE})\s*(?P<op>[*/])\s*(?P<right>{JSON_NUMBER_RE})(?P<suffix>\s*[,}}\]])"
+)
+
+
+def _build_stock_behavior_system_prompt(format_instructions: str = "") -> str:
+    if not format_instructions.strip():
+        return STOCK_ANALYST_SYSTEM_PROMPT
+    return (
+        f"{STOCK_ANALYST_SYSTEM_PROMPT.rstrip()}\n\n"
+        f"請嚴格遵守以下輸出格式要求：\n{format_instructions.strip()}"
+    )
 
 
 def _coerce_llm_text(content: str | list[Any] | None) -> str:
@@ -154,18 +160,47 @@ def _coerce_llm_text(content: str | list[Any] | None) -> str:
     return content if isinstance(content, str) else ""
 
 
+def _clean_llm_json_text(text: str) -> str:
+    cleaned = THINKING_BLOCK_RE.sub("", text).strip()
+    return CODE_FENCE_RE.sub("", cleaned).strip()
+
+
+def _repair_json_numeric_expressions(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        left = float(match.group("left"))
+        right = float(match.group("right"))
+        if match.group("op") == "/" and right == 0:
+            return match.group(0)
+        value = left * right if match.group("op") == "*" else left / right
+        return f"{match.group('prefix')}{value}{match.group('suffix')}"
+
+    return JSON_NUMERIC_EXPR_RE.sub(replace, text)
+
+
 def _load_json_object(text: str) -> dict[str, Any] | None:
+    text = _clean_llm_json_text(text)
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end <= start:
-            return None
-        try:
-            parsed = json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            return None
+        repaired_text = _repair_json_numeric_expressions(text)
+        if repaired_text != text:
+            try:
+                parsed = json.loads(repaired_text)
+            except json.JSONDecodeError:
+                pass
+            else:
+                return parsed if isinstance(parsed, dict) else None
+            text = repaired_text
+
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", text):
+            try:
+                parsed, _ = decoder.raw_decode(text[match.start() :])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return None
     return parsed if isinstance(parsed, dict) else None
 
 
@@ -184,10 +219,10 @@ def _parse_structured_analysis_payload(content: str | list[Any] | None) -> dict[
         return parsed.model_dump(mode="python")
 
     if LLM_ANALYSIS_OUTPUT_PARSER is None:
-        parsed = RawStructuredAnalysisPayload.model_validate(json.loads(text))
+        parsed = RawStructuredAnalysisPayload.model_validate(json.loads(_clean_llm_json_text(text)))
         return parsed.model_dump(mode="python")
 
-    parsed = LLM_ANALYSIS_OUTPUT_PARSER.parse(text)
+    parsed = LLM_ANALYSIS_OUTPUT_PARSER.parse(_clean_llm_json_text(text))
     return parsed.model_dump(mode="python")
 
 
@@ -233,16 +268,18 @@ class StockBehaviorLlmService:
                 "LLM service is disabled: missing NIM_API_KEY, NIM_BASE_URL, model, or langchain dependencies"
             )
 
-        user_prompt = build_stock_behavior_prefetched_evidence_user_prompt(
-            task_packet=task_packet,
-            format_instructions=(
-                LLM_ANALYSIS_OUTPUT_PARSER.get_format_instructions()
-                if LLM_ANALYSIS_OUTPUT_PARSER is not None
-                else json.dumps(RawProjectionResponse.model_json_schema(), ensure_ascii=False)
-            ),
+        format_instructions = (
+            LLM_ANALYSIS_OUTPUT_PARSER.get_format_instructions()
+            if LLM_ANALYSIS_OUTPUT_PARSER is not None
+            else json.dumps(RawProjectionResponse.model_json_schema(), ensure_ascii=False)
+        )
+        system_prompt = _build_stock_behavior_system_prompt(format_instructions)
+        payload = json.dumps(task_packet, ensure_ascii=False, default=str)
+        user_prompt = (
+            f"<prefetched_evidence_payload>\n{payload}\n</prefetched_evidence_payload>"
         )
         messages = [
-            ("system", STOCK_ANALYST_SYSTEM_PROMPT),
+            ("system", system_prompt),
             ("human", user_prompt),
         ]
 
@@ -265,10 +302,10 @@ class StockBehaviorLlmService:
 
         try:
             parsed = _parse_structured_analysis_payload(raw_content)
-        except OutputParserException:
+        except (OutputParserException, ValueError, json.JSONDecodeError) as exc:
             print(
                 f"[stock_behavior_llm] stage=prefetched_evidence status=fallback "
-                f"reason=structured_parse_failed model={self._model}"
+                f"reason=structured_parse_failed model={self._model} error={exc}"
             )
             return {}
 
