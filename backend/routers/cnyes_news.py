@@ -27,7 +27,7 @@ router = APIRouter(prefix="/news", tags=["新聞查詢"])
 - `start_time` / `end_time`: 發布時間區間
 
 **排序：**
-- `sort_by`: `publish_time` / `created_at` / `updated_at`
+- `sort_by`: `publish_time` / `created_at`
 - `sort_order`: `asc` / `desc`
     """,
     responses={
@@ -54,7 +54,7 @@ def list_news(
     ),
     sort_by: str = Query(
         "publish_time",
-        pattern="^(publish_time|created_at|updated_at)$",
+        pattern="^(publish_time|created_at)$",
         description="排序欄位",
     ),
     sort_order: str = Query(

@@ -83,12 +83,6 @@ class TrendAssessment(BaseModel):
     summary: str = Field("", description="趨勢判斷摘要")
 
 
-class SubjectiveView(BaseModel):
-    opinion: str = ""
-    supported_evidence: List[str] = Field(default_factory=list)
-    invalidation_conditions: List[str] = Field(default_factory=list)
-
-
 class ProjectionPointBase(BaseModel):
     day: int
     relative_price: float = 1.0
@@ -163,7 +157,6 @@ class StockBehaviorAnalysisPayload(BaseModel):
     inferences: List[str] = Field(default_factory=list)
     summary: str = ""
     current_trend_assessment: TrendAssessment = Field(default_factory=TrendAssessment)
-    subjective_view: SubjectiveView = Field(default_factory=SubjectiveView)
     projection: ScenarioProjection = Field(default_factory=ScenarioProjection)
     risk_level: RiskLevel = "medium"
     risk_analysis: List[RiskItem] = Field(default_factory=list)
@@ -186,7 +179,6 @@ class StockBehaviorPublicAnalysisPayload(BaseModel):
     inferences: List[str] = Field(default_factory=list)
     summary: str = ""
     current_trend_assessment: TrendAssessment = Field(default_factory=TrendAssessment)
-    subjective_view: SubjectiveView = Field(default_factory=SubjectiveView)
     projection: StockBehaviorPublicScenarioProjection = Field(default_factory=StockBehaviorPublicScenarioProjection)
     risk_level: RiskLevel = "medium"
     risk_analysis: List[RiskItem] = Field(default_factory=list)
@@ -259,6 +251,7 @@ class StockBehaviorRagResponse(StockBehaviorRagPayload):
 
 class StockBehaviorAiResponse(StockBehaviorResponseBase):
     generated_by: str = Field(..., description="產生分析的模型或後端策略名稱")
+    summary: str = Field("", description="AI 分析摘要，供前端直接呈現。")
     data_inventory: StockBehaviorDataInventory = Field(default_factory=StockBehaviorDataInventory)
     projection: StockBehaviorAiProjection = Field(default_factory=StockBehaviorAiProjection)
 
@@ -268,6 +261,7 @@ class StockBehaviorAiResponse(StockBehaviorResponseBase):
                 "symbol": "2330",
                 "as_of_date": "2026-05-20",
                 "generated_by": "primary",
+                "summary": "價量與技術面顯示短線動能偏強，但法人籌碼仍需觀察，後續情境以溫和震盪偏多為主。",
                 "data_inventory": {
                     "price_volume": [],
                     "chip": [],

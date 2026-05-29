@@ -93,7 +93,6 @@ def get_list(
     sort_column = {
         "publish_time": CnyesTWStockNews.publish_time,
         "created_at": CnyesTWStockNews.created_at,
-        "updated_at": CnyesTWStockNews.updated_at,
     }.get(sort_by, CnyesTWStockNews.publish_time)
 
     if sort_order.lower() == "asc":

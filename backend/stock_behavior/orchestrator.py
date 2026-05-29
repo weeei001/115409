@@ -23,10 +23,6 @@ from stock_behavior.normalizer import (
     build_stock_behavior_analysis_fallback,
     normalize_llm_analysis_payload,
 )
-from stock_behavior.public_projection_guard import (
-    public_projection_disclaimer,
-    sanitize_public_projection_point,
-)
 from stock_behavior.tools import (
     ToolExecutor,
     serialize_chip_window_rows,
@@ -38,7 +34,7 @@ from stock_behavior.utils import PolicyViolationError
 
 MAX_LLM_RAW_ANSWER_CHARS = 4000
 MAX_LLM_NEWS_SOURCES = 8
-AI_ANALYSIS_WINDOW_DAYS = 90
+AI_ANALYSIS_WINDOW_DAYS = 120
 AI_DEFAULT_HORIZON_DAYS = 40
 AI_DEFAULT_LANGUAGE = "zh-TW"
 RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60
@@ -333,6 +329,47 @@ class StockBehaviorOrchestrator:
                     return item.get("value")
         return None
 
+    @staticmethod
+    def _to_positive_float(value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
+
+    @classmethod
+    def _fill_projection_point_price(cls, point: dict[str, Any], *, base_close: Any) -> dict[str, Any]:
+        if cls._to_positive_float(point.get("predicted_close")) is not None:
+            return point
+
+        base_close_value = cls._to_positive_float(base_close)
+        if base_close_value is None:
+            return point
+
+        relative_price = cls._to_positive_float(point.get("relative_price")) or 1.0
+        return {
+            **point,
+            "predicted_close": round(base_close_value * relative_price, 2),
+        }
+
+    @classmethod
+    def _fill_projection_point_volume(cls, point: dict[str, Any], *, base_volume: Any) -> dict[str, Any]:
+        if cls._to_positive_float(point.get("predicted_volume")) is not None:
+            return point
+
+        base_volume_value = cls._to_positive_float(base_volume)
+        if base_volume_value is None:
+            return point
+
+        direction = str(point.get("direction") or "uncertain").lower()
+        factor = 1.1 if direction in {"up", "down"} else 0.9
+        return {
+            **point,
+            "predicted_volume": float(round(base_volume_value * factor)),
+        }
+
     @classmethod
     def _build_public_projection(
         cls,
@@ -343,27 +380,22 @@ class StockBehaviorOrchestrator:
     ) -> StockBehaviorAiProjection:
         allowed_ids = cls._inventory_ids(data_inventory)
         projection = validated.projection.model_dump(mode="python")
+        base_close = cls._inventory_value(data_inventory, "close")
+        base_volume = cls._inventory_value(data_inventory, "volume_ma5")
+        if base_volume is None:
+            base_volume = cls._inventory_value(data_inventory, "volume_shares")
+
         points = []
         for point in projection.get("points", []):
+            point = cls._fill_projection_point_price(point, base_close=base_close)
+            point = cls._fill_projection_point_volume(point, base_volume=base_volume)
             evidence_ids = [
                 evidence_id
                 for evidence_id in point.get("evidence_ids", [])
                 if evidence_id in allowed_ids
             ]
-            sanitized_point = sanitize_public_projection_point(
-                {**point, "evidence_ids": evidence_ids},
-                data_inventory=data_inventory,
-            )
-            sanitized_point["evidence_ids"] = [
-                evidence_id
-                for evidence_id in sanitized_point.get("evidence_ids", [])
-                if evidence_id in allowed_ids
-            ]
-            points.append(sanitized_point)
-
-        base_volume = cls._inventory_value(data_inventory, "volume_ma5")
-        if base_volume is None:
-            base_volume = cls._inventory_value(data_inventory, "volume_shares")
+            point = {**point, "evidence_ids": evidence_ids}
+            points.append(point)
 
         disclaimer = projection.get("line_disclaimer") or (
             "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。"
@@ -373,9 +405,9 @@ class StockBehaviorOrchestrator:
             {
                 "horizon_days": projection.get("horizon_days") or horizon_days,
                 "scenario_key": projection.get("scenario_key") or "primary",
-                "base_close": cls._inventory_value(data_inventory, "close"),
+                "base_close": base_close,
                 "base_volume": base_volume,
-                "disclaimer": public_projection_disclaimer(disclaimer, data_inventory),
+                "disclaimer": disclaimer,
                 "points": points,
             }
         )
@@ -525,6 +557,7 @@ class StockBehaviorOrchestrator:
     async def generate_llm_analysis(self, req: StockBehaviorAiRequest) -> StockBehaviorAiResponse:
         symbol = req.symbol.strip().upper()
         as_of_date = date.today()
+        as_of_date_text = as_of_date.isoformat()
         llm_evidence = self._collect_llm_evidence_from_crud(
             symbol=symbol,
             as_of_date=as_of_date,
@@ -541,9 +574,9 @@ class StockBehaviorOrchestrator:
         task_packet = self._build_llm_task_packet(
             {
                 "task": {
-                    "type": "llm_only_stock_behavior_analysis",
+                    "type": "stock_behavior_evidence_projection",
                     "symbol": symbol,
-                    "as_of_date": as_of_date.isoformat(),
+                    "as_of_date": as_of_date_text,
                     "horizon_days": AI_DEFAULT_HORIZON_DAYS,
                     "recent_lookback_days": AI_ANALYSIS_WINDOW_DAYS,
                     "analysis_language": AI_DEFAULT_LANGUAGE,
@@ -554,7 +587,7 @@ class StockBehaviorOrchestrator:
                 "rag_news": rag_news,
                 "data_inventory": data_inventory,
                 "reference_materials": rag_news.get("reference_materials", {}),
-                "analysis_mode": "prefetched_db_with_client_rag",
+                "analysis_mode": "prefetched_db_and_client_rag_projection",
             }
         )
 
@@ -566,7 +599,7 @@ class StockBehaviorOrchestrator:
                 code="llm_analysis_failed",
                 context={
                     "symbol": symbol,
-                    "as_of_date": as_of_date.isoformat(),
+                    "as_of_date": as_of_date_text,
                     "reason": str(exc),
                 },
             ) from exc
@@ -595,8 +628,9 @@ class StockBehaviorOrchestrator:
         )
         return StockBehaviorAiResponse(
             symbol=symbol,
-            as_of_date=as_of_date.isoformat(),
+            as_of_date=as_of_date_text,
             generated_by=getattr(self._llm, "model_name", self._settings.ADVISOR_LLM_MODEL or ""),
+            summary=validated.summary,
             data_inventory=StockBehaviorDataInventory.model_validate(data_inventory),
             projection=public_projection,
         )
