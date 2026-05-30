@@ -72,8 +72,7 @@ def upsert_news(conn, item: Dict[str, Any]) -> None:
         content = VALUES(content),
         related_stocks = VALUES(related_stocks),
         publish_time = VALUES(publish_time),
-        url = VALUES(url),
-        updated_at = CURRENT_TIMESTAMP
+        url = VALUES(url)
     """
     with conn.cursor() as cursor:
         cursor.execute(sql, item)

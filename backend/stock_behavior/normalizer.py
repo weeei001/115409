@@ -116,17 +116,6 @@ def normalize_trend_assessment(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_subjective_view(raw: dict[str, Any]) -> dict[str, Any]:
-    subjective_view = raw.get("subjective_view")
-    if not isinstance(subjective_view, dict):
-        subjective_view = {}
-    return {
-        "opinion": _text(subjective_view.get("opinion")),
-        "supported_evidence": _list_of_text(subjective_view.get("supported_evidence")),
-        "invalidation_conditions": _list_of_text(subjective_view.get("invalidation_conditions")),
-    }
-
-
 def normalize_projection_points(points: Any, *, fallback_reason: str) -> list[dict[str, Any]]:
     source = points if isinstance(points, list) else []
     by_day: dict[int, dict[str, Any]] = {}
@@ -309,11 +298,6 @@ def build_stock_behavior_analysis_fallback(reason: str, *, horizon_days: int = 4
             "confidence_level": "low",
             "summary": "",
         },
-        "subjective_view": {
-            "opinion": "",
-            "supported_evidence": [],
-            "invalidation_conditions": [],
-        },
         "projection": {
             "horizon_days": horizon_days,
             "scenario_key": "primary",
@@ -371,7 +355,6 @@ def normalize_llm_analysis_payload(raw: dict[str, Any], *, horizon_days: int = 4
         "inferences": _list_of_text(raw.get("inferences")),
         "summary": _text(raw.get("summary")),
         "current_trend_assessment": normalize_trend_assessment(raw),
-        "subjective_view": normalize_subjective_view(raw),
         "projection": normalize_projection(raw, horizon_days=horizon_days),
         "risk_level": normalize_risk_level(raw.get("risk_level")),
         "risk_analysis": normalize_risk_analysis(raw),

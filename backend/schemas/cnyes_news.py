@@ -22,7 +22,6 @@ class NewsBase(BaseModel):
 class News(NewsBase):
     id: int = Field(..., description="主鍵 id")
     created_at: datetime = Field(..., description="建立時間")
-    updated_at: datetime = Field(..., description="更新時間")
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -36,7 +35,6 @@ class News(NewsBase):
                 "publish_time": "2026-05-20T09:30:00",
                 "url": "https://example.com/news/202605200001",
                 "created_at": "2026-05-20T10:00:00",
-                "updated_at": "2026-05-20T10:00:00",
             }
         },
     )
@@ -64,7 +62,6 @@ class PaginatedNewsResponse(BaseModel):
                         "publish_time": "2026-05-20T09:30:00",
                         "url": "https://example.com/news/202605200001",
                         "created_at": "2026-05-20T10:00:00",
-                        "updated_at": "2026-05-20T10:00:00",
                     }
                 ],
             }
