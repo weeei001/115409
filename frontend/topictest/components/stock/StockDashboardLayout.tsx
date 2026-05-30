@@ -17,9 +17,8 @@ import { DetailDrawer } from './DetailDrawer';
 import { MiniPriceCard } from './bento/MiniPriceCard';
 import { TodayInstitutionalCard } from './bento/TodayInstitutionalCard';
 import { IndicatorSignalsCard } from './bento/IndicatorSignalsCard';
-import { AIReasonsCard } from './bento/AIReasonsCard';
-import { RiskHintCard } from './bento/RiskHintCard';
 import { TopNewsCard } from './bento/TopNewsCard';
+import { RiskHintNotice } from './RiskHintNotice';
 import { useAdvisorVerdict } from '../../lib/hooks/useAdvisorVerdict';
 
 type DrawerKey = 'chart' | 'institutional' | 'indicators' | 'ai' | 'news';
@@ -91,6 +90,10 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
         />
       </AnimatedSection>
 
+      <AnimatedSection preset="fadeUp" delay={0.06}>
+        <RiskHintNotice verdict={verdict} onOpenDetail={() => setDrawer('ai')} />
+      </AnimatedSection>
+
       <Hairline />
 
       <AnimatedSection preset="fadeUp" delay={0.04}>
@@ -124,13 +127,7 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
             />
           </div>
 
-          <div className="lg:col-span-4 h-full">
-            <AIReasonsCard symbol={symbol} verdict={verdict} onOpenDetail={() => setDrawer('ai')} />
-          </div>
-          <div className="lg:col-span-4 h-full">
-            <RiskHintCard verdict={verdict} />
-          </div>
-          <div className="lg:col-span-4 h-full">
+          <div className="lg:col-span-12 h-full">
             <TopNewsCard symbol={symbol} onOpenDetail={() => setDrawer('news')} />
           </div>
         </div>

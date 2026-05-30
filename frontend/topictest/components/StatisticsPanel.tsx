@@ -4,7 +4,6 @@ import { BarChart3, Calendar, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import type { PriceStatistics } from '../lib/types';
 import { fmtAmount, fmtPrice, fmtVolume } from '../lib/utils/format';
 import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
-import { ExpandableRegion } from './ExpandableRegion';
 
 interface Props {
   stats: PriceStatistics;
@@ -73,35 +72,27 @@ export const StatisticsPanel: React.FC<Props> = ({ stats }) => {
         </span>
       </h3>
 
-      <ExpandableRegion
-        expandLabel="顯示區間統計明細"
-        collapseLabel="收合區間統計明細"
-        defaultExpandedOnDesktop
-        toggleClassName="mt-0"
-        panelClassName="pt-1"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {items.map((item, i) => (
-            <motion.div
-              key={item.label}
-              className="bg-[var(--color-bg-card)] rounded-xl p-4 border border-[var(--color-border)] shadow-sm"
-              initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={
-                reduceMotion ? { duration: 0 } : { duration: 0.3, delay: 0.05 + i * 0.03 }
-              }
-            >
-              <div className={`inline-flex p-2 rounded-lg ${item.bg} ${item.color} mb-2`}>
-                {item.icon}
-              </div>
-              <div className="text-xs text-[var(--color-text-muted)] mb-1">{item.label}</div>
-              <div className="text-base font-bold text-[var(--color-text-primary)] font-mono">
-                {item.value}
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </ExpandableRegion>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {items.map((item, i) => (
+          <motion.div
+            key={item.label}
+            className="bg-[var(--color-bg-card)] rounded-xl p-4 border border-[var(--color-border)] shadow-sm"
+            initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={
+              reduceMotion ? { duration: 0 } : { duration: 0.3, delay: 0.05 + i * 0.03 }
+            }
+          >
+            <div className={`inline-flex p-2 rounded-lg ${item.bg} ${item.color} mb-2`}>
+              {item.icon}
+            </div>
+            <div className="text-xs text-[var(--color-text-muted)] mb-1">{item.label}</div>
+            <div className="text-base font-bold text-[var(--color-text-primary)] font-mono">
+              {item.value}
+            </div>
+          </motion.div>
+        ))}
+      </div>
     </motion.section>
   );
 };

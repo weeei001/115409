@@ -71,6 +71,13 @@
   --color-success-border: rgba(100, 154, 126, 0.35);
   --color-success-text: #3d6b56;
 
+  /* Warning（風險／資料缺失／RAG 未配置等提醒，取代散落的 amber-* Tailwind 預設色）
+     色相採暖琥珀偏 Morandi，與 Beacon Gold 區隔但仍屬同一暖色家族。 */
+  --color-warning-bg: rgba(217, 138, 64, 0.10);
+  --color-warning-border: rgba(217, 138, 64, 0.30);
+  --color-warning-text: #8a4f1d;
+  --color-warning-icon: #b46a2a;
+
   --app-header-height: 5.5rem;
 }
 
@@ -109,6 +116,11 @@
   --color-success-bg: rgba(100, 154, 126, 0.18);
   --color-success-border: rgba(143, 184, 154, 0.4);
   --color-success-text: #8fb89a;
+
+  --color-warning-bg: rgba(217, 138, 64, 0.14);
+  --color-warning-border: rgba(217, 138, 64, 0.35);
+  --color-warning-text: #e8b884;
+  --color-warning-icon: #f2b572;
 }
 
 /* ═══════════════════════════
@@ -334,6 +346,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: var(--color-success-bg);
   border: 1px solid var(--color-success-border);
   color: var(--color-success-text);
+}
+
+.ui-alert-warning {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning-text);
+}
+
+.text-warning {
+  color: var(--color-warning-text);
+}
+
+.text-warning-icon {
+  color: var(--color-warning-icon);
 }
 
 .text-success-emphasis {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   fetchLatestPrice,
@@ -393,7 +393,12 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
     void loadHistory(symbol, historyPage);
   }, [historyPage, symbol, loading, loadHistory]);
 
-  const priceChart = candlestickMA ? candlestickMaToPriceChart(candlestickMA) : null;
+  // 避免每次 render 重跑 mapper；priceChart 為下游 ECharts / lightweight-charts 的依賴，
+  // reference 變動會觸發 setOption / setData，可能造成個股頁延遲。
+  const priceChart = useMemo(
+    () => (candlestickMA ? candlestickMaToPriceChart(candlestickMA) : null),
+    [candlestickMA],
+  );
 
   const reloadCharts = useCallback(() => {
     if (!symbol || loading || !chartRangeReady) return;

@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
-  ChevronUp,
-  Circle,
   ExternalLink,
   FileText,
   Loader2,
@@ -11,20 +9,17 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { AITrendPanel } from '../AITrendPanel';
+import { ProjectionTimeline } from './ProjectionTimeline';
+import { AISummaryCard } from './ai/AISummaryCard';
+import { EvidenceInventoryPanel } from './ai/EvidenceInventoryPanel';
 import type { UseStockDashboardResult } from '../../lib/hooks/useStockDashboard';
 import type { UseAdvisorVerdictResult } from '../../lib/hooks/useAdvisorVerdict';
 import {
   actionHintText,
-  DATASET_TITLES,
-  DisplayDataset,
-  getColumns,
   getMaStructureSummary,
   getRiskToneText,
-  getSummaryRows,
   recommendationClass,
   recommendationText,
-  SNAPSHOT_SECTION_TITLE,
-  toDisplayString,
 } from '../../lib/utils/advisorUiHelpers';
 
 interface Props {
@@ -58,18 +53,11 @@ const TONE_VALUE: Record<SignalTone, string> = {
 };
 
 export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdict, variant = 'page' }) => {
-  const [expanded, setExpanded] = useState<Record<DisplayDataset, boolean>>({
-    institutional: false,
-    prices: false,
-    indicators: false,
-  });
-
   const {
     loading,
     error,
     report,
     progress,
-    partialCards,
     aiTrendAnalysis,
     runAnalysis,
     generatedAtLabel,
@@ -81,89 +69,46 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
   } = verdict;
 
   const isDrawer = variant === 'drawer';
-  const showPartialCards =
-    loading || Object.values(partialCards).some((card) => card?.preview?.length || card?.summary);
-  const snapshotDatasets: DisplayDataset[] = ['institutional', 'prices', 'indicators'];
 
-  const renderSnapshotCards = () => (
-    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-      {snapshotDatasets.map((dataset) => {
-        const card = partialCards[dataset];
-        const rows = card?.preview ?? [];
-        const columns = getColumns(dataset);
-        const summaryRows = getSummaryRows(dataset, card);
-        return (
-          <div key={dataset} className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-bg-card)]">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{DATASET_TITLES[dataset]}</h3>
-              <span className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
-                <Circle size={8} className="fill-current" />
-                {rows.length > 0 ? `${rows.length} 筆` : '等待資料'}
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 sm:grid-cols-2 gap-2 text-xs">
-              {summaryRows.map((s) => (
-                <div key={s.label} className="rounded-lg bg-[var(--color-bg-elevated)] px-2.5 py-2">
-                  <p className="text-[var(--color-text-muted)]">{s.label}</p>
-                  <p className="mt-0.5 font-medium text-[var(--color-text-primary)] break-all">
-                    {toDisplayString(s.value)}
-                  </p>
-                </div>
-              ))}
-            </div>
-            {rows.length > 0 ? (
-              <>
-                {expanded[dataset] ? (
-                  <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--color-border)]">
-                    <table className="min-w-full text-xs text-left">
-                      <thead className="bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
-                        <tr>
-                          {columns.map((c) => (
-                            <th key={c.key} className="px-2.5 py-2 whitespace-nowrap font-semibold">
-                              {c.label}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[var(--color-border)]">
-                        {rows.map((row, rowIndex) => (
-                          <tr key={`${dataset}-${rowIndex}`} className="text-[var(--color-text-primary)]">
-                            {columns.map((c) => (
-                              <td key={c.key} className="px-2.5 py-2 whitespace-nowrap">
-                                {toDisplayString(row[c.key])}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setExpanded((prev) => ({ ...prev, [dataset]: !prev[dataset] }))}
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-brand hover:text-brand transition-colors cursor-pointer"
-                >
-                  {expanded[dataset] ? (
-                    <>
-                      <ChevronUp size={14} />
-                      收合
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown size={14} />
-                      顯示更多
-                    </>
-                  )}
-                </button>
-              </>
-            ) : (
-              <p className="mt-3 text-xs text-[var(--color-text-muted)]">尚未取得資料。</p>
-            )}
-          </div>
-        );
-      })}
-    </div>
+  const evidenceRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const [highlightedEvidenceId, setHighlightedEvidenceId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+
+  const registerEvidenceRef = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) {
+      evidenceRefs.current.set(id, el);
+    } else {
+      evidenceRefs.current.delete(id);
+    }
+  }, []);
+
+  const scrollToEvidence = useCallback((id: string) => {
+    // 切到對應 tab 與 scrollIntoView 由 EvidenceInventoryPanel / EvidenceCard 內部處理。
+    setHighlightedEvidenceId(id);
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedEvidenceId(null);
+      highlightTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => () => {
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+  }, []);
+
+  const inventory = report?.data_inventory;
+  const aiSummaryText = report?.ai_summary?.trim() ?? '';
+  const showEvidencePanel = Boolean(
+    inventory &&
+      ((inventory.price_volume?.length ?? 0) > 0 ||
+        (inventory.chip?.length ?? 0) > 0 ||
+        (inventory.technical?.length ?? 0) > 0 ||
+        (inventory.news?.length ?? 0) > 0 ||
+        (inventory.missing_fields?.length ?? 0) > 0),
   );
 
   // -------- DRAWER VARIANT --------
@@ -198,6 +143,21 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
 
         {report ? (
           <>
+            {/* [0] 風險提醒 - 置頂，讓使用者先看到 caveat 再看 verdict */}
+            {!progress?.pendingFinal ? (
+              <div
+                role="note"
+                aria-label="風險提醒"
+                className="ui-alert-warning flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed"
+              >
+                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warning-icon" aria-hidden />
+                <p className="flex-1">
+                  <span className="font-semibold mr-1">風險提醒</span>
+                  {getRiskToneText(report, pricePosition)}
+                </p>
+              </div>
+            ) : null}
+
             {/* [1] Hero Verdict */}
             <section
               aria-label="最終建議"
@@ -241,14 +201,17 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
                       </span>
                     </div>
 
-                    <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 sm:divide-x sm:divide-[var(--color-border)]">
-                      {signals.map((s, idx) => (
-                        <div key={s.label} className={idx === 0 ? '' : 'sm:pl-6'}>
+                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {signals.map((s) => (
+                        <div
+                          key={s.label}
+                          className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-3 text-sm"
+                        >
                           <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
                             <span aria-hidden className={`h-2 w-2 rounded-full ${TONE_DOT[s.tone]}`} />
                             {s.label}
                           </div>
-                          <p className={`mt-1 text-sm font-semibold ${TONE_VALUE[s.tone]} break-words`}>
+                          <p className={`mt-1 font-semibold ${TONE_VALUE[s.tone]} break-words`}>
                             {s.value}
                           </p>
                         </div>
@@ -264,67 +227,56 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
               </div>
             </section>
 
-            {/* [2] AI 趨勢推測 - full width */}
-            {aiTrendAnalysis && !progress?.pendingFinal ? (
-              <AITrendPanel analysis={aiTrendAnalysis} sourcesSectionTitle="AI 分析與新聞參考" />
+            {/* [1.5] AI 總結 - 放在最終建議之後 */}
+            {aiSummaryText && !progress?.pendingFinal ? (
+              <AISummaryCard summary={aiSummaryText} asOfDate={report.date_end} />
             ) : null}
 
-            {/* [3] 兩欄：關鍵理由 + 風險提醒 */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-              <div className="lg:col-span-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5 sm:p-6 shadow-[var(--shadow-card)]">
-                <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
-                  <FileText size={16} className="text-brand" aria-hidden />
-                  關鍵理由
-                </div>
-                {keyReasons.length === 0 ? (
-                  <p className="mt-3 text-sm text-[var(--color-text-muted)]">尚無關鍵理由。</p>
-                ) : (
-                  <ol className="mt-4 divide-y divide-[var(--color-border)]/60">
-                    {keyReasons.map((item, index) => (
-                      <li key={`${item}-${index}`} className="flex gap-3 py-3 first:pt-0 last:pb-0">
-                        <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-brand text-xs font-semibold tabular-nums">
-                          {index + 1}
-                        </span>
-                        <span className="text-sm leading-7 text-[var(--color-text-secondary)]">{item}</span>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </div>
+            {/* [2] AI 趨勢推測 - full width */}
+            {aiTrendAnalysis && !progress?.pendingFinal ? (
+              <AITrendPanel analysis={aiTrendAnalysis} />
+            ) : null}
 
-              <div className="lg:col-span-2 rounded-2xl border border-amber-300/40 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-950/20 p-5 sm:p-6">
-                <div className="flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
-                  <AlertTriangle size={16} aria-hidden />
-                  風險提醒
-                </div>
-                <p className="mt-3 text-sm leading-7 text-amber-900/85 dark:text-amber-100/85">
-                  {getRiskToneText(report, pricePosition)}
-                </p>
+            {/* [2.5] N 日情境推演（D+1..D+N） */}
+            {report.projection?.points?.length && !progress?.pendingFinal ? (
+              <ProjectionTimeline
+                projection={report.projection}
+                variant="drawer"
+                inventory={inventory}
+                onEvidenceClick={scrollToEvidence}
+              />
+            ) : null}
+
+            {/* [3] 關鍵理由 - 全寬 */}
+            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5 sm:p-6 shadow-[var(--shadow-card)]">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
+                <FileText size={16} className="text-brand" aria-hidden />
+                關鍵理由
               </div>
+              {keyReasons.length === 0 ? (
+                <p className="mt-3 text-sm text-[var(--color-text-muted)]">尚無關鍵理由。</p>
+              ) : (
+                <ol className="mt-4 divide-y divide-[var(--color-border)]/60">
+                  {keyReasons.map((item, index) => (
+                    <li key={`${item}-${index}`} className="flex gap-3 py-3 first:pt-0 last:pb-0">
+                      <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-brand text-xs font-semibold tabular-nums">
+                        {index + 1}
+                      </span>
+                      <span className="text-sm leading-7 text-[var(--color-text-secondary)]">{item}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </div>
 
-            {/* [4] 資料快照 - 折疊 */}
-            <details className="group rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] overflow-hidden shadow-[var(--shadow-card)]">
-              <summary className="cursor-pointer list-none flex items-center justify-between gap-3 p-5 transition-colors hover:bg-[var(--color-bg-elevated)]/50">
-                <div className="min-w-0">
-                  <h3 className="text-base font-bold">{SNAPSHOT_SECTION_TITLE}</h3>
-                  <p className="mt-0.5 text-xs text-[var(--color-text-muted)] truncate">
-                    法人籌碼 · 股價表現 · 技術指標（點擊展開）
-                  </p>
-                </div>
-                <ChevronDown
-                  size={18}
-                  className="shrink-0 text-[var(--color-text-muted)] transition-transform group-open:rotate-180"
-                  aria-hidden
-                />
-              </summary>
-              <div className="border-t border-[var(--color-border)] p-5">
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  以下整理本次判斷會參考的主要資料，幫助你了解模型為什麼得出這個看法。
-                </p>
-                {renderSnapshotCards()}
-              </div>
-            </details>
+            {/* [4] AI 參考數據 */}
+            {showEvidencePanel && inventory ? (
+              <EvidenceInventoryPanel
+                inventory={inventory}
+                highlightedId={highlightedEvidenceId}
+                registerRef={registerEvidenceRef}
+              />
+            ) : null}
 
             {/* [6] 資料來源 - 折疊 */}
             <details className="group rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] overflow-hidden shadow-[var(--shadow-card)]">
@@ -388,16 +340,6 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
           </>
         ) : null}
 
-        {showPartialCards && !report ? (
-          <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5">
-            <h3 className="text-base font-bold text-[var(--color-text-primary)]">{SNAPSHOT_SECTION_TITLE}</h3>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1">
-              先整理目前已取得的法人、股價與技術資料，方便快速掌握重點。
-            </p>
-            {renderSnapshotCards()}
-          </div>
-        ) : null}
-
         <p className="text-xs text-[var(--color-text-muted)]">
           本區內容由系統依據公開資料與模型整理產生，僅供研究與參考，不代表保證獲利。投資前請自行評估風險。
         </p>
@@ -405,7 +347,7 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
     );
   }
 
-  // -------- PAGE VARIANT (unchanged) --------
+  // -------- PAGE VARIANT --------
   return (
     <section
       id="ai-advisor"
@@ -484,6 +426,12 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
 
       {report ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {aiSummaryText && !progress?.pendingFinal ? (
+            <div className="lg:col-span-12">
+              <AISummaryCard summary={aiSummaryText} asOfDate={report.date_end} />
+            </div>
+          ) : null}
+
           <div className="lg:col-span-7 space-y-5">
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-5">
               <h3 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">最終建議</h3>
@@ -551,17 +499,30 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
 
           <div className="lg:col-span-5 space-y-5">
             {aiTrendAnalysis && !progress?.pendingFinal ? (
-              <AITrendPanel analysis={aiTrendAnalysis} sourcesSectionTitle="AI 分析與新聞參考" />
+              <AITrendPanel analysis={aiTrendAnalysis} />
             ) : null}
           </div>
 
-          <div className="lg:col-span-12 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-5">
-            <h3 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">{SNAPSHOT_SECTION_TITLE}</h3>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1">
-              以下整理本次判斷會參考的主要資料，幫助你了解模型為什麼得出這個看法。
-            </p>
-            {renderSnapshotCards()}
-          </div>
+          {report.projection?.points?.length && !progress?.pendingFinal ? (
+            <div className="lg:col-span-12">
+              <ProjectionTimeline
+                projection={report.projection}
+                variant="page"
+                inventory={inventory}
+                onEvidenceClick={scrollToEvidence}
+              />
+            </div>
+          ) : null}
+
+          {showEvidencePanel && inventory ? (
+            <div className="lg:col-span-12">
+              <EvidenceInventoryPanel
+                inventory={inventory}
+                highlightedId={highlightedEvidenceId}
+                registerRef={registerEvidenceRef}
+              />
+            </div>
+          ) : null}
 
           <div className="lg:col-span-12 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-5">
             <h3 className="text-base sm:text-lg font-bold">資料來源</h3>
@@ -605,16 +566,6 @@ export const StockAdvisorSection: React.FC<Props> = ({ symbol, dashboard, verdic
               )}
             </div>
           </div>
-        </div>
-      ) : null}
-
-      {showPartialCards && !report ? (
-        <div className="mt-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-5">
-          <h3 className="text-base sm:text-lg font-bold text-[var(--color-text-primary)]">{SNAPSHOT_SECTION_TITLE}</h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            先整理目前已取得的法人、股價與技術資料，方便快速掌握重點。
-          </p>
-          {renderSnapshotCards()}
         </div>
       ) : null}
 

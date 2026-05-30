@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import type { CompareMetricsRow } from '../lib/types';
 import type { CompareSortState } from '../lib/utils/compare';
 import { COMPARE_COLOR_PALETTE, sortMetricsRows } from '../lib/utils/compare';
-import { fmtVolume } from '../lib/utils/format';
+import { fmtPercent, fmtVolume } from '../lib/utils/format';
 import { TableScrollHint } from './TableScrollHint';
 
 function fallbackSymbolColor(symbol: string): string {
@@ -21,10 +21,10 @@ interface Props {
   calcVersion?: string;
 }
 
-const headers: Array<{ key: keyof CompareMetricsRow; label: string }> = [
+const headers: Array<{ key: keyof CompareMetricsRow; label: string; title?: string }> = [
   { key: 'symbol', label: '股票' },
   { key: 'totalReturnPct', label: '區間報酬%' },
-  { key: 'volatilityPct', label: '波動度%' },
+  { key: 'volatilityPct', label: '年化波動%', title: '日報酬標準差 × √252 × 100%' },
   { key: 'maxDrawdownPct', label: '最大回撤%' },
   { key: 'winRatePct', label: '勝率%' },
   { key: 'maxDailyGainPct', label: '最大單日漲%' },
@@ -32,11 +32,6 @@ const headers: Array<{ key: keyof CompareMetricsRow; label: string }> = [
   { key: 'avgVolume', label: '平均量' },
   { key: 'avgAmount', label: '平均金額' },
 ];
-
-function fmtPct(v: number | null): string {
-  if (v == null || Number.isNaN(v)) return '--';
-  return `${v.toFixed(2)}%`;
-}
 
 function fmtNum(v: number | null): string {
   if (v == null || Number.isNaN(v)) return '--';
@@ -80,6 +75,7 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }
                   <th key={h.key} scope="col" className="px-3 sm:px-4 py-3 text-left whitespace-nowrap">
                     <button
                       type="button"
+                      title={h.title}
                       className="font-semibold text-[var(--color-text-secondary)] hover:text-brand transition-colors cursor-pointer"
                       onClick={() =>
                         setSort((prev) => ({
@@ -115,13 +111,13 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }
                     {r.symbol}
                   </td>
                   <td className={`px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap ${twReturnClass(r.totalReturnPct)}`}>
-                    {fmtPct(r.totalReturnPct)}
+                    {fmtPercent(r.totalReturnPct)}
                   </td>
-                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPct(r.volatilityPct)}</td>
-                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPct(r.maxDrawdownPct)}</td>
-                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPct(r.winRatePct)}</td>
-                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap text-up">{fmtPct(r.maxDailyGainPct)}</td>
-                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap text-down">{fmtPct(r.maxDailyLossPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPercent(r.volatilityPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPercent(r.maxDrawdownPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">{fmtPercent(r.winRatePct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap text-up">{fmtPercent(r.maxDailyGainPct)}</td>
+                  <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap text-down">{fmtPercent(r.maxDailyLossPct)}</td>
                   <td className="px-3 sm:px-4 py-3 tabular-nums whitespace-nowrap">
                     {r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}
                   </td>
@@ -131,8 +127,9 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-2 text-xs text-[var(--color-text-muted)]">
-          點擊欄位標題可排序，空值以 -- 顯示。
+        <div className="px-4 py-2 text-xs text-[var(--color-text-muted)] space-y-0.5">
+          <p>點擊欄位標題可排序，空值以 -- 顯示。</p>
+          <p>「年化波動%」為日報酬標準差 × √252；台股年化常用 252 個交易日。</p>
         </div>
       </div>
     </motion.section>

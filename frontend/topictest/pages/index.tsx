@@ -35,6 +35,9 @@ const NEWS_PAGE_SIZE = 10;
 export default function Home() {
   const router = useRouter();
   const pricesRequestIdRef = useRef(0);
+  const symbolsReloadRef = useRef(0);
+  const pricesAbortRef = useRef<AbortController | null>(null);
+  const sparklineAbortRef = useRef<AbortController | null>(null);
 
   const [symbols, setSymbols] = useState<string[]>([]);
   const [prices, setPrices] = useState<DailyPriceResponse[]>([]);
@@ -55,7 +58,10 @@ export default function Home() {
     [router],
   );
 
-  useEffect(() => {
+  const reloadSymbols = useCallback(() => {
+    symbolsReloadRef.current += 1;
+    setLoadingSymbols(true);
+    setErrorSymbols(null);
     fetchSymbols()
       .then((syms) => {
         setSymbols(syms);
@@ -66,14 +72,23 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    reloadSymbols();
+  }, [reloadSymbols]);
+
+  useEffect(() => {
     if (symbols.length === 0) return;
 
     const requestId = (pricesRequestIdRef.current += 1);
+    // 切換股票清單時取消尚未完成的舊請求，避免浪費網路與舊資料覆蓋
+    pricesAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    pricesAbortRef.current = ctrl;
+
     setLoadingPrices(true);
     const featured = symbols.slice(0, FEATURED_COUNT);
-    Promise.allSettled(featured.map((sym) => fetchLatestPrice(sym)))
+    Promise.allSettled(featured.map((sym) => fetchLatestPrice(sym, { signal: ctrl.signal })))
       .then((results) => {
-        if (requestId !== pricesRequestIdRef.current) return;
+        if (ctrl.signal.aborted || requestId !== pricesRequestIdRef.current) return;
         const loaded: DailyPriceResponse[] = [];
         const failedSyms: string[] = [];
         results.forEach((r, i) => {
@@ -87,8 +102,10 @@ export default function Home() {
         }
       })
       .finally(() => {
-        if (requestId === pricesRequestIdRef.current) setLoadingPrices(false);
+        if (requestId === pricesRequestIdRef.current && !ctrl.signal.aborted) setLoadingPrices(false);
       });
+
+    return () => ctrl.abort();
   }, [symbols]);
 
   useEffect(() => {
@@ -96,14 +113,17 @@ export default function Home() {
       setSparklines({});
       return;
     }
-    let cancelled = false;
+    sparklineAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    sparklineAbortRef.current = ctrl;
+
     void Promise.allSettled(
       prices.map(async (p) => {
         const closes = await fetchSparklineCloses(p.symbol);
         return { symbol: p.symbol, closes };
       }),
     ).then((results) => {
-      if (cancelled) return;
+      if (ctrl.signal.aborted) return;
       const next: Record<string, number[]> = {};
       for (const r of results) {
         if (r.status === 'fulfilled' && r.value.closes.length >= 2) {
@@ -112,9 +132,7 @@ export default function Home() {
       }
       setSparklines(next);
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => ctrl.abort();
   }, [prices]);
 
   const handleNewsSearch = () => {
@@ -178,10 +196,10 @@ export default function Home() {
                       <span className="min-w-0">{errorSymbols}</span>
                       <button
                         type="button"
-                        onClick={() => window.location.reload()}
+                        onClick={reloadSymbols}
                         className="shrink-0 text-xs font-semibold underline underline-offset-2 text-up-emphasis hover:text-brand-deep"
                       >
-                        重新載入頁面
+                        重試載入
                       </button>
                     </div>
                   ) : (
@@ -250,10 +268,10 @@ export default function Home() {
                 <span>{errorPrices}</span>
                 <button
                   type="button"
-                  onClick={() => window.location.reload()}
+                  onClick={reloadSymbols}
                   className="px-4 py-2 rounded-xl text-xs font-semibold border border-up/30 hover:bg-up-muted transition-colors"
                 >
-                  重新載入頁面
+                  重試載入
                 </button>
               </div>
             ) : (
@@ -303,62 +321,65 @@ export default function Home() {
                 <h3 className="text-sm font-bold tracking-tight">快速功能</h3>
               </div>
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
-              <button
-                onClick={() => router.push('/ai')}
-                className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
-                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
-              >
-                <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center"
-                     style={{ background: 'var(--brand-gradient)' }}>
-                  <Bot size={16} className="text-white" aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 對話</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">市場參考對話</p>
-                </div>
-              </button>
 
-              <button
-                onClick={() => router.push('/stock/2330#ai-advisor')}
-                className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
-                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
-              >
-                <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
-                  <BarChart3 size={16} className="text-brand" aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 投資分析</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">個股頁整合分析</p>
-                </div>
-              </button>
 
-              <button
-                onClick={() => router.push('/compare')}
-                className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
+                <button
+                  onClick={() => router.push('/stock/2330#ai-advisor')}
+                  className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
                            hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
-              >
-                <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
-                  <GitCompareArrows size={16} className="text-brand" aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">多股比較</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">交叉分析走勢</p>
-                </div>
-              </button>
+                >
+                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center"
+                    style={{ background: 'var(--brand-gradient)' }}>
+                    <BarChart3 size={16} className="text-white" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 投資分析</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">個股頁整合分析</p>
+                  </div>
+                </button>
 
-              <button
-                onClick={() => router.push('/order')}
-                className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
+                <button
+                  onClick={() => router.push('/ai')}
+                  className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
                            hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
-              >
-                <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
-                  <ShoppingCart size={16} className="text-brand" aria-hidden />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">模擬下單</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">練習下單流程</p>
-                </div>
-              </button>
+                >
+                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
+                    <Bot size={16} className="text-brand" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 對話</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">市場參考對話</p>
+                  </div>
+                </button>
+
+
+                <button
+                  onClick={() => router.push('/compare')}
+                  className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
+                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
+                >
+                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
+                    <GitCompareArrows size={16} className="text-brand" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">多股比較</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">交叉分析走勢</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => router.push('/order')}
+                  className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
+                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
+                >
+                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
+                    <ShoppingCart size={16} className="text-brand" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">模擬下單</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">練習下單流程</p>
+                  </div>
+                </button>
 
               </div>
             </div>
