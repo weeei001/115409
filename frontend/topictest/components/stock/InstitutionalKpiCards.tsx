@@ -1,17 +1,11 @@
 import React from 'react';
 import type { InstitutionalTradeResponse } from '../../lib/types';
 import { fmt } from '../../lib/utils/format';
+import { getValueToneClass } from '../../lib/utils/valueToneClass';
 
 interface Props {
   latest: InstitutionalTradeResponse | null;
   loading?: boolean;
-}
-
-function netClass(v: number | null | undefined): string {
-  if (v == null) return 'text-[var(--color-text-muted)]';
-  if (v > 0) return 'text-up';
-  if (v < 0) return 'text-down';
-  return 'text-[var(--color-text-secondary)]';
 }
 
 const ITEMS = [
@@ -50,7 +44,7 @@ export const InstitutionalKpiCards: React.FC<Props> = ({ latest, loading }) => {
               className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-3 py-3"
             >
               <div className="text-xs text-[var(--color-text-muted)] mb-1">{label}</div>
-              <div className={`text-sm font-semibold font-mono tabular-nums ${netClass(v)}`}>
+              <div className={`text-sm font-semibold font-mono tabular-nums ${getValueToneClass(v)}`}>
                 {fmt(v)}
               </div>
             </div>

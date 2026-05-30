@@ -103,8 +103,8 @@ function EventsSection({ body }: { body: string }) {
 
 function TipsSection({ body }: { body: string }) {
   return (
-    <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-3.5 py-3 dark:border-amber-800/50 dark:bg-amber-950/30">
-      <p className="text-sm leading-relaxed text-amber-950/90 dark:text-amber-100/90">{body}</p>
+    <div className="ui-alert-warning rounded-xl px-3.5 py-3">
+      <p className="text-sm leading-relaxed">{body}</p>
     </div>
   );
 }

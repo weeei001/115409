@@ -1,6 +1,7 @@
 import React from 'react';
 import type { VolumeAnalysisResponse } from '../../lib/types';
 import { fmtAmount, fmtPrice, fmtVolume } from '../../lib/utils/format';
+import { getValueToneClass } from '../../lib/utils/valueToneClass';
 import { CollapsibleTableSection } from '../CollapsibleTableSection';
 import { TableScrollHint } from '../TableScrollHint';
 
@@ -9,17 +10,9 @@ interface Props {
   loading?: boolean;
 }
 
-function changeClass(v: number): string {
-  if (v > 0) return 'text-up';
-  if (v < 0) return 'text-down';
-  return 'text-[var(--color-text-muted)]';
-}
-
-const Box = 'div' as const;
-
 export const VolumeAnalysisPanel: React.FC<Props> = ({ data, loading }) => {
   if (loading) {
-    return <Box className="h-40 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" aria-hidden />;
+    return <div className="h-40 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" aria-hidden />;
   }
 
   if (!data?.data?.length) {
@@ -37,7 +30,7 @@ export const VolumeAnalysisPanel: React.FC<Props> = ({ data, loading }) => {
       collapseLabel="收合量能明細"
     >
       <TableScrollHint />
-      <Box className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
+      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
         <table className="w-full text-sm min-w-[520px]">
           <thead>
             <tr className="bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)] text-xs">
@@ -57,7 +50,7 @@ export const VolumeAnalysisPanel: React.FC<Props> = ({ data, loading }) => {
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{fmtVolume(row.volume)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{fmtAmount(row.amount)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{fmtPrice(String(row.close))}</td>
-                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${changeClass(change)}`}>
+                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${getValueToneClass(change)}`}>
                     {change > 0 ? '+' : ''}
                     {fmtPrice(String(change))}
                   </td>
@@ -66,7 +59,7 @@ export const VolumeAnalysisPanel: React.FC<Props> = ({ data, loading }) => {
             })}
           </tbody>
         </table>
-      </Box>
+      </div>
     </CollapsibleTableSection>
   );
 };

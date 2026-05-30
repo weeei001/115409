@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
+import { useReduceMotionPreset } from '../lib/hooks/useReduceMotionPreset';
 import { KeyRound, Lock, Eye, EyeOff, Loader2, LogIn, CheckCircle, ArrowLeft } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { authResetPassword } from '../lib/api/auth';
@@ -51,6 +51,7 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // 防止快速雙擊送出
     setError(null);
     if (!token) {
       setError('連結無效，請重新申請重設密碼。');
@@ -80,7 +81,7 @@ export default function ResetPasswordPage() {
     'w-full pl-10 pr-4 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand disabled:opacity-60';
 
   const ready = router.isReady;
-  const reduceMotion = usePrefersReducedMotionClient();
+  const { motionProps } = useReduceMotionPreset();
 
   return (
     <div className="min-h-[100dvh] flex flex-col">
@@ -91,12 +92,7 @@ export default function ResetPasswordPage() {
       <SubpageHeader icon={KeyRound} title="股海明燈" subtitle="設定新密碼" />
 
       <main className="flex-1 flex items-center justify-center px-4 py-12">
-        <motion.div
-          className="w-full max-w-md"
-          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
-          animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-          transition={reduceMotion ? { duration: 0 } : { duration: 0.5 }}
-        >
+        <motion.div className="w-full max-w-md" {...motionProps}>
           <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-8">
             {!ready ? (
               <div className="flex justify-center py-12" aria-busy aria-live="polite">
@@ -187,6 +183,7 @@ export default function ResetPasswordPage() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         autoComplete="new-password"
+                        maxLength={128}
                         disabled={loading}
                         className={`${inputClass} pr-12 rounded-xl`}
                       />
@@ -212,6 +209,7 @@ export default function ResetPasswordPage() {
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         autoComplete="new-password"
+                        maxLength={128}
                         disabled={loading}
                         className={`${inputClass} pr-12 rounded-xl`}
                       />

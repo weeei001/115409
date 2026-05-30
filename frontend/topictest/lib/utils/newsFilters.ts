@@ -11,14 +11,6 @@ export function formatNewsDateTimeParam(value: string): string | undefined {
   return trimmed;
 }
 
-export function parsePositiveInt(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const n = Number.parseInt(trimmed, 10);
-  if (!Number.isFinite(n) || n < 1) return undefined;
-  return n;
-}
-
 export function validateNewsTimeRange(start?: string, end?: string): string | null {
   if (!start || !end) return null;
   const s = new Date(start).getTime();

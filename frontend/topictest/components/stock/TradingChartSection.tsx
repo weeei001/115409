@@ -25,8 +25,6 @@ interface Props {
   onShowPriceChangeChange: (v: boolean) => void;
 }
 
-const Box = 'div' as const;
-
 export const TradingChartSection: React.FC<Props> = ({
   chart,
   loading,
@@ -44,15 +42,15 @@ export const TradingChartSection: React.FC<Props> = ({
   onShowPriceChangeChange,
 }) => {
   return (
-    <Box className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5 shadow-[var(--shadow-card)]">
-      <Box className="flex flex-col gap-4 mb-4 md:flex-row md:items-center md:justify-between">
-        <Box>
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5 shadow-[var(--shadow-card)]">
+      <div className="flex flex-col gap-4 mb-4 md:flex-row md:items-center md:justify-between">
+        <div>
           <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">價量走勢</h2>
           <p className="mt-1 text-xs text-[var(--color-text-muted)]">
             資料截至前一交易日；展示用途，非投資建議。
           </p>
-        </Box>
-        <Box className="flex w-full flex-col gap-3 md:w-auto md:items-end">
+        </div>
+        <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
           <DateRangePicker
             startDate={startDate}
             endDate={endDate}
@@ -73,14 +71,14 @@ export const TradingChartSection: React.FC<Props> = ({
             />
             顯示漲跌明細
           </label>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       {loading && (
-        <Box className="flex min-h-[280px] h-[50dvh] max-h-[420px] items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
+        <div className="flex min-h-[280px] h-[50dvh] max-h-[420px] items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
           <Loader2 size={20} className="animate-spin text-brand" aria-hidden />
           載入圖表中…
-        </Box>
+        </div>
       )}
 
       {!loading && chart && <PriceChart data={chart} compact={compactChart} />}
@@ -90,11 +88,11 @@ export const TradingChartSection: React.FC<Props> = ({
       )}
 
       {!loading && (
-        <Box className="mt-6 space-y-6 border-t border-[var(--color-border)] pt-6">
+        <div className="mt-6 space-y-6 border-t border-[var(--color-border)] pt-6">
           <VolumeAnalysisPanel data={volumeData} loading={false} />
           {showPriceChange ? <PriceChangePanel data={priceChangeData} loading={false} /> : null}
-        </Box>
+        </div>
       )}
-    </Box>
+    </div>
   );
 };

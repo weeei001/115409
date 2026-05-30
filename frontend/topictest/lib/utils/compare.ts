@@ -7,11 +7,26 @@
   PriceChangeResponse,
   VolumeAnalysisResponse,
 } from '../types';
+import type {
+  InstitutionalTradeListResponse,
+  TechnicalIndicatorListResponse,
+  TechnicalIndicatorDayRow,
+} from '../types/stockDashboard';
+import { fmtInstitutionalShares, fmtPercent } from './format';
+import {
+  directionLabel,
+  maTrendSpreadPct,
+  momentumBreakdown,
+} from './compareSignals';
 
 type CompareChartPoint = {
   date: string;
   [key: string]: string | number | null;
 };
+
+/** 台股年化常數：一年約 252 個交易日 */
+const TRADING_DAYS_PER_YEAR = 252;
+const ANNUALIZE_FACTOR = Math.sqrt(TRADING_DAYS_PER_YEAR);
 
 type SortDirection = 'asc' | 'desc';
 
@@ -29,54 +44,32 @@ interface BuildCompareViewModelInput {
   generatedAt?: string;
 }
 
+/**
+ * 多股比較線色：用於辨識不同股票，**非漲跌語意**。
+ * 避開純紅純綠（#ef4444 / #16a34a 等），以免使用者誤把線色當成「漲/跌」（紅漲綠跌）。
+ * 改用冷暖中性色相（橙、藍、紫、青、洋紅、琥珀、靛、天藍等）。
+ */
 export const COMPARE_COLOR_PALETTE = [
-  '#f97316', '#2563eb', '#ef4444', '#16a34a', '#7c3aed', '#0891b2',
-  '#db2777', '#65a30d', '#d97706', '#4f46e5', '#059669', '#dc2626',
-  '#0284c7', '#9333ea', '#0d9488', '#b45309',
+  '#f97316', // orange-500
+  '#2563eb', // blue-600
+  '#9333ea', // purple-600
+  '#0891b2', // cyan-600
+  '#db2777', // pink-600
+  '#d97706', // amber-600
+  '#4f46e5', // indigo-600
+  '#7c3aed', // violet-600
+  '#0284c7', // sky-600
+  '#a16207', // yellow-700
+  '#92400e', // amber-800
+  '#581c87', // purple-900
+  '#155e75', // cyan-800
+  '#831843', // pink-900
+  '#1d4ed8', // blue-700
+  '#3730a3', // indigo-800
 ];
-
-export interface CompareSeriesCoverage {
-  symbol: string;
-  firstDate: string | null;
-  lastDate: string | null;
-  validDays: number;
-}
-
-export interface CompareSeriesCoverageSummary {
-  series: CompareSeriesCoverage[];
-  chartLastDate: string | null;
-  /** 任一股的最後有效交易日早於圖表最後一日 */
-  hasUnevenEnd: boolean;
-}
 
 function isValidPrice(price: number | null | undefined): price is number {
   return typeof price === 'number' && Number.isFinite(price);
-}
-
-/** 各股在主圖資料中的實際覆蓋區間（用於解釋走勢線提前結束） */
-export function getCompareSeriesCoverage(data: MultiStockResponse): CompareSeriesCoverageSummary {
-  const chartLastDate = data.data.at(-1)?.date ?? null;
-  const series = data.symbols.map((symbol) => {
-    let firstDate: string | null = null;
-    let lastDate: string | null = null;
-    let validDays = 0;
-
-    for (const row of data.data) {
-      const price = row.prices[symbol];
-      if (!isValidPrice(price)) continue;
-      validDays += 1;
-      if (!firstDate) firstDate = row.date;
-      lastDate = row.date;
-    }
-
-    return { symbol, firstDate, lastDate, validDays };
-  });
-
-  const hasUnevenEnd = Boolean(
-    chartLastDate && series.some((item) => item.lastDate && item.lastDate < chartLastDate),
-  );
-
-  return { series, chartLastDate, hasUnevenEnd };
 }
 
 export function toPriceChartData(data: MultiStockResponse): CompareChartPoint[] {
@@ -131,10 +124,11 @@ function mean(nums: number[]): number | null {
 }
 
 function std(nums: number[]): number | null {
-  if (nums.length === 0) return null;
+  if (nums.length < 2) return null;
   const avg = mean(nums);
   if (avg == null) return null;
-  const variance = nums.reduce((acc, n) => acc + (n - avg) ** 2, 0) / nums.length;
+  // 樣本標準差（Bessel 修正：除以 n−1），避免低估波動度
+  const variance = nums.reduce((acc, n) => acc + (n - avg) ** 2, 0) / (nums.length - 1);
   return Math.sqrt(variance);
 }
 
@@ -159,10 +153,6 @@ function firstAndLastClose(data: PriceChangeResponse): { first: number; last: nu
   const last = closes[closes.length - 1];
   if (!Number.isFinite(first) || !Number.isFinite(last) || first === 0) return null;
   return { first, last };
-}
-
-function fmtPct(v: number): string {
-  return `${v.toFixed(2)}%`;
 }
 
 function hashSymbol(symbol: string): number {
@@ -308,7 +298,7 @@ function buildInsightCards(
           id: 'bestReturn',
           title: '最佳區間報酬',
           symbol: bestReturn.symbol,
-          value: fmtPct(bestReturn.totalReturnPct as number),
+          value: fmtPercent(bestReturn.totalReturnPct as number),
           reason: '在同區間內累積報酬最高。',
         }
       : fallbackInsight('bestReturn', '最佳區間報酬', '尚無可計算資料。'),
@@ -317,7 +307,7 @@ function buildInsightCards(
           id: 'minDrawdown',
           title: '最大回撤最小',
           symbol: minDrawdown.symbol,
-          value: fmtPct(minDrawdown.maxDrawdownPct as number),
+          value: fmtPercent(minDrawdown.maxDrawdownPct as number),
           reason: '最大回撤最淺，區間抗跌性相對較好。',
         }
       : fallbackInsight('minDrawdown', '最大回撤最小', '尚無可計算資料。'),
@@ -326,7 +316,7 @@ function buildInsightCards(
           id: 'minVolatility',
           title: '波動最低',
           symbol: minVolatility.symbol,
-          value: fmtPct(minVolatility.volatilityPct as number),
+          value: fmtPercent(minVolatility.volatilityPct as number),
           reason: '日報酬標準差最低，波動相對較小。',
         }
       : fallbackInsight('minVolatility', '波動最低', '尚無可計算資料。'),
@@ -393,7 +383,8 @@ export function buildMetricsRow(
   return {
     symbol,
     totalReturnPct,
-    volatilityPct: volatility == null ? null : volatility * 100,
+    // 年化波動度：日報酬標準差 × √252 × 100%
+    volatilityPct: volatility == null ? null : volatility * ANNUALIZE_FACTOR * 100,
     maxDrawdownPct: maxDrawdownPctFromReturns(dailyReturns),
     winRatePct: validDays > 0 ? (upDays / validDays) * 100 : null,
     maxDailyGainPct: changePercents.length ? Math.max(...changePercents) : null,
@@ -529,4 +520,285 @@ export function buildCompareViewModel({
     qualityMeta,
     symbolColors,
   };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+//  法人聚合（期間外資 / 投信 / 自營 / 合計 + 最大單日合計買超 + 連續買超天數）
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface InstitutionalAggregate {
+  symbol: string;
+  foreignNet: number | null;
+  investmentTrustNet: number | null;
+  dealerNet: number | null;
+  totalNet: number | null;
+  maxDailyTotalNet: number | null;
+  maxDailyTotalNetDate: string | null;
+  consecutiveBuyDays: number;
+}
+
+export function aggregateInstitutional(
+  symbol: string,
+  list: InstitutionalTradeListResponse | null,
+): InstitutionalAggregate {
+  if (!list || list.data.length === 0) {
+    return {
+      symbol,
+      foreignNet: null,
+      investmentTrustNet: null,
+      dealerNet: null,
+      totalNet: null,
+      maxDailyTotalNet: null,
+      maxDailyTotalNetDate: null,
+      consecutiveBuyDays: 0,
+    };
+  }
+
+  let foreign = 0;
+  let foreignSamples = 0;
+  let trust = 0;
+  let trustSamples = 0;
+  let dealer = 0;
+  let dealerSamples = 0;
+  let total = 0;
+  let totalSamples = 0;
+  let maxDay: number | null = null;
+  let maxDayDate: string | null = null;
+
+  for (const row of list.data) {
+    if (row.foreign_excl_dealer_net != null && Number.isFinite(row.foreign_excl_dealer_net)) {
+      foreign += row.foreign_excl_dealer_net;
+      foreignSamples += 1;
+    }
+    if (row.investment_trust_net != null && Number.isFinite(row.investment_trust_net)) {
+      trust += row.investment_trust_net;
+      trustSamples += 1;
+    }
+    if (row.dealer_net_total != null && Number.isFinite(row.dealer_net_total)) {
+      dealer += row.dealer_net_total;
+      dealerSamples += 1;
+    }
+    if (row.total_net != null && Number.isFinite(row.total_net)) {
+      total += row.total_net;
+      totalSamples += 1;
+      if (maxDay == null || row.total_net > maxDay) {
+        maxDay = row.total_net;
+        maxDayDate = row.date;
+      }
+    }
+  }
+
+  // 從尾端往回算「連續買超天數」（total_net > 0）
+  let consecutive = 0;
+  for (let i = list.data.length - 1; i >= 0; i -= 1) {
+    const v = list.data[i].total_net;
+    if (v != null && Number.isFinite(v) && v > 0) consecutive += 1;
+    else break;
+  }
+
+  return {
+    symbol,
+    foreignNet: foreignSamples > 0 ? foreign : null,
+    investmentTrustNet: trustSamples > 0 ? trust : null,
+    dealerNet: dealerSamples > 0 ? dealer : null,
+    totalNet: totalSamples > 0 ? total : null,
+    maxDailyTotalNet: maxDay,
+    maxDailyTotalNetDate: maxDayDate,
+    consecutiveBuyDays: consecutive,
+  };
+}
+
+/** 給法人累計買賣超折線圖用的資料：每檔在每個 union date 的累計 total_net（null 不前進） */
+export interface InstitutionalCumulativeRow {
+  date: string;
+  [symbol: string]: string | number | null;
+}
+
+export function buildInstitutionalCumulativeChart(
+  symbols: string[],
+  institutionalMap: Record<string, InstitutionalTradeListResponse | null>,
+): InstitutionalCumulativeRow[] {
+  const dateSet = new Set<string>();
+  for (const sym of symbols) {
+    const rows = institutionalMap[sym]?.data ?? [];
+    for (const row of rows) {
+      if (row.date) dateSet.add(row.date);
+    }
+  }
+  const dates = [...dateSet].sort();
+
+  const cumPerSymbol: Record<string, Map<string, number>> = {};
+  for (const sym of symbols) {
+    const rows = institutionalMap[sym]?.data ?? [];
+    const byDate = new Map<string, number>();
+    let running = 0;
+    for (const row of rows) {
+      if (row.total_net != null && Number.isFinite(row.total_net)) {
+        running += row.total_net;
+      }
+      byDate.set(row.date, running);
+    }
+    cumPerSymbol[sym] = byDate;
+  }
+
+  return dates.map((date) => {
+    const point: InstitutionalCumulativeRow = { date };
+    for (const sym of symbols) {
+      const v = cumPerSymbol[sym]?.get(date);
+      point[sym] = v == null ? null : v;
+    }
+    return point;
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+//  類別冠軍（5 格 KPI）：取代舊 4 格 buildInsightCards，補入法人最愛 / 均線最偏多
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface CategoryLeader {
+  id:
+    | 'bestReturn'
+    | 'minVolatility'
+    | 'institutionalFavorite'
+    | 'strongestMomentum'
+    | 'lowestCorrelationPair';
+  title: string;
+  /** 主要股代號；對組合（如最低相關性）為 'A × B' */
+  symbol: string;
+  /** 該檔主數值的展示字串（已格式化） */
+  value: string;
+  /** 補充解釋（一句話） */
+  reason: string;
+}
+
+function fallbackLeader(
+  id: CategoryLeader['id'],
+  title: string,
+  reason: string,
+): CategoryLeader {
+  return { id, title, symbol: '--', value: '--', reason };
+}
+
+export function buildCategoryLeaders(
+  symbols: string[],
+  metricsRows: CompareMetricsRow[],
+  institutionalAggregateMap: Record<string, InstitutionalAggregate>,
+  technicalLatestMap: Record<string, TechnicalIndicatorDayRow | null>,
+  correlationMatrix: Record<string, Record<string, number | null>>,
+): CategoryLeader[] {
+  const bestReturn = metricsRows
+    .filter((r) => r.totalReturnPct != null)
+    .sort((a, b) => (b.totalReturnPct as number) - (a.totalReturnPct as number))[0];
+
+  const minVolatility = metricsRows
+    .filter((r) => r.volatilityPct != null)
+    .sort((a, b) => (a.volatilityPct as number) - (b.volatilityPct as number))[0];
+
+  const institutionalSorted = symbols
+    .map((sym) => institutionalAggregateMap[sym])
+    .filter((a): a is InstitutionalAggregate => Boolean(a) && a.totalNet != null)
+    .sort((a, b) => (b.totalNet as number) - (a.totalNet as number));
+  const topInstitutional = institutionalSorted[0];
+
+  const momentumSorted = symbols
+    .map((sym) => ({
+      symbol: sym,
+      score: maTrendSpreadPct(technicalLatestMap[sym] ?? null),
+    }))
+    .filter((m): m is { symbol: string; score: number } => m.score != null)
+    .sort((a, b) => b.score - a.score);
+  const topMomentum = momentumSorted[0];
+
+  let lowestPair: { a: string; b: string; value: number } | null = null;
+  for (let i = 0; i < symbols.length; i += 1) {
+    for (let j = i + 1; j < symbols.length; j += 1) {
+      const a = symbols[i];
+      const b = symbols[j];
+      const value = correlationMatrix[a]?.[b];
+      if (value == null) continue;
+      if (!lowestPair || value < lowestPair.value) {
+        lowestPair = { a, b, value };
+      }
+    }
+  }
+
+  const momentumBd = topMomentum
+    ? momentumBreakdown(technicalLatestMap[topMomentum.symbol] ?? null)
+    : null;
+
+  const momentumReason = (() => {
+    if (!topMomentum) return '技術指標資料不足，無法計算均線乖離。';
+    const lead =
+      topMomentum.score >= 0
+        ? `MA20 高於 MA60 ${fmtPercent(topMomentum.score, { sign: true })}，均線多頭排列最明顯`
+        : `MA20 仍低於 MA60 ${fmtPercent(topMomentum.score, { sign: true })}，為比較組中相對最強`;
+    const parts: string[] = [];
+    if (momentumBd && momentumBd.rsi.zone !== 'na') {
+      const zoneLabel =
+        momentumBd.rsi.zone === 'overbought' ? '超買區' :
+        momentumBd.rsi.zone === 'oversold' ? '超賣區' : '中性區';
+      parts.push(`RSI ${momentumBd.rsi.value?.toFixed(0) ?? '—'}（${zoneLabel}）`);
+    }
+    if (momentumBd && momentumBd.macd.direction !== 'na') {
+      parts.push(`MACD ${directionLabel(momentumBd.macd.direction)}`);
+    }
+    return parts.length > 0 ? `${lead}；${parts.join('、')}。` : `${lead}。`;
+  })();
+
+  const correlationReason = (() => {
+    if (!lowestPair) return '';
+    const v = lowestPair.value;
+    if (v < 0) return '呈現負相關，理論上具分散風險效果。';
+    if (v < 0.3) return '相關性低，分散效果尚可。';
+    if (v < 0.7) return '中度相關，分散效果有限。';
+    return '相關性偏高，並無顯著分散效果。';
+  })();
+
+  return [
+    bestReturn
+      ? {
+          id: 'bestReturn' as const,
+          title: '期間累積報酬最高',
+          symbol: bestReturn.symbol,
+          value: fmtPercent(bestReturn.totalReturnPct as number, { sign: true }),
+          reason: '依首末日收盤計算之累積報酬最高。',
+        }
+      : fallbackLeader('bestReturn', '期間累積報酬最高', '尚無可計算資料。'),
+    minVolatility
+      ? {
+          id: 'minVolatility' as const,
+          title: '年化波動最低',
+          symbol: minVolatility.symbol,
+          value: fmtPercent(minVolatility.volatilityPct as number),
+          reason: '日報酬標準差 × √252 最低，走勢相對最穩。',
+        }
+      : fallbackLeader('minVolatility', '年化波動最低', '尚無可計算資料。'),
+    topInstitutional
+      ? {
+          id: 'institutionalFavorite' as const,
+          title: '法人合計買超最高',
+          symbol: topInstitutional.symbol,
+          value: fmtInstitutionalShares(topInstitutional.totalNet),
+          reason: '期間三大法人合計買超總量最大（非投資建議）。',
+        }
+      : fallbackLeader('institutionalFavorite', '法人合計買超最高', '法人資料載入中或不足。'),
+    topMomentum
+      ? {
+          id: 'strongestMomentum' as const,
+          title: '均線最偏多',
+          symbol: topMomentum.symbol,
+          value: fmtPercent(topMomentum.score, { sign: true }),
+          reason: momentumReason,
+        }
+      : fallbackLeader('strongestMomentum', '均線最偏多', '技術指標資料不足。'),
+    lowestPair
+      ? {
+          id: 'lowestCorrelationPair' as const,
+          title: '相關性最低組合',
+          symbol: `${lowestPair.a} × ${lowestPair.b}`,
+          value: `ρ ${lowestPair.value.toFixed(2)}`,
+          reason: correlationReason,
+        }
+      : fallbackLeader('lowestCorrelationPair', '相關性最低組合', '共同交易日不足。'),
+  ];
 }

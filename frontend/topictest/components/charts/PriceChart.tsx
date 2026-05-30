@@ -11,12 +11,17 @@ import {
   type ISeriesMarkersPluginApi,
   type LineData,
   type MouseEventParams,
-  type SeriesMarker,
   type SeriesMarkerBar,
   type Time,
 } from 'lightweight-charts';
 import type { PriceChartData } from '../../lib/types/priceChart';
 import { formatVolumeShares } from '../../lib/utils/format';
+import { useTheme } from '../../lib/ThemeContext';
+import {
+  getChartMarkerStyles,
+  getChartPalette,
+  getLightweightChartLayoutOptions,
+} from '../../lib/chartTheme';
 
 interface Props {
   data: PriceChartData;
@@ -65,42 +70,6 @@ const ALLOWED_MARKER_TYPES: ReadonlySet<AdvisorMarkerType> = new Set([
   'entry',
   'exit',
 ]);
-
-const CHART_MARKERS = {
-  buySignal: {
-    color: '#F43F5E',
-    shape: 'square',
-    text: '買訊',
-  },
-  sellSignal: {
-    color: '#10B981',
-    shape: 'square',
-    text: '賣訊',
-  },
-  hold: {
-    color: '#F59E0B',
-    shape: 'circle',
-    text: '持平',
-  },
-  actualBuy: {
-    color: '#DC2626',
-    shape: 'arrowUp',
-    text: '買進',
-  },
-  actualSell: {
-    color: '#059669',
-    shape: 'arrowDown',
-    text: '賣出',
-  },
-} as const satisfies Record<string, { color: string; shape: SeriesMarker<Time>['shape']; text: string }>;
-
-const MARKER_CONFIG_BY_TYPE: Record<AdvisorMarkerType, (typeof CHART_MARKERS)[keyof typeof CHART_MARKERS]> = {
-  state_buy: CHART_MARKERS.buySignal,
-  state_sell: CHART_MARKERS.sellSignal,
-  state_hold: CHART_MARKERS.hold,
-  entry: CHART_MARKERS.actualBuy,
-  exit: CHART_MARKERS.actualSell,
-};
 
 function toBusinessDay(dateText: string): BusinessDay {
   const [year, month, day] = dateText.split('-').map((v) => Number(v));
@@ -255,6 +224,26 @@ function buildDisplayMarkers(rawMarkers: PriceChartData['markers'], options: { s
 
 export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  const palette = useMemo(() => getChartPalette(isDark), [isDark]);
+  const layoutOptions = useMemo(
+    () => getLightweightChartLayoutOptions(palette, isDark),
+    [palette, isDark],
+  );
+  const markerStyles = useMemo(() => getChartMarkerStyles(palette), [palette]);
+  // 提供給 buildDisplayMarkers / setMarkers / legend 使用，與 chartTheme 對齊
+  const markerConfigByType: Record<AdvisorMarkerType, { color: string; shape: SeriesMarkerBar<Time>['shape']; text: string }> = useMemo(
+    () => ({
+      state_buy: markerStyles.state_buy,
+      state_sell: markerStyles.state_sell,
+      state_hold: markerStyles.state_hold,
+      entry: markerStyles.entry,
+      exit: markerStyles.exit,
+    }),
+    [markerStyles],
+  );
 
   const chartRef = useRef<IChartApi | null>(null);
   const closeSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -278,15 +267,15 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       if (!markerType) return;
       const detail: MarkerDetail = {
         type: markerType,
-        label: MARKER_CONFIG_BY_TYPE[markerType].text,
-        detail: marker.text?.trim() || MARKER_CONFIG_BY_TYPE[markerType].text,
+        label: markerConfigByType[markerType].text,
+        detail: marker.text?.trim() || markerConfigByType[markerType].text,
       };
       const list = map.get(marker.time) ?? [];
       list.push(detail);
       map.set(marker.time, list);
     });
     return map;
-  }, [data.markers]);
+  }, [data.markers, markerConfigByType]);
 
   const ma20ByDate = useMemo(() => {
     const map = new Map<string, number>();
@@ -397,51 +386,41 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       localization: {
         timeFormatter: (time: Time) => formatTimeLabel(time),
       },
-      layout: {
-        background: { color: 'transparent' },
-        textColor: '#334155',
-        fontFamily: 'Noto Sans TC, PingFang TC, Microsoft JhengHei, sans-serif',
-        attributionLogo: false,
-      },
-      grid: {
-        vertLines: { color: 'rgba(148, 163, 184, 0.1)' },
-        horzLines: { color: 'rgba(148, 163, 184, 0.1)' },
-      },
+      layout: layoutOptions.layout,
+      grid: layoutOptions.grid,
       crosshair: {
         mode: 1,
       },
-      rightPriceScale: {
-        borderColor: 'rgba(148, 163, 184, 0.4)',
-      },
+      rightPriceScale: layoutOptions.rightPriceScale,
       timeScale: {
-        borderColor: 'rgba(148, 163, 184, 0.4)',
+        ...layoutOptions.timeScale,
         timeVisible: true,
         tickMarkFormatter: (time: Time) => formatTimeLabel(time),
       },
     });
 
     const closeLine = chart.addSeries(LineSeries, {
-      color: '#334155',
+      color: layoutOptions.series.close,
       lineWidth: 3,
       priceLineVisible: false,
     });
 
     const ma20 = chart.addSeries(LineSeries, {
-      color: '#2563EB',
+      color: layoutOptions.series.ma20,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
     });
 
     const ma60 = chart.addSeries(LineSeries, {
-      color: '#7C3AED',
+      color: layoutOptions.series.ma60,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
     });
 
     const volume = chart.addSeries(HistogramSeries, {
-      color: '#94a3b8',
+      color: layoutOptions.series.volumeFallback,
       priceFormat: { type: 'volume' },
       priceScaleId: '',
       lastValueVisible: false,
@@ -527,7 +506,25 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       volumeSeriesRef.current = null;
       markerPluginRef.current = null;
     };
+    // 故意只 mount 一次：dark mode / palette 切換由下方獨立 effect 用 applyOptions 更新，
+    // 避免主題切換時整支 chart 重建造成閃爍。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 主題切換時更新 chart 與 series 配色（不重建 chart）
+  useEffect(() => {
+    if (!chartRef.current) return;
+    chartRef.current.applyOptions({
+      layout: layoutOptions.layout,
+      grid: layoutOptions.grid,
+      rightPriceScale: layoutOptions.rightPriceScale,
+      timeScale: layoutOptions.timeScale,
+    });
+    closeSeriesRef.current?.applyOptions({ color: layoutOptions.series.close });
+    ma20SeriesRef.current?.applyOptions({ color: layoutOptions.series.ma20 });
+    ma60SeriesRef.current?.applyOptions({ color: layoutOptions.series.ma60 });
+    volumeSeriesRef.current?.applyOptions({ color: layoutOptions.series.volumeFallback });
+  }, [layoutOptions]);
 
   useEffect(() => {
     if (!closeSeriesRef.current || !volumeSeriesRef.current || !ma20SeriesRef.current || !ma60SeriesRef.current) {
@@ -545,18 +542,19 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       const isFirst = !candleMeta || candleMeta.idx === 0;
       const prevClose = !isFirst ? data.candles[candleMeta!.idx - 1].close : null;
       const close = candleMeta?.candle.close ?? null;
-      const color =
-        isFirst || close === null || prevClose === null
-          ? 'rgba(148, 163, 184, 0.35)'
-          : close > prevClose
-            ? 'rgba(248, 113, 113, 0.55)'
-            : close < prevClose
-              ? 'rgba(52, 211, 153, 0.55)'
-              : 'rgba(148, 163, 184, 0.35)';
+      // 紅漲綠跌：用 chartTheme 的 priceBarUp/priceBarDown，與全站漲跌色一致
+      let color: string;
+      if (isFirst || close === null || prevClose === null || close === prevClose) {
+        color = palette.tickMuted;
+      } else if (close > prevClose) {
+        color = palette.priceBarUp;
+      } else {
+        color = palette.priceBarDown;
+      }
       return {
-      time: toTime(item.time),
-      value: item.value,
-      color,
+        time: toTime(item.time),
+        value: item.value,
+        color,
       };
     });
 
@@ -576,7 +574,7 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     ma60SeriesRef.current.setData(ma60);
 
     const markers = displayMarkers.reduce<SeriesMarkerBar<Time>[]>((acc, marker) => {
-      const markerConfig = MARKER_CONFIG_BY_TYPE[marker.type];
+      const markerConfig = markerConfigByType[marker.type];
       acc.push({
         time: toTime(marker.time),
         position: marker.position as SeriesMarkerBar<Time>['position'],
@@ -616,24 +614,30 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
 
     const visibleRange = getInitialVisibleRange();
     chartRef.current?.timeScale().setVisibleRange(visibleRange);
-  }, [data, displayMarkers, ma20ByDate, ma60ByDate, markerDetailsByDate, volumeByDate, priceChangeLabelByDate, volumeInsight.ma20Volume]);
+  }, [data, displayMarkers, ma20ByDate, ma60ByDate, markerDetailsByDate, volumeByDate, priceChangeLabelByDate, volumeInsight.ma20Volume, palette, markerConfigByType]);
 
+  const legendBoxCls =
+    'inline-flex items-center gap-1.5 rounded-md bg-[var(--color-bg-card)]/70 px-2 py-1';
+  const toggleBaseCls = 'rounded-md border px-2 py-1 transition-colors';
+  const toggleActiveCls = 'border-brand bg-brand/10 text-brand-deep dark:text-brand';
+  const toggleInactiveCls =
+    'border-[var(--color-border)] bg-[var(--color-bg-card)]/70 text-[var(--color-text-secondary)]';
   return (
     <>
       {!compact && (
       <div className="mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-xs text-[var(--color-text-muted)]">
         <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">價格線</div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: '#334155' }} />
+          <span className={legendBoxCls}>
+            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.close }} />
             收盤線
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: '#2563EB' }} />
+          <span className={legendBoxCls}>
+            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.ma20 }} />
             MA20
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
+          <span className={legendBoxCls}>
+            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.ma60 }} />
             MA60
           </span>
         </div>
@@ -645,60 +649,54 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
               <button
                 type="button"
                 onClick={() => setShowSignalMarkers(false)}
-                className={`rounded-md border px-2 py-1 transition ${
-                  showSignalMarkers
-                    ? 'border-[var(--color-border)] bg-white/70 text-[var(--color-text-secondary)]'
-                    : 'border-slate-400 bg-slate-100 text-slate-900'
-                }`}
+                aria-pressed={!showSignalMarkers}
+                className={`${toggleBaseCls} ${showSignalMarkers ? toggleInactiveCls : toggleActiveCls}`}
               >
                 只顯示實際交易
               </button>
               <button
                 type="button"
                 onClick={() => setShowSignalMarkers(true)}
-                className={`rounded-md border px-2 py-1 transition ${
-                  showSignalMarkers
-                    ? 'border-slate-400 bg-slate-100 text-slate-900'
-                    : 'border-[var(--color-border)] bg-white/70 text-[var(--color-text-secondary)]'
-                }`}
+                aria-pressed={showSignalMarkers}
+                className={`${toggleBaseCls} ${showSignalMarkers ? toggleActiveCls : toggleInactiveCls}`}
               >
                 顯示交易與訊號
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-                <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: CHART_MARKERS.buySignal.color }} />
-                {CHART_MARKERS.buySignal.text}（訊號）
+              <span className={legendBoxCls}>
+                <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: markerStyles.state_buy.color }} />
+                {markerStyles.state_buy.text}（訊號）
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-                <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: CHART_MARKERS.sellSignal.color }} />
-                {CHART_MARKERS.sellSignal.text}（訊號）
+              <span className={legendBoxCls}>
+                <span className="h-2.5 w-2.5 rounded-[2px]" style={{ backgroundColor: markerStyles.state_sell.color }} />
+                {markerStyles.state_sell.text}（訊號）
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_MARKERS.hold.color }} />
-                {CHART_MARKERS.hold.text}（僅 tooltip）
+              <span className={legendBoxCls}>
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: markerStyles.state_hold.color }} />
+                {markerStyles.state_hold.text}（僅 tooltip）
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-                <span className="font-black" style={{ color: CHART_MARKERS.actualBuy.color }}>▲</span>
-                {CHART_MARKERS.actualBuy.text}
+              <span className={legendBoxCls}>
+                <span className="font-black" style={{ color: markerStyles.entry.color }}>▲</span>
+                {markerStyles.entry.text}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/60 px-2 py-1">
-                <span className="font-black" style={{ color: CHART_MARKERS.actualSell.color }}>▼</span>
-                {CHART_MARKERS.actualSell.text}
+              <span className={legendBoxCls}>
+                <span className="font-black" style={{ color: markerStyles.exit.color }}>▼</span>
+                {markerStyles.exit.text}
               </span>
             </div>
-            <div className="mt-2 rounded-md border border-[var(--color-border)] bg-white/60 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">
+            <div className="mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-card)]/70 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">
               買進 / 賣出代表回測中的實際交易動作；買訊 / 賣訊代表策略訊號，不一定代表成交；持平為中性狀態，預設顯示於 tooltip 或狀態摘要，不顯示在主圖上。
             </div>
           </>
         )}
-        <div className="mt-3 rounded-md border border-[var(--color-border)] bg-white/60 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">
+        <div className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-card)]/70 p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">
           下方紅綠柱代表每日成交量，柱子越高代表當天交易越熱絡。紅色代表上漲日成交量、綠色代表下跌日成交量。成交量用來輔助判斷趨勢強弱，不是直接買賣訊號。
         </div>
       </div>
       )}
-      <div className="relative h-[460px] w-full overflow-hidden rounded-xl border border-[var(--color-border)] bg-white/70">
-        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-md border border-slate-200/90 bg-white/90 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur">
+      <div className="relative h-[360px] sm:h-[460px] w-full overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/70">
+        <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-card)]/90 px-3 py-2 text-xs text-[var(--color-text-secondary)] shadow-sm backdrop-blur">
           {overlayData ? (
             <div className="space-y-1">
               <p>

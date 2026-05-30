@@ -55,7 +55,11 @@ export default function MePage() {
     return () => {
       active = false;
     };
-  }, [router, router.isReady]);
+    // 只依賴 router.isReady：router 物件每次 render 都是新 reference，
+    // 加入後會導致 authMe 在 router state 變動時被反覆呼叫。
+    // router.replace 是穩定 API（Next.js 文件保證），不需列入依賴。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady]);
 
   const handleRefresh = useCallback(async () => {
     setError(null);
@@ -231,6 +235,7 @@ export default function MePage() {
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     autoComplete="current-password"
+                    maxLength={128}
                     aria-invalid={passwordError ? true : undefined}
                     aria-describedby={passwordError ? 'me-password-error' : undefined}
                     className={pwdInputClass}
@@ -261,6 +266,7 @@ export default function MePage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     autoComplete="new-password"
+                    maxLength={128}
                     aria-invalid={passwordError ? true : undefined}
                     aria-describedby={passwordError ? 'me-password-error' : undefined}
                     className={pwdInputClass}
@@ -291,6 +297,7 @@ export default function MePage() {
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     autoComplete="new-password"
+                    maxLength={128}
                     aria-invalid={passwordError ? true : undefined}
                     aria-describedby={passwordError ? 'me-password-error' : undefined}
                     className={pwdInputClass}

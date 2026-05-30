@@ -18,12 +18,7 @@ import type {
   TechnicalIndicatorListResponse,
   TechnicalIndicatorResponse,
 } from '../types/stockDashboard';
-
-function toNum(v: unknown): number | null {
-  if (v == null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+import { toNum } from './parseNumber';
 
 function toStr(v: unknown): string | null {
   if (v == null) return null;

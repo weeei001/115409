@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
+import { useReduceMotionPreset } from '../lib/hooks/useReduceMotionPreset';
 import { KeyRound, Mail, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { authForgotPassword } from '../lib/api/auth';
@@ -16,10 +16,11 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const reduceMotion = usePrefersReducedMotionClient();
+  const { motionProps } = useReduceMotionPreset();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // 防止快速雙擊送出
     setError(null);
 
     const normalized = email.trim().toLowerCase();
@@ -55,12 +56,7 @@ export default function ForgotPasswordPage() {
       <SubpageHeader icon={KeyRound} title="股海明燈" subtitle="重設密碼" />
 
       <main className="flex-1 flex items-center justify-center px-4 py-12">
-        <motion.div
-          className="w-full max-w-md"
-          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
-          animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-          transition={reduceMotion ? { duration: 0 } : { duration: 0.5 }}
-        >
+        <motion.div className="w-full max-w-md" {...motionProps}>
           <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-8">
             {sent ? (
               <div className="flex flex-col items-center text-center">

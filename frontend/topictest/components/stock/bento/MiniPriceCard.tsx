@@ -5,7 +5,8 @@ import type { PriceChartData } from '../../../lib/types/priceChart';
 import { EChartPanel } from '../../charts/EChartPanel';
 import { useTheme } from '../../../lib/ThemeContext';
 import { getChartPalette, getEChartsBaseOption } from '../../../lib/chartTheme';
-import { BentoActionButton } from './BentoActionButton';
+import { getToneTextClass, type ValueTone } from '../../../lib/utils/valueToneClass';
+import { BentoCardShell } from './BentoCardShell';
 
 interface Props {
   priceChart: PriceChartData | null;
@@ -20,14 +21,14 @@ export const MiniPriceCard: React.FC<Props> = ({ priceChart, onOpenDetail }) => 
 
   const { option, rangeChangePct, rangeChangeTone } = useMemo(() => {
     if (!priceChart?.candles?.length) {
-      return { option: null, rangeChangePct: null as number | null, rangeChangeTone: 'neutral' as const };
+      return { option: null, rangeChangePct: null as number | null, rangeChangeTone: 'neutral' as ValueTone };
     }
     const palette = getChartPalette(isDark);
     const candles = priceChart.candles.slice(-RECENT_CANDLES);
     const first = candles[0]?.close ?? 0;
     const last = candles[candles.length - 1]?.close ?? 0;
     const pct = first !== 0 ? ((last - first) / first) * 100 : 0;
-    const tone = pct > 0 ? 'up' : pct < 0 ? 'down' : 'neutral';
+    const tone: ValueTone = pct > 0 ? 'up' : pct < 0 ? 'down' : 'neutral';
 
     const closeSeries = candles.map((c) => c.close);
     const dates = candles.map((c) => c.time);
@@ -50,9 +51,9 @@ export const MiniPriceCard: React.FC<Props> = ({ priceChart, onOpenDetail }) => 
       },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: isDark ? '#1C1C1F' : '#FFFFFF',
+        backgroundColor: palette.tooltipBg,
         borderColor: palette.tickMuted,
-        textStyle: { color: isDark ? '#E8E6E3' : '#1A1A1A', fontSize: 12 },
+        textStyle: { color: palette.tooltipText, fontSize: 12 },
         formatter: (params) => {
           const arr = Array.isArray(params) ? params : [params];
           const p = arr[0] as { axisValue?: string; data?: number } | undefined;
@@ -98,24 +99,23 @@ export const MiniPriceCard: React.FC<Props> = ({ priceChart, onOpenDetail }) => 
     return { option: opt, rangeChangePct: pct, rangeChangeTone: tone };
   }, [priceChart, isDark]);
 
-  const toneClass =
-    rangeChangeTone === 'up' ? 'text-up' : rangeChangeTone === 'down' ? 'text-down' : 'text-[var(--color-text-secondary)]';
+  const toneClass = getToneTextClass(rangeChangeTone);
 
   return (
-    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[var(--shadow-card)] p-4 sm:p-5 flex flex-col gap-3 h-full min-h-[260px]">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-text-primary)]">
-          <CandlestickChart size={16} className="text-brand" aria-hidden />
-          價量走勢
-        </h3>
-        {rangeChangePct != null ? (
+    <BentoCardShell
+      icon={CandlestickChart}
+      title="價量走勢"
+      rightSlot={
+        rangeChangePct != null ? (
           <span className={`text-sm font-mono font-semibold tabular-nums ${toneClass}`}>
             {rangeChangePct > 0 ? '+' : ''}
             {rangeChangePct.toFixed(2)}%
           </span>
-        ) : null}
-      </div>
-      <p className="text-[11px] text-[var(--color-text-muted)]">
+        ) : null
+      }
+      action={{ label: '詳細 K 線與量能', onClick: onOpenDetail }}
+    >
+      <p className="text-[11px] text-[var(--color-text-muted)] -mt-1">
         近 {Math.min(priceChart?.candles?.length ?? 0, RECENT_CANDLES)} 個交易日收盤
       </p>
       <div className="flex-1 min-h-[140px]">
@@ -125,7 +125,6 @@ export const MiniPriceCard: React.FC<Props> = ({ priceChart, onOpenDetail }) => 
           <p className="text-sm text-[var(--color-text-muted)] py-8 text-center">尚無 K 線資料</p>
         )}
       </div>
-      <BentoActionButton label="詳細 K 線與量能" onClick={onOpenDetail} />
-    </div>
+    </BentoCardShell>
   );
 };
