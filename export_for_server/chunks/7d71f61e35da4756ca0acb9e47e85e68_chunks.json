@@ -1,0 +1,24 @@
+[
+  {
+    "chunk_id": "7d71f61e35da4756ca0acb9e47e85e68_0",
+    "article_id": "7d71f61e35da4756ca0acb9e47e85e68",
+    "stock_id": "2330",
+    "source": "ltn",
+    "pub_time": "2025-09-19T08:41:35+08:00",
+    "title": "黃仁勳砸50億美元入股英特爾 法人：看好台積電先進製程及封裝地位穩固",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5183321",
+    "tags": "",
+    "content_chunk": "輝達（NVIDIA）宣布與英特爾（Intel）在資料中心與PC領域展開數代合作，並且入股英特爾股權50億美元，持股比例估5%，對此，法人指出，台積電（2330）先進製程訂單並不會受到實質衝擊。此外，NVIDIA下世代AI GPU仍深度仰賴台積電CoWoS/SoIC技術，且Intel自有封裝技術 （Feveros/EMIB）於良率與技術穩定度仍待觀察，因此認為至2027年以前AI GPU轉單至Intel機率極低，看好台積電於先進製程與封裝維持穩固地位。\n對台積電短中期影響有限"
+  },
+  {
+    "chunk_id": "7d71f61e35da4756ca0acb9e47e85e68_1",
+    "article_id": "7d71f61e35da4756ca0acb9e47e85e68",
+    "stock_id": "2330",
+    "source": "ltn",
+    "pub_time": "2025-09-19T08:41:35+08:00",
+    "title": "黃仁勳砸50億美元入股英特爾 法人：看好台積電先進製程及封裝地位穩固",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5183321",
+    "tags": "",
+    "content_chunk": "對台積電短中期影響有限\n法人分析，NVIDIA與Intel已於去年開始合作Gaming GPU案件，預期Intel 18A製程並於2026年底開始投片，然而觀察高階GPU仍將在台積電投片，其餘資料中心/PC CPU與GPU仍在初期研發階段，台積電先進製程訂單並不會受到實質衝擊。此外，NVIDIA下世代AI GPU仍深度仰賴台積電CoWoS/SoIC技術，且Intel自有封裝技術 （Feveros/EMIB）於良率與技術穩定度仍待觀察，因此認為至2027年以前AI GPU轉單至Intel機率極低，看好台積電於先進製程與封裝維持穩固地位。"
+  }
+]

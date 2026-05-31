@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>財經新聞 RAG 系統</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Microsoft JhengHei", sans-serif; background: #0f1923; color: #e0e0e0; min-height: 100vh; }
+
+  /* 頂部導覽 */
+  nav { background: #1a2635; padding: 12px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #2a3a4a; }
+  nav h1 { font-size: 18px; color: #4fc3f7; }
+  nav .tab { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #90a4ae; transition: .2s; }
+  nav .tab.active { background: #4fc3f7; color: #0f1923; font-weight: 600; }
+  nav .tab:hover:not(.active) { background: #253545; }
+  .health { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 10px; }
+  .health.ok { background: #1b5e20; color: #a5d6a7; }
+  .health.fail { background: #b71c1c; color: #ef9a9a; }
+
+  /* 頁面區塊 */
+  .page { display: none; padding: 24px; max-width: 960px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* 輸入區 */
+  .input-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  select, input[type=text], input[type=number] { background: #1a2635; border: 1px solid #2a3a4a; color: #e0e0e0; padding: 10px 14px; border-radius: 8px; font-size: 14px; outline: none; }
+  select:focus, input:focus { border-color: #4fc3f7; }
+  input[type=text] { flex: 1; }
+  button { background: #4fc3f7; color: #0f1923; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: .2s; }
+  button:hover { background: #81d4fa; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* 選項列 */
+  .options { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; font-size: 13px; }
+  .options label { display: flex; align-items: center; gap: 4px; color: #90a4ae; }
+  .options input[type=checkbox] { accent-color: #4fc3f7; }
+
+  /* 結果卡片 */
+  .card { background: #1a2635; border: 1px solid #2a3a4a; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h3 { color: #4fc3f7; margin-bottom: 12px; font-size: 16px; }
+  .badge { display: inline-block; background: #253545; color: #81d4fa; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 6px; }
+  .meta { color: #78909c; font-size: 12px; margin-top: 8px; }
+
+  /* AI 回答 */
+  #answer { white-space: pre-wrap; line-height: 1.8; font-size: 14px; }
+  .loading { color: #4fc3f7; animation: pulse 1s infinite; }
+  .status-msg { color: #4fc3f7; animation: pulse 1s infinite; font-style: italic; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* 來源折疊 */
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: #4fc3f7; font-size: 14px; }
+  .source-item { background: #0f1923; border: 1px solid #2a3a4a; border-radius: 8px; padding: 12px; margin-top: 8px; }
+  .source-item h4 { font-size: 13px; color: #e0e0e0; margin-bottom: 4px; }
+  .source-item p { font-size: 12px; color: #90a4ae; line-height: 1.5; }
+  .source-item a { color: #4fc3f7; text-decoration: none; font-size: 12px; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #253545; color: #4fc3f7; padding: 10px; text-align: left; }
+  td { padding: 10px; border-bottom: 1px solid #1a2635; }
+  tr:hover { background: #1a2635; }
+
+  /* 分頁 */
+  .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>📈 財經新聞 RAG</h1>
+  <div class="tab active" onclick="switchTab('ask')">AI 問答</div>
+  <div class="tab" onclick="switchTab('chart')">走勢圖</div>
+  <div class="tab" onclick="switchTab('news')">新聞瀏覽</div>
+  <div class="tab" onclick="switchTab('history')">歷史紀錄</div>
+  <div class="tab" id="profileTab" onclick="switchTab('profile')" style="display:none">個人觀點</div>
+  <span class="health" id="healthBadge">檢查中...</span>
+  <span id="userBadge" style="font-size:13px;color:#90a4ae;cursor:pointer" onclick="showAuthModal()">登入</span>
+</nav>
+
+<!-- ===== 登入/註冊 Modal ===== -->
+<div id="authModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;display:flex;align-items:center;justify-content:center">
+  <div style="background:#1a2635;border:1px solid #2a3a4a;border-radius:12px;padding:32px;width:320px">
+    <h3 style="color:#4fc3f7;margin-bottom:20px" id="authTitle">登入</h3>
+    <input id="authUsername" type="text" placeholder="使用者名稱" style="width:100%;margin-bottom:12px;display:block" />
+    <input id="authPassword" type="password" placeholder="密碼" style="width:100%;margin-bottom:16px;display:block" />
+    <div style="display:flex;gap:8px">
+      <button onclick="doLogin()" style="flex:1">登入</button>
+      <button onclick="doRegister()" style="flex:1;background:#253545;color:#4fc3f7">註冊</button>
+    </div>
+    <p id="authError" style="color:#ef9a9a;font-size:13px;margin-top:10px"></p>
+    <button onclick="closeAuthModal()" style="background:transparent;color:#78909c;margin-top:8px;font-size:12px;padding:4px">取消</button>
+  </div>
+</div>
+
+<!-- ===== AI 問答 ===== -->
+<div class="page active" id="page-ask">
+  <div class="input-row">
+    <select id="stockSelect"><option value="">全部（自動偵測）</option></select>
+    <input type="text" id="queryInput" placeholder="請輸入財經問題，例如：台積電最近 AI 伺服器訂單如何？" />
+    <button id="askBtn" onclick="doAsk()">送出</button>
+  </div>
+  <div class="options">
+    <label><input type="checkbox" id="streamCheck" checked /> 串流回答</label>
+  </div>
+  <div id="askResult"></div>
+</div>
+
+<!-- ===== 走勢圖 ===== -->
+<div class="page" id="page-chart">
+  <div class="input-row">
+    <select id="chartStock"></select>
+    <input type="number" id="chartDays" value="120" min="20" max="500" style="width:80px" />
+    <span style="color:#90a4ae;font-size:13px;align-self:center">交易日</span>
+    <button onclick="loadChart()">載入</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <button onclick="setDays(20)"  style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近1月</button>
+    <button onclick="setDays(60)"  style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近3月</button>
+    <button onclick="setDays(120)" style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近6月</button>
+    <button onclick="setDays(250)" style="padding:4px 12px;font-size:12px;background:#1e3a4a;color:#90a4ae">最近1年</button>
+    <button onclick="loadTrendPredict()" id="predictBtn" style="padding:4px 14px;font-size:12px;background:#1e3a2a;color:#a5d6a7;border:1px solid #388e3c">🔮 AI 趨勢預測</button>
+  </div>
+  <div class="card" style="position:relative;min-height:320px">
+    <canvas id="priceChart"></canvas>
+    <p id="chartLoading" style="color:#4fc3f7;text-align:center;padding:40px 0">請選擇股票後點擊載入</p>
+  </div>
+  <div id="predictResult" style="margin-top:12px"></div>
+  <div id="newsMarkers" style="margin-top:12px"></div>
+</div>
+
+<!-- ===== 新聞瀏覽 ===== -->
+<div class="page" id="page-news">
+  <div class="input-row">
+    <select id="newsStock"></select>
+    <input type="text" id="newsKeyword" placeholder="搜尋關鍵字..." />
+    <button onclick="loadNews(1)">搜尋</button>
+  </div>
+  <div id="newsResult"></div>
+</div>
+
+<!-- ===== 個人觀點 ===== -->
+<div class="page" id="page-profile">
+  <div class="card" style="margin-bottom:16px">
+    <h3 style="color:#4fc3f7;margin-bottom:16px">新增個人觀點</h3>
+    <div style="margin-bottom:10px">
+      <label style="font-size:13px;color:#90a4ae;display:block;margin-bottom:4px">問題情境（這個觀點適用於什麼問題）</label>
+      <input type="text" id="viewQuestion" placeholder="例如：台積電 CoWoS 需求趨勢" style="width:100%" />
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:13px;color:#90a4ae;display:block;margin-bottom:4px">個人觀點</label>
+      <textarea id="viewContent" placeholder="例如：我認為 CoWoS 需求在 Q3 會反彈，因為 AI 伺服器出貨仍強勁" style="width:100%;background:#0f1923;border:1px solid #2a3a4a;color:#e0e0e0;padding:10px;border-radius:8px;font-size:14px;resize:vertical;min-height:80px"></textarea>
+    </div>
+    <button onclick="addView()">新增觀點</button>
+  </div>
+  <div id="viewsList"></div>
+</div>
+
+<!-- ===== 歷史紀錄 ===== -->
+<div class="page" id="page-history">
+  <button onclick="loadHistory(1)" style="margin-bottom:16px">載入歷史</button>
+  <div id="historyResult"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+
+// ── Tab 切換 ──
+function switchTab(name) {
+  const labels = { ask: "問答", chart: "走勢", news: "新聞", history: "歷史", profile: "個人" };
+  document.querySelectorAll(".tab").forEach(t => {
+    t.classList.toggle("active", t.textContent.includes(labels[name] || ""));
+  });
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById("page-" + name).classList.add("active");
+  if (name === "profile") loadViews();
+}
+
+// ── 認證 ──
+let currentToken = localStorage.getItem("rag_token");
+let currentUsername = localStorage.getItem("rag_username");
+
+function updateAuthUI() {
+  const badge = document.getElementById("userBadge");
+  const profileTab = document.getElementById("profileTab");
+  if (currentToken) {
+    badge.textContent = `👤 ${currentUsername}　登出`;
+    badge.onclick = doLogout;
+    profileTab.style.display = "";
+  } else {
+    badge.textContent = "登入";
+    badge.onclick = showAuthModal;
+    profileTab.style.display = "none";
+  }
+}
+
+function showAuthModal() {
+  document.getElementById("authModal").style.display = "flex";
+  document.getElementById("authError").textContent = "";
+}
+function closeAuthModal() {
+  document.getElementById("authModal").style.display = "none";
+}
+
+async function doLogin() {
+  const username = document.getElementById("authUsername").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errEl = document.getElementById("authError");
+  try {
+    const res = await fetch(API + "/api/auth/login", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({username, password})
+    });
+    const d = await res.json();
+    if (!res.ok) { errEl.textContent = d.detail; return; }
+    currentToken = d.token;
+    currentUsername = d.username;
+    localStorage.setItem("rag_token", currentToken);
+    localStorage.setItem("rag_username", currentUsername);
+    updateAuthUI();
+    closeAuthModal();
+  } catch(e) { errEl.textContent = "登入失敗：" + e.message; }
+}
+
+async function doRegister() {
+  const username = document.getElementById("authUsername").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errEl = document.getElementById("authError");
+  try {
+    const res = await fetch(API + "/api/auth/register", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({username, password})
+    });
+    const d = await res.json();
+    if (!res.ok) { errEl.textContent = d.detail; return; }
+    currentToken = d.token;
+    currentUsername = d.username;
+    localStorage.setItem("rag_token", currentToken);
+    localStorage.setItem("rag_username", currentUsername);
+    updateAuthUI();
+    closeAuthModal();
+  } catch(e) { errEl.textContent = "註冊失敗：" + e.message; }
+}
+
+function doLogout() {
+  currentToken = null; currentUsername = null;
+  localStorage.removeItem("rag_token");
+  localStorage.removeItem("rag_username");
+  updateAuthUI();
+}
+
+// ── 個人觀點 ──
+async function loadViews() {
+  if (!currentToken) return;
+  const el = document.getElementById("viewsList");
+  el.innerHTML = `<p class="loading">載入中...</p>`;
+  try {
+    const res = await fetch(API + "/api/profile/views", { headers: {"X-Token": currentToken} });
+    const d = await res.json();
+    if (!d.views.length) { el.innerHTML = `<p style="color:#78909c;text-align:center;padding:20px">尚無觀點，請在上方新增</p>`; return; }
+    let html = "";
+    for (const v of d.views) {
+      html += `<div class="card" style="position:relative">
+        <button onclick="deleteView(${v.id})" style="position:absolute;top:12px;right:12px;background:#b71c1c;padding:4px 10px;font-size:12px">刪除</button>
+        <div class="badge" style="margin-bottom:8px">${v.created_at.slice(0,10)}</div>
+        <div style="font-size:13px;color:#90a4ae;margin-bottom:4px">情境：${v.question}</div>
+        <div style="font-size:14px">${v.personal_view}</div>
+      </div>`;
+    }
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = `<p style="color:#ef9a9a">載入失敗：${e.message}</p>`; }
+}
+
+async function addView() {
+  if (!currentToken) { showAuthModal(); return; }
+  const question = document.getElementById("viewQuestion").value.trim();
+  const personal_view = document.getElementById("viewContent").value.trim();
+  if (!question || !personal_view) return alert("請填寫情境與觀點");
+  await fetch(API + "/api/profile/views", {
+    method: "POST",
+    headers: {"Content-Type":"application/json", "X-Token": currentToken},
+    body: JSON.stringify({question, personal_view})
+  });
+  document.getElementById("viewQuestion").value = "";
+  document.getElementById("viewContent").value = "";
+  loadViews();
+}
+
+async function deleteView(id) {
+  if (!confirm("確定刪除？")) return;
+  await fetch(API + `/api/profile/views/${id}`, {
+    method: "DELETE", headers: {"X-Token": currentToken}
+  });
+  loadViews();
+}
+
+// ── 健康檢查 ──
+async function checkHealth() {
+  const badge = document.getElementById("healthBadge");
+  try {
+    const r = await fetch(API + "/api/health");
+    const d = await r.json();
+    badge.textContent = d.qdrant_ready ? "● 系統正常" : "● Qdrant 未就緒";
+    badge.className = "health " + (d.qdrant_ready ? "ok" : "fail");
+  } catch {
+    badge.textContent = "● 無法連線";
+    badge.className = "health fail";
+  }
+}
+
+// ── 載入股票清單 ──
+async function loadStocks() {
+  try {
+    const r = await fetch(API + "/api/stocks");
+    const d = await r.json();
+    const opts = d.stocks.map(s => `<option value="${s.id}">${s.id} ${s.name}</option>`).join("");
+    document.getElementById("stockSelect").innerHTML = `<option value="">全部（自動偵測）</option>` + opts;
+    document.getElementById("newsStock").innerHTML = opts;
+    document.getElementById("chartStock").innerHTML = opts;
+  } catch {}
+}
+
+// ── AI 問答 ──
+async function doAsk() {
+  const query = document.getElementById("queryInput").value.trim();
+  if (!query) return;
+  const stock_id = document.getElementById("stockSelect").value || null;
+  const stream = document.getElementById("streamCheck").checked;
+  const btn = document.getElementById("askBtn");
+  const result = document.getElementById("askResult");
+
+  btn.disabled = true;
+  btn.textContent = "思考中...";
+
+  if (stream) {
+    result.innerHTML = `<div class="card"><h3>🤖 AI 分析</h3><div id="statusBar" class="status-msg">⏳ 連線中...</div><div id="answer"></div></div>`;
+    try {
+      const res = await fetch(API + "/api/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({query, stock_id, stream: true, user_token: currentToken}),
+      });
+      // 非串流回應（如意圖分類攔截）直接當 JSON 處理
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const data = await res.json();
+        document.getElementById("statusBar").style.display = "none";
+        document.getElementById("answer").textContent = data.answer;
+        btn.disabled = false; btn.textContent = "送出";
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let statusBar = document.getElementById("statusBar");
+      let answerEl = document.getElementById("answer");
+      let buffer = "";
+      let textStarted = false;
+      let doneHandled = false;
+
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream: true});
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.type === "status") {
+            statusBar.textContent = data.content;
+          } else if (data.type === "text") {
+            if (!textStarted) {
+              textStarted = true;
+              statusBar.style.display = "none";
+            }
+            answerEl.textContent += data.content;
+          } else if (data.type === "done") {
+            if (doneHandled) continue;
+            doneHandled = true;
+            statusBar.style.display = "none";
+            if (!textStarted && data.answer) {
+              answerEl.textContent = data.answer;
+            }
+            const metaHtml = `<div class="meta" style="margin-bottom:10px">
+              ${(data.detected_stocks||[]).map(s=>`<span class="badge">${s}</span>`).join("")}
+              ${data.time_range ? `<span class="badge">${data.time_range.from.slice(0,10)} ~ ${data.time_range.to.slice(0,10)}</span>` : ""}
+              ${data.duration_ms ? `<span class="badge">${data.duration_ms}ms</span>` : ""}
+            </div>`;
+            answerEl.insertAdjacentHTML("beforebegin", metaHtml);
+            renderSources(data.sources, data);
+            renderActions(data.actions);
+          } else if (data.type === "error") {
+            statusBar.style.display = "none";
+            answerEl.textContent = "❌ 錯誤：" + data.message;
+          }
+        }
+      }
+    } catch (e) {
+      result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+    }
+  } else {
+    result.innerHTML = `<div class="card"><h3 class="loading">⏳ 等待 AI 回覆中...</h3></div>`;
+    try {
+      const res = await fetch(API + "/api/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({query, stock_id, stream: false, user_token: currentToken}),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail);
+      }
+      const data = await res.json();
+      result.innerHTML = `<div class="card"><h3>🤖 AI 分析</h3>
+        <div class="meta">${data.detected_stocks.map(s => `<span class="badge">${s}</span>`).join("")}
+        ${data.time_range ? `<span class="badge">${data.time_range.from.slice(0,10)} ~ ${data.time_range.to.slice(0,10)}</span>` : ""}
+        <span class="badge">${data.duration_ms}ms</span>
+        <span class="badge">tokens: ${data.tokens.input}→${data.tokens.output}</span>
+        </div>
+        <div id="answer" style="margin-top:12px">${data.answer}</div>
+      </div>`;
+      renderSources(data.sources, data);
+      renderActions(data.actions);
+    } catch (e) {
+      result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+    }
+  }
+  btn.disabled = false;
+  btn.textContent = "送出";
+}
+
+function renderActions(actions) {
+  if (!actions || actions.length === 0) return;
+  const result = document.getElementById("askResult");
+  const card = result.querySelector(".card");
+  if (!card) return;
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;";
+  actions.forEach(a => {
+    const btn = document.createElement("button");
+    btn.textContent = a.label;
+    btn.style.cssText = "padding:7px 14px;border-radius:8px;border:1px solid #546e7a;background:#1e2a35;color:#cfd8dc;cursor:pointer;font-size:13px;transition:background 0.15s;";
+    btn.onmouseenter = () => btn.style.background = "#263238";
+    btn.onmouseleave = () => btn.style.background = "#1e2a35";
+    if (a.type === "follow_up") {
+      btn.onclick = () => {
+        document.getElementById("queryInput").value = a.query;
+        switchTab("ask");
+        document.getElementById("askBtn").click();
+      };
+    } else if (a.type === "chart" && a.stock_id) {
+      btn.onclick = () => {
+        document.getElementById("chartStock").value = a.stock_id;
+        switchTab("chart");
+        loadChart();
+      };
+    } else if (a.type === "news" && a.stock_id) {
+      btn.onclick = () => {
+        document.getElementById("newsStock").value = a.stock_id;
+        switchTab("news");
+        loadNews(1);
+      };
+    } else if (a.type === "save_view") {
+      btn.onclick = () => switchTab("profile");
+    }
+    wrap.appendChild(btn);
+  });
+  card.appendChild(wrap);
+}
+
+function renderSources(sources, meta) {
+  if (!sources || !sources.length) return;
+  const result = document.getElementById("askResult");
+  let html = `<details class="card"><summary>📚 ${sources.length} 筆參考來源</summary>`;
+  if (meta.detected_stocks) {
+    html += `<div class="meta" style="margin:8px 0">
+      ${meta.detected_stocks.map(s=>`<span class="badge">${s}</span>`).join("")}
+      ${meta.time_range ? `<span class="badge">${meta.time_range.from.slice(0,10)} ~ ${meta.time_range.to.slice(0,10)}</span>` : ""}
+      ${meta.duration_ms ? `<span class="badge">${meta.duration_ms}ms</span>` : ""}
+    </div>`;
+  }
+  for (const s of sources) {
+    html += `<div class="source-item">
+      <h4>${s.title}</h4>
+      <p>${s.content.slice(0, 200)}...</p>
+      <span class="badge">${s.source_name}</span>
+      <span class="badge">${s.stock_id}</span>
+      <span class="badge">${s.pub_time}</span>
+      <span class="badge">相似度 ${s.score}</span>
+      ${s.url ? `<a href="${s.url}" target="_blank">🔗 原文連結</a>` : ""}
+    </div>`;
+  }
+  html += `</details>`;
+  result.innerHTML += html;
+}
+
+
+// ── 走勢圖 ──
+let priceChartInstance = null;
+
+function setDays(days) {
+  document.getElementById("chartDays").value = days;
+  loadChart();
+}
+let chartNewsMap = {};
+let chartAllNews = [];
+
+function renderNewsList(filterDate = null) {
+  const markersEl = document.getElementById("newsMarkers");
+  const list = filterDate
+    ? chartAllNews.filter(n => n.displayDate === filterDate)
+    : chartAllNews.slice(-20).reverse();
+
+  if (list.length === 0) { markersEl.innerHTML = ""; return; }
+
+  const title = filterDate
+    ? `📰 ${filterDate} 新聞（${list.length} 則）<button onclick="renderNewsList()" style="margin-left:12px;background:#253545;color:#90a4ae;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:12px">← 全部</button>`
+    : `📰 近期新聞（紅點標記）`;
+
+  let html = `<div class="card"><h3 style="color:#4fc3f7;margin-bottom:12px">${title}</h3>`;
+  for (const n of list) {
+    html += `<div style="padding:6px 0;border-bottom:1px solid #253545">
+      <span class="badge">${n.date}</span>
+      <span class="badge">${n.source}</span>
+      ${n.url ? `<a href="${n.url}" target="_blank" style="color:#4fc3f7;font-size:12px">${n.title.slice(0,50)}...</a>` : `<span style="font-size:13px">${n.title.slice(0,60)}</span>`}
+    </div>`;
+  }
+  html += `</div>`;
+  markersEl.innerHTML = html;
+}
+
+async function loadChart() {
+  const stock = document.getElementById("chartStock").value;
+  const tradingDays = parseInt(document.getElementById("chartDays").value) || 120;
+  if (!stock) return alert("請選擇股票");
+
+  const loading = document.getElementById("chartLoading");
+  const markersEl = document.getElementById("newsMarkers");
+  loading.textContent = "載入中...";
+  loading.style.display = "block";
+  markersEl.innerHTML = "";
+
+  const end = new Date();
+  const start = new Date();
+  // 新聞範圍多抓一點，確保週六日的新聞也能撈到
+  start.setDate(start.getDate() - Math.ceil(tradingDays * 1.5));
+  const fmt = d => d.toISOString().slice(0, 10);
+
+  // 週六日日期移到前一個週五
+  function toTradingDate(dateStr) {
+    const d = new Date(dateStr + "T00:00:00");
+    const day = d.getDay();
+    if (day === 6) d.setDate(d.getDate() - 1);
+    else if (day === 0) d.setDate(d.getDate() - 2);
+    return d.toISOString().slice(0, 10);
+  }
+
+  try {
+    const [priceRes, newsRes] = await Promise.all([
+      fetch(`${API}/api/stock_price?stock_id=${stock}&trading_days=${tradingDays}`),
+      fetch(`${API}/api/news_timeline?stock_id=${stock}&start_date=${fmt(start)}&end_date=${fmt(end)}`),
+    ]);
+    if (!priceRes.ok) throw new Error((await priceRes.json()).detail);
+    const priceData = await priceRes.json();
+    const newsData = newsRes.ok ? await newsRes.json() : { news: [] };
+
+    const labels = priceData.records.map(r => r.date);
+    const closes = priceData.records.map(r => r.close);
+
+    // 新聞標記：週六日新聞歸到前一個週五
+    chartNewsMap = {};
+    chartAllNews = newsData.news.map(n => ({ ...n, displayDate: toTradingDate(n.date) }));
+    for (const n of chartAllNews) {
+      if (!chartNewsMap[n.displayDate]) chartNewsMap[n.displayDate] = [];
+      chartNewsMap[n.displayDate].push(n.title);
+    }
+    const pointColors = labels.map(d => chartNewsMap[d] ? "#ff6b6b" : "transparent");
+    const pointRadius = labels.map(d => chartNewsMap[d] ? 6 : 0);
+
+    if (priceChartInstance) priceChartInstance.destroy();
+    loading.style.display = "none";
+
+    const ctx = document.getElementById("priceChart").getContext("2d");
+    priceChartInstance = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: `${priceData.stock_name}（${stock}）收盤價`,
+          data: closes,
+          borderColor: "#4fc3f7",
+          backgroundColor: "rgba(79,195,247,0.08)",
+          borderWidth: 2,
+          pointBackgroundColor: pointColors,
+          pointRadius: pointRadius,
+          pointHoverRadius: 8,
+          tension: 0.1,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: "#e0e0e0", usePointStyle: true, pointStyleWidth: 20 } },
+          tooltip: {
+            callbacks: {
+              afterBody: (items) => {
+                const date = items[0].label;
+                const news = chartNewsMap[date];
+                if (!news) return [];
+                const lines = ["", `📰 新聞（${news.length} 則）：`];
+                news.forEach(t => lines.push("• " + t.slice(0, 45)));
+                if (news.length > 1) lines.push("（點擊紅點篩選當日新聞）");
+                return lines;
+              }
+            }
+          }
+        },
+        onClick: (evt, elements) => {
+          if (elements.length > 0) {
+            const date = priceChartInstance.data.labels[elements[0].index];
+            if (chartNewsMap[date]) renderNewsList(date);
+          }
+        },
+        scales: {
+          x: { ticks: { color: "#78909c", maxTicksLimit: 10 }, grid: { color: "#1a2635" } },
+          y: { ticks: { color: "#78909c" }, grid: { color: "#1a2635" } }
+        }
+      }
+    });
+
+    renderNewsList();
+  } catch (e) {
+    loading.textContent = "❌ " + e.message;
+  }
+}
+
+function loadTrendPredict() {
+  const stock = document.getElementById("chartStock").value;
+  if (!stock) return alert("請先載入走勢圖");
+  if (!priceChartInstance) return alert("請先載入走勢圖");
+
+  const btn = document.getElementById("predictBtn");
+  const resultEl = document.getElementById("predictResult");
+  btn.disabled = true;
+  btn.textContent = "🔮 預測中...";
+  resultEl.innerHTML = `<div class="card" id="predictProgress">
+    <h3 style="color:#a5d6a7;margin-bottom:12px">🔮 AI 逐週預測中...</h3>
+    <div id="weekProgress" style="display:flex;gap:12px;flex-wrap:wrap">
+      ${[1,2,3,4].map(w=>`<div id="week${w}status" style="padding:8px 14px;border-radius:8px;background:#1a2635;border:1px solid #2a3a4a;font-size:13px;color:#546e7a">第${w}週 ⏳</div>`).join("")}
+    </div>
+  </div>`;
+
+  // 關閉舊連線
+  if (window._predictES) { window._predictES.close(); window._predictES = null; }
+
+  let chartInitDone = false;
+  let existingLen = 0;
+  let futureDatesLen = 0;
+  const collectedNodes = [];
+
+  const es = new EventSource(`${API}/api/trend_predict_stream?stock_id=${stock}`);
+  window._predictES = es;
+
+  es.onmessage = (evt) => {
+    const d = JSON.parse(evt.data);
+    const chart = priceChartInstance;
+
+    if (d.type === "error") {
+      resultEl.innerHTML = `<div class="card"><p style="color:#ef9a9a">❌ ${d.message}</p></div>`;
+      es.close(); btn.disabled = false; btn.textContent = "🔮 AI 趨勢預測";
+      return;
+    }
+
+    if (d.type === "init") {
+      // ── 初始化：加回歸線 datasets，建立空的 AI 預測 dataset ──
+      existingLen = chart.data.labels.length;
+      futureDatesLen = d.future_dates.length;
+      const allLabels = [...chart.data.labels, ...d.future_dates];
+
+      // 移除舊預測 datasets
+      chart.data.datasets = chart.data.datasets.filter(ds =>
+        !["__regr_upper__","__regr_lower__","__regr_hist__","__regr_future__","__ai_future__"].includes(ds._id)
+      );
+
+      chart.data.labels = allLabels;
+      // 補齊主 dataset 長度
+      const mainDs = chart.data.datasets[0];
+      mainDs.data = [...mainDs.data, ...new Array(futureDatesLen).fill(null)];
+      mainDs.pointBackgroundColor = [...mainDs.pointBackgroundColor, ...new Array(futureDatesLen).fill("transparent")];
+      mainDs.pointRadius = [...mainDs.pointRadius, ...new Array(futureDatesLen).fill(0)];
+
+      // 回歸歷史線對齊
+      const firstHistIdx = chart.data.labels.indexOf(d.history_dates[0]);
+      const regrHistData = new Array(existingLen).fill(null);
+      if (firstHistIdx >= 0) {
+        d.regression_history.forEach((v, i) => {
+          if (firstHistIdx + i < regrHistData.length) regrHistData[firstHistIdx + i] = v;
+        });
+      }
+      const upperData = new Array(existingLen).fill(null);
+      const lowerData = new Array(existingLen).fill(null);
+      if (firstHistIdx >= 0 && d.regression_upper) {
+        d.regression_upper.forEach((v, i) => { if (firstHistIdx+i < existingLen) upperData[firstHistIdx+i] = v; });
+        d.regression_lower.forEach((v, i) => { if (firstHistIdx+i < existingLen) lowerData[firstHistIdx+i] = v; });
+      }
+
+      // 只畫未來數學預測線，從最後收盤銜接
+      const regrFutureData = new Array(existingLen).fill(null);
+      regrFutureData[existingLen - 1] = d.last_price;
+      chart.data.datasets.push({ _id:"__regr_future__", label:"數學預測（1個月）",
+        data:[...regrFutureData, ...d.regression_future],
+        borderColor:"rgba(255,213,79,0.85)", borderWidth:2, borderDash:[6,3],
+        pointRadius:0, pointStyle:"line", fill:false, tension:0 });
+
+      // AI 預測線初始：只有銜接點，其餘 null
+      const aiInitData = new Array(existingLen + futureDatesLen).fill(null);
+      aiInitData[existingLen - 1] = d.last_price;
+      chart.data.datasets.push({ _id:"__ai_future__", label:"AI 逐週預測",
+        data: aiInitData,
+        borderColor:"rgba(102,187,106,0.9)", borderWidth:2.5, borderDash:[8,3],
+        pointRadius: new Array(existingLen + futureDatesLen).fill(0),
+        pointBackgroundColor:"rgba(102,187,106,0.9)",
+        pointStyle:"circle", fill:false, tension:0.4, spanGaps:true });
+
+      chart.update("none");
+      chartInitDone = true;
+      return;
+    }
+
+    if (d.type === "node" && chartInitDone) {
+      collectedNodes.push(d);
+      // 更新 AI 預測線在對應位置
+      const aiDs = chart.data.datasets.find(ds => ds._id === "__ai_future__");
+      if (aiDs) {
+        const pos = existingLen + d.day_idx;
+        aiDs.data[pos] = d.price;
+        aiDs.pointRadius[pos] = 6;
+        // 上漲綠/下跌紅
+        const isUp = d.pct >= 0;
+        aiDs.borderColor = isUp ? "rgba(102,187,106,0.9)" : "rgba(239,83,80,0.9)";
+        aiDs.pointBackgroundColor = isUp ? "rgba(102,187,106,0.9)" : "rgba(239,83,80,0.9)";
+        chart.update("none");
+      }
+      // 更新進度 UI
+      const el = document.getElementById(`week${d.week}status`);
+      if (el) {
+        const sign = d.pct >= 0 ? "+" : "";
+        el.style.background = d.pct >= 0 ? "#1b3a2a" : "#3a1b1b";
+        el.style.color = d.pct >= 0 ? "#a5d6a7" : "#ef9a9a";
+        el.style.borderColor = d.pct >= 0 ? "#388e3c" : "#c62828";
+        el.innerHTML = `第${d.week}週 ${sign}${d.pct.toFixed(1)}%<br><span style="font-size:11px;color:#90a4ae">${d.reason.slice(0,30)}...</span>`;
+      }
+      return;
+    }
+
+    if (d.type === "done") {
+      es.close(); window._predictES = null;
+      btn.disabled = false; btn.textContent = "🔮 AI 趨勢預測";
+
+      const dirIcon  = d.total_pct >= 0 ? "📈" : "📉";
+      const dirColor = d.total_pct >= 0 ? "#a5d6a7" : "#ef9a9a";
+      const sign = d.total_pct >= 0 ? "+" : "";
+
+      const nodeRows = d.nodes.map(nd => `
+        <div style="padding:8px 0;border-bottom:1px solid #253545">
+          <span class="badge">第${nd.week}週</span>
+          <span style="color:${nd.pct>=0?'#a5d6a7':'#ef9a9a'};font-weight:600">${nd.pct>=0?'+':''}${nd.pct.toFixed(1)}%</span>
+          <span style="color:#78909c;font-size:12px"> NT$${nd.price}</span>
+          <div style="color:#90a4ae;font-size:12px;margin-top:3px">${nd.reason}</div>
+        </div>`).join("");
+
+      resultEl.innerHTML = `
+        <div class="card">
+          <h3 style="color:#a5d6a7;margin-bottom:12px">${dirIcon} AI 逐週預測結果</h3>
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+            <div><span style="color:#78909c;font-size:12px">一個月預測方向</span><br>
+              <span style="color:${dirColor};font-size:20px;font-weight:700">${d.total_pct>=0?"看漲 ▲":"看跌 ▼"}</span></div>
+            <div><span style="color:#78909c;font-size:12px">預估漲跌幅</span><br>
+              <span style="color:${dirColor};font-size:20px;font-weight:700">${sign}${d.total_pct}%</span></div>
+            <div><span style="color:#78909c;font-size:12px">目標價</span><br>
+              <span style="color:#e0e0e0;font-size:20px;font-weight:700">NT$ ${d.target_price}</span></div>
+          </div>
+          <div style="margin-bottom:12px">${nodeRows}</div>
+          <p style="font-size:11px;color:#546e7a">⚠️ 本預測僅供參考，不構成投資建議。股市有風險，投資需謹慎。</p>
+          <button onclick="clearTrendPredict()" style="margin-top:12px;background:#253545;color:#90a4ae;font-size:12px;padding:4px 12px">✕ 清除預測線</button>
+        </div>`;
+    }
+  };
+
+  es.onerror = () => {
+    es.close(); window._predictES = null;
+    btn.disabled = false; btn.textContent = "🔮 AI 趨勢預測";
+    if (resultEl.querySelector("#predictProgress"))
+      resultEl.innerHTML = `<div class="card"><p style="color:#ef9a9a">❌ 串流連線中斷</p></div>`;
+  };
+}
+
+function clearTrendPredict() {
+  if (!priceChartInstance) return;
+  const chart = priceChartInstance;
+  // 移除預測 datasets
+  chart.data.datasets = chart.data.datasets.filter(ds =>
+    !["__regr_upper__", "__regr_lower__", "__regr_hist__", "__regr_future__", "__ai_future__"].includes(ds._id)
+  );
+  // 還原 labels 和主 dataset 到無未來日期的狀態（重新載入最乾淨）
+  chart.update();
+  document.getElementById("predictResult").innerHTML = "";
+}
+
+// ── 新聞瀏覽 ──
+async function loadNews(page) {
+  const stock = document.getElementById("newsStock").value;
+  const kw = document.getElementById("newsKeyword").value;
+  const result = document.getElementById("newsResult");
+  result.innerHTML = `<p class="loading">載入中...</p>`;
+  try {
+    const params = new URLSearchParams({stock_id: stock, keyword: kw, page, page_size: 30});
+    const res = await fetch(API + "/api/news?" + params);
+    const d = await res.json();
+    let html = `<p class="meta" style="margin-bottom:12px">${d.stock_name}（${d.stock_id}）共 ${d.total} 筆</p>`;
+    html += `<table><tr><th>標題</th><th>時間</th><th>連結</th></tr>`;
+    for (const r of d.records) {
+      html += `<tr>
+        <td title="${r.content_preview}">${r.title}</td>
+        <td style="white-space:nowrap">${r.pub_time.slice(0,10)}</td>
+        <td>${r.url ? `<a href="${r.url}" target="_blank" style="color:#4fc3f7">開啟</a>` : "-"}</td>
+      </tr>`;
+    }
+    html += `</table>`;
+    const totalPages = Math.ceil(d.total / d.page_size);
+    html += `<div class="pagination">`;
+    if (page > 1) html += `<button onclick="loadNews(${page-1})">上一頁</button>`;
+    html += `<span style="padding:10px;color:#90a4ae">第 ${page} / ${totalPages} 頁</span>`;
+    if (page < totalPages) html += `<button onclick="loadNews(${page+1})">下一頁</button>`;
+    html += `</div>`;
+    result.innerHTML = html;
+  } catch (e) {
+    result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+  }
+}
+
+// ── 歷史紀錄 ──
+async function loadHistory(page) {
+  const result = document.getElementById("historyResult");
+  result.innerHTML = `<p class="loading">載入中...</p>`;
+  try {
+    const res = await fetch(API + `/api/history?page=${page}&page_size=20`);
+    const d = await res.json();
+    let html = `<table><tr><th>ID</th><th>時間</th><th>問題</th><th>狀態</th><th>耗時</th><th>操作</th></tr>`;
+    for (const r of d.records) {
+      html += `<tr>
+        <td>${r.id}</td>
+        <td style="white-space:nowrap">${r.timestamp.slice(0,16)}</td>
+        <td>${r.query}</td>
+        <td><span class="badge">${r.status}</span></td>
+        <td>${r.duration_ms}ms</td>
+        <td><button onclick="viewDetail(${r.id})" style="padding:4px 8px;font-size:12px">詳情</button></td>
+      </tr>`;
+    }
+    html += `</table>`;
+    const totalPages = Math.ceil(d.total / d.page_size);
+    html += `<div class="pagination">`;
+    if (page > 1) html += `<button onclick="loadHistory(${page-1})">上一頁</button>`;
+    html += `<span style="padding:10px;color:#90a4ae">第 ${page} / ${totalPages} 頁</span>`;
+    if (page < totalPages) html += `<button onclick="loadHistory(${page+1})">下一頁</button>`;
+    html += `</div>`;
+    result.innerHTML = html;
+  } catch (e) {
+    result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
+  }
+}
+
+async function viewDetail(id) {
+  try {
+    const res = await fetch(API + `/api/history/${id}`);
+    const d = await res.json();
+    const result = document.getElementById("historyResult");
+    let html = `<button onclick="loadHistory(1)" style="margin-bottom:12px">← 返回列表</button>`;
+    html += `<div class="card"><h3>問題：${d.query}</h3>
+      <div class="meta"><span class="badge">${d.model}</span><span class="badge">${d.duration_ms}ms</span>
+      <span class="badge">${d.status}</span><span class="badge">${d.timestamp}</span></div>
+      <div id="answer" style="margin-top:12px">${d.answer || "（無回答）"}</div>
+    </div>`;
+    if (d.sources && d.sources.length) {
+      html += `<details class="card" open><summary>📚 ${d.sources.length} 筆來源</summary>`;
+      for (const s of d.sources) {
+        html += `<div class="source-item">
+          <h4>${s.title}</h4>
+          <p>${s.page_content.slice(0,200)}...</p>
+          <span class="badge">${s.source_name || s.source}</span>
+          <span class="badge">${s.stock_id}</span>
+          ${s.url ? `<a href="${s.url}" target="_blank">🔗 原文</a>` : ""}
+        </div>`;
+      }
+      html += `</details>`;
+    }
+    result.innerHTML = html;
+  } catch (e) {
+    alert("載入失敗：" + e.message);
+  }
+}
+
+// ── 初始化 ──
+checkHealth();
+loadStocks();
+updateAuthUI();
+</script>
+</body>
+</html>
