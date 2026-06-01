@@ -1,0 +1,24 @@
+[
+  {
+    "chunk_id": "6cf24c8c9bd0b29bc2035c6bcb41dac3_0",
+    "article_id": "6cf24c8c9bd0b29bc2035c6bcb41dac3",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-10-13T15:03:09+08:00",
+    "title": "聯發科與達發發布首款AI光纖網路閘道器平台  提升網路效能超過30％",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5209525",
+    "tags": "",
+    "content_chunk": "IC設計龍頭聯發科（2454）及其子公司達發（6526）在Network X 2025展會首度聯手發表為全球電信業者量身打造之邊緣與雲端AI光纖網路閘道器 （Gateway）平台，針對電信業者專屬的需求，將網路服務效能提升超過30%，有感解決用戶痛點，可大幅提升用戶體驗（QoE）並提升電信業者的營運效益。此外，聯發科集團晶片每年驅動全球超過20億個終端連網裝置，擁有最廣泛的邊緣AI整合優勢，AI光纖網路閘道器將可幫助電信運營商開啟全新AI服務機會。"
+  },
+  {
+    "chunk_id": "6cf24c8c9bd0b29bc2035c6bcb41dac3_1",
+    "article_id": "6cf24c8c9bd0b29bc2035c6bcb41dac3",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-10-13T15:03:09+08:00",
+    "title": "聯發科與達發發布首款AI光纖網路閘道器平台  提升網路效能超過30％",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5209525",
+    "tags": "",
+    "content_chunk": "聯發科Wi-Fi 7 Filogic 680與達發XGS-PON AN7581晶片的無縫技術融合，實現強大的邊緣 AI 運算能力，首度發表的AI光纖網路閘道器平台，不僅支持電信運營商 prplOS、RDK-B、OpenWRT 三大主流軟體架構，運用AI自主學習分析網路流量，實現高效管理Wi-Fi 與 PON之間的所有任務，不僅符合最新電信標準確保互通性，其光纖到府 （FTTH）封包擁塞優化、Wi-Fi 抗干擾技術，更可降低延遲並提升數據吞吐量，提升網路流量能效，大幅提升用戶體驗。"
+  }
+]

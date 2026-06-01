@@ -1,77 +1,8 @@
-import type { AdvisorAction, AdvisorPartialDataEvent, AdvisorReport } from '../types';
+import type { AdvisorAction, AdvisorReport } from '../types';
 import type { PriceChartData } from '../types/priceChart';
 import type { PricePositionSummary } from './advisorSignals';
 
 export type DisplayDataset = 'institutional' | 'prices' | 'indicators';
-
-export const DATASET_TITLES: Record<DisplayDataset, string> = {
-  institutional: '法人籌碼',
-  prices: '股價表現',
-  indicators: '技術指標',
-};
-
-export const SNAPSHOT_SECTION_TITLE = '關鍵資料整理';
-
-export function toDisplayString(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  return String(value);
-}
-
-export function getSummaryRows(dataset: DisplayDataset, card: AdvisorPartialDataEvent | null) {
-  const summary = card?.summary ?? {};
-  switch (dataset) {
-    case 'institutional':
-      return [
-        { label: '統計天數', value: summary.rows },
-        { label: '最新日期', value: summary.latest_date },
-        { label: '法人合計買賣超', value: summary.latest_total_net },
-      ];
-    case 'prices':
-      return [
-        { label: '統計天數', value: summary.rows },
-        { label: '最新日期', value: summary.latest_date },
-        { label: '最新收盤價', value: summary.latest_close },
-        { label: '單日漲跌', value: summary.latest_change },
-      ];
-    case 'indicators':
-      return [
-        { label: '統計天數', value: summary.rows },
-        { label: '最新日期', value: summary.latest_date },
-        { label: 'RSI 強弱指標', value: summary.latest_rsi10 },
-        { label: 'MACD 動能', value: summary.latest_macd_hist },
-      ];
-  }
-}
-
-export function getColumns(dataset: DisplayDataset): Array<{ key: string; label: string }> {
-  if (dataset === 'institutional') {
-    return [
-      { key: 'date', label: '日期' },
-      { key: 'foreign_net', label: '外資買賣超' },
-      { key: 'trust_net', label: '投信買賣超' },
-      { key: 'dealer_net', label: '自營商買賣超' },
-      { key: 'total_net', label: '法人合計' },
-    ];
-  }
-  if (dataset === 'prices') {
-    return [
-      { key: 'date', label: '日期' },
-      { key: 'close', label: '收盤價' },
-      { key: 'change', label: '漲跌' },
-      { key: 'volume', label: '成交量' },
-    ];
-  }
-  return [
-    { key: 'date', label: '日期' },
-    { key: 'ma5', label: '5 日均線' },
-    { key: 'ma20', label: '20 日均線' },
-    { key: 'rsi10', label: 'RSI' },
-    { key: 'macd_hist', label: 'MACD 動能' },
-  ];
-}
 
 export function actionHintText(action: AdvisorAction): string {
   if (action === 'buy') return '買入｜趨勢轉強，可考慮分批布局';

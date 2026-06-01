@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
+import { useReduceMotionPreset } from '../lib/hooks/useReduceMotionPreset';
 import { UserPlus, Mail, Lock, Eye, EyeOff, User, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
@@ -39,9 +39,7 @@ export default function RegisterPage() {
     if (password.length < 8) {
       return '密碼至少需要 8 個字元';
     }
-    if (password.length > 128) {
-      return '密碼長度過長';
-    }
+    // 上限由 <input maxLength={128}> 阻擋輸入；後端會回覆超長錯誤。
     if (password !== confirmPassword) {
       return '兩次輸入的密碼不一致';
     }
@@ -73,6 +71,7 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // 防止快速雙擊送出
     const msg = validate();
     if (msg) {
       setError(msg);
@@ -102,7 +101,11 @@ export default function RegisterPage() {
   const inputClass =
     'w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand focus:shadow-[0_0_16px_rgba(255,169,90,0.12)] transition-shadow disabled:opacity-60';
 
-  const reduceMotion = usePrefersReducedMotionClient();
+  const { motionProps } = useReduceMotionPreset({
+    initial: { opacity: 0, y: 24, scale: 0.96 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    transition: { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] },
+  });
 
   return (
     <div className="min-h-[100dvh] flex flex-col relative">
@@ -115,17 +118,13 @@ export default function RegisterPage() {
         <SubpageHeader icon={UserPlus} title="股海明燈" subtitle="建立帳號" />
 
         <main className="flex-1 flex items-center justify-center px-4 py-12">
-          <motion.div
-            className="w-full max-w-md"
-            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
-            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-            transition={
-              reduceMotion ? { duration: 0 } : { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }
-            }
-          >
+          <motion.div className="w-full max-w-md" {...motionProps}>
             <div className="glass rounded-2xl shadow-xl shadow-black/10 dark:shadow-brand/5 p-8">
               <div className="flex flex-col items-center mb-8">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand to-brand-light flex items-center justify-center shadow-lg shadow-brand/20 mb-4" style={{ animation: 'glow-pulse 3s ease-in-out infinite' }}>
+                <div
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg shadow-brand/20 mb-4"
+                  style={{ background: 'var(--brand-gradient)', animation: 'glow-pulse 3s ease-in-out infinite' }}
+                >
                   <UserPlus size={26} className="text-white" />
                 </div>
                 <h2 className="text-2xl font-bold gradient-text">建立帳號</h2>
@@ -248,9 +247,10 @@ export default function RegisterPage() {
                 type="submit"
                 disabled={loading}
                 aria-busy={loading}
-                className="relative w-full py-3 rounded-xl bg-gradient-to-r from-brand to-brand-light text-white font-semibold
+                className="relative w-full py-3 rounded-xl text-white font-semibold
                            shadow-lg shadow-brand/20 hover:shadow-[0_0_24px_var(--glow-brand-strong)]
                            transition-[opacity,box-shadow,transform] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
+                style={{ background: 'var(--brand-gradient)' }}
               >
                 {loading ? (
                   <Loader2 size={18} className="animate-spin" />

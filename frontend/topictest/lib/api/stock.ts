@@ -66,8 +66,13 @@ export async function fetchSymbols(): Promise<string[]> {
   );
 }
 
-export async function fetchLatestPrice(symbol: string): Promise<DailyPriceResponse> {
-  const { data } = await apiClient.get<DailyPriceResponse>(`/stocks/${symbol}/latest`);
+export async function fetchLatestPrice(
+  symbol: string,
+  options?: { signal?: AbortSignal },
+): Promise<DailyPriceResponse> {
+  const { data } = await apiClient.get<DailyPriceResponse>(`/stocks/${symbol}/latest`, {
+    signal: options?.signal,
+  });
   return normalizeDailyPrice(data);
 }
 

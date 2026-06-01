@@ -11,7 +11,6 @@ import { fmtPrice } from '../../lib/utils/format';
 import { usePrefersReducedMotionClient } from '../../lib/usePrefersReducedMotionClient';
 import { StockHeader } from '../StockHeader';
 import { StockSparkline, type SparklineTrend } from '../StockSparkline';
-import { StockQuickActions } from './StockQuickActions';
 import { AIVerdictHeroCard } from './AIVerdictHeroCard';
 import type { UseAdvisorVerdictResult } from '../../lib/hooks/useAdvisorVerdict';
 
@@ -127,10 +126,6 @@ export const StockHeroSection: React.FC<Props> = ({
           compact
           hideSecondary
         />
-
-        <div className="mt-auto">
-          <StockQuickActions symbol={symbol} onOpenAI={onOpenAI} />
-        </div>
       </motion.div>
 
       <motion.div

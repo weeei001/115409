@@ -1,0 +1,24 @@
+[
+  {
+    "chunk_id": "c90d887205e73105fa15154fab730843_0",
+    "article_id": "c90d887205e73105fa15154fab730843",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-03-04T18:08:13+08:00",
+    "title": "宏達電攜手聯發科  MWC 2025展示6G混合計算技術",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/4969464",
+    "tags": "",
+    "content_chunk": "2025世界行動通訊大會（MWC2025）登場，宏達電HTC旗下的5G與未來通訊技術發展的HTC G REIGNS，與聯發科技共同展示前瞻性的6G混合計算（Hybrid Computing）概念技術，宏達電指出，本次展示由聯發科技、英特爾（Intel）與HTC G REIGNS聯合示範 6G 混合計算概念技術，如何突破當前運算架構的限制，使運算從裝置端延伸至無線接取網路（RAN），實現裝置與環境的無縫連結，進一步推動環境計算（Ambient Computing）概念。透過超低延遲（Ultra-Low Latency）的運算能力，AI可即時感知並適應使用者需求，帶來更流暢直覺的智慧體驗。此項突破將推動關鍵應用升級，包括生成式 AI、電信級隱私保護、個人數據治理，以及動態資源調度等。"
+  },
+  {
+    "chunk_id": "c90d887205e73105fa15154fab730843_1",
+    "article_id": "c90d887205e73105fa15154fab730843",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-03-04T18:08:13+08:00",
+    "title": "宏達電攜手聯發科  MWC 2025展示6G混合計算技術",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/4969464",
+    "tags": "",
+    "content_chunk": "聯發科技在MWC2025的展示包括邊緣裝置和RAN雲之間的代理人工智慧技術，以及 LLM 分散式運算技術，以展現其強大的運算能力與即時處理效能，為 AI 應用與智慧聯網設備開啟更多可能。"
+  }
+]

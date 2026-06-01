@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useId, useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { motion } from 'motion/react';
@@ -92,20 +92,30 @@ export default function OrderPage() {
   const [lotsRefresh, setLotsRefresh] = useState(0);
 
   const [showConfirm, setShowConfirm] = useState(false);
+  type OrderErrorField = 'symbol' | 'quantity' | 'tradeDate' | 'sellPlan' | 'holding' | 'general';
   const [error, setError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<OrderErrorField | null>(null);
 
-  const fieldInvalid = useMemo(() => {
-    if (!error) {
-      return { symbol: false, quantity: false, tradeDate: false, sellPlan: false, holding: false };
-    }
-    return {
-      symbol: error.includes('代號') || error.includes('股票') || error.includes('無日線'),
-      quantity: error.includes('張數'),
-      tradeDate: error.includes('下單日'),
-      sellPlan: error.includes('預計賣出') || error.includes('長期持有時'),
-      holding: error.includes('持有') || error.includes('可賣') || error.includes('載入'),
-    };
-  }, [error]);
+  const confirmTitleId = useId();
+  const confirmPanelRef = useRef<HTMLDivElement>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  const submitTriggerRef = useRef<HTMLElement | null>(null);
+
+  const fieldInvalid = useMemo(
+    () => ({
+      symbol: errorField === 'symbol',
+      quantity: errorField === 'quantity',
+      tradeDate: errorField === 'tradeDate',
+      sellPlan: errorField === 'sellPlan',
+      holding: errorField === 'holding',
+    }),
+    [errorField],
+  );
+
+  const setOrderError = useCallback((message: string | null, field: OrderErrorField | null = null) => {
+    setError(message);
+    setErrorField(message ? field : null);
+  }, []);
 
   const todayStr = getLocalDateString();
 
@@ -128,28 +138,31 @@ export default function OrderPage() {
     return () => window.removeEventListener(AUTH_CHANGE_EVENT, resolveSimulatedIdentity);
   }, []);
 
-  const loadOrdersAndProfit = useCallback(async (uid: string) => {
-    if (!uid) return;
-    setListLoading(true);
-    setProfitLoading(true);
-    setError(null);
-    try {
-      const [listRes, profitRes] = await Promise.all([
-        fetchSimulatedOrders(uid, 100),
-        fetchSimulatedProfitByCategory(uid),
-      ]);
-      setOrders(listRes.data);
-      setProfitSummary(profitRes);
-      setLotsRefresh((x) => x + 1);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '載入資料失敗');
-      setOrders([]);
-      setProfitSummary(null);
-    } finally {
-      setListLoading(false);
-      setProfitLoading(false);
-    }
-  }, []);
+  const loadOrdersAndProfit = useCallback(
+    async (uid: string) => {
+      if (!uid) return;
+      setListLoading(true);
+      setProfitLoading(true);
+      setOrderError(null);
+      try {
+        const [listRes, profitRes] = await Promise.all([
+          fetchSimulatedOrders(uid, 100),
+          fetchSimulatedProfitByCategory(uid),
+        ]);
+        setOrders(listRes.data);
+        setProfitSummary(profitRes);
+        setLotsRefresh((x) => x + 1);
+      } catch (e) {
+        setOrderError(e instanceof Error ? e.message : '載入資料失敗', 'general');
+        setOrders([]);
+        setProfitSummary(null);
+      } finally {
+        setListLoading(false);
+        setProfitLoading(false);
+      }
+    },
+    [setOrderError],
+  );
 
   useEffect(() => {
     if (userId) void loadOrdersAndProfit(userId);
@@ -205,38 +218,49 @@ export default function OrderPage() {
     setProfitSummary(null);
   };
 
-  const validateOrder = (): string | null => {
+  type ValidationResult = { field: OrderErrorField; message: string };
+
+  const validateOrder = (): ValidationResult | null => {
     const normalizedSymbol = symbol.trim().toUpperCase();
-    if (!normalizedSymbol) return '請輸入股票代號';
-    if (normalizedSymbol.length > 12) return '股票代號過長';
-    if (!/^[0-9A-Z.]+$/.test(normalizedSymbol)) return '股票代號格式不正確';
+    if (!normalizedSymbol) return { field: 'symbol', message: '請輸入股票代號' };
+    if (normalizedSymbol.length > 12) return { field: 'symbol', message: '股票代號過長' };
+    if (!/^[0-9A-Z.]+$/.test(normalizedSymbol))
+      return { field: 'symbol', message: '股票代號格式不正確' };
     const qty = parseInt(quantity, 10);
-    if (!qty || qty <= 0) return '請輸入有效的委託張數';
+    if (!qty || qty <= 0) return { field: 'quantity', message: '請輸入有效的委託張數' };
     if (tradeDate) {
-      if (tradeDate > todayStr) return '模擬下單日不可晚於今天';
+      if (tradeDate > todayStr)
+        return { field: 'tradeDate', message: '模擬下單日不可晚於今天' };
     }
     if (side === 'sell') {
-      if (availableLotsLoading || availableLots === null) return '可賣張數載入中，請稍候再試';
-      if (availableLots <= 0) return '尚未持有此股票，無法賣出（請先以買進建立持股）';
-      if (qty > availableLots) return `賣出張數不可超過持有 ${availableLots} 張`;
+      if (availableLotsLoading || availableLots === null)
+        return { field: 'holding', message: '可賣張數載入中，請稍候再試' };
+      if (availableLots <= 0)
+        return {
+          field: 'holding',
+          message: '尚未持有此股票，無法賣出（請先以買進建立持股）',
+        };
+      if (qty > availableLots)
+        return { field: 'quantity', message: `賣出張數不可超過持有 ${availableLots} 張` };
       return null;
     }
     const effectiveTrade = tradeDate.trim() || todayStr;
     if (sellPlan === 'by_date') {
       const psd = plannedSellDate.trim();
-      if (!psd) return '請選擇預計賣出日';
-      if (psd < effectiveTrade) return '預計賣出日不可早於模擬下單日';
+      if (!psd) return { field: 'sellPlan', message: '請選擇預計賣出日' };
+      if (psd < effectiveTrade)
+        return { field: 'sellPlan', message: '預計賣出日不可早於模擬下單日' };
     }
     return null;
   };
 
   const handleSubmit = () => {
-    const msg = validateOrder();
-    if (msg) {
-      setError(msg);
+    const result = validateOrder();
+    if (result) {
+      setOrderError(result.message, result.field);
       return;
     }
-    setError(null);
+    setOrderError(null);
     setShowConfirm(true);
   };
 
@@ -258,7 +282,7 @@ export default function OrderPage() {
     }
 
     setSubmitting(true);
-    setError(null);
+    setOrderError(null);
     try {
       await createSimulatedOrder(body);
       setShowConfirm(false);
@@ -272,15 +296,15 @@ export default function OrderPage() {
     } catch (e) {
       if (e instanceof ApiRequestError && e.status === 404) {
         const msg = '該股票在指定日期無日線收盤資料，請換日期或代號再試';
-        setError(msg);
+        setOrderError(msg, 'symbol');
         toast.error(msg);
       } else if (e instanceof ApiRequestError && e.status === 400) {
         const msg = e.message || '請求無效';
-        setError(msg);
+        setOrderError(msg, 'general');
         toast.error(msg);
       } else {
         const msg = e instanceof Error ? e.message : '下單失敗';
-        setError(msg);
+        setOrderError(msg, 'general');
         toast.error(msg);
       }
     } finally {
@@ -288,13 +312,49 @@ export default function OrderPage() {
     }
   };
 
+  // Modal a11y：ESC 關閉、焦點移入 panel、Tab 焦點陷阱、關閉後還原觸發按鈕焦點、body 鎖捲動
   useEffect(() => {
     if (!showConfirm) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) setShowConfirm(false);
+      if (e.key === 'Escape' && !submitting) {
+        setShowConfirm(false);
+        return;
+      }
+      if (e.key === 'Tab' && confirmPanelRef.current) {
+        const focusables = confirmPanelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+
+    // 記錄打開時的觸發元素，關閉後還原焦點
+    submitTriggerRef.current = (document.activeElement as HTMLElement) ?? null;
+
+    // 初始焦點移到「取消」按鈕（避免一打開就 Enter 誤送）
+    const focusTimer = window.setTimeout(() => cancelBtnRef.current?.focus(), 50);
+
+    // 鎖背景捲動
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = prevOverflow;
+      // 關閉時還原焦點到觸發者
+      submitTriggerRef.current?.focus?.();
+    };
   }, [showConfirm, submitting]);
 
   const profitRows = profitSummary?.data ?? [];
@@ -648,19 +708,24 @@ export default function OrderPage() {
             onClick={() => { if (!submitting) setShowConfirm(false); }}
           >
             <motion.div
+              ref={confirmPanelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={confirmTitleId}
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-2xl p-6 w-full max-w-sm mx-4"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold">確認委託</h3>
+                <h3 id={confirmTitleId} className="text-lg font-bold">確認委託</h3>
                 <button
                   type="button"
                   onClick={() => setShowConfirm(false)}
+                  aria-label="關閉確認對話框"
                   className="text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
                 >
-                  <X size={20} />
+                  <X size={20} aria-hidden />
                 </button>
               </div>
 
@@ -704,6 +769,7 @@ export default function OrderPage() {
 
               <div className="mt-6 grid grid-cols-2 gap-3">
                 <button
+                  ref={cancelBtnRef}
                   type="button"
                   onClick={() => setShowConfirm(false)}
                   disabled={submitting}

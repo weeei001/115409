@@ -1,8 +1,5 @@
 import { getStockDisplayName } from './utils/symbolNames';
 
-/** 全站顯示名稱（麵包屑根節點、品牌文案） */
-export const SITE_NAME = '股海明燈';
-
 /** 主選單／頁尾共用導覽（路徑與標籤唯一來源） */
 export const PRIMARY_NAV = [
   { path: '/', label: '首頁' },

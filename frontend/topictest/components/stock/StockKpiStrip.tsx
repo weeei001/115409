@@ -5,7 +5,8 @@ import type {
   InstitutionalTradeResponse,
   TechnicalIndicatorResponse,
 } from '../../lib/types/stockDashboard';
-import { fmtInstitutionalShares } from '../../lib/utils/format';
+import { fmtInstitutionalShares, fmtPercent } from '../../lib/utils/format';
+import { getValueTone, type ValueTone } from '../../lib/utils/valueToneClass';
 
 interface Props {
   priceChart: PriceChartData | null;
@@ -13,39 +14,27 @@ interface Props {
   indicatorLatest: TechnicalIndicatorResponse | null;
 }
 
-type Tone = 'up' | 'down' | 'neutral';
-
 interface KpiTile {
   label: string;
   value: string;
-  tone: Tone;
+  tone: ValueTone;
   sub?: string;
 }
 
-function toneClass(tone: Tone): string {
+/**
+ * KPI strip 中性值用 primary 文字色（突顯數字），與一般 secondary 不同，
+ * 故保留本地實作。漲跌側分別走 up / down token。
+ */
+function kpiToneClass(tone: ValueTone): string {
   if (tone === 'up') return 'text-up';
   if (tone === 'down') return 'text-down';
   return 'text-[var(--color-text-primary)]';
 }
 
-function netTone(value: number | null | undefined): Tone {
-  if (value == null) return 'neutral';
-  if (value > 0) return 'up';
-  if (value < 0) return 'down';
-  return 'neutral';
-}
-
-function rsiTone(value: number | null | undefined): Tone {
+function rsiTone(value: number | null | undefined): ValueTone {
   if (value == null) return 'neutral';
   if (value >= 70) return 'up';
   if (value <= 30) return 'down';
-  return 'neutral';
-}
-
-function macdTone(value: number | null | undefined): Tone {
-  if (value == null) return 'neutral';
-  if (value > 0) return 'up';
-  if (value < 0) return 'down';
   return 'neutral';
 }
 
@@ -61,12 +50,10 @@ function buildRangeChange(priceChart: PriceChartData | null): KpiTile {
   }
   const diff = last - first;
   const pct = (diff / first) * 100;
-  const tone: Tone = diff > 0 ? 'up' : diff < 0 ? 'down' : 'neutral';
-  const sign = diff > 0 ? '+' : '';
   return {
     label: '區間漲跌幅',
-    value: `${sign}${pct.toFixed(2)}%`,
-    tone,
+    value: fmtPercent(pct, { sign: true }),
+    tone: getValueTone(diff),
     sub: `${candles.length} 個交易日`,
   };
 }
@@ -99,7 +86,7 @@ export const StockKpiStrip: React.FC<Props> = ({
     {
       label: '法人合計（股）',
       value: fmtInstitutionalShares(institutionalLatest?.total_net),
-      tone: netTone(institutionalLatest?.total_net ?? null),
+      tone: getValueTone(institutionalLatest?.total_net ?? null),
       sub: institutionalLatest?.date ? `截至 ${institutionalLatest.date}` : undefined,
     },
     {
@@ -117,7 +104,7 @@ export const StockKpiStrip: React.FC<Props> = ({
         indicatorLatest?.macd_hist != null && Number.isFinite(Number(indicatorLatest.macd_hist))
           ? Number(indicatorLatest.macd_hist).toFixed(3)
           : '—',
-      tone: macdTone(indicatorLatest?.macd_hist != null ? Number(indicatorLatest.macd_hist) : null),
+      tone: getValueTone(indicatorLatest?.macd_hist != null ? Number(indicatorLatest.macd_hist) : null),
       sub: '正值偏多 / 負值偏空',
     },
   ];
@@ -136,7 +123,7 @@ export const StockKpiStrip: React.FC<Props> = ({
           <p
             className={clsx(
               'mt-1 text-lg font-mono font-semibold tabular-nums leading-tight',
-              toneClass(tile.tone),
+              kpiToneClass(tile.tone),
             )}
           >
             {tile.value}

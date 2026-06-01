@@ -63,6 +63,8 @@ export interface StockBehaviorAiResponse {
   symbol: string;
   as_of_date: string;
   generated_by: string;
+  /** AI 一句話總結；新版後端回傳，UI 直接呈現 */
+  summary?: string;
   data_inventory?: StockBehaviorDataInventory;
   projection?: StockBehaviorAiProjection;
 }

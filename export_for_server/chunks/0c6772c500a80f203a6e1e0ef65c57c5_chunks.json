@@ -1,0 +1,24 @@
+[
+  {
+    "chunk_id": "0c6772c500a80f203a6e1e0ef65c57c5_0",
+    "article_id": "0c6772c500a80f203a6e1e0ef65c57c5",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-07-01T10:58:37+08:00",
+    "title": "AI台灣本土化！聯發創新基地推出專為台灣用語及口音設計的AI語音辨識開源模型",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5092153",
+    "tags": "",
+    "content_chunk": "聯發科（2454）集團轄下的前瞻技術研究單位聯發創新基地（MediaTek Research）發布基於OpenAI Whisper的AI語音辨識開源模型MediaTek Research Breeze ASR 25（MR Breeze ASR 25）；相較於OpenAI Whisper，更加理解台灣用語及口音，同時，在台灣常見的中、英混合的用語情境上，也達到更高的精準度。此外，模型以Apache 2.0條款釋出，以利促進百工百業在各類創意AI領域應用。"
+  },
+  {
+    "chunk_id": "0c6772c500a80f203a6e1e0ef65c57c5_1",
+    "article_id": "0c6772c500a80f203a6e1e0ef65c57c5",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-07-01T10:58:37+08:00",
+    "title": "AI台灣本土化！聯發創新基地推出專為台灣用語及口音設計的AI語音辨識開源模型",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5092153",
+    "tags": "",
+    "content_chunk": "聯發創新基地負責人許大山博士表示，開源語音辨識模型雖逐年進步，但對於在地用語及口音的辨識度仍顯不足，例如把「發生什麼事」聽成「花生什麼事」。有鑑於語音辨識是AI應用的關鍵啟動功能，此次特別釋出「聽得懂在地語言」的ASR模型MR Breeze ASR 25，其精準度相較於OpenAI的Whisper提升近10%、中英語轉換表現（Code-switching）則增進56%。藉此，聯發創新基地能以完整的繁體中文AI模型，積極推進繁體中文AI的創新並普及模型於地端及裝置端的使用。"
+  }
+]

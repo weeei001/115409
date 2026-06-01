@@ -116,24 +116,6 @@ function formatProjectionBrief(projection?: StockBehaviorAiProjection): string {
   return joined || disclaimer || '';
 }
 
-function inventoryToReasoning(inventory?: StockBehaviorAiResponse['data_inventory']): string {
-  if (!inventory) return '';
-  const lines: string[] = [];
-  const pushItems = (label: string, items?: { field: string; value: unknown }[]) => {
-    for (const item of items ?? []) {
-      const val = item.value != null ? String(item.value) : '';
-      if (val) lines.push(`${label}：${item.field} ${val}`);
-    }
-  };
-  pushItems('價量', inventory.price_volume);
-  pushItems('籌碼', inventory.chip);
-  pushItems('技術', inventory.technical);
-  if (inventory.missing_fields?.length) {
-    lines.push(`資料缺口：${inventory.missing_fields.join('、')}`);
-  }
-  return lines.slice(0, 5).join('\n');
-}
-
 export function mapAiToAdvisorReport(
   ai: StockBehaviorAiResponse,
   rag: StockBehaviorRagResponse
@@ -141,8 +123,8 @@ export function mapAiToAdvisorReport(
   const recommendation = recommendationFromProjection(ai.projection);
   const projectionBrief = formatProjectionBrief(ai.projection);
   const rawAnswer = rag.raw_answer?.trim() ?? '';
-  const inventoryReason = inventoryToReasoning(ai.data_inventory);
-  const reasoning = [projectionBrief, inventoryReason, rawAnswer].filter(Boolean).join('\n') || '分析完成';
+  const aiSummary = ai.summary?.trim() ?? '';
+  const reasoning = [aiSummary, projectionBrief, rawAnswer].filter(Boolean).join('\n') || '分析完成';
 
   const missing = ai.data_inventory?.missing_fields ?? [];
   const riskNotes =
@@ -158,7 +140,7 @@ export function mapAiToAdvisorReport(
   return {
     symbol: ai.symbol,
     generated_at: new Date().toISOString(),
-    summary: projectionBrief || rawAnswer || '分析完成',
+    summary: aiSummary || projectionBrief || rawAnswer || '分析完成',
     technical_signals: (ai.projection?.points ?? []).slice(0, 5).map((p) => ({
       name: `情境 D+${p.day}`,
       value: p.predicted_close ?? null,
@@ -171,6 +153,9 @@ export function mapAiToAdvisorReport(
     sources: newsSourcesToAdvisorSources(rag.news_sources),
     date_start,
     date_end,
+    projection: ai.projection,
+    ai_summary: aiSummary || undefined,
+    data_inventory: ai.data_inventory,
   };
 }
 
@@ -194,7 +179,8 @@ export function stockBehaviorToAiTrend(
 
   return {
     conclusion,
-    summary: [rag.raw_answer, formatProjectionBrief(ai.projection)].filter(Boolean).join(' ') || conclusion,
+    // summary 只保留 RAG 市場情緒；逐日 projection brief 由 ProjectionTimeline 完整呈現，避免重複。
+    summary: rag.raw_answer?.trim() ?? '',
     sources,
   };
 }

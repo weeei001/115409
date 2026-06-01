@@ -1,5 +1,18 @@
 // ── AI Analysis (kept from original) ──
 
+import type {
+  StockBehaviorAiProjection,
+  StockBehaviorDataInventory,
+} from './stockBehavior';
+
+export type {
+  ProjectionDirection,
+  StockBehaviorAiProjection,
+  StockBehaviorAiProjectionPoint,
+  StockBehaviorDataInventory,
+  StockBehaviorInventoryItem,
+} from './stockBehavior';
+
 export interface RAGSource {
   id: string;
   title: string;
@@ -55,6 +68,12 @@ export interface AdvisorReport {
   date_end?: string;
   /** 後端操作建議原文（與三態 badge 不同） */
   recommendation_text?: string;
+  /** 後端原始 N 日情境推演（D+1..D+N），由 mapper 透傳，供 UI 渲染 ProjectionTimeline */
+  projection?: StockBehaviorAiProjection;
+  /** 後端 AI 頂層 summary 原文，供 AISummaryCard 直接顯示 */
+  ai_summary?: string;
+  /** 後端 data_inventory 原文，供 EvidenceInventoryPanel 渲染證據卡 */
+  data_inventory?: StockBehaviorDataInventory;
 }
 
 export type AdvisorStepKey = 'institutional' | 'news' | 'cross_check' | 'final';
@@ -133,23 +152,6 @@ export interface HistoricalPriceList {
   end_date: string;
   total: number;
   data: DailyPriceResponse[];
-}
-
-export interface CandlestickData {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-export interface CandlestickResponse {
-  symbol: string;
-  start_date: string;
-  end_date: string;
-  total: number;
-  data: CandlestickData[];
 }
 
 export interface CandlestickWithMA {
@@ -391,22 +393,6 @@ export interface PaginatedNewsResponse {
 
 export type OrderSide = 'buy' | 'sell';
 export type OrderStatus = 'pending' | 'filled' | 'cancelled';
-
-export interface OrderRequest {
-  symbol: string;
-  side: OrderSide;
-  quantity: number;
-}
-
-export interface OrderRecord {
-  id: string;
-  symbol: string;
-  side: OrderSide;
-  quantity: number;
-  status: OrderStatus;
-  estimatedAmount: number;
-  createdAt: string;
-}
 
 // ── Simulated Order API (openapi: /simulated-orders) ──
 

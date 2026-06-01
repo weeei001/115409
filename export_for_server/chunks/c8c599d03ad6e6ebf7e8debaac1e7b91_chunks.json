@@ -1,0 +1,24 @@
+[
+  {
+    "chunk_id": "c8c599d03ad6e6ebf7e8debaac1e7b91_0",
+    "article_id": "c8c599d03ad6e6ebf7e8debaac1e7b91",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-12-26T14:32:58+08:00",
+    "title": "聯發科攜手DENSO 共同開發ADAS車用系統單晶片",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5290477",
+    "tags": "",
+    "content_chunk": "IC設計龍頭聯發科（2454）今日宣布與全球最大汽車零組件供應商之一的DENSO展開深度合作，共同開發專為先進駕駛輔助系統（ADAS）與智慧座艙系統設計的客製化車用系統單晶片（SoC）。此次合作結合DENSO在車規級安全領域的專業與深厚的車輛整合經驗，以及聯發科在天璣車用平台（Dimensity AX）累積的高效能、低功耗系統單晶片（SoC）與AI運算能力的技術，為新一代駕駛輔助系統提供一個具備高度擴展性且可立即量產的平台，聯發科期望透過此次的合作，與DENSO共同定義智慧移動的未來，並加速推動先進駕駛輔助系統在全球市場快速落地。"
+  },
+  {
+    "chunk_id": "c8c599d03ad6e6ebf7e8debaac1e7b91_1",
+    "article_id": "c8c599d03ad6e6ebf7e8debaac1e7b91",
+    "stock_id": "2454",
+    "source": "ltn",
+    "pub_time": "2025-12-26T14:32:58+08:00",
+    "title": "聯發科攜手DENSO 共同開發ADAS車用系統單晶片",
+    "url": "https://ec.ltn.com.tw/article/breakingnews/5290477",
+    "tags": "",
+    "content_chunk": "聯發科表示，本次合作聚焦三大主軸，包括引領市場的車規級安全性、可靠性、合規性，憑藉DENSO在安全與系統工程實力，此客製化SoC依循ISO 26262車用電子功能安全標準設計，提供ASIL-B/D等級的功能安全性，並符合AEC-Q100車用IC可靠性標準，及車用標準的系統整合要求，為全球車廠及Tier 1供應商提供堅實且可靠的平台；業界領先的AI運算、感知架構、IP組合，聯發科藉由業界領先的異質運算技術能力，結合AI/NPU加速器，以及先進的ISP，為ADAS平台應用帶來卓越的效能表現。該平台支援攝影機、雷達、光達多感測器融合，並運用先進視覺途徑處理，整體與DENSO的專業領域協同優化。"
+  }
+]

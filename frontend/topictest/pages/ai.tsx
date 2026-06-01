@@ -113,7 +113,9 @@ export default function AiPage() {
             { signal: ctrl.signal }
           );
         } finally {
-          if (!ctrl.signal.aborted) setStreamingMessageId(null);
+          // 總是清掉自己的 streaming flag；若使用者已送出下一條，streamingMessageId 會被新 cycle 設成新 id，
+          // 此處只清「等於自己」的情境，避免覆蓋新訊息狀態。
+          setStreamingMessageId((prev) => (prev === assistantId ? null : prev));
         }
 
         if (ctrl.signal.aborted) return;
@@ -188,10 +190,10 @@ export default function AiPage() {
       <main className="flex min-h-0 flex-1 flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-6">
         {!ragConfigured ? (
           <div
-            className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/80 dark:bg-amber-900/25 dark:text-amber-200"
+            className="ui-alert-warning mb-3 flex items-start gap-2 rounded-xl px-4 py-3 text-sm"
             role="status"
           >
-            <Info size={18} className="shrink-0 mt-0.5" aria-hidden />
+            <Info size={18} className="shrink-0 mt-0.5 text-warning-icon" aria-hidden />
             <p>
               <strong>示範模式：</strong>尚未設定 RAG API，目前回覆為本機規則模擬，非即時財經新聞檢索。請設定{' '}
               <code className="text-xs">NEXT_PUBLIC_RAG_API_USE_PROXY</code> 或{' '}

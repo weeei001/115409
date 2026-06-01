@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { InstitutionalTradeListResponse } from '../../lib/types';
 import { fmt } from '../../lib/utils/format';
+import { getValueToneClass } from '../../lib/utils/valueToneClass';
 import { CollapsibleTableSection } from '../CollapsibleTableSection';
 import { TableScrollHint } from '../TableScrollHint';
 
@@ -9,17 +10,8 @@ interface Props {
   loading?: boolean;
 }
 
-function netClass(v: number | null | undefined): string {
-  if (v == null) return 'text-[var(--color-text-muted)]';
-  if (v > 0) return 'text-up';
-  if (v < 0) return 'text-down';
-  return 'text-[var(--color-text-secondary)]';
-}
-
-const Box = 'div' as const;
-
 function LoadingSkeleton() {
-  return <Box className="h-48 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" aria-hidden />;
+  return <div className="h-48 rounded-xl bg-[var(--color-bg-elevated)] animate-pulse" aria-hidden />;
 }
 
 type ViewMode = 'net' | 'detail';
@@ -74,7 +66,7 @@ export const InstitutionalHistoryTable: React.FC<Props> = ({ data, loading }) =>
         </div>
       )}
       <TableScrollHint />
-      <Box className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
+      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
         {viewMode === 'net' ? (
           <table className="w-full text-sm min-w-[520px]">
             <thead>
@@ -90,16 +82,16 @@ export const InstitutionalHistoryTable: React.FC<Props> = ({ data, loading }) =>
               {rows.map((row) => (
                 <tr key={row.date} className="border-t border-[var(--color-border)]">
                   <td className="px-3 py-2 tabular-nums">{row.date}</td>
-                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${netClass(row.foreign_excl_dealer_net)}`}>
+                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${getValueToneClass(row.foreign_excl_dealer_net)}`}>
                     {fmt(row.foreign_excl_dealer_net)}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${netClass(row.investment_trust_net)}`}>
+                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${getValueToneClass(row.investment_trust_net)}`}>
                     {fmt(row.investment_trust_net)}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${netClass(row.dealer_net_total)}`}>
+                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${getValueToneClass(row.dealer_net_total)}`}>
                     {fmt(row.dealer_net_total)}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${netClass(row.total_net)}`}>
+                  <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${getValueToneClass(row.total_net)}`}>
                     {fmt(row.total_net)}
                   </td>
                 </tr>
@@ -134,20 +126,20 @@ export const InstitutionalHistoryTable: React.FC<Props> = ({ data, loading }) =>
                   <td className="px-3 py-2 tabular-nums">{row.date}</td>
                   <td className="px-2 py-2 text-right font-mono tabular-nums text-up">{fmt(row.foreign_buy)}</td>
                   <td className="px-2 py-2 text-right font-mono tabular-nums text-down">{fmt(row.foreign_sell)}</td>
-                  <td className={`px-2 py-2 text-right font-mono font-semibold tabular-nums ${netClass(row.foreign_excl_dealer_net)}`}>
+                  <td className={`px-2 py-2 text-right font-mono font-semibold tabular-nums ${getValueToneClass(row.foreign_excl_dealer_net)}`}>
                     {fmt(row.foreign_excl_dealer_net)}
                   </td>
                   <td className="px-2 py-2 text-right font-mono tabular-nums text-up">{fmt(row.investment_trust_buy)}</td>
                   <td className="px-2 py-2 text-right font-mono tabular-nums text-down">{fmt(row.investment_trust_sell)}</td>
-                  <td className={`px-2 py-2 text-right font-mono font-semibold tabular-nums ${netClass(row.investment_trust_net)}`}>
+                  <td className={`px-2 py-2 text-right font-mono font-semibold tabular-nums ${getValueToneClass(row.investment_trust_net)}`}>
                     {fmt(row.investment_trust_net)}
                   </td>
                   <td className="px-2 py-2 text-right font-mono tabular-nums text-up">{fmt(row.dealer_buy)}</td>
                   <td className="px-2 py-2 text-right font-mono tabular-nums text-down">{fmt(row.dealer_sell)}</td>
-                  <td className={`px-2 py-2 text-right font-mono font-semibold tabular-nums ${netClass(row.dealer_net_total)}`}>
+                  <td className={`px-2 py-2 text-right font-mono font-semibold tabular-nums ${getValueToneClass(row.dealer_net_total)}`}>
                     {fmt(row.dealer_net_total)}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${netClass(row.total_net)}`}>
+                  <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${getValueToneClass(row.total_net)}`}>
                     {fmt(row.total_net)}
                   </td>
                 </tr>
@@ -155,7 +147,7 @@ export const InstitutionalHistoryTable: React.FC<Props> = ({ data, loading }) =>
             </tbody>
           </table>
         )}
-      </Box>
+      </div>
     </CollapsibleTableSection>
   );
 };

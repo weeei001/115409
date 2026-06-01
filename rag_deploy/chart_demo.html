@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>走勢圖算法展示</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,"Microsoft JhengHei",sans-serif; background:#0f1923; color:#e0e0e0; min-height:100vh; }
+
+nav {
+  background:#1a2635; padding:14px 28px; display:flex; align-items:center;
+  gap:12px; border-bottom:2px solid #4fc3f7; flex-wrap:wrap;
+}
+nav h1 { font-size:18px; color:#4fc3f7; margin-right:8px; white-space:nowrap; }
+.tab {
+  padding:6px 18px; border-radius:20px; cursor:pointer; font-size:13px;
+  color:#90a4ae; border:1px solid #2a3a4a; transition:.2s; white-space:nowrap;
+}
+.tab.active { background:#4fc3f7; color:#0f1923; font-weight:700; border-color:#4fc3f7; }
+.tab:hover:not(.active) { background:#1e3a4a; color:#e0e0e0; }
+
+.page { display:none; padding:28px; max-width:960px; margin:0 auto; }
+.page.active { display:block; }
+
+h2 { font-size:20px; color:#4fc3f7; margin-bottom:6px; }
+.desc { font-size:13px; color:#78909c; margin-bottom:20px; line-height:1.7; }
+.desc code { background:#1a2635; color:#a5d6a7; padding:2px 6px; border-radius:4px; font-size:12px; }
+
+.card { background:#1a2635; border:1px solid #2a3a4a; border-radius:12px; padding:20px; margin-bottom:20px; }
+.card h3 { font-size:14px; color:#90a4ae; margin-bottom:14px; letter-spacing:.5px; }
+
+canvas { width:100% !important; }
+
+.controls { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; align-items:center; }
+label { font-size:12px; color:#90a4ae; }
+input[type=range] { accent-color:#4fc3f7; width:120px; }
+input[type=number] { background:#0f1923; border:1px solid #2a3a4a; color:#e0e0e0; padding:4px 8px; border-radius:6px; width:72px; font-size:13px; }
+select { background:#0f1923; border:1px solid #2a3a4a; color:#e0e0e0; padding:4px 10px; border-radius:6px; font-size:13px; }
+button {
+  background:#4fc3f7; color:#0f1923; border:none; border-radius:8px;
+  padding:7px 18px; cursor:pointer; font-size:13px; font-weight:700; transition:.15s;
+}
+button:hover { background:#81d4fa; }
+button.sec { background:#1e3a4a; color:#90a4ae; border:1px solid #2a3a4a; }
+button.sec:hover { background:#253545; color:#e0e0e0; }
+
+.val-badge {
+  display:inline-block; background:#0f1923; border:1px solid #2a3a4a;
+  border-radius:6px; padding:3px 10px; font-size:13px; color:#a5d6a7; min-width:52px; text-align:center;
+}
+
+.stat-row { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
+.stat { background:#0f1923; border-radius:8px; padding:10px 16px; text-align:center; flex:1; min-width:100px; }
+.stat .n { font-size:20px; font-weight:700; color:#4fc3f7; }
+.stat .l { font-size:11px; color:#546e7a; margin-top:2px; }
+
+.code-block {
+  background:#0d1a26; border:1px solid #1e3a4a; border-radius:8px;
+  padding:16px; font-family:"SF Mono","Fira Code",monospace; font-size:12px;
+  color:#a5d6a7; overflow-x:auto; line-height:1.7; margin-top:14px;
+  white-space:pre;
+}
+.code-block .kw  { color:#4fc3f7; }
+.code-block .cm  { color:#546e7a; font-style:italic; }
+.code-block .nm  { color:#ce93d8; }
+.code-block .st  { color:#ffcc80; }
+
+.legend-dot { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:5px; }
+.legend-line { display:inline-block; width:24px; height:3px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+
+.badge-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.badge { padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600; }
+.badge.blue  { background:#0d2a3a; color:#4fc3f7; border:1px solid #1e4a6a; }
+.badge.green { background:#0d2a1a; color:#a5d6a7; border:1px solid #1e4a2a; }
+.badge.orange{ background:#2a1a0d; color:#ffcc80; border:1px solid #4a2a1e; }
+.badge.red   { background:#2a0d0d; color:#ef9a9a; border:1px solid #4a1e1e; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>📈 走勢圖算法展示</h1>
+  <div class="tab active" onclick="gotoPage('p0',this)">總覽</div>
+  <div class="tab" onclick="gotoPage('p1',this)">① 資料拉取</div>
+  <div class="tab" onclick="gotoPage('p2',this)">② 加權線性回歸</div>
+  <div class="tab" onclick="gotoPage('p4',this)">③ 短期動能</div>
+  <div class="tab" onclick="gotoPage('p5',this)">④ MA20 均值回歸</div>
+  <div class="tab" onclick="gotoPage('p6',this)">⑤ 預測合成</div>
+  <div class="tab" onclick="gotoPage('p7',this)">⑥ 新聞標記</div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════ 總覽 -->
+<div class="page active" id="p0">
+  <h2>走勢圖完整技術地圖</h2>
+  <p class="desc">點擊上方各分頁可單獨執行、調整參數，觀察每個算法的效果。所有展示均使用模擬隨機股價，不需要後端。</p>
+
+  <div class="card">
+    <h3>實際資料流程</h3>
+    <div style="display:flex;flex-direction:column;gap:14px;margin-top:4px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#4fc3f7">① yfinance</span><br>
+          <span style="color:#78909c;font-size:11px">台股 OHLCV 日線</span>
+        </div>
+        <div style="color:#546e7a;font-size:18px">→</div>
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#ce93d8">② 加權線性回歸</span><br>
+          <span style="color:#78909c;font-size:11px">輸出 long_slope（fallback 用）</span>
+        </div>
+        <div style="color:#546e7a;font-size:18px">→</div>
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#80cbc4">③ 短期動能</span><br>
+          <span style="color:#78909c;font-size:11px">輸出 short_slope（主力）</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#80cbc4">short_slope</span><br>
+          <span style="color:#78909c;font-size:11px">來自③</span>
+        </div>
+        <div style="color:#546e7a;font-size:18px">+</div>
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#a5d6a7">④ MA20 均值回歸</span><br>
+          <span style="color:#78909c;font-size:11px">指數衰減融合，20步迭代</span>
+        </div>
+        <div style="color:#546e7a;font-size:18px">→</div>
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#ffcc80">⑤ 數學預測線</span><br>
+          <span style="color:#78909c;font-size:11px">未來20交易日</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#ef9a9a">⑥ Qdrant 新聞</span><br>
+          <span style="color:#78909c;font-size:11px">標題時間戳對齊 + 紅點標記</span>
+        </div>
+        <div style="color:#546e7a;font-size:18px">+</div>
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#ffcc80">LLM（llama-3.3-70b）</span><br>
+          <span style="color:#78909c;font-size:11px">SSE 逐週推送漲跌幅</span>
+        </div>
+        <div style="color:#546e7a;font-size:18px">→</div>
+        <div style="background:#1e3a4a;border-radius:8px;padding:10px 18px;font-size:13px">
+          <span style="color:#a5d6a7">AI 預測線</span><br>
+          <span style="color:#78909c;font-size:11px">線性插值到目標價</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>關鍵超參數</h3>
+    <div class="stat-row">
+      <div class="stat"><div class="n">0.1</div><div class="l">長期回歸 λ（fallback）</div></div>
+      <div class="stat"><div class="n">0.2</div><div class="l">短期動能 λ</div></div>
+      <div class="stat"><div class="n">0.18</div><div class="l">動能衰減率/日</div></div>
+      <div class="stat"><div class="n">MA20</div><div class="l">均值回歸錨點</div></div>
+      <div class="stat"><div class="n">20日</div><div class="l">預測區間</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ① 資料拉取 -->
+<div class="page" id="p1">
+  <h2>① 股價資料拉取（yfinance）</h2>
+  <p class="desc">
+    後端以 <code>yfinance</code> 抓取台股 OHLCV 日線（代號加 <code>.TW</code> 後綴）。
+    前端傳入 <code>trading_days</code>，後端多抓 1.5 倍日曆天再截取最後 N 筆交易日，確保非交易日不計入。
+    展示以隨機遊走模擬收盤價。
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <label>交易日數 <span class="val-badge" id="p1-days-val">60</span></label>
+      <input type="range" id="p1-days" min="20" max="200" value="60"
+        oninput="document.getElementById('p1-days-val').textContent=this.value; p1Draw()">
+      <label>波動率 <span class="val-badge" id="p1-vol-val">1.5%</span></label>
+      <input type="range" id="p1-vol" min="5" max="40" value="15"
+        oninput="document.getElementById('p1-vol-val').textContent=(this.value/10).toFixed(1)+'%'; p1Draw()">
+      <button onclick="p1Draw()">重新產生</button>
+    </div>
+    <canvas id="p1-chart" height="260"></canvas>
+    <div class="stat-row" id="p1-stats"></div>
+  </div>
+
+  <div class="code-block"><span class="cm"># api_server.py  /api/stock_chart</span>
+<span class="kw">import</span> yfinance <span class="kw">as</span> yf
+
+ticker = yf.Ticker(<span class="st">f"{stock_id}.TW"</span>)
+df = ticker.history(start=start_date, end=end_date, interval=<span class="st">"1d"</span>)
+
+<span class="cm"># trading_days 模式：多抓 1.5 倍日曆天再截取</span>
+<span class="kw">if</span> trading_days:
+    start_date = today - timedelta(days=<span class="nm">int</span>(trading_days * <span class="nm">1.5</span>))
+    records = records[-trading_days:]   <span class="cm"># 截取最後 N 個交易日</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ② 加權線性回歸 -->
+<div class="page" id="p2">
+  <h2>② 加權線性回歸（指數衰減）</h2>
+  <p class="desc">
+    普通線性回歸對所有資料點等權重，但股價的近期走勢影響力更大。
+    採用指數衰減權重 <code>w[i] = exp(λ × i)</code>（i=0 最舊，越新越重），讓近期資料主導回歸方向。
+    調整 λ 可看到回歸線如何隨近期走勢傾斜。
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <label>衰減係數 λ <span class="val-badge" id="p2-lam-val">0.10</span></label>
+      <input type="range" id="p2-lam" min="0" max="50" value="10"
+        oninput="document.getElementById('p2-lam-val').textContent=(this.value/100).toFixed(2); p2Draw()">
+      <label>資料點數 <span class="val-badge" id="p2-n-val">30</span></label>
+      <input type="range" id="p2-n" min="10" max="60" value="30"
+        oninput="document.getElementById('p2-n-val').textContent=this.value; p2Draw()">
+      <button onclick="window._p2seed=Math.random(); p2Draw()">換資料</button>
+    </div>
+    <canvas id="p2-chart" height="280"></canvas>
+    <div class="stat-row" id="p2-stats"></div>
+  </div>
+
+  <div class="code-block"><span class="cm"># 加權線性回歸核心（指數衰減）</span>
+lam = <span class="nm">0.1</span>
+weights = [math.exp(lam * i) <span class="kw">for</span> i <span class="kw">in</span> range(n)]   <span class="cm"># i=0 最舊</span>
+w_sum   = sum(weights)
+
+x_mean_w = sum(weights[i] * i          <span class="kw">for</span> i <span class="kw">in</span> range(n)) / w_sum
+y_mean_w = sum(weights[i] * closes[i]  <span class="kw">for</span> i <span class="kw">in</span> range(n)) / w_sum
+
+num_w = sum(weights[i] * (i - x_mean_w) * (closes[i] - y_mean_w) <span class="kw">for</span> i <span class="kw">in</span> range(n))
+den_w = sum(weights[i] * (i - x_mean_w) ** <span class="nm">2</span>                    <span class="kw">for</span> i <span class="kw">in</span> range(n))
+
+slope     = num_w / den_w
+intercept = y_mean_w - slope * x_mean_w</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ③ 短期動能 -->
+<div class="page" id="p4">
+  <h2>③ 短期動能斜率</h2>
+  <p class="desc">
+    長期回歸捕捉整體方向，但預測需要「最近幾天的慣性」。
+    取最近 5 個交易日，用更快的衰減（λ=0.2）做一次獨立加權回歸，得到 <code>short_slope</code>。
+    調整滑桿，比較短期斜率與長期斜率在不同行情下的差異。
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <label>短期窗口 <span class="val-badge" id="p4-win-val">5</span> 日</label>
+      <input type="range" id="p4-win" min="3" max="15" value="5"
+        oninput="document.getElementById('p4-win-val').textContent=this.value; p4Draw()">
+      <label>短期 λ <span class="val-badge" id="p4-lam-val">0.20</span></label>
+      <input type="range" id="p4-lam" min="5" max="50" value="20"
+        oninput="document.getElementById('p4-lam-val').textContent=(this.value/100).toFixed(2); p4Draw()">
+      <button onclick="window._p4seed=Math.random(); p4Draw()">換資料</button>
+    </div>
+    <canvas id="p4-chart" height="280"></canvas>
+    <div class="stat-row" id="p4-stats"></div>
+  </div>
+
+  <div class="code-block"><span class="cm"># 短期動能斜率（最近 N 日加權回歸）</span>
+n5      = <span class="nm">5</span>                   <span class="cm"># 短期窗口</span>
+closes5 = closes[-n5:]
+w5      = [math.exp(<span class="nm">0.2</span> * i) <span class="kw">for</span> i <span class="kw">in</span> range(n5)]   <span class="cm"># 更快的衰減</span>
+w5s     = sum(w5)
+
+x5mw = sum(w5[i] * i        <span class="kw">for</span> i <span class="kw">in</span> range(n5)) / w5s
+y5mw = sum(w5[i] * closes5[i] <span class="kw">for</span> i <span class="kw">in</span> range(n5)) / w5s
+n5d  = sum(w5[i] * (i - x5mw)**<span class="nm">2</span> <span class="kw">for</span> i <span class="kw">in</span> range(n5))
+
+short_slope = sum(w5[i]*(i-x5mw)*(closes5[i]-y5mw) <span class="kw">for</span> i <span class="kw">in</span> range(n5)) / n5d</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ⑤ MA20 均值回歸 -->
+<div class="page" id="p5">
+  <h2>④ MA20 均值回歸融合</h2>
+  <p class="desc">
+    純動能預測會無限延伸（若漲就一直漲），但股價有均值回歸傾向。
+    以 <code>MA20</code>（20日移動平均）作為「目標錨點」，每日拉力 = <code>(MA20 − price) / 20</code>。
+    預測時用指數衰減 <code>exp(-0.18 × i)</code> 融合兩者：初期由動能主導，越後期越被 MA20 吸引。
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <label>動能衰減率 <span class="val-badge" id="p5-decay-val">0.18</span></label>
+      <input type="range" id="p5-decay" min="5" max="40" value="18"
+        oninput="document.getElementById('p5-decay-val').textContent=(this.value/100).toFixed(2); p5Draw()">
+      <label>MA 窗口 <span class="val-badge" id="p5-ma-val">20</span></label>
+      <input type="range" id="p5-ma" min="5" max="30" value="20"
+        oninput="document.getElementById('p5-ma-val').textContent=this.value; p5Draw()">
+      <button onclick="window._p5seed=Math.random(); p5Draw()">換資料</button>
+    </div>
+    <canvas id="p5-chart" height="280"></canvas>
+    <div class="stat-row" id="p5-stats"></div>
+  </div>
+
+  <div class="code-block"><span class="cm"># 動能 + 均值回歸融合（20 步預測）</span>
+ma20           = sum(closes[-<span class="nm">20</span>:]) / min(<span class="nm">20</span>, n)
+mean_pull_day  = (ma20 - last_price) / <span class="nm">20</span>   <span class="cm"># 每日 MA20 拉力</span>
+
+price = last_price
+regression_future = []
+<span class="kw">for</span> i <span class="kw">in</span> range(<span class="nm">20</span>):
+    decay      = math.exp(-<span class="nm">0.18</span> * i)          <span class="cm"># 動能隨時間衰退</span>
+    daily_move = decay * short_slope + (<span class="nm">1</span> - decay) * mean_pull_day
+    price      = round(price + daily_move, <span class="nm">2</span>)
+    regression_future.append(price)</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ⑥ 預測合成 -->
+<div class="page" id="p6">
+  <h2>⑤ 完整預測合成</h2>
+  <p class="desc">
+    整合以上所有算法：歷史段顯示收盤價與加權回歸線，未來段同時顯示「數學預測線」（③短期動能 + ④MA20融合）
+    與「AI 預測線」（LLM 給出目標漲跌幅後線性插值）。
+    拖動滑桿模擬 AI 給出的漲跌幅。
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <button onclick="window._p6seed=Math.random(); p6Draw()">換股價</button>
+      <label>AI 預測漲跌幅 <span class="val-badge" id="p6-ai-val">+2.0%</span></label>
+      <input type="range" id="p6-ai" min="-80" max="80" value="20"
+        oninput="
+          const v=(this.value/10).toFixed(1);
+          document.getElementById('p6-ai-val').textContent=(v>0?'+':'')+v+'%';
+          p6Draw()">
+      <label>AI 信心 <span class="val-badge" id="p6-conf-val">3/5</span></label>
+      <input type="range" id="p6-conf" min="1" max="5" value="3"
+        oninput="document.getElementById('p6-conf-val').textContent=this.value+'/5'; p6Draw()">
+    </div>
+    <canvas id="p6-chart" height="300"></canvas>
+    <div id="p6-summary" class="stat-row"></div>
+  </div>
+
+  <div class="code-block"><span class="cm"># AI 預測線：線性插值到目標價</span>
+target_price = last_price * (<span class="nm">1</span> + ai_change_pct / <span class="nm">100</span>)
+ai_future = [
+    round(last_price + (target_price - last_price) * (i + <span class="nm">1</span>) / <span class="nm">20</span>, <span class="nm">2</span>)
+    <span class="kw">for</span> i <span class="kw">in</span> range(<span class="nm">20</span>)
+]
+
+<span class="cm"># 數學預測線：動能衰減 + MA20 均值回歸</span>
+price = last_price
+<span class="kw">for</span> i <span class="kw">in</span> range(<span class="nm">20</span>):
+    decay      = math.exp(-<span class="nm">0.18</span> * i)
+    daily_move = decay * short_slope + (<span class="nm">1</span> - decay) * mean_pull_day
+    price     += daily_move
+    regression_future.append(round(price, <span class="nm">2</span>))</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ⑦ 新聞標記 -->
+<div class="page" id="p7">
+  <h2>⑥ 新聞事件標記</h2>
+  <p class="desc">
+    後端從 Qdrant 拉取同期新聞的 <code>pub_time</code>，對齊到最近交易日後，
+    在 Chart.js 中將該日的 <code>pointBackgroundColor</code> 設為紅色、<code>pointRadius</code> 放大。
+    點擊紅點觸發 Chart.js 的 <code>onClick</code> 事件，篩選顯示當日新聞。
+    以下模擬 8 個隨機新聞日。
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <label>新聞數量 <span class="val-badge" id="p7-news-val">8</span></label>
+      <input type="range" id="p7-news" min="1" max="20" value="8"
+        oninput="document.getElementById('p7-news-val').textContent=this.value; p7Draw()">
+      <button onclick="window._p7seed=Math.random(); p7Draw()">重新產生</button>
+    </div>
+    <canvas id="p7-chart" height="260"></canvas>
+    <div id="p7-news-list" style="margin-top:14px"></div>
+  </div>
+
+  <div class="code-block"><span class="cm"># 後端：Qdrant 拉取新聞時間點</span>
+results = qdrant_client.scroll(
+    collection_name=<span class="st">"news_chunks"</span>,
+    scroll_filter=Filter(must=[FieldCondition(key=<span class="st">"stock_id"</span>, match=MatchValue(value=stock_id))]),
+    limit=<span class="nm">2000</span>, with_payload=<span class="nm">True</span>
+)
+<span class="kw">for</span> pt <span class="kw">in</span> results[<span class="nm">0</span>]:
+    news.append({"date": pub_time[:<span class="nm">10</span>], "title": title})
+
+<span class="cm"># 前端：Chart.js 紅點標記</span>
+<span class="kw">const</span> newsMap = {};    <span class="cm">// { "2024-03-15": ["標題1", ...] }</span>
+<span class="kw">const</span> pointColors = labels.map(d =&gt; newsMap[d] ? <span class="st">"#ff6b6b"</span> : <span class="st">"transparent"</span>);
+<span class="kw">const</span> pointRadius = labels.map(d =&gt; newsMap[d] ? <span class="nm">6</span> : <span class="nm">0</span>);
+
+onClick: (evt, elements) =&gt; {
+    <span class="kw">const</span> date = chart.data.labels[elements[<span class="nm">0</span>].index];
+    <span class="kw">if</span> (newsMap[date]) renderNewsList(date);
+}</div>
+</div>
+
+<script>
+/* ─── 共用工具 ─── */
+let _charts = {};
+function makeChart(id, cfg) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  if (_charts[id]) _charts[id].destroy();
+  _charts[id] = new Chart(ctx.getContext('2d'), cfg);
+  return _charts[id];
+}
+
+function seeded(s) {
+  let seed = s * 2654435761 | 0;
+  return () => { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return ((seed >>> 0) / 4294967296); };
+}
+
+function genPrices(n, base=500, vol=0.015, seed=1234) {
+  const rng = seeded(seed);
+  const prices = [base];
+  for (let i = 1; i < n; i++) {
+    const drift = (rng() - 0.48) * 2 * vol;
+    prices.push(+(prices[i-1] * (1 + drift)).toFixed(2));
+  }
+  return prices;
+}
+
+function genDates(n) {
+  const dates = [];
+  let d = new Date(2024, 0, 2);
+  while (dates.length < n) {
+    if (d.getDay() !== 0 && d.getDay() !== 6)
+      dates.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
+}
+
+function wlr(closes, lam=0.1) {
+  const n = closes.length;
+  const w = closes.map((_,i) => Math.exp(lam * i));
+  const ws = w.reduce((a,b)=>a+b, 0);
+  const xmw = w.reduce((s,wi,i)=>s+wi*i, 0) / ws;
+  const ymw = w.reduce((s,wi,i)=>s+wi*closes[i], 0) / ws;
+  const num = w.reduce((s,wi,i)=>s+wi*(i-xmw)*(closes[i]-ymw), 0);
+  const den = w.reduce((s,wi,i)=>s+wi*(i-xmw)**2, 0);
+  const slope = den ? num/den : 0;
+  const intercept = ymw - slope * xmw;
+  return { slope, intercept, line: closes.map((_,i)=>+(slope*i+intercept).toFixed(2)) };
+}
+
+const GRID = '#1a2635', TICK = '#78909c';
+function baseScaleOpts() {
+  return {
+    x: { ticks: { color: TICK, maxTicksLimit: 8 }, grid: { color: GRID } },
+    y: { ticks: { color: TICK }, grid: { color: GRID } }
+  };
+}
+function baseLegend() {
+  return { labels: { color: '#e0e0e0', usePointStyle: true } };
+}
+
+/* ─── ① yfinance 展示 ─── */
+function p1Draw() {
+  const n   = +document.getElementById('p1-days').value;
+  const vol = +document.getElementById('p1-vol').value / 1000;
+  const dates  = genDates(n);
+  const closes = genPrices(n, 600, vol, Math.random()*9999|0);
+  const mn = Math.min(...closes), mx = Math.max(...closes);
+  document.getElementById('p1-stats').innerHTML = `
+    <div class="stat"><div class="n">${n}</div><div class="l">交易日</div></div>
+    <div class="stat"><div class="n">${closes[0]}</div><div class="l">起始收盤</div></div>
+    <div class="stat"><div class="n">${closes[closes.length-1]}</div><div class="l">最新收盤</div></div>
+    <div class="stat"><div class="n">${mn}</div><div class="l">區間最低</div></div>
+    <div class="stat"><div class="n">${mx}</div><div class="l">區間最高</div></div>
+  `;
+  makeChart('p1-chart', {
+    type:'line',
+    data: { labels:dates, datasets:[{
+      label:'收盤價', data:closes,
+      borderColor:'#4fc3f7', backgroundColor:'rgba(79,195,247,0.08)',
+      borderWidth:2, pointRadius:0, tension:0.1, fill:true
+    }]},
+    options:{ responsive:true, plugins:{ legend:baseLegend() }, scales:baseScaleOpts() }
+  });
+}
+
+/* ─── ② 加權線性回歸 ─── */
+window._p2seed = 42;
+function p2Draw() {
+  const lam = +document.getElementById('p2-lam').value / 100;
+  const n   = +document.getElementById('p2-n').value;
+  const dates  = genDates(n);
+  const closes = genPrices(n, 550, 0.018, window._p2seed*9999|0);
+  const reg  = wlr(closes, lam);
+  const regO = wlr(closes, 0);   // OLS 比較
+  document.getElementById('p2-stats').innerHTML = `
+    <div class="stat"><div class="n">${reg.slope > 0 ? '+' : ''}${reg.slope.toFixed(2)}</div><div class="l">加權斜率（λ=${lam}）</div></div>
+    <div class="stat"><div class="n">${regO.slope > 0 ? '+' : ''}${regO.slope.toFixed(2)}</div><div class="l">普通 OLS 斜率（λ=0）</div></div>
+    <div class="stat"><div class="n">${lam}</div><div class="l">衰減係數 λ</div></div>
+    <div class="stat"><div class="n">${(Math.exp(lam*(n-1))/1).toFixed(1)}×</div><div class="l">最新 vs 最舊 權重比</div></div>
+  `;
+  makeChart('p2-chart', {
+    type:'line',
+    data: { labels:dates, datasets:[
+      { label:'收盤價', data:closes, borderColor:'#4fc3f7', borderWidth:1.5, pointRadius:0, tension:0.1 },
+      { label:`加權回歸（λ=${lam}）`, data:reg.line, borderColor:'#ff9800', borderWidth:2.5, pointRadius:0, borderDash:[] },
+      { label:'普通 OLS（λ=0）', data:regO.line, borderColor:'#78909c', borderWidth:1.5, pointRadius:0, borderDash:[5,4] },
+    ]},
+    options:{ responsive:true, plugins:{ legend:baseLegend() }, scales:baseScaleOpts() }
+  });
+}
+
+/* ─── ③ 回歸通道 ─── */
+window._p3seed = 77;
+function p3Draw() {
+  const mult = +document.getElementById('p3-mult').value / 10;
+  const n = 40, dates = genDates(n);
+  const closes = genPrices(n, 500, 0.016, window._p3seed*9999|0);
+  const reg = wlr(closes, 0.1);
+  const residuals = closes.map((c,i) => c - reg.line[i]);
+  const resid_std = Math.sqrt(residuals.reduce((s,r)=>s+r*r, 0) / n);
+  const upper = reg.line.map(v => +(v + mult*resid_std).toFixed(2));
+  const lower = reg.line.map(v => +(v - mult*resid_std).toFixed(2));
+  const outside = closes.filter((c,i) => c > upper[i] || c < lower[i]).length;
+  document.getElementById('p3-stats').innerHTML = `
+    <div class="stat"><div class="n">${resid_std.toFixed(2)}</div><div class="l">殘差 RMS σ</div></div>
+    <div class="stat"><div class="n">±${(mult*resid_std).toFixed(2)}</div><div class="l">通道寬度（${mult}σ）</div></div>
+    <div class="stat"><div class="n">${outside}</div><div class="l">突破通道次數</div></div>
+    <div class="stat"><div class="n">${((n-outside)/n*100).toFixed(0)}%</div><div class="l">在通道內比率</div></div>
+  `;
+  makeChart('p3-chart', {
+    type:'line',
+    data: { labels:dates, datasets:[
+      { label:'上界 +σ', data:upper, borderColor:'rgba(255,152,0,0.5)', borderWidth:1, pointRadius:0, fill:'+1', backgroundColor:'rgba(255,152,0,0.06)', borderDash:[4,3] },
+      { label:'回歸線', data:reg.line, borderColor:'#ff9800', borderWidth:2.5, pointRadius:0 },
+      { label:'下界 −σ', data:lower, borderColor:'rgba(255,152,0,0.5)', borderWidth:1, pointRadius:0, fill:false, borderDash:[4,3] },
+      { label:'收盤價', data:closes, borderColor:'#4fc3f7', borderWidth:2, pointRadius:3,
+        pointBackgroundColor: closes.map((c,i) => c>upper[i]||c<lower[i] ? '#ef9a9a' : '#4fc3f7') },
+    ]},
+    options:{ responsive:true, plugins:{ legend:baseLegend() }, scales:baseScaleOpts() }
+  });
+}
+
+/* ─── ④ 短期動能 ─── */
+window._p4seed = 55;
+function p4Draw() {
+  const win = +document.getElementById('p4-win').value;
+  const lam = +document.getElementById('p4-lam').value / 100;
+  const n = 30, dates = genDates(n);
+  const closes = genPrices(n, 520, 0.02, window._p4seed*9999|0);
+  const regL = wlr(closes, 0.1);
+
+  const closes5 = closes.slice(-win);
+  const w5 = closes5.map((_,i) => Math.exp(lam*i));
+  const w5s = w5.reduce((a,b)=>a+b,0);
+  const x5mw = w5.reduce((s,wi,i)=>s+wi*i,0)/w5s;
+  const y5mw = w5.reduce((s,wi,i)=>s+wi*closes5[i],0)/w5s;
+  const n5d = w5.reduce((s,wi,i)=>s+wi*(i-x5mw)**2,0);
+  const shortSlope = n5d ? w5.reduce((s,wi,i)=>s+wi*(i-x5mw)*(closes5[i]-y5mw),0)/n5d : regL.slope;
+
+  // 把短期斜率延伸為完整歷史長度（最後 win 天顯示）
+  const shortLine = new Array(n).fill(null);
+  const startIdx = n - win;
+  const intercept5 = y5mw - shortSlope * x5mw;
+  for (let i = 0; i < win; i++) shortLine[startIdx + i] = +((shortSlope*i+intercept5).toFixed(2));
+
+  document.getElementById('p4-stats').innerHTML = `
+    <div class="stat"><div class="n">${regL.slope > 0?'+':''}${regL.slope.toFixed(2)}</div><div class="l">長期斜率（λ=0.1，30日）</div></div>
+    <div class="stat"><div class="n">${shortSlope > 0?'+':''}${shortSlope.toFixed(2)}</div><div class="l">短期斜率（λ=${lam}，${win}日）</div></div>
+    <div class="stat"><div class="n">${shortSlope > regL.slope ? '↑ 加速' : shortSlope < regL.slope ? '↓ 減速' : '→ 持平'}</div><div class="l">近期動能</div></div>
+  `;
+  makeChart('p4-chart', {
+    type:'line',
+    data: { labels:dates, datasets:[
+      { label:'收盤價', data:closes, borderColor:'#4fc3f7', borderWidth:2, pointRadius:2, tension:0.1 },
+      { label:'長期回歸（30日）', data:regL.line, borderColor:'#78909c', borderWidth:1.5, pointRadius:0, borderDash:[5,4] },
+      { label:`短期動能（${win}日）`, data:shortLine, borderColor:'#80cbc4', borderWidth:2.5, pointRadius:0 },
+    ]},
+    options:{ responsive:true, plugins:{ legend:baseLegend() }, scales:baseScaleOpts() }
+  });
+}
+
+/* ─── ⑤ MA20 均值回歸 ─── */
+window._p5seed = 33;
+function p5Draw() {
+  const decay = +document.getElementById('p5-decay').value / 100;
+  const maWin = +document.getElementById('p5-ma').value;
+  const n = 30, dates = genDates(n);
+  const closes = genPrices(n, 480, 0.018, window._p5seed*9999|0);
+
+  // short slope
+  const closes5 = closes.slice(-5);
+  const w5 = closes5.map((_,i)=>Math.exp(0.2*i)), w5s=w5.reduce((a,b)=>a+b,0);
+  const x5mw=w5.reduce((s,wi,i)=>s+wi*i,0)/w5s, y5mw=w5.reduce((s,wi,i)=>s+wi*closes5[i],0)/w5s;
+  const n5d=w5.reduce((s,wi,i)=>s+wi*(i-x5mw)**2,0);
+  const shortSlope=n5d?w5.reduce((s,wi,i)=>s+wi*(i-x5mw)*(closes5[i]-y5mw),0)/n5d:0;
+
+  const ma20 = closes.slice(-maWin).reduce((a,b)=>a+b,0)/Math.min(maWin,n);
+  const lastPrice = closes[n-1];
+  const meanPull = (ma20 - lastPrice) / 20;
+
+  const futureDates = genDates(25).slice(5);
+  const futurePure = [], futureMixed = [];
+  let pPure = lastPrice, pMixed = lastPrice;
+  for (let i = 0; i < 20; i++) {
+    pPure  = +(pPure  + shortSlope).toFixed(2);
+    const d = Math.exp(-decay*i);
+    pMixed = +(pMixed + d*shortSlope + (1-d)*meanPull).toFixed(2);
+    futurePure.push(pPure);
+    futureMixed.push(pMixed);
+  }
+  const allDates  = [...dates, ...futureDates];
+  const histNull  = new Array(n).fill(null);
+  const futNull   = new Array(20).fill(null);
+  const closesExt = [...closes, ...futNull];
+
+  const maLine = new Array(n+20).fill(null);
+  maLine.fill(+ma20.toFixed(2));
+
+  document.getElementById('p5-stats').innerHTML = `
+    <div class="stat"><div class="n">${+ma20.toFixed(2)}</div><div class="l">MA${maWin}（均值錨點）</div></div>
+    <div class="stat"><div class="n">${meanPull>0?'+':''}${meanPull.toFixed(2)}</div><div class="l">每日 MA 拉力</div></div>
+    <div class="stat"><div class="n">${shortSlope>0?'+':''}${shortSlope.toFixed(2)}</div><div class="l">短期動能/日</div></div>
+    <div class="stat"><div class="n">${futureMixed[19]}</div><div class="l">混合預測第20日</div></div>
+    <div class="stat"><div class="n">${futurePure[19]}</div><div class="l">純動能第20日</div></div>
+  `;
+  makeChart('p5-chart', {
+    type:'line',
+    data: { labels:allDates, datasets:[
+      { label:'收盤價', data:closesExt, borderColor:'#4fc3f7', borderWidth:2, pointRadius:2, tension:0.1 },
+      { label:`MA${maWin} 均值錨點`, data:maLine, borderColor:'#546e7a', borderWidth:1, borderDash:[4,4], pointRadius:0 },
+      { label:'純動能外推', data:[...histNull, ...futurePure], borderColor:'#ef9a9a', borderWidth:1.5, pointRadius:3, borderDash:[4,3] },
+      { label:`混合（衰減=${decay}）`, data:[...histNull, ...futureMixed], borderColor:'#a5d6a7', borderWidth:2.5, pointRadius:3 },
+    ]},
+    options:{ responsive:true, plugins:{ legend:baseLegend() }, scales:baseScaleOpts() }
+  });
+}
+
+/* ─── ⑥ 完整預測合成 ─── */
+window._p6seed = 99;
+function p6Draw() {
+  const aiPct  = +document.getElementById('p6-ai').value / 10;
+  const conf   = +document.getElementById('p6-conf').value;
+  const n = 30, dates = genDates(n);
+  const closes = genPrices(n, 510, 0.016, window._p6seed*9999|0);
+  const reg = wlr(closes, 0.1);
+  const residuals = closes.map((c,i)=>c-reg.line[i]);
+  const resid_std = Math.sqrt(residuals.reduce((s,r)=>s+r*r,0)/n);
+  const upper = reg.line.map(v=>+(v+resid_std).toFixed(2));
+  const lower = reg.line.map(v=>+(v-resid_std).toFixed(2));
+
+  // short slope
+  const c5=closes.slice(-5), w5=c5.map((_,i)=>Math.exp(0.2*i)), w5s=w5.reduce((a,b)=>a+b,0);
+  const x5mw=w5.reduce((s,wi,i)=>s+wi*i,0)/w5s, y5mw=w5.reduce((s,wi,i)=>s+wi*c5[i],0)/w5s;
+  const n5d=w5.reduce((s,wi,i)=>s+wi*(i-x5mw)**2,0);
+  const ss=n5d?w5.reduce((s,wi,i)=>s+wi*(i-x5mw)*(c5[i]-y5mw),0)/n5d:0;
+
+  const ma20=closes.slice(-20).reduce((a,b)=>a+b,0)/Math.min(20,n);
+  const lastPrice=closes[n-1];
+  const mp=(ma20-lastPrice)/20;
+
+  const futureDates=genDates(25).slice(5);
+  const futMath=[], futAi=[];
+  const target=+(lastPrice*(1+aiPct/100)).toFixed(2);
+  let p=lastPrice;
+  for(let i=0;i<20;i++){
+    const d=Math.exp(-0.18*i);
+    p=+(p+d*ss+(1-d)*mp).toFixed(2);
+    futMath.push(p);
+    futAi.push(+(lastPrice+(target-lastPrice)*(i+1)/20).toFixed(2));
+  }
+
+  const allDates=[...dates,...futureDates];
+  const hn=new Array(n).fill(null), fn=new Array(20).fill(null);
+  const confColor = conf>=4?'#a5d6a7':conf<=2?'#ef9a9a':'#ffcc80';
+
+  document.getElementById('p6-summary').innerHTML = `
+    <div class="stat"><div class="n">${lastPrice}</div><div class="l">目前收盤價</div></div>
+    <div class="stat"><div class="n" style="color:${aiPct>=0?'#a5d6a7':'#ef9a9a'}">${aiPct>0?'+':''}${aiPct}%</div><div class="l">AI 預測漲跌幅</div></div>
+    <div class="stat"><div class="n">${target}</div><div class="l">AI 目標價（20日）</div></div>
+    <div class="stat"><div class="n">${futMath[19]}</div><div class="l">數學預測（20日）</div></div>
+    <div class="stat"><div class="n" style="color:${confColor}">${conf}/5</div><div class="l">AI 信心指數</div></div>
+  `;
+  makeChart('p6-chart', {
+    type:'line',
+    data:{ labels:allDates, datasets:[
+      { label:'加權回歸線（②）', data:[...reg.line,...fn], borderColor:'#ce93d8', borderWidth:1.5, pointRadius:0, borderDash:[5,4] },
+      { label:'收盤價', data:[...closes,...fn], borderColor:'#4fc3f7', backgroundColor:'rgba(79,195,247,0.07)', borderWidth:2, pointRadius:2, tension:0.1, fill:true },
+      { label:'數學預測（③動能+④MA20）', data:[...hn,...futMath], borderColor:'#ffcc80', borderWidth:2, pointRadius:3, borderDash:[6,3] },
+      { label:`AI 預測（${aiPct>0?'+':''}${aiPct}%，信心${conf}/5）`, data:[...hn,...futAi], borderColor:'#a5d6a7', borderWidth:2.5, pointRadius:3 },
+    ]},
+    options:{ responsive:true, plugins:{ legend:baseLegend() }, scales:baseScaleOpts() }
+  });
+}
+
+/* ─── ⑦ 新聞標記 ─── */
+window._p7seed = 11;
+const _p7NewsPool = [
+  '台積電法說會：Q2 展望樂觀，先進製程全速量產',
+  '鴻海發布最新財報，EPS 超市場預期 12%',
+  '聯發科受惠 AI 手機需求，出貨量季增 18%',
+  '富邦金控宣布現金股利每股 3.5 元',
+  '外資連買三日，台積電持股比創新高',
+  '美國升息預期降溫，台股電子族群普漲',
+  '南亞科技擴大 DRAM 產能投資',
+  '萬海航運宣布與 AI 平台策略合作',
+  '台積電確認赴日設廠，獲政府補貼 150 億',
+  '聯發科攜手高通共同研發 6G 標準',
+  '富邦金旗下富邦人壽資產突破 4 兆元',
+  '鴻海電動車 Model C 預計年底量產',
+  '台股加權指數創歷史新高，電子股領漲',
+  '外資大舉買超 50 億，三大法人偏多',
+  '台積電 3nm 良率超預期，客戶需求強勁',
+  '南亞塑膠宣布減碳計畫，ESG 評級獲升',
+  '萬海貨量持續回升，第三季展望正面',
+  '聯發科天璣 9400 系列大單確認',
+  '台積電美國廠 2nm 最新進度曝光',
+  'Fed 利率決議：維持不變，市場鬆一口氣',
+];
+function p7Draw() {
+  const newsCount = +document.getElementById('p7-news').value;
+  const n = 60, dates = genDates(n);
+  const closes = genPrices(n, 530, 0.014, window._p7seed*9999|0);
+  const rng = seeded(window._p7seed*12345|0);
+
+  // 隨機抽 newsCount 個不重複索引
+  const newsIdxSet = new Set();
+  while (newsIdxSet.size < Math.min(newsCount, n)) {
+    newsIdxSet.add(Math.floor(rng() * n));
+  }
+  const newsMap = {};
+  [...newsIdxSet].forEach((idx, k) => {
+    newsMap[dates[idx]] = [_p7NewsPool[k % _p7NewsPool.length]];
+  });
+
+  const pointColors = dates.map(d => newsMap[d] ? '#ff6b6b' : 'transparent');
+  const pointRadius = dates.map(d => newsMap[d] ? 7 : 0);
+
+  const chart = makeChart('p7-chart', {
+    type:'line',
+    data:{ labels:dates, datasets:[{
+      label:'收盤價（紅點=有新聞，點擊查看）',
+      data:closes, borderColor:'#4fc3f7', backgroundColor:'rgba(79,195,247,0.07)',
+      borderWidth:2, fill:true, tension:0.1,
+      pointBackgroundColor:pointColors, pointRadius:pointRadius, pointHoverRadius:10,
+    }]},
+    options:{
+      responsive:true,
+      plugins:{ legend:baseLegend() },
+      scales:baseScaleOpts(),
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        const date = dates[elements[0].index];
+        const nl = document.getElementById('p7-news-list');
+        if(newsMap[date]){
+          nl.innerHTML = `<div class="card" style="margin-top:0">
+            <h3 style="color:#ef9a9a">📰 ${date} 新聞</h3>
+            ${newsMap[date].map(t=>`<div style="padding:8px 0;border-bottom:1px solid #1e3a4a;font-size:13px">${t}</div>`).join('')}
+          </div>`;
+        } else {
+          nl.innerHTML = `<p style="color:#546e7a;font-size:13px;padding:8px">此日無新聞資料</p>`;
+        }
+      }
+    }
+  });
+  document.getElementById('p7-news-list').innerHTML =
+    `<p style="color:#78909c;font-size:13px;padding:8px 0">點擊圖表上的<span style="color:#ff6b6b"> 紅點 </span>查看新聞標題</p>`;
+}
+
+/* ─── 分頁切換 ─── */
+const drawFns = { p1:p1Draw, p2:p2Draw, p4:p4Draw, p5:p5Draw, p6:p6Draw, p7:p7Draw };
+function gotoPage(id, tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  tab.classList.add('active');
+  if (drawFns[id]) setTimeout(drawFns[id], 20);
+}
+
+/* ─── 初始化 ─── */
+p1Draw();
+</script>
+</body>
+</html>

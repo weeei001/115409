@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
+import { useReduceMotionPreset } from '../lib/hooks/useReduceMotionPreset';
 import { LogIn, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
@@ -53,6 +53,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // 防止快速雙擊送出
     setError(null);
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -69,10 +70,8 @@ export default function LoginPage() {
       setError('請輸入有效的電子郵件格式');
       return;
     }
-    if (normalizedPassword.length > 128) {
-      setError('密碼長度過長');
-      return;
-    }
+    // 密碼長度由 <input maxLength={128}> 阻擋輸入，這裡不再重複驗證。
+    // 短密碼讓後端回覆，避免在登入頁洩漏密碼規則細節。
 
     setLoading(true);
     try {
@@ -88,7 +87,11 @@ export default function LoginPage() {
     }
   };
 
-  const reduceMotion = usePrefersReducedMotionClient();
+  const { motionProps } = useReduceMotionPreset({
+    initial: { opacity: 0, y: 24, scale: 0.96 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    transition: { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] },
+  });
 
   return (
     <div className="min-h-[100dvh] flex flex-col relative">
@@ -101,12 +104,7 @@ export default function LoginPage() {
         <SubpageHeader icon={LogIn} title="股海明燈" subtitle="登入帳號" />
 
         <main className="flex-1 flex items-center justify-center px-4 py-12">
-          <motion.div
-            className="w-full max-w-md"
-            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
-            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-            transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
-          >
+          <motion.div className="w-full max-w-md" {...motionProps}>
             <div className="glass rounded-2xl shadow-[var(--shadow-elevated)] p-8">
               <div className="flex flex-col items-center mb-8">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg mb-4"

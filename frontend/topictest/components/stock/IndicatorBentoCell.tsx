@@ -3,8 +3,7 @@ import { clsx } from 'clsx';
 import type { EChartsOption } from 'echarts';
 import { EChartPanel } from '../charts/EChartPanel';
 import { IndicatorChartEmptyState } from './IndicatorChartEmptyState';
-
-type Tone = 'up' | 'down' | 'neutral';
+import { getBadgeToneClass, type ValueTone } from '../../lib/utils/valueToneClass';
 
 interface Props {
   title: string;
@@ -13,15 +12,9 @@ interface Props {
   height?: number;
   latestLabel?: string;
   latestValue?: string;
-  latestTone?: Tone;
+  latestTone?: ValueTone;
   onRetry?: () => void;
   onWidenRange?: () => void;
-}
-
-function toneClass(tone: Tone): string {
-  if (tone === 'up') return 'bg-up-muted text-up-emphasis border-up/30';
-  if (tone === 'down') return 'bg-down-muted text-down-emphasis border-down/30';
-  return 'bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] border-[var(--color-border)]';
 }
 
 export const IndicatorBentoCell: React.FC<Props> = ({
@@ -46,7 +39,7 @@ export const IndicatorBentoCell: React.FC<Props> = ({
           <span
             className={clsx(
               'inline-flex items-baseline gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tabular-nums',
-              toneClass(latestTone),
+              getBadgeToneClass(latestTone, { emphasis: true }),
             )}
           >
             {latestLabel ? <span className="text-[10px] opacity-80">{latestLabel}</span> : null}
