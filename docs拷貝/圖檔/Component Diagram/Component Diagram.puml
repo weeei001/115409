@@ -1,0 +1,65 @@
+@startuml
+skinparam componentStyle uml2
+skinparam shadowing false
+' 設定連線為直角轉折，畫出樹狀結構感
+skinparam linetype ortho
+top to bottom direction
+
+
+
+component "主頁" as f_home
+
+' ================================
+' 首頁本身的公開資訊
+' ================================
+component "即時股價" as sub_h1
+component "最新財經新聞" as sub_h2
+f_home --> sub_h1
+f_home --> sub_h2
+
+' ================================
+' 身分驗證 (存取閘道)
+' ================================
+component "會員登入/註冊" as main_auth
+f_home --> main_auth : 點擊登入/驗證
+
+component "會員註冊" as sub_au1
+main_auth --> sub_au1
+
+' ================================
+' 登入後專屬主模組
+' ================================
+component "投資顧問" as f_advisor
+component "歷史回測" as f_order
+component "多股比較" as f_compare
+component "會員資訊" as f_member
+
+main_auth --> f_advisor 
+main_auth --> f_order
+main_auth --> f_compare
+main_auth --> f_member
+
+' ================================
+' 登入後各模組的小功能
+' ================================
+' --- 投資顧問 ---
+component "生成個股分析報告" as sub_a1
+component "歷史回測勝率分析" as sub_a2
+f_advisor --> sub_a1
+f_advisor --> sub_a2
+
+' --- 模擬下單 ---
+component "建立買賣委託訂單" as sub_o1
+component "檢視歷史訂單與損益" as sub_o2
+f_order --> sub_o1
+f_order --> sub_o2
+
+' --- 多股比較 ---
+component "技術指標視覺化對比" as sub_c2
+f_compare --> sub_c2
+
+' --- 會員中心 ---
+component "編輯個人資料" as sub_m1
+f_member --> sub_m1
+
+@enduml
