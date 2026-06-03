@@ -154,7 +154,7 @@ class SimulatedOrderCategoryProfitItem(BaseModel):
     order_count: int = Field(..., description="該股票委託筆數")
     symbols: List[str] = Field(..., description="涉及股票代號（與 category 一致，供相容用）")
     cost_amount: int = Field(..., description="成本金額（元）")
-    market_amount: int = Field(..., description="最新估值金額（元）")
+    market_amount: int = Field(..., description="估值或實現金額（元）；已到預計賣出日者使用預計賣出日收盤價")
     profit_amount: int = Field(..., description="收益金額（元）")
     profit_rate: float = Field(..., description="收益率（%）")
 
