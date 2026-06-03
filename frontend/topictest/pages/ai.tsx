@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { flushSync } from 'react-dom';
 import Head from 'next/head';
 import { Bot, Info } from 'lucide-react';
 import { ChatArea } from '../components/ChatArea';
@@ -84,8 +83,35 @@ export default function AiPage() {
         setStreamingMessageId(assistantId);
 
         try {
-          const flushAppend = (fn: () => void) => {
-            flushSync(fn);
+          let pendingText = '';
+          let pendingStatus: string | undefined;
+          let flushFrame: number | null = null;
+
+          const flushPending = () => {
+            flushFrame = null;
+            if (ctrl.signal.aborted || (!pendingText && pendingStatus === undefined)) return;
+
+            const text = pendingText;
+            const status = pendingStatus;
+            pendingText = '';
+            pendingStatus = undefined;
+
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      content: text ? m.content + text : m.content,
+                      streamStatus: status ?? m.streamStatus,
+                    }
+                  : m
+              )
+            );
+          };
+
+          const scheduleFlush = () => {
+            if (flushFrame !== null) return;
+            flushFrame = window.requestAnimationFrame(flushPending);
           };
 
           await ragAskStream(
@@ -93,25 +119,22 @@ export default function AiPage() {
             {
               onStatus: (status) => {
                 if (ctrl.signal.aborted) return;
-                flushAppend(() => {
-                  setMessages((prev) =>
-                    prev.map((m) => (m.id === assistantId ? { ...m, streamStatus: status } : m))
-                  );
-                });
+                pendingStatus = status;
+                scheduleFlush();
               },
               onText: (chunk) => {
                 if (ctrl.signal.aborted) return;
-                flushAppend(() => {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId ? { ...m, content: m.content + chunk } : m
-                    )
-                  );
-                });
+                pendingText += chunk;
+                scheduleFlush();
               },
             },
             { signal: ctrl.signal }
           );
+
+          if (flushFrame !== null) {
+            window.cancelAnimationFrame(flushFrame);
+            flushPending();
+          }
         } finally {
           // 總是清掉自己的 streaming flag；若使用者已送出下一條，streamingMessageId 會被新 cycle 設成新 id，
           // 此處只清「等於自己」的情境，避免覆蓋新訊息狀態。
