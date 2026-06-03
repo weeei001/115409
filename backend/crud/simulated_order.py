@@ -344,14 +344,29 @@ def summarize_profit_by_category(
             cost_amount = acost
             market_amount = proceeds
         else:
-            latest_close = latest_close_map.get(order.symbol)
-            if latest_close is None:
-                unpriced_orders += 1
-                continue
+            if order.sell_plan == "by_date" and order.planned_sell_date is not None:
+                if order.planned_sell_date <= date.today():
+                    reference_price = crud_price.get_latest_price_on_or_before(
+                        db, order.symbol, order.planned_sell_date
+                    )
+                    if reference_price is None or reference_price.close is None:
+                        unpriced_orders += 1
+                        continue
+                    close = Decimal(reference_price.close)
+                else:
+                    close = latest_close_map.get(order.symbol)
+                    if close is None:
+                        unpriced_orders += 1
+                        continue
+            else:
+                close = latest_close_map.get(order.symbol)
+                if close is None:
+                    unpriced_orders += 1
+                    continue
             priced_orders += 1
             qty_lot = Decimal(order.quantity) * Decimal(1000)
             cost_amount = Decimal(order.estimated_amount)
-            market_amount = (latest_close * qty_lot).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            market_amount = (close * qty_lot).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             profit_amount = market_amount - cost_amount
 
         bucket = buckets.get(category)
