@@ -15,6 +15,8 @@ export interface PriceChartData {
   candles: ChartCandle[];
   volume: Array<{ time: string; value: number; color: string }>;
   overlays: {
+    MA5: ChartPoint[];
+    MA10: ChartPoint[];
     MA20: ChartPoint[];
     MA60: ChartPoint[];
   };

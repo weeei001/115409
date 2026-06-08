@@ -1,7 +1,9 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CandlestickSeries,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   createSeriesMarkers,
   createChart,
   type BusinessDay,
@@ -16,6 +18,12 @@ import {
 } from 'lightweight-charts';
 import type { PriceChartData } from '../../lib/types/priceChart';
 import { formatVolumeShares } from '../../lib/utils/format';
+import { toCandlestickSeriesData } from '../../lib/utils/priceChartSeries';
+import {
+  DEFAULT_PRICE_CHART_SERIES_VISIBILITY,
+  getNextPriceChartSeriesVisibility,
+  type PriceChartSeriesKey,
+} from '../../lib/utils/priceChartVisibility';
 import { useTheme } from '../../lib/ThemeContext';
 import {
   getChartMarkerStyles,
@@ -45,7 +53,12 @@ interface ChartMarkerSourceItem {
 
 interface TrendOverlayData {
   date: string;
+  open: number;
+  high: number;
+  low: number;
   close: number;
+  ma5: number | null;
+  ma10: number | null;
   ma20: number | null;
   ma60: number | null;
   relativeText: string;
@@ -114,6 +127,17 @@ function extractLineValue(dataPoint: unknown): number | null {
   const candidate = dataPoint as { value?: unknown };
   if (typeof candidate.value !== 'number' || !Number.isFinite(candidate.value)) return null;
   return candidate.value;
+}
+
+function extractOhlcValues(dataPoint: unknown): Pick<TrendOverlayData, 'open' | 'high' | 'low' | 'close'> | null {
+  if (!dataPoint || typeof dataPoint !== 'object') return null;
+  const candidate = dataPoint as Record<string, unknown>;
+  const open = Number(candidate.open);
+  const high = Number(candidate.high);
+  const low = Number(candidate.low);
+  const close = Number(candidate.close);
+  if (![open, high, low, close].every(Number.isFinite)) return null;
+  return { open, high, low, close };
 }
 
 function buildRelativeText(close: number, ma20: number | null, ma60: number | null): string {
@@ -246,7 +270,10 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
   );
 
   const chartRef = useRef<IChartApi | null>(null);
+  const priceSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const closeSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ma5SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ma10SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ma60SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
@@ -254,6 +281,7 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
   const latestOverlayRef = useRef<TrendOverlayData | null>(null);
   const overlayKeyRef = useRef<string>('');
   const [showSignalMarkers, setShowSignalMarkers] = useState(false);
+  const [seriesVisibility, setSeriesVisibility] = useState(DEFAULT_PRICE_CHART_SERIES_VISIBILITY);
 
   const displayMarkers = useMemo(
     () => buildDisplayMarkers(data.markers, { showSignalMarkers }),
@@ -276,6 +304,22 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     });
     return map;
   }, [data.markers, markerConfigByType]);
+
+  const ma5ByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    data.overlays.MA5.forEach((point) => {
+      if (point.value !== null) map.set(point.time, Number(point.value));
+    });
+    return map;
+  }, [data.overlays.MA5]);
+
+  const ma10ByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    data.overlays.MA10.forEach((point) => {
+      if (point.value !== null) map.set(point.time, Number(point.value));
+    });
+    return map;
+  }, [data.overlays.MA10]);
 
   const ma20ByDate = useMemo(() => {
     const map = new Map<string, number>();
@@ -314,6 +358,8 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     return map;
   }, [data.candles]);
   const markerDetailsByDateRef = useRef<Map<string, MarkerDetail[]>>(new Map());
+  const ma5ByDateRef = useRef<Map<string, number>>(new Map());
+  const ma10ByDateRef = useRef<Map<string, number>>(new Map());
   const ma20ByDateRef = useRef<Map<string, number>>(new Map());
   const ma60ByDateRef = useRef<Map<string, number>>(new Map());
   const volumeByDateRef = useRef<Map<string, number>>(new Map());
@@ -321,11 +367,13 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
 
   useEffect(() => {
     markerDetailsByDateRef.current = markerDetailsByDate;
+    ma5ByDateRef.current = ma5ByDate;
+    ma10ByDateRef.current = ma10ByDate;
     ma20ByDateRef.current = ma20ByDate;
     ma60ByDateRef.current = ma60ByDate;
     volumeByDateRef.current = volumeByDate;
     priceChangeLabelByDateRef.current = priceChangeLabelByDate;
-  }, [markerDetailsByDate, ma20ByDate, ma60ByDate, volumeByDate, priceChangeLabelByDate]);
+  }, [markerDetailsByDate, ma5ByDate, ma10ByDate, ma20ByDate, ma60ByDate, volumeByDate, priceChangeLabelByDate]);
 
   const rafRef = useRef<number | null>(null);
   const [overlayData, setOverlayData] = useState<TrendOverlayData | null>(null);
@@ -369,7 +417,7 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
 
   const updateOverlayData = (next: TrendOverlayData | null) => {
     const key = next
-      ? `${next.date}|${next.close.toFixed(2)}|${next.ma20?.toFixed(2) ?? '--'}|${next.ma60?.toFixed(2) ?? '--'}|${next.relativeText}|${next.markerDetails
+      ? `${next.date}|${next.open.toFixed(2)}|${next.high.toFixed(2)}|${next.low.toFixed(2)}|${next.close.toFixed(2)}|${next.ma5?.toFixed(2) ?? '--'}|${next.ma10?.toFixed(2) ?? '--'}|${next.ma20?.toFixed(2) ?? '--'}|${next.ma60?.toFixed(2) ?? '--'}|${next.relativeText}|${next.markerDetails
           .map((item) => `${item.type}:${item.detail}`)
           .join('|')}`
       : '';
@@ -399,10 +447,38 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       },
     });
 
-    const closeLine = chart.addSeries(LineSeries, {
-      color: layoutOptions.series.close,
-      lineWidth: 3,
+    const priceSeries = chart.addSeries(CandlestickSeries, {
+      upColor: palette.up,
+      downColor: palette.down,
+      borderUpColor: palette.up,
+      borderDownColor: palette.down,
+      wickUpColor: palette.up,
+      wickDownColor: palette.down,
+      wickVisible: true,
+      borderVisible: true,
       priceLineVisible: false,
+    });
+
+    const closeSeries = chart.addSeries(LineSeries, {
+      color: layoutOptions.series.close,
+      lineWidth: 2,
+      lineStyle: LineStyle.Solid,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    const ma5 = chart.addSeries(LineSeries, {
+      color: layoutOptions.series.ma5,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+
+    const ma10 = chart.addSeries(LineSeries, {
+      color: layoutOptions.series.ma10,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
     });
 
     const ma20 = chart.addSeries(LineSeries, {
@@ -435,7 +511,7 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     });
 
     const updateTooltip = (param: MouseEventParams<Time>) => {
-      if (!closeSeriesRef.current) return;
+      if (!priceSeriesRef.current) return;
 
       if (!param.time || !param.point) {
         updateOverlayData(latestOverlayRef.current);
@@ -443,12 +519,20 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       }
 
       const date = formatTimeLabel(param.time);
-      const close = extractLineValue(param.seriesData.get(closeSeriesRef.current));
-      if (close === null) {
+      const ohlc = extractOhlcValues(param.seriesData.get(priceSeriesRef.current));
+      if (ohlc === null) {
         updateOverlayData(latestOverlayRef.current);
         return;
       }
 
+      const ma5 =
+        extractLineValue(ma5SeriesRef.current ? param.seriesData.get(ma5SeriesRef.current) : null) ??
+        ma5ByDateRef.current.get(date) ??
+        null;
+      const ma10 =
+        extractLineValue(ma10SeriesRef.current ? param.seriesData.get(ma10SeriesRef.current) : null) ??
+        ma10ByDateRef.current.get(date) ??
+        null;
       const ma20 =
         extractLineValue(ma20SeriesRef.current ? param.seriesData.get(ma20SeriesRef.current) : null) ??
         ma20ByDateRef.current.get(date) ??
@@ -468,10 +552,12 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
 
       updateOverlayData({
         date,
-        close,
+        ...ohlc,
+        ma5,
+        ma10,
         ma20,
         ma60,
-        relativeText: buildRelativeText(close, ma20, ma60),
+        relativeText: buildRelativeText(ohlc.close, ma20, ma60),
         markerDetails: markerDetailsByDateRef.current.get(date) ?? [],
         volume,
         priceChangeLabel: priceChangeLabelByDateRef.current.get(date) ?? '平盤',
@@ -487,11 +573,14 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     });
 
     chartRef.current = chart;
-    closeSeriesRef.current = closeLine;
+    priceSeriesRef.current = priceSeries;
+    closeSeriesRef.current = closeSeries;
+    ma5SeriesRef.current = ma5;
+    ma10SeriesRef.current = ma10;
     ma20SeriesRef.current = ma20;
     ma60SeriesRef.current = ma60;
     volumeSeriesRef.current = volume;
-    markerPluginRef.current = createSeriesMarkers(closeSeriesRef.current);
+    markerPluginRef.current = createSeriesMarkers(priceSeriesRef.current);
 
     return () => {
       if (rafRef.current) {
@@ -500,7 +589,10 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       markerPluginRef.current?.detach();
       chart.remove();
       chartRef.current = null;
+      priceSeriesRef.current = null;
       closeSeriesRef.current = null;
+      ma5SeriesRef.current = null;
+      ma10SeriesRef.current = null;
       ma20SeriesRef.current = null;
       ma60SeriesRef.current = null;
       volumeSeriesRef.current = null;
@@ -520,17 +612,45 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       rightPriceScale: layoutOptions.rightPriceScale,
       timeScale: layoutOptions.timeScale,
     });
+    priceSeriesRef.current?.applyOptions({
+      upColor: palette.up,
+      downColor: palette.down,
+      borderUpColor: palette.up,
+      borderDownColor: palette.down,
+      wickUpColor: palette.up,
+      wickDownColor: palette.down,
+    });
     closeSeriesRef.current?.applyOptions({ color: layoutOptions.series.close });
+    ma5SeriesRef.current?.applyOptions({ color: layoutOptions.series.ma5 });
+    ma10SeriesRef.current?.applyOptions({ color: layoutOptions.series.ma10 });
     ma20SeriesRef.current?.applyOptions({ color: layoutOptions.series.ma20 });
     ma60SeriesRef.current?.applyOptions({ color: layoutOptions.series.ma60 });
     volumeSeriesRef.current?.applyOptions({ color: layoutOptions.series.volumeFallback });
   }, [layoutOptions]);
 
   useEffect(() => {
-    if (!closeSeriesRef.current || !volumeSeriesRef.current || !ma20SeriesRef.current || !ma60SeriesRef.current) {
+    priceSeriesRef.current?.applyOptions({ visible: seriesVisibility.candles });
+    closeSeriesRef.current?.applyOptions({ visible: seriesVisibility.close });
+    ma5SeriesRef.current?.applyOptions({ visible: seriesVisibility.MA5 });
+    ma10SeriesRef.current?.applyOptions({ visible: seriesVisibility.MA10 });
+    ma20SeriesRef.current?.applyOptions({ visible: seriesVisibility.MA20 });
+    ma60SeriesRef.current?.applyOptions({ visible: seriesVisibility.MA60 });
+  }, [seriesVisibility]);
+
+  useEffect(() => {
+    if (
+      !priceSeriesRef.current ||
+      !closeSeriesRef.current ||
+      !volumeSeriesRef.current ||
+      !ma5SeriesRef.current ||
+      !ma10SeriesRef.current ||
+      !ma20SeriesRef.current ||
+      !ma60SeriesRef.current
+    ) {
       return;
     }
 
+    const candlesticks = toCandlestickSeriesData(data.candles);
     const closeLine: LineData<Time>[] = data.candles.map((item) => ({
       time: toTime(item.time),
       value: item.close,
@@ -558,6 +678,16 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       };
     });
 
+    const ma5: LineData<Time>[] = data.overlays.MA5.filter((item) => item.value !== null).map((item) => ({
+      time: toTime(item.time),
+      value: Number(item.value),
+    }));
+
+    const ma10: LineData<Time>[] = data.overlays.MA10.filter((item) => item.value !== null).map((item) => ({
+      time: toTime(item.time),
+      value: Number(item.value),
+    }));
+
     const ma20: LineData<Time>[] = data.overlays.MA20.filter((item) => item.value !== null).map((item) => ({
       time: toTime(item.time),
       value: Number(item.value),
@@ -568,8 +698,11 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       value: Number(item.value),
     }));
 
+    priceSeriesRef.current.setData(candlesticks);
     closeSeriesRef.current.setData(closeLine);
     volumeSeriesRef.current.setData(volume);
+    ma5SeriesRef.current.setData(ma5);
+    ma10SeriesRef.current.setData(ma10);
     ma20SeriesRef.current.setData(ma20);
     ma60SeriesRef.current.setData(ma60);
 
@@ -590,7 +723,12 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     const latest = latestCandle
       ? {
         date: latestCandle.time,
+        open: latestCandle.open,
+        high: latestCandle.high,
+        low: latestCandle.low,
         close: latestCandle.close,
+        ma5: ma5ByDate.get(latestCandle.time) ?? null,
+        ma10: ma10ByDate.get(latestCandle.time) ?? null,
         ma20: ma20ByDate.get(latestCandle.time) ?? null,
         ma60: ma60ByDate.get(latestCandle.time) ?? null,
         relativeText: buildRelativeText(
@@ -614,10 +752,19 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
 
     const visibleRange = getInitialVisibleRange();
     chartRef.current?.timeScale().setVisibleRange(visibleRange);
-  }, [data, displayMarkers, ma20ByDate, ma60ByDate, markerDetailsByDate, volumeByDate, priceChangeLabelByDate, volumeInsight.ma20Volume, palette, markerConfigByType]);
+  }, [data, displayMarkers, ma5ByDate, ma10ByDate, ma20ByDate, ma60ByDate, markerDetailsByDate, volumeByDate, priceChangeLabelByDate, volumeInsight.ma20Volume, palette, markerConfigByType]);
 
   const legendBoxCls =
     'inline-flex items-center gap-1.5 rounded-md bg-[var(--color-bg-card)]/70 px-2 py-1';
+  const legendButtonCls =
+    'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50';
+  const legendButtonStateCls = (key: PriceChartSeriesKey) =>
+    seriesVisibility[key]
+      ? 'border-transparent bg-[var(--color-bg-card)]/70 text-[var(--color-text-secondary)]'
+      : 'border-[var(--color-border)] bg-[var(--color-bg-elevated)]/50 text-[var(--color-text-muted)] opacity-55';
+  const toggleSeriesVisibility = (key: PriceChartSeriesKey) => {
+    setSeriesVisibility((current) => getNextPriceChartSeriesVisibility(current, key));
+  };
   const toggleBaseCls = 'rounded-md border px-2 py-1 transition-colors';
   const toggleActiveCls = 'border-brand bg-brand/10 text-brand-deep dark:text-brand';
   const toggleInactiveCls =
@@ -626,20 +773,62 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
     <>
       {!compact && (
       <div className="mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-3 text-xs text-[var(--color-text-muted)]">
-        <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">價格線</div>
+        <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">價格圖</div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className={legendBoxCls}>
+          <button
+            type="button"
+            aria-pressed={seriesVisibility.candles}
+            onClick={() => toggleSeriesVisibility('candles')}
+            className={`${legendButtonCls} ${legendButtonStateCls('candles')}`}
+          >
+            <span className="h-2.5 w-3 rounded-[2px] border" style={{ backgroundColor: palette.up, borderColor: palette.up }} />
+            K 線
+          </button>
+          <button
+            type="button"
+            aria-pressed={seriesVisibility.close}
+            onClick={() => toggleSeriesVisibility('close')}
+            className={`${legendButtonCls} ${legendButtonStateCls('close')}`}
+          >
             <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.close }} />
-            收盤線
-          </span>
-          <span className={legendBoxCls}>
+            收盤價
+          </button>
+          <button
+            type="button"
+            aria-pressed={seriesVisibility.MA5}
+            onClick={() => toggleSeriesVisibility('MA5')}
+            className={`${legendButtonCls} ${legendButtonStateCls('MA5')}`}
+          >
+            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.ma5 }} />
+            MA5
+          </button>
+          <button
+            type="button"
+            aria-pressed={seriesVisibility.MA10}
+            onClick={() => toggleSeriesVisibility('MA10')}
+            className={`${legendButtonCls} ${legendButtonStateCls('MA10')}`}
+          >
+            <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.ma10 }} />
+            MA10
+          </button>
+          <button
+            type="button"
+            aria-pressed={seriesVisibility.MA20}
+            onClick={() => toggleSeriesVisibility('MA20')}
+            className={`${legendButtonCls} ${legendButtonStateCls('MA20')}`}
+          >
             <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.ma20 }} />
             MA20
-          </span>
-          <span className={legendBoxCls}>
+          </button>
+          <button
+            type="button"
+            aria-pressed={seriesVisibility.MA60}
+            onClick={() => toggleSeriesVisibility('MA60')}
+            className={`${legendButtonCls} ${legendButtonStateCls('MA60')}`}
+          >
             <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: layoutOptions.series.ma60 }} />
             MA60
-          </span>
+          </button>
         </div>
         {data.markers.length > 0 && (
           <>
@@ -700,7 +889,10 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
           {overlayData ? (
             <div className="space-y-1">
               <p>
-                日期：{overlayData.date}　收盤：{overlayData.close.toFixed(2)}　MA20：
+                日期：{overlayData.date}　開：{overlayData.open.toFixed(2)}　高：{overlayData.high.toFixed(2)}　低：
+                {overlayData.low.toFixed(2)}　收：{overlayData.close.toFixed(2)}　MA5：
+                {overlayData.ma5 === null ? '--' : overlayData.ma5.toFixed(2)}　MA10：
+                {overlayData.ma10 === null ? '--' : overlayData.ma10.toFixed(2)}　MA20：
                 {overlayData.ma20 === null ? '--' : overlayData.ma20.toFixed(2)}　MA60：
                 {overlayData.ma60 === null ? '--' : overlayData.ma60.toFixed(2)}
               </p>
@@ -719,7 +911,7 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
               ) : null}
             </div>
           ) : (
-            <span>日期：--　收盤：--　MA20：--　MA60：--</span>
+            <span>日期：--　收盤：--　MA5：--　MA10：--　MA20：--　MA60：--</span>
           )}
         </div>
         <div ref={containerRef} className="h-full w-full" />

@@ -44,6 +44,8 @@ export function candlestickMaToPriceChart(data: CandlestickWithMAResponse): Pric
     candles,
     volume,
     overlays: {
+      MA5: toOverlay('MA5'),
+      MA10: toOverlay('MA10'),
       MA20: toOverlay('MA20'),
       MA60: toOverlay('MA60'),
     },

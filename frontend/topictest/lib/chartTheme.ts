@@ -102,6 +102,8 @@ export interface LightweightChartLayoutOptions {
   timeScale: { borderColor: string };
   series: {
     close: string;
+    ma5: string;
+    ma10: string;
     ma20: string;
     ma60: string;
     volumeFallback: string;
@@ -128,6 +130,8 @@ export function getLightweightChartLayoutOptions(
     timeScale: { borderColor: palette.grid },
     series: {
       close: closeLine,
+      ma5: MA_LINE_COLORS.MA5,
+      ma10: MA_LINE_COLORS.MA10,
       ma20: MA_LINE_COLORS.MA20,
       ma60: MA_LINE_COLORS.MA60,
       volumeFallback: palette.grid,
