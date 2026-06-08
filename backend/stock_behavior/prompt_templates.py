@@ -219,8 +219,7 @@ day=40｜格局定調
         "reason": string,
         "evidence_ids": string[]
       }
-    ],
-    "line_disclaimer": "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
+    ]
   }
 }
 
@@ -233,7 +232,6 @@ day=40｜格局定調
 - risk_analysis
 - base_close
 - base_volume
-- disclaimer
 - raw_answer
 - 任何 schema 未列出的欄位
 

@@ -37,7 +37,6 @@ export interface StockBehaviorAiProjection {
   scenario_key?: string;
   base_close?: number | null;
   base_volume?: number | null;
-  disclaimer?: string;
   points?: StockBehaviorAiProjectionPoint[];
 }
 

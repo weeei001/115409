@@ -223,12 +223,6 @@ export const ProjectionTimeline: React.FC<Props> = ({
           );
         })}
       </div>
-
-      {projection.disclaimer ? (
-        <p className="mt-3 text-[11px] leading-5 text-[var(--color-text-muted)]">
-          {projection.disclaimer}
-        </p>
-      ) : null}
     </section>
   );
 };

@@ -179,7 +179,7 @@ export default function Home() {
                     股海明燈
                   </h1>
                   <p className="m-0 text-xs leading-snug text-[var(--color-text-secondary)] text-pretty">
-                    即時股價 &middot; 財經新聞 &middot; AI 對話
+                    AI分析平台
                   </p>
                 </div>
               </div>
@@ -321,30 +321,14 @@ export default function Home() {
                 <h3 className="text-sm font-bold tracking-tight">快速功能</h3>
               </div>
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
-
-
-                <button
-                  onClick={() => router.push('/stock/2330#ai-advisor')}
-                  className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
-                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
-                >
-                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center"
-                    style={{ background: 'var(--brand-gradient)' }}>
-                    <BarChart3 size={16} className="text-white" aria-hidden />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 投資分析</p>
-                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">個股頁整合分析</p>
-                  </div>
-                </button>
-
                 <button
                   onClick={() => router.push('/ai')}
                   className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
                            hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
                 >
-                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
-                    <Bot size={16} className="text-brand" aria-hidden />
+                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center"
+                    style={{ background: 'var(--brand-gradient)' }}>
+                    <Bot size={16} className="text-white" aria-hidden />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 對話</p>

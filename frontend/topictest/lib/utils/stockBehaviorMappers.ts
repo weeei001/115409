@@ -105,15 +105,12 @@ export function mergeRagIntoReport(base: AdvisorReport, rag: StockBehaviorRagRes
 
 function formatProjectionBrief(projection?: StockBehaviorAiProjection): string {
   const points = projection?.points ?? [];
-  if (!points.length) return projection?.disclaimer?.trim() ?? '';
+  if (!points.length) return '';
   const reasons = points
     .map((p) => p.reason?.trim())
     .filter(Boolean)
     .slice(0, 2);
-  const joined = reasons.join(' ');
-  const disclaimer = projection?.disclaimer?.trim();
-  if (joined && disclaimer) return `${joined} ${disclaimer}`;
-  return joined || disclaimer || '';
+  return reasons.join(' ');
 }
 
 export function mapAiToAdvisorReport(
@@ -128,7 +125,7 @@ export function mapAiToAdvisorReport(
 
   const missing = ai.data_inventory?.missing_fields ?? [];
   const riskNotes =
-    [ai.projection?.disclaimer, missing.length ? `缺少欄位：${missing.join('、')}` : null]
+    [missing.length ? `缺少欄位：${missing.join('、')}` : null]
       .filter(Boolean)
       .join(' ') || null;
 

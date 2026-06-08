@@ -55,7 +55,6 @@ class RawProjection(BaseModel):
     projection_points: Any = None
     base_line: Any = None
     base: Any = None
-    line_disclaimer: Any = None
 
 
 class RawProjectionResponse(BaseModel):
@@ -108,7 +107,6 @@ class RawScenarioTrendLine(BaseModel):
     horizon_days: Any = None
     base_line: Any = Field(default_factory=list)
     base: Any = Field(default_factory=list)
-    line_disclaimer: Any = None
 
 
 class RawStructuredAnalysisPayload(BaseModel):

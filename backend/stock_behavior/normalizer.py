@@ -17,7 +17,6 @@ CONFIDENCE_LEVELS = {"low", "medium", "high"}
 RISK_LEVELS = {"low", "medium", "high"}
 RAG_SENTIMENTS = {"bullish", "neutral", "bearish", "mixed", "unknown"}
 PROJECTION_DIRECTIONS = {"up", "down", "neutral", "uncertain"}
-DEFAULT_LINE_DISCLAIMER = "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
 FALLBACK_LIMITATION = "LLM 結構化輸出失敗，請視為占位結果。"
 FALLBACK_SUMMARY = "此為 fallback 結果，代表 LLM 結構化輸出失敗，非有效分析結果。"
 
@@ -172,11 +171,6 @@ def normalize_projection(raw: dict[str, Any], *, horizon_days: int) -> dict[str,
                     if key == "primary":
                         break
 
-    trend_line = raw.get("llm_scenario_trend_line")
-    trend_line_disclaimer = ""
-    if isinstance(trend_line, dict):
-        trend_line_disclaimer = _text(trend_line.get("line_disclaimer"))
-
     fallback_reason = "資料不足，系統已補齊保守情境點。"
     return {
         "horizon_days": _coerce_int(projection.get("horizon_days")) or horizon_days,
@@ -195,7 +189,6 @@ def normalize_projection(raw: dict[str, Any], *, horizon_days: int) -> dict[str,
             else _projection_points_candidates(raw),
             fallback_reason=fallback_reason,
         ),
-        "line_disclaimer": _text(projection.get("line_disclaimer")) or trend_line_disclaimer or DEFAULT_LINE_DISCLAIMER,
     }
 
 
@@ -318,7 +311,6 @@ def build_stock_behavior_analysis_fallback(reason: str, *, horizon_days: int = 4
                 }
                 for day in SCENARIO_PROJECTION_DAYS
             ],
-            "line_disclaimer": DEFAULT_LINE_DISCLAIMER,
         },
         "risk_level": "high",
         "risk_analysis": [],

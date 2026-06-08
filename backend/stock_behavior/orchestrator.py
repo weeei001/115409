@@ -397,17 +397,12 @@ class StockBehaviorOrchestrator:
             point = {**point, "evidence_ids": evidence_ids}
             points.append(point)
 
-        disclaimer = projection.get("line_disclaimer") or (
-            "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。"
-        )
-
         return StockBehaviorAiProjection.model_validate(
             {
                 "horizon_days": projection.get("horizon_days") or horizon_days,
                 "scenario_key": projection.get("scenario_key") or "primary",
                 "base_close": base_close,
                 "base_volume": base_volume,
-                "disclaimer": disclaimer,
                 "points": points,
             }
         )

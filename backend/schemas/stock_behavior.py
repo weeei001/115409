@@ -109,7 +109,6 @@ class ScenarioProjectionBase(BaseModel):
 class ScenarioProjection(ScenarioProjectionBase):
     scenario_key: str = "primary"
     points: List[ProjectionPoint] = Field(default_factory=list)
-    line_disclaimer: str = "此趨勢線為 AI 情境推演，非統計預測，不構成投資建議。"
 
     @field_validator("points")
     @classmethod
@@ -212,7 +211,6 @@ class StockBehaviorAiProjection(BaseModel):
     scenario_key: str = "primary"
     base_close: Optional[float] = None
     base_volume: Optional[float] = None
-    disclaimer: str = "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。"
     points: List[StockBehaviorAiProjectionPoint] = Field(default_factory=list)
 
     @field_validator("points")
@@ -274,7 +272,6 @@ class StockBehaviorAiResponse(StockBehaviorResponseBase):
                     "scenario_key": "primary",
                     "base_close": 920.0,
                     "base_volume": 32100000.0,
-                    "disclaimer": "以下為 AI 情境推演，relative_price 為相對尺度，非統計預測或報酬率承諾，不構成任何投資建議。",
                     "points": [
                         {
                             "day": 5,

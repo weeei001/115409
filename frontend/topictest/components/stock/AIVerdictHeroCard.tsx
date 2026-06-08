@@ -57,9 +57,9 @@ export const AIVerdictHeroCard: React.FC<Props> = ({ symbol, endDate, verdict, o
     volumeConfirmLabel,
   } = verdict;
 
-  const hasPartial = Boolean(report);
-  const showFullCard = Boolean(report);
   const stillFinalizing = loading && progress?.pendingFinal;
+  const hasPartial = Boolean(report);
+  const showFullCard = Boolean(report) && !stillFinalizing;
 
   if (error && !report) {
     return (
@@ -108,9 +108,6 @@ export const AIVerdictHeroCard: React.FC<Props> = ({ symbol, endDate, verdict, o
             <div className="h-4 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-[60%]" />
             <div className="h-4 rounded-full bg-[var(--color-bg-elevated)] animate-pulse max-w-[40%]" />
           </div>
-          <p className="mt-auto text-xs text-[var(--color-text-muted)] leading-relaxed">
-            RAG 約數秒、AI 模型常需 1～3 分鐘；完成後此卡會立即更新。
-          </p>
         </div>
       </HeroFrame>
     );
