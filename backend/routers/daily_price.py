@@ -73,10 +73,18 @@ def _build_institutional_rows(trades):
         {
             "date": trade.date.isoformat(),
             "symbol": trade.symbol,
+            "foreign_buy": _to_int(trade.foreign_buy),
+            "foreign_sell": _to_int(trade.foreign_sell),
             "foreign_net": _to_int(trade.foreign_net),
+            "investment_trust_buy": _to_int(trade.investment_trust_buy),
+            "investment_trust_sell": _to_int(trade.investment_trust_sell),
             "investment_trust_net": _to_int(trade.investment_trust_net),
             "trust_net": _to_int(trade.investment_trust_net),
+            "dealer_buy": _to_int(trade.dealer_buy),
+            "dealer_sell": _to_int(trade.dealer_sell),
             "dealer_net": _to_int(trade.dealer_net),
+            "total_institutional_buy": _to_int(trade.total_institutional_buy),
+            "total_institutional_sell": _to_int(trade.total_institutional_sell),
             "total_institutional_net": _to_int(trade.total_institutional_net),
             "total_net": _to_int(trade.total_institutional_net),
         }
