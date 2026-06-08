@@ -57,11 +57,6 @@ export const TradingChartSection: React.FC<Props> = ({
             onStartChange={onStartChange}
             onEndChange={onEndChange}
           />
-          <MaPeriodSelector
-            value={maPeriods}
-            onChange={onMaPeriodsChange}
-            disabled={maSelectorDisabled || loading}
-          />
           <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-[var(--color-text-secondary)]">
             <input
               type="checkbox"
