@@ -17,6 +17,27 @@ export interface UseNewsListOptions {
   fixedStock?: string;
 }
 
+type NewsListFilterOverride =
+  | Partial<NewsListFilters>
+  | ((draft: NewsListFilters) => NewsListFilters);
+
+export function resolveAppliedNewsFilters(
+  draft: NewsListFilters,
+  override?: NewsListFilterOverride,
+  fixedStock?: string,
+): NewsListFilters {
+  const next =
+    typeof override === 'function'
+      ? override(draft)
+      : {
+          ...draft,
+          ...(override ?? {}),
+        };
+
+  if (fixedStock) next.stock = fixedStock;
+  return next;
+}
+
 function buildFetchParams(
   page: number,
   pageSize: number,
@@ -104,9 +125,9 @@ export function useNewsList(options: UseNewsListOptions = {}) {
     [pageSize]
   );
 
-  const applyFilters = useCallback(() => {
-    const next: NewsListFilters = { ...draft };
-    if (options.fixedStock) next.stock = options.fixedStock;
+  const applyFilters = useCallback((override?: NewsListFilterOverride) => {
+    const next = resolveAppliedNewsFilters(draft, override, options.fixedStock);
+    setDraft(next);
     setFilters(next);
     load(1, next);
   }, [draft, load, options.fixedStock]);

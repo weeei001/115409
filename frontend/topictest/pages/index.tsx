@@ -136,8 +136,7 @@ export default function Home() {
   }, [prices]);
 
   const handleNewsSearch = () => {
-    newsList.setDraft((prev) => ({ ...prev, keyword: newsKeyword }));
-    newsList.applyFilters();
+    newsList.applyFilters({ keyword: newsKeyword });
   };
 
   const handleNewsPageChange = (page: number) => {
@@ -388,10 +387,7 @@ export default function Home() {
                     layout="toolbar"
                     draft={newsList.draft}
                     setDraft={newsList.setDraft}
-                    onApply={() => {
-                      newsList.setDraft((prev) => ({ ...prev, keyword: newsKeyword }));
-                      newsList.applyFilters();
-                    }}
+                    onApply={handleNewsSearch}
                     onClearAdvanced={newsList.clearAdvanced}
                     disabled={newsList.loading}
                   />
