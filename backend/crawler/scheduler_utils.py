@@ -1,9 +1,9 @@
+import argparse
 import locale
 import logging
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import schedule
@@ -28,7 +28,6 @@ FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
 CNYES_SCHEDULE_LOOKBACK_DAYS = 5
-TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
 def _python_executable() -> str:
@@ -37,10 +36,6 @@ def _python_executable() -> str:
 
 def _subprocess_text_encoding() -> str:
     return locale.getpreferredencoding(False) or "utf-8"
-
-
-def _finmind_end_date() -> str:
-    return datetime.now(tz=TZ_TAIPEI).strftime("%Y-%m-%d")
 
 
 def _run_python_command(command: list[str], job_name: str) -> bool:
@@ -62,7 +57,7 @@ def _run_python_command(command: list[str], job_name: str) -> bool:
     return False
 
 
-def run_finmind_job() -> None:
+def run_finmind_job(start_date: str = FINMIND_START_DATE) -> None:
     script_path = FINMIND_FETCH_SCRIPT
     import_script_path = FINMIND_IMPORT_SCRIPT
     python_cmd = _python_executable()
@@ -74,8 +69,6 @@ def run_finmind_job() -> None:
         log.error("找不到 FinMind 匯入腳本 '%s'。", import_script_path)
         return
 
-    start_date = FINMIND_START_DATE
-    end_date = _finmind_end_date()
     symbols = ",".join(FINMIND_SYMBOLS)
 
     fetch_command = [
@@ -85,12 +78,10 @@ def run_finmind_job() -> None:
         symbols,
         "--start",
         start_date,
-        "--end",
-        end_date,
         "--out",
         str(FINMIND_OUT_DIR),
     ]
-    log.info("開始執行 FinMind 抓取作業（%s -> %s）...", start_date, end_date)
+    log.info("開始執行 FinMind 抓取作業（%s -> 今日）...", start_date)
     if not _run_python_command(fetch_command, "FinMind 抓取"):
         return
 
@@ -136,18 +127,28 @@ def run_cnyes_job() -> None:
         log.error(f"執行鉅亨爬蟲時發生未預期例外: {e}")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="台股爬蟲排程器")
+    parser.add_argument("--start", default=FINMIND_START_DATE, help="FinMind 回補起始日 YYYY-MM-DD；結束日固定為今天")
+    parser.add_argument("--run-now", action="store_true", help="啟動後立刻執行一次 FinMind 回補")
+    return parser.parse_args()
+
+
 def main():
     """
     排程器主程式
     """
+    args = parse_args()
     log.info("🕒 啟動台股爬蟲排程器...")
 
-    schedule.every().day.at(FINMIND_SCHEDULE_TIME).do(run_finmind_job)
+    schedule.every().day.at(FINMIND_SCHEDULE_TIME).do(run_finmind_job, args.start)
     log.info(
         "✅ 已設定每日 %s 執行：FinMind（起點 %s，迄今日）",
         FINMIND_SCHEDULE_TIME,
-        FINMIND_START_DATE,
+        args.start,
     )
+    if args.run_now:
+        run_finmind_job(args.start)
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)
