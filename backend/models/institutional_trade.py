@@ -4,7 +4,7 @@ from database import Base
 
 
 class InstitutionalTrade(Base):
-    __tablename__ = "institutional_trades"
+    __tablename__ = "fm_institutional_trades"
 
     date = Column(Date, primary_key=True, nullable=False, comment="交易日期")
     symbol = Column(String(10), primary_key=True, nullable=False, comment="證券代號")
