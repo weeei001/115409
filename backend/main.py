@@ -10,6 +10,7 @@ from routers import (
     simulated_order_router,
     auth_router,
     stock_behavior_router,
+    finmind_extra_router,
 )
 from config import get_settings
 from models.password_reset_token import PasswordResetToken  # noqa: F401
@@ -68,6 +69,10 @@ _OPENAPI_TAGS = [
         ),
     },
     {
+        "name": "FinMind 財報籌碼",
+        "description": "FinMind 擴充資料，包含財報、月營收、估值、股利、融資融券與外資持股。",
+    },
+    {
         "name": "進階繪圖",
         "description": "`GET /stocks/{symbol}/integrated-chart`，一次取得前端圖表初始化所需的整合資料。",
     },
@@ -122,6 +127,7 @@ app.include_router(news_router)
 app.include_router(simulated_order_router)
 app.include_router(auth_router)
 app.include_router(stock_behavior_router)
+app.include_router(finmind_extra_router)
 
 
 @app.get(

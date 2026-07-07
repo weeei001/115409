@@ -46,6 +46,80 @@ FINMIND_API_URL = "https://api.finmindtrade.com/api/v4/data"
 
 DEFAULT_STOCKS = ["2330", "2317", "2454", "2881", "2408", "2615"]
 
+FINANCIAL_STATEMENT_COLUMNS = ["date", "symbol", "statement", "item_type", "origin_name", "value"]
+MONTHLY_REVENUE_COLUMNS = ["date", "symbol", "country", "revenue", "revenue_month", "revenue_year", "create_time"]
+PER_PBR_COLUMNS = ["date", "symbol", "dividend_yield", "per", "pbr"]
+DIVIDEND_COLUMNS = [
+    "date",
+    "symbol",
+    "year",
+    "stock_earnings_distribution",
+    "stock_statutory_surplus",
+    "stock_ex_dividend_trading_date",
+    "total_employee_stock_dividend",
+    "total_employee_stock_dividend_amount",
+    "ratio_of_employee_stock_dividend_of_total",
+    "ratio_of_employee_stock_dividend",
+    "cash_earnings_distribution",
+    "cash_statutory_surplus",
+    "cash_ex_dividend_trading_date",
+    "cash_dividend_payment_date",
+    "total_employee_cash_dividend",
+    "total_number_of_cash_capital_increase",
+    "cash_increase_subscription_rate",
+    "cash_increase_subscription_price",
+    "remuneration_of_directors_and_supervisors",
+    "participate_distribution_of_total_shares",
+    "announcement_date",
+    "announcement_time",
+]
+DIVIDEND_RESULT_COLUMNS = [
+    "date",
+    "symbol",
+    "before_price",
+    "after_price",
+    "stock_and_cash_dividend",
+    "stock_or_cash_dividend",
+    "max_price",
+    "min_price",
+    "open_price",
+    "reference_price",
+]
+MARGIN_COLUMNS = [
+    "date",
+    "symbol",
+    "margin_purchase_buy",
+    "margin_purchase_cash_repayment",
+    "margin_purchase_limit",
+    "margin_purchase_sell",
+    "margin_purchase_today_balance",
+    "margin_purchase_yesterday_balance",
+    "note",
+    "offset_loan_and_short",
+    "short_sale_buy",
+    "short_sale_cash_repayment",
+    "short_sale_limit",
+    "short_sale_sell",
+    "short_sale_today_balance",
+    "short_sale_yesterday_balance",
+]
+FOREIGN_SHAREHOLDING_COLUMNS = [
+    "date",
+    "symbol",
+    "stock_name",
+    "international_code",
+    "foreign_investment_remaining_shares",
+    "foreign_investment_shares",
+    "foreign_investment_remain_ratio",
+    "foreign_investment_shares_ratio",
+    "foreign_investment_upper_limit_ratio",
+    "chinese_investment_upper_limit_ratio",
+    "number_of_shares_issued",
+    "recently_declare_date",
+    "note",
+]
+HOLDING_SHARE_LEVEL_COLUMNS = ["date", "symbol", "holding_shares_level", "people", "percent", "unit"]
+
 
 @dataclass
 class ExportSummary:
@@ -55,6 +129,14 @@ class ExportSummary:
     price_rows: int = 0
     technical_rows: int = 0
     institutional_rows: int = 0
+    financial_statement_rows: int = 0
+    monthly_revenue_rows: int = 0
+    per_pbr_rows: int = 0
+    dividend_rows: int = 0
+    dividend_result_rows: int = 0
+    margin_rows: int = 0
+    foreign_shareholding_rows: int = 0
+    holding_share_level_rows: int = 0
     unknown_institutional_names: list[str] | None = None
     warnings: list[str] | None = None
 
@@ -104,6 +186,11 @@ def parse_args() -> argparse.Namespace:
                         help="Use local institutional CSV instead of FinMind fetch.")
     parser.add_argument("--skip-institutional", action="store_true",
                         help="Skip institutional investors fetch/export.")
+    parser.add_argument(
+        "--include-holding-shares-per",
+        action="store_true",
+        help="Fetch paid TaiwanStockHoldingSharesPer. Disabled by default; failures only warn.",
+    )
 
     return parser.parse_args()
 
@@ -244,6 +331,234 @@ def trim_date_range(df: pd.DataFrame, start_date: str, end_date: str) -> pd.Data
         return df
     mask = (df["date"] >= start_date) & (df["date"] <= end_date)
     return df.loc[mask].reset_index(drop=True)
+
+
+def _empty_df(columns: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(columns=columns)
+
+
+def _with_date_symbol(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    out = df.rename(columns={"stock_id": "symbol"}).copy()
+    if "symbol" not in out.columns:
+        out["symbol"] = symbol
+    if "date" not in out.columns:
+        raise ValueError("DataFrame must contain 'date' column")
+    out["symbol"] = out["symbol"].astype(str)
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    return out.dropna(subset=["date"]).reset_index(drop=True)
+
+
+def _ensure_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in columns:
+        if col not in out.columns:
+            out[col] = np.nan
+    return out
+
+
+def _coerce_numeric(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in columns:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
+
+
+def normalize_financial_statement_df(df: pd.DataFrame, symbol: str, statement: str) -> pd.DataFrame:
+    if statement not in {"income", "balance", "cashflow"}:
+        raise ValueError(f"unknown statement: {statement}")
+    if df.empty:
+        return _empty_df(FINANCIAL_STATEMENT_COLUMNS)
+
+    out = _with_date_symbol(df, symbol).rename(columns={"type": "item_type"})
+    out["statement"] = statement
+    out = _ensure_columns(out, FINANCIAL_STATEMENT_COLUMNS)
+    out = _coerce_numeric(out, ["value"])
+    return (
+        out[FINANCIAL_STATEMENT_COLUMNS]
+        .sort_values(["date", "symbol", "statement", "item_type"])
+        .drop_duplicates(["date", "symbol", "statement", "item_type", "origin_name"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_monthly_revenue_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(MONTHLY_REVENUE_COLUMNS)
+    out = _with_date_symbol(df, symbol)
+    out = _ensure_columns(out, MONTHLY_REVENUE_COLUMNS)
+    out = _coerce_numeric(out, ["revenue", "revenue_month", "revenue_year"])
+    return (
+        out[MONTHLY_REVENUE_COLUMNS]
+        .sort_values(["date", "symbol"])
+        .drop_duplicates(["date", "symbol"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_per_pbr_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(PER_PBR_COLUMNS)
+    out = _with_date_symbol(df, symbol).rename(columns={"PER": "per", "PBR": "pbr"})
+    out = _ensure_columns(out, PER_PBR_COLUMNS)
+    out = _coerce_numeric(out, ["dividend_yield", "per", "pbr"])
+    return (
+        out[PER_PBR_COLUMNS]
+        .sort_values(["date", "symbol"])
+        .drop_duplicates(["date", "symbol"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_dividend_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(DIVIDEND_COLUMNS)
+    rename_map = {
+        "StockEarningsDistribution": "stock_earnings_distribution",
+        "StockStatutorySurplus": "stock_statutory_surplus",
+        "StockExDividendTradingDate": "stock_ex_dividend_trading_date",
+        "TotalEmployeeStockDividend": "total_employee_stock_dividend",
+        "TotalEmployeeStockDividendAmount": "total_employee_stock_dividend_amount",
+        "RatioOfEmployeeStockDividendOfTotal": "ratio_of_employee_stock_dividend_of_total",
+        "RatioOfEmployeeStockDividend": "ratio_of_employee_stock_dividend",
+        "CashEarningsDistribution": "cash_earnings_distribution",
+        "CashStatutorySurplus": "cash_statutory_surplus",
+        "CashExDividendTradingDate": "cash_ex_dividend_trading_date",
+        "CashDividendPaymentDate": "cash_dividend_payment_date",
+        "TotalEmployeeCashDividend": "total_employee_cash_dividend",
+        "TotalNumberOfCashCapitalIncrease": "total_number_of_cash_capital_increase",
+        "CashIncreaseSubscriptionRate": "cash_increase_subscription_rate",
+        "CashIncreaseSubscriptionpRrice": "cash_increase_subscription_price",
+        "RemunerationOfDirectorsAndSupervisors": "remuneration_of_directors_and_supervisors",
+        "ParticipateDistributionOfTotalShares": "participate_distribution_of_total_shares",
+        "AnnouncementDate": "announcement_date",
+        "AnnouncementTime": "announcement_time",
+    }
+    out = _with_date_symbol(df, symbol).rename(columns=rename_map)
+    out = _ensure_columns(out, DIVIDEND_COLUMNS)
+    numeric_cols = [
+        col
+        for col in DIVIDEND_COLUMNS
+        if col not in {"date", "symbol", "year", "stock_ex_dividend_trading_date", "cash_ex_dividend_trading_date", "cash_dividend_payment_date", "announcement_date", "announcement_time"}
+    ]
+    out = _coerce_numeric(out, numeric_cols)
+    return (
+        out[DIVIDEND_COLUMNS]
+        .sort_values(["date", "symbol", "year"])
+        .drop_duplicates(["date", "symbol", "year"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_dividend_result_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(DIVIDEND_RESULT_COLUMNS)
+    out = _with_date_symbol(df, symbol).rename(
+        columns={
+            "stock_and_cache_dividend": "stock_and_cash_dividend",
+            "stock_or_cache_dividend": "stock_or_cash_dividend",
+        }
+    )
+    out = _ensure_columns(out, DIVIDEND_RESULT_COLUMNS)
+    out = _coerce_numeric(
+        out,
+        [
+            "before_price",
+            "after_price",
+            "stock_and_cash_dividend",
+            "max_price",
+            "min_price",
+            "open_price",
+            "reference_price",
+        ],
+    )
+    return (
+        out[DIVIDEND_RESULT_COLUMNS]
+        .sort_values(["date", "symbol"])
+        .drop_duplicates(["date", "symbol"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_margin_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(MARGIN_COLUMNS)
+    rename_map = {
+        "MarginPurchaseBuy": "margin_purchase_buy",
+        "MarginPurchaseCashRepayment": "margin_purchase_cash_repayment",
+        "MarginPurchaseLimit": "margin_purchase_limit",
+        "MarginPurchaseSell": "margin_purchase_sell",
+        "MarginPurchaseTodayBalance": "margin_purchase_today_balance",
+        "MarginPurchaseYesterdayBalance": "margin_purchase_yesterday_balance",
+        "Note": "note",
+        "OffsetLoanAndShort": "offset_loan_and_short",
+        "ShortSaleBuy": "short_sale_buy",
+        "ShortSaleCashRepayment": "short_sale_cash_repayment",
+        "ShortSaleLimit": "short_sale_limit",
+        "ShortSaleSell": "short_sale_sell",
+        "ShortSaleTodayBalance": "short_sale_today_balance",
+        "ShortSaleYesterdayBalance": "short_sale_yesterday_balance",
+    }
+    out = _with_date_symbol(df, symbol).rename(columns=rename_map)
+    out = _ensure_columns(out, MARGIN_COLUMNS)
+    out = _coerce_numeric(out, [col for col in MARGIN_COLUMNS if col not in {"date", "symbol", "note"}])
+    return (
+        out[MARGIN_COLUMNS]
+        .sort_values(["date", "symbol"])
+        .drop_duplicates(["date", "symbol"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_foreign_shareholding_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(FOREIGN_SHAREHOLDING_COLUMNS)
+    rename_map = {
+        "InternationalCode": "international_code",
+        "ForeignInvestmentRemainingShares": "foreign_investment_remaining_shares",
+        "ForeignInvestmentShares": "foreign_investment_shares",
+        "ForeignInvestmentRemainRatio": "foreign_investment_remain_ratio",
+        "ForeignInvestmentSharesRatio": "foreign_investment_shares_ratio",
+        "ForeignInvestmentUpperLimitRatio": "foreign_investment_upper_limit_ratio",
+        "ChineseInvestmentUpperLimitRatio": "chinese_investment_upper_limit_ratio",
+        "NumberOfSharesIssued": "number_of_shares_issued",
+        "RecentlyDeclareDate": "recently_declare_date",
+    }
+    out = _with_date_symbol(df, symbol).rename(columns=rename_map)
+    out = _ensure_columns(out, FOREIGN_SHAREHOLDING_COLUMNS)
+    out = _coerce_numeric(
+        out,
+        [
+            "foreign_investment_remaining_shares",
+            "foreign_investment_shares",
+            "foreign_investment_remain_ratio",
+            "foreign_investment_shares_ratio",
+            "foreign_investment_upper_limit_ratio",
+            "chinese_investment_upper_limit_ratio",
+            "number_of_shares_issued",
+        ],
+    )
+    return (
+        out[FOREIGN_SHAREHOLDING_COLUMNS]
+        .sort_values(["date", "symbol"])
+        .drop_duplicates(["date", "symbol"], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def normalize_holding_share_levels_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return _empty_df(HOLDING_SHARE_LEVEL_COLUMNS)
+    out = _with_date_symbol(df, symbol).rename(columns={"HoldingSharesLevel": "holding_shares_level"})
+    out = _ensure_columns(out, HOLDING_SHARE_LEVEL_COLUMNS)
+    out = _coerce_numeric(out, ["people", "percent", "unit"])
+    return (
+        out[HOLDING_SHARE_LEVEL_COLUMNS]
+        .sort_values(["date", "symbol", "holding_shares_level"])
+        .drop_duplicates(["date", "symbol", "holding_shares_level"], keep="last")
+        .reset_index(drop=True)
+    )
+
 
 
 def ema(series: pd.Series, span: int) -> pd.Series:
@@ -517,6 +832,153 @@ def normalize_institutional_df(df: pd.DataFrame, symbol: str) -> tuple[pd.DataFr
     return output, unknown_names, warnings
 
 
+def get_holding_share_levels_df(
+    symbol: str,
+    args: argparse.Namespace,
+    token: str | None,
+) -> tuple[pd.DataFrame, list[str]]:
+    if not getattr(args, "include_holding_shares_per", False):
+        return _empty_df(HOLDING_SHARE_LEVEL_COLUMNS), [
+            "TaiwanStockHoldingSharesPer skipped; pass --include-holding-shares-per to fetch paid dataset."
+        ]
+
+    try:
+        raw = fetch_finmind_dataset(
+            dataset="TaiwanStockHoldingSharesPer",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        )
+    except Exception as exc:
+        return _empty_df(HOLDING_SHARE_LEVEL_COLUMNS), [
+            f"TaiwanStockHoldingSharesPer failed and was skipped: {exc}"
+        ]
+    return normalize_holding_share_levels_df(raw, symbol), []
+
+
+def fetch_extra_csvs_for_symbol(
+    symbol: str,
+    args: argparse.Namespace,
+    token: str | None,
+    out_dir: Path,
+) -> tuple[dict[str, int], list[str]]:
+    statement_frames = []
+    for statement, dataset in (
+        ("income", "TaiwanStockFinancialStatements"),
+        ("balance", "TaiwanStockBalanceSheet"),
+        ("cashflow", "TaiwanStockCashFlowsStatement"),
+    ):
+        raw = fetch_finmind_dataset(
+            dataset=dataset,
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        )
+        statement_frames.append(normalize_financial_statement_df(raw, symbol, statement))
+
+    financial = (
+        pd.concat(statement_frames, ignore_index=True)
+        if statement_frames
+        else _empty_df(FINANCIAL_STATEMENT_COLUMNS)
+    )
+    monthly_revenue = normalize_monthly_revenue_df(
+        fetch_finmind_dataset(
+            dataset="TaiwanStockMonthRevenue",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        ),
+        symbol,
+    )
+    per_pbr = normalize_per_pbr_df(
+        fetch_finmind_dataset(
+            dataset="TaiwanStockPER",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        ),
+        symbol,
+    )
+    dividend = normalize_dividend_df(
+        fetch_finmind_dataset(
+            dataset="TaiwanStockDividend",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        ),
+        symbol,
+    )
+    dividend_result = normalize_dividend_result_df(
+        fetch_finmind_dataset(
+            dataset="TaiwanStockDividendResult",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        ),
+        symbol,
+    )
+    margin = normalize_margin_df(
+        fetch_finmind_dataset(
+            dataset="TaiwanStockMarginPurchaseShortSale",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        ),
+        symbol,
+    )
+    foreign_shareholding = normalize_foreign_shareholding_df(
+        fetch_finmind_dataset(
+            dataset="TaiwanStockShareholding",
+            data_id=symbol,
+            start_date=args.start,
+            end_date=args.end,
+            token=token,
+            timeout=args.timeout,
+            retries=args.retries,
+        ),
+        symbol,
+    )
+    holding_share_levels, warnings = get_holding_share_levels_df(symbol, args, token)
+
+    csvs = {
+        "financial_statement_rows": (financial, out_dir / f"{symbol}_financial_statements.csv"),
+        "monthly_revenue_rows": (monthly_revenue, out_dir / f"{symbol}_monthly_revenue.csv"),
+        "per_pbr_rows": (per_pbr, out_dir / f"{symbol}_per_pbr.csv"),
+        "dividend_rows": (dividend, out_dir / f"{symbol}_dividend.csv"),
+        "dividend_result_rows": (dividend_result, out_dir / f"{symbol}_dividend_result.csv"),
+        "margin_rows": (margin, out_dir / f"{symbol}_margin.csv"),
+        "foreign_shareholding_rows": (foreign_shareholding, out_dir / f"{symbol}_foreign_shareholding.csv"),
+        "holding_share_level_rows": (holding_share_levels, out_dir / f"{symbol}_holding_shares_per.csv"),
+    }
+
+    counts: dict[str, int] = {}
+    for key, (df, path) in csvs.items():
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        counts[key] = len(df)
+    return counts, warnings
+
+
 def export_three_csvs_for_symbol(
     symbol: str,
     args: argparse.Namespace,
@@ -607,11 +1069,24 @@ def export_three_csvs_for_symbol(
         )
     inst_out.to_csv(institutional_path, index=False, encoding="utf-8-sig")
 
+    extra_counts, extra_warnings = fetch_extra_csvs_for_symbol(symbol, args, token, out_dir)
+    for field_name, count in extra_counts.items():
+        setattr(summary, field_name, count)
+    summary.warnings.extend(extra_warnings)
+
     print(f"[{symbol}] exported:")
     print(f"  price volume : {price_path} ({summary.price_rows} rows)")
     print(f"  technical    : {technical_path} ({summary.technical_rows} rows)")
     print(
         f"  institutional: {institutional_path} ({summary.institutional_rows} rows)")
+    print(f"  financial    : {summary.financial_statement_rows} rows")
+    print(f"  monthly rev  : {summary.monthly_revenue_rows} rows")
+    print(f"  per/pbr      : {summary.per_pbr_rows} rows")
+    print(f"  dividends    : {summary.dividend_rows} rows")
+    print(f"  dividend res : {summary.dividend_result_rows} rows")
+    print(f"  margin       : {summary.margin_rows} rows")
+    print(f"  foreign hold : {summary.foreign_shareholding_rows} rows")
+    print(f"  holding lvls : {summary.holding_share_level_rows} rows")
     for warning in summary.warnings:
         print(f"  warning      : {warning}")
 

@@ -22,7 +22,27 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base, SessionLocal, engine
 from models.institutional_trade import InstitutionalTrade
 from models.daily_price import DailyPrice
+from models.finmind_extra import (
+    DividendResult,
+    FinancialStatementRow,
+    ForeignShareholding,
+    HoldingShareLevel,
+    MarginTrade,
+    MonthlyRevenue,
+    StockDividend,
+    StockValuation,
+)
 from models.technical_indicator import TechnicalIndicator
+from crawler.finmind.fetch_finmind import (
+    DIVIDEND_COLUMNS,
+    DIVIDEND_RESULT_COLUMNS,
+    FINANCIAL_STATEMENT_COLUMNS,
+    FOREIGN_SHAREHOLDING_COLUMNS,
+    HOLDING_SHARE_LEVEL_COLUMNS,
+    MARGIN_COLUMNS,
+    MONTHLY_REVENUE_COLUMNS,
+    PER_PBR_COLUMNS,
+)
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -108,6 +128,80 @@ def _calc_safe_int(value):
     return int(value)
 
 
+def _parse_optional_date(value):
+    if value is None or pd.isna(value) or str(value).strip() in {"", "0"}:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def _clean_str(value, default=None):
+    if value is None or pd.isna(value):
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _import_normalized_csv(
+    db,
+    path: Path,
+    model,
+    columns: list[str],
+    key_cols: list[str],
+    update_keys: list[str],
+    *,
+    decimal_digits: dict[str, str] | None = None,
+    int_cols: set[str] | None = None,
+    date_cols: set[str] | None = None,
+    string_defaults: dict[str, str] | None = None,
+) -> int:
+    df = _read_csv(path)
+    if df.empty:
+        return 0
+
+    for col in columns:
+        if col not in df.columns:
+            raise ValueError(f"{path.name} missing column: {col}")
+
+    decimal_digits = decimal_digits or {}
+    int_cols = int_cols or set()
+    date_cols = date_cols or {"date"}
+    string_defaults = string_defaults or {}
+
+    df = df.copy()
+    for col in date_cols:
+        if col in df.columns:
+            df[col] = df[col].map(_parse_optional_date)
+    if "symbol" in df.columns:
+        df["symbol"] = df["symbol"].map(lambda value: _clean_str(value, ""))
+    for col in int_cols | set(decimal_digits):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=[col for col in key_cols if col != "symbol"])
+    df = df.sort_values(key_cols).drop_duplicates(key_cols, keep="last")
+
+    rows: list[dict] = []
+    for _, row in df.iterrows():
+        item = {}
+        for col in columns:
+            value = row.get(col)
+            if col in date_cols:
+                item[col] = value
+            elif col in int_cols:
+                item[col] = _calc_safe_int(value)
+            elif col in decimal_digits:
+                item[col] = _quantize(value, decimal_digits[col])
+            else:
+                item[col] = _clean_str(value, string_defaults.get(col))
+        if all(item.get(col) is not None for col in key_cols):
+            rows.append(item)
+
+    return _upsert_rows(db, model, rows, update_keys)
+
+
 def _existing_columns(db, table_name: str) -> set[str]:
     result = db.execute(text(f"SHOW COLUMNS FROM `{table_name}`"))
     return {row[0] for row in result}
@@ -155,8 +249,8 @@ def ensure_finmind_schema(db) -> None:
     }
 
     for table_name, column_map in (
-        ("technical_indicators", technical_columns),
-        ("institutional_trades", institutional_columns),
+        (TechnicalIndicator.__tablename__, technical_columns),
+        (InstitutionalTrade.__tablename__, institutional_columns),
     ):
         existing = _existing_columns(db, table_name)
         desired_columns = set(column_map.keys()) | {"date", "symbol"}
@@ -388,6 +482,141 @@ def import_institutional_csv(db, institutional_path: Path) -> int:
     )
 
 
+def import_financial_statement_csv(db, path: Path) -> int:
+    return _import_normalized_csv(
+        db,
+        path,
+        FinancialStatementRow,
+        FINANCIAL_STATEMENT_COLUMNS,
+        ["date", "symbol", "statement", "item_type", "origin_name"],
+        ["value"],
+        decimal_digits={"value": "0.0001"},
+        string_defaults={"origin_name": "", "item_type": ""},
+    )
+
+
+def import_monthly_revenue_csv(db, path: Path) -> int:
+    return _import_normalized_csv(
+        db,
+        path,
+        MonthlyRevenue,
+        MONTHLY_REVENUE_COLUMNS,
+        ["date", "symbol"],
+        ["country", "revenue", "revenue_month", "revenue_year", "create_time"],
+        int_cols={"revenue", "revenue_month", "revenue_year"},
+    )
+
+
+def import_per_pbr_csv(db, path: Path) -> int:
+    return _import_normalized_csv(
+        db,
+        path,
+        StockValuation,
+        PER_PBR_COLUMNS,
+        ["date", "symbol"],
+        ["dividend_yield", "per", "pbr"],
+        decimal_digits={col: "0.0001" for col in ["dividend_yield", "per", "pbr"]},
+    )
+
+
+def import_dividend_csv(db, path: Path) -> int:
+    date_cols = {
+        "date",
+        "stock_ex_dividend_trading_date",
+        "cash_ex_dividend_trading_date",
+        "cash_dividend_payment_date",
+        "announcement_date",
+    }
+    decimal_cols = {
+        col: "0.000001"
+        for col in DIVIDEND_COLUMNS
+        if col not in date_cols | {"symbol", "year", "announcement_time"}
+    }
+    return _import_normalized_csv(
+        db,
+        path,
+        StockDividend,
+        DIVIDEND_COLUMNS,
+        ["date", "symbol", "year"],
+        [col for col in DIVIDEND_COLUMNS if col not in {"date", "symbol", "year"}],
+        decimal_digits=decimal_cols,
+        date_cols=date_cols,
+        string_defaults={"year": ""},
+    )
+
+
+def import_dividend_result_csv(db, path: Path) -> int:
+    decimal_cols = {
+        col: "0.0001"
+        for col in DIVIDEND_RESULT_COLUMNS
+        if col not in {"date", "symbol", "stock_or_cash_dividend"}
+    }
+    return _import_normalized_csv(
+        db,
+        path,
+        DividendResult,
+        DIVIDEND_RESULT_COLUMNS,
+        ["date", "symbol"],
+        [col for col in DIVIDEND_RESULT_COLUMNS if col not in {"date", "symbol"}],
+        decimal_digits=decimal_cols,
+    )
+
+
+def import_margin_csv(db, path: Path) -> int:
+    int_cols = {col for col in MARGIN_COLUMNS if col not in {"date", "symbol", "note"}}
+    return _import_normalized_csv(
+        db,
+        path,
+        MarginTrade,
+        MARGIN_COLUMNS,
+        ["date", "symbol"],
+        [col for col in MARGIN_COLUMNS if col not in {"date", "symbol"}],
+        int_cols=int_cols,
+    )
+
+
+def import_foreign_shareholding_csv(db, path: Path) -> int:
+    int_cols = {
+        "foreign_investment_remaining_shares",
+        "foreign_investment_shares",
+        "number_of_shares_issued",
+    }
+    decimal_cols = {
+        col: "0.0001"
+        for col in [
+            "foreign_investment_remain_ratio",
+            "foreign_investment_shares_ratio",
+            "foreign_investment_upper_limit_ratio",
+            "chinese_investment_upper_limit_ratio",
+        ]
+    }
+    return _import_normalized_csv(
+        db,
+        path,
+        ForeignShareholding,
+        FOREIGN_SHAREHOLDING_COLUMNS,
+        ["date", "symbol"],
+        [col for col in FOREIGN_SHAREHOLDING_COLUMNS if col not in {"date", "symbol"}],
+        decimal_digits=decimal_cols,
+        int_cols=int_cols,
+        date_cols={"date", "recently_declare_date"},
+    )
+
+
+def import_holding_share_levels_csv(db, path: Path) -> int:
+    return _import_normalized_csv(
+        db,
+        path,
+        HoldingShareLevel,
+        HOLDING_SHARE_LEVEL_COLUMNS,
+        ["date", "symbol", "holding_shares_level"],
+        ["people", "percent", "unit"],
+        decimal_digits={"percent": "0.0001"},
+        int_cols={"people", "unit"},
+        string_defaults={"holding_shares_level": ""},
+    )
+
+
 def discover_symbols(input_dir: Path) -> list[str]:
     symbols = []
     for price_file in sorted(input_dir.glob("*_price_volume.csv")):
@@ -426,23 +655,52 @@ def main() -> int:
         ensure_finmind_schema(db)
         total_price_rows = 0
         total_technical_rows = 0
+        total_extra_rows = 0
         for symbol in symbols:
             price_path = input_dir / f"{symbol}_price_volume.csv"
             technical_path = input_dir / f"{symbol}_technical.csv"
             institutional_path = input_dir / f"{symbol}_institutional.csv"
+            extra_paths = {
+                "financial": input_dir / f"{symbol}_financial_statements.csv",
+                "monthly_revenue": input_dir / f"{symbol}_monthly_revenue.csv",
+                "per_pbr": input_dir / f"{symbol}_per_pbr.csv",
+                "dividend": input_dir / f"{symbol}_dividend.csv",
+                "dividend_result": input_dir / f"{symbol}_dividend_result.csv",
+                "margin": input_dir / f"{symbol}_margin.csv",
+                "foreign_shareholding": input_dir / f"{symbol}_foreign_shareholding.csv",
+                "holding_share_levels": input_dir / f"{symbol}_holding_shares_per.csv",
+            }
 
             price_rows = import_price_csv(db, price_path)
             technical_rows = import_technical_csv(db, price_path, technical_path)
             institutional_rows = import_institutional_csv(db, institutional_path)
+            extra_rows = {
+                "financial": import_financial_statement_csv(db, extra_paths["financial"]),
+                "monthly_revenue": import_monthly_revenue_csv(db, extra_paths["monthly_revenue"]),
+                "per_pbr": import_per_pbr_csv(db, extra_paths["per_pbr"]),
+                "dividend": import_dividend_csv(db, extra_paths["dividend"]),
+                "dividend_result": import_dividend_result_csv(db, extra_paths["dividend_result"]),
+                "margin": import_margin_csv(db, extra_paths["margin"]),
+                "foreign_shareholding": import_foreign_shareholding_csv(db, extra_paths["foreign_shareholding"]),
+                "holding_share_levels": import_holding_share_levels_csv(db, extra_paths["holding_share_levels"]),
+            }
 
             total_price_rows += price_rows
             total_technical_rows += technical_rows
+            total_extra_rows += sum(extra_rows.values())
 
             log.info("[%s] price rows imported: %d", symbol, price_rows)
             log.info("[%s] technical rows imported: %d", symbol, technical_rows)
             log.info("[%s] institutional rows imported: %d", symbol, institutional_rows)
+            for name, count in extra_rows.items():
+                log.info("[%s] %s rows imported: %d", symbol, name, count)
 
-        log.info("Import summary: price=%d, technical=%d", total_price_rows, total_technical_rows)
+        log.info(
+            "Import summary: price=%d, technical=%d, extra=%d",
+            total_price_rows,
+            total_technical_rows,
+            total_extra_rows,
+        )
     finally:
         db.close()
 

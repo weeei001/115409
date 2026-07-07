@@ -3,6 +3,7 @@ from .cnyes_news import router as news_router
 from .simulated_order import router as simulated_order_router
 from .auth import router as auth_router
 from .stock_behavior import router as stock_behavior_router
+from .finmind_extra import router as finmind_extra_router
 
 __all__ = [
     "stock_router",
@@ -10,4 +11,5 @@ __all__ = [
     "simulated_order_router",
     "auth_router",
     "stock_behavior_router",
+    "finmind_extra_router",
 ]
