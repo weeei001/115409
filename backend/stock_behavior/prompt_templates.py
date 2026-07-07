@@ -21,7 +21,7 @@ STOCK_ANALYST_SYSTEM_PROMPT = """
 1. 價量資料：描述價格、成交量與量價狀態。
 2. 籌碼資料：描述外資、投信、自營商的資金態度。
 3. 技術資料：描述動能、支撐、壓力與量價驗證。
-4. rag_news 或 raw_answer：僅可作為 reference_only 背景，不得主導結論。
+4. rag_news 或 raw_answer：reference_only 代表可引用的輔助脈絡與 few-shot 證據，不得單獨主導價格、方向或量能結論。
 
 核心原則：
 - projection.points 的 relative_price、predicted_close 與 direction 必須由上述證據推導，不得補造 payload 未提供的日期、數值、新聞、事件、籌碼、技術指標或法人行為。
@@ -135,9 +135,29 @@ reason 中不得出現：
 - 收盤價低於均線或布林中線時，才可描述為落在壓力之下。
 
 新聞：
-- rag_news 與 raw_answer 僅供 reference_only 背景使用。
+- rag_news 與 raw_answer 的 reference_only 代表可引用的輔助脈絡與 few-shot 證據，不得單獨主導價格、方向或量能結論。
+- raw_answer 可作為壓縮後的 RAG 解讀與推理風格提示；news_sources 可透過 data_inventory.news 既有的 nw_* id 作為可引用來源證據。
+- 若 raw_answer 的說法缺少 news_sources 支持，只能視為弱背景脈絡，不得寫成直接原因。
+- 新聞證據必須至少搭配一個 pv_*、ch_* 或 tc_* id，不得單獨支持價格、方向或量能結論。
 - 新聞日期距 task.as_of_date 超過 90 天時，不得寫成節點漲跌的直接原因，只可描述為背景風險、外部不確定性或情緒參考。
 - 新聞 id 不得作為唯一或主要 evidence_ids；引用新聞時，必須同時搭配價量、籌碼或技術資料 id。
+
+reference_only few-shot 範例：
+
+範例一｜新聞與價量/籌碼同向
+可用線索：raw_answer 提到需求展望偏正向，news_sources 有對應近期標題；價量與法人也支持承接。
+reason 範例：近期題材提供需求面脈絡，且價格維持在支撐之上並伴隨法人買盤，使短線承接力較明確，量能配合下可維持偏強情境。
+evidence_ids 範例：["pv_01", "pv_03", "ch_01", "nw_01"]
+
+範例二｜新聞偏多但市場資料未確認
+可用線索：raw_answer 偏正向，但成交量低於均量或技術動能受壓。
+reason 範例：雖然近期題材偏正向，成交量未能有效放大且技術動能仍受限制，使追價意願偏保守，情境上較接近壓力下整理。
+evidence_ids 範例：["pv_02", "pv_03", "tc_04", "nw_01"]
+
+範例三｜新聞過舊或僅能當背景
+可用線索：news_sources 日期距 task.as_of_date 超過 90 天，或 raw_answer 缺少對應來源。
+reason 範例：新聞摘要僅提供外部不確定性的背景參考，方向仍以近期成交量不足與籌碼壓力為主，反映承接力尚未明確恢復。
+evidence_ids 範例：["pv_02", "pv_03", "ch_04"]
 
 ====================
 六、各節點優先證據與任務
@@ -243,7 +263,7 @@ day=40｜格局定調
 
 1. 輸出可被 json.loads 解析，且最外層只有 summary 與 projection。
 2. projection.points 恰好 8 筆，day 依序為 5、10、15、20、25、30、35、40。
-3. 每一點的 relative_price、predicted_close、direction 都由 price_window、chip_window、technical_window、rag_news 或 data_inventory 支持。
+3. 每一點的 relative_price、predicted_close、direction 都由 price_window、chip_window、technical_window 或 data_inventory 中的價量、籌碼、技術證據主導；rag_news 僅能作為輔助脈絡。
 4. predicted_volume 依指定公式產生 final number，無 null、算式或任意變動。
 5. 每個 reason 為單句繁體中文，具備資料事實、市場行為與方向/量能情境說明，且八句前後連貫。
 6. reason 未出現內部欄位名、證據 id、英文欄位、投資建議、禁止措辭或舊聞直接因果。
