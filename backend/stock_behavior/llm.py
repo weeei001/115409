@@ -130,7 +130,8 @@ LLM_ANALYSIS_OUTPUT_PARSER = (
     if PydanticOutputParser is not None
     else None
 )
-LLM_MAX_COMPLETION_TOKENS = 4096
+LLM_MAX_COMPLETION_TOKENS = 2048
+LLM_TIMEOUT_SECONDS = 900
 THINKING_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>\s*", re.IGNORECASE | re.DOTALL)
 CODE_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 JSON_NUMBER_RE = r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"
@@ -237,8 +238,9 @@ class StockBehaviorLlmService:
                 base_url=settings.NIM_BASE_URL,
                 model=self._model,
                 temperature=0.2,
-                max_tokens=LLM_MAX_COMPLETION_TOKENS,
-                extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+                timeout=LLM_TIMEOUT_SECONDS,
+                max_completion_tokens=LLM_MAX_COMPLETION_TOKENS,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
             if self._enabled and ChatOpenAI is not None
             else None
