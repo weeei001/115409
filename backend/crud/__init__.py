@@ -4,7 +4,6 @@ from . import technical_indicator
 from . import simulated_order
 from . import finmind_extra
 from . import analysis_snapshot
-from . import trend_prediction
 
 __all__ = [
     "daily_price",
@@ -13,5 +12,4 @@ __all__ = [
     "simulated_order",
     "finmind_extra",
     "analysis_snapshot",
-    "trend_prediction",
 ]
