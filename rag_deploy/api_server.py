@@ -1042,6 +1042,12 @@ async def ask(req: AskRequest):
 
 class StockAnalysisRequest(BaseModel):
     symbols: list[str] = Field(..., description="股票代號列表", examples=[["2330"]])
+    as_of: str | None = Field(
+        None,
+        description="回測用基準時間點（格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS），"
+                    "抓取範圍為此時間點往前一個月、且不含之後的新聞。不傳則預設為現在。",
+        examples=["2026-06-01"],
+    )
 
 
 class NewsSource(BaseModel):
@@ -1058,7 +1064,7 @@ class StockAnalysisResponse(BaseModel):
 
 @app.post("/api/analyze", response_model=StockAnalysisResponse)
 async def analyze_stocks(req: StockAnalysisRequest):
-    """根據股票代號，取得近一個月相關新聞"""
+    """取得指定時間點（預設為現在）往前一個月的相關新聞，供即時查詢或歷史回測使用"""
     if not qdrant_client or not embeddings:
         raise HTTPException(503, "服務尚未就緒")
 
@@ -1070,8 +1076,15 @@ async def analyze_stocks(req: StockAnalysisRequest):
     from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
     from datetime import datetime as _dt
 
-    now = _dt.now()
-    time_from = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    if req.as_of:
+        try:
+            base_time = _dt.fromisoformat(req.as_of)
+        except ValueError:
+            raise HTTPException(400, "as_of 格式錯誤，請用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS")
+    else:
+        base_time = _dt.now()
+    time_from = (base_time - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    time_to = base_time.strftime("%Y-%m-%d %H:%M:%S")
 
     # 每支股票取最相關的 10 筆
     all_hits = []
@@ -1087,18 +1100,25 @@ async def analyze_stocks(req: StockAnalysisRequest):
             limit=20,
             with_payload=True,
         )
-        # 過濾近一個月
+        # 過濾指定時間範圍（雙邊夾住，避免回測時洩漏未來新聞）
         def normalize_time(t):
             if not t:
                 return ""
             t = re.sub(r"\+\d{2}:\d{2}$", "", t.strip())
             return t.replace("T", " ")[:19]
 
-        recent = [p for p in results.points if normalize_time(p.payload.get("pub_time", "")) >= time_from]
-        all_hits.extend(recent[:10] if recent else results.points[:5])
+        recent = [
+            p for p in results.points
+            if time_from <= normalize_time(p.payload.get("pub_time", "")) <= time_to
+        ]
+        not_future = [
+            p for p in results.points
+            if normalize_time(p.payload.get("pub_time", "")) <= time_to
+        ]
+        all_hits.extend(recent[:10] if recent else not_future[:5])
 
     if not all_hits:
-        raise HTTPException(404, "近一個月無相關新聞資料")
+        raise HTTPException(404, "指定時間範圍內無相關新聞資料")
 
     # 組裝 news_sources（去重，依 title）
     seen_titles = set()
