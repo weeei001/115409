@@ -58,6 +58,14 @@ services:
     ports:
       - "8080:80"   # 本機可用 8080 測試
 
+  nightmarket:
+    build: /Users/bob/Projects/omggCu/night-market
+    restart: unless-stopped
+    volumes:
+      - nightmarket_data:/app/data
+    expose:
+      - "3000"
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
@@ -69,3 +77,4 @@ services:
 
 volumes:
   mysql_data:
+  nightmarket_data:

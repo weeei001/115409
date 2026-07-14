@@ -84,6 +84,20 @@ def ts_to_iso(ts) -> str:
         return ""
 
 
+def _pub_time_to_ts(pub_time):
+    """將 pub_time ISO 字串轉為 Unix timestamp（供 Qdrant Range filter 使用，pub_time 本身是字串無法直接做數值範圍查詢）"""
+    if not pub_time:
+        return None
+    s = pub_time.replace("T", " ")
+    if "+" in s:
+        s = s[: s.index("+")]
+    s = s[:19].strip()
+    try:
+        return datetime.fromisoformat(s).timestamp()
+    except Exception:
+        return None
+
+
 def extract_stocks(row: dict) -> list[str]:
     stocks = []
     for s in row.get("stock", []) or []:
@@ -299,6 +313,7 @@ def process_and_upsert(
                 "title": art["title"],
                 "source": art["source"],
                 "pub_time": art["pub_time"],
+                "pub_ts": _pub_time_to_ts(art["pub_time"]),
                 "url": art["url"],
                 "tags": art["tags"],
             }

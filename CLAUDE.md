@@ -103,6 +103,44 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 ## source 欄位對應
 `cnyes`→鉅亨網、`ltn`→自由時報、`moneydj`→MoneyDJ、`udn`→聯合新聞網、`chinatimes`→中時新聞網、`yahoo`→Yahoo 財經、CMoney 作者帳號（tpshouse, firebro, lewis, newsyoudeservetoknow 等）→ CMoney 財經社群
 
+## 規劃中:架構拆分(本地 Qdrant + 異地遠端後端)
+
+決策日期 2026-05-25。完整計畫:`~/.claude/plans/server-swift-zephyr.md`。
+
+**目標**:Qdrant 向量庫 + 爬蟲排程留本地;FastAPI api_server + MySQL 搬到異地遠端 server,透過網址跨網查本地 Qdrant。
+
+**已確認決策**:
+- 暴露方式:**Cloudflare Tunnel + Qdrant API Key**(沿用現有 cloudflared,新增 `qdrant.bobhsu.dpdns.org` hostname)。
+- MySQL **跟後端一起搬遠端**(同機內網,不再暴露第二個服務)。
+- 維持 Docker 部署,拆成兩份 `docker-compose.yml`(本地版/遠端版)。
+- 排程器 `backend/crawler/scheduler_utils.py` 與 `build_vector_db.py` 仍**在本地主機裸跑**(非容器),透過 `127.0.0.1:6333` 寫入 qdrant 容器。
+
+**關鍵程式碼改動**(僅一處查詢端必改):
+- `rag_deploy/api_server.py` 行 260-269:`QdrantClient` 須帶 `api_key` + `url="https://..."` + `prefer_grpc=False`(gRPC over Cloudflare 不可靠)。
+- 開 API Key 後,本地寫入腳本須加 `api_key=`:`crawl_to_qdrant.py:103`、`build_vector_db.py:287`。
+
+**結構性弱點**(知悉即可):家用機當向量庫伺服器 = 單點故障在你家(停電/斷網/IP 變動會讓問答服務掛掉)。每次查詢多 30–120ms 跨網延遲。適合 demo / 個人專案,不適合高可用正式服務;長期正解是把 Qdrant 也上雲。
+
+## 爬蟲排程部署（launchd 常駐）
+
+決策日期 2026-07-05~08。背景：爬蟲曾在 2026-03-31 後完全停跑 3 個多月無人發現（RAG 檢索因此撈到大量舊聞），根因是排程器只能人工手動啟動、當掉或重開機後沒有任何自動恢復機制。
+
+**現況**：
+- `backend/crawler/scheduler_utils.py` 已透過 macOS launchd 常駐執行（`~/Library/LaunchAgents/com.rag.scheduler.plist`），`KeepAlive=true`（當掉自動重啟）+ `RunAtLoad=true`（開機/登入自動啟動）。
+- 排程內容：每天 15:00 跑 TWSE 股價（`run_crawler_job`）；每 30 分鐘跑 cnyes 新聞（`run_cnyes_job`）；每 30 分鐘跑 LTN 新聞（`run_ltn_job`，新增）。
+- log 輸出：`backend/crawler/scheduler.out.log` / `scheduler.err.log`（新增，先前完全沒有 log 檔）。
+- 心跳機制：三個 job 每次成功跑完都會寫入 `backend/crawler/.last_run`（新增），可用來判斷排程器是否還活著。
+- 手動管理指令：`launchctl load/unload ~/Library/LaunchAgents/com.rag.scheduler.plist`。
+
+**LTN 爬蟲已 headless 化**：
+- `rag/crawler_ltn_gui.py` 新增 `--scheduled-once` CLI 入口（`python crawler_ltn_gui.py --scheduled-once`），只跑 Phase 1（近期列表）+ Phase 2（抓全文）的增量抓取，不含 Phase 3 歷史 ID 回填。原本的 Tkinter GUI 完全保留、未受影響。
+- Phase 3（`_phase3_scan`，ID 範圍歷史回填）與 `crawler_ltn_history_gui.py` 刻意不排入日常排程，仍需手動觸發（一次性/大範圍回補時用）。
+- 排程呼叫時會固定 `cwd` 為 `rag/`，因為 `NEWS_DB_PATH` 是相對路徑。
+
+**已知限制**：
+- moneydj / udn / chinatimes / yahoo / CMoney 這 5 個來源目前仍**沒有**排入自動排程（本專案內完全沒有對應的爬蟲程式碼，或只是靜態檔案 adapter），仍依賴外部工具/手動匯入，現況待另外評估。
+- ltn 抓取的並行度設定（`SCAN_WORKERS=50`、`WORKERS=6`、`API_WORKERS=5`）是唯一的防封鎖節流手段，沒有顯式 sleep；長期無人值守運作時應留意是否觸發對方網站速率限制。
+
 ## 常見問題與限制
 
 - **Qdrant 鎖定**：`qdrant_db/` 同時只能一個 QdrantClient，執行 `build_vector_db.py` 前必須先停止 Streamlit
@@ -111,3 +149,4 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 - **DeepSeek R1**：`deepseek-r1-distill-qwen-7b/14b` 在 NVIDIA NIM 有 GPU 500 錯誤；`deepseek-r1` 已下架（410），勿使用
 - **stock_id 品質**：`OtherNewWeb/` 來源的股票代號由 regex 從標題/標籤提取，有時會落入 `tw_stock`，影響 filter 精準度
 - **無效 chunk**：部分 chunk 為廣告導流文字（如「點我訂購」），已在 `clean_text()` 部分處理但未完全清除
+- **排程器健康檢查**：若懷疑排程沒在跑，先看 `backend/crawler/.last_run` 心跳檔的時間戳，再用 `launchctl list | grep com.rag.scheduler` 確認 process 存在
