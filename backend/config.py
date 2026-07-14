@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     NIM_API_KEY: str = ""
     NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     ADVISOR_LLM_MODEL: str = ""
+    ADVISOR_LLM_TEMPERATURE: float = 0.2
 
     RAG_API_URL: str = ""
     RAG_API_KEY: str = ""

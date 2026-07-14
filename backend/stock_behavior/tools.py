@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable
 
 import httpx
@@ -18,7 +18,7 @@ FieldSpec = tuple[str, str, FieldConverter]
 class ToolPolicy:
     max_tool_calls_per_request: int = 10
     max_lookback_days_recent_analysis: int = 120
-    max_news_events: int = 10
+    max_news_events: int = 5
     allowed_symbols: tuple[str, ...] = ("2317", "2330", "2408", "2454", "2615", "2881")
 
 
@@ -200,6 +200,13 @@ def _parse_timestamp(value: Any) -> datetime | None:
         return None
 
 
+def _is_on_or_before_as_of(ts: datetime, as_of: date) -> bool:
+    if ts.tzinfo is not None:
+        ts = ts.astimezone(timezone(timedelta(hours=8))).replace(tzinfo=None)
+    cutoff = datetime.combine(as_of, time(23, 59, 59))
+    return ts <= cutoff
+
+
 def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     raw_items = data.get("news_sources") or data.get("results") or data.get("items") or []
     if not isinstance(raw_items, list):
@@ -238,6 +245,7 @@ async def fetch_rag_news(
     lookback_days: int,
     max_events: int,
     timeout_seconds: int,
+    as_of: date | None = None,
 ) -> dict[str, Any]:
     if not rag_api_url:
         return _fallback_rag_news_payload()
@@ -246,7 +254,12 @@ async def fetch_rag_news(
     if rag_api_key:
         headers["Authorization"] = f"Bearer {rag_api_key}"
 
-    payload = {"symbols": [symbol]}
+    payload: dict[str, Any] = {
+        "symbols": [symbol],
+        "lookback_days": lookback_days,
+    }
+    if as_of is not None:
+        payload["as_of"] = as_of.isoformat()
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -268,6 +281,8 @@ async def fetch_rag_news(
     for item in parsed.news_sources:
         timestamp = item.get("timestamp")
         if not isinstance(timestamp, datetime):
+            continue
+        if as_of is not None and not _is_on_or_before_as_of(timestamp, as_of):
             continue
 
         item_id = str(item.get("id") or "").strip()
@@ -318,6 +333,7 @@ class ToolExecutor:
         symbol: str,
         lookback_days: int,
         max_events: int,
+        as_of: date | None = None,
     ) -> dict[str, Any]:
         self._consume_call()
         self._ensure_symbol_allowed(symbol)
@@ -333,6 +349,7 @@ class ToolExecutor:
             lookback_days=lookback_days,
             max_events=max_events,
             timeout_seconds=self._settings.RAG_API_TIMEOUT,
+            as_of=as_of,
         )
         output["count"] = len(output.get("news_sources", []))
         return output

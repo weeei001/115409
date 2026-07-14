@@ -237,7 +237,7 @@ class StockBehaviorLlmService:
                 api_key=settings.NIM_API_KEY,
                 base_url=settings.NIM_BASE_URL,
                 model=self._model,
-                temperature=0.2,
+                temperature=getattr(settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
                 timeout=LLM_TIMEOUT_SECONDS,
                 max_completion_tokens=LLM_MAX_COMPLETION_TOKENS,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -258,7 +258,7 @@ class StockBehaviorLlmService:
         self,
         *,
         task_packet: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
         if not self._enabled or self._client is None:
             print(
                 f"[stock_behavior_llm] stage=prefetched_evidence status=fail reason=disabled "
@@ -307,9 +307,9 @@ class StockBehaviorLlmService:
                 f"[stock_behavior_llm] stage=prefetched_evidence status=fallback "
                 f"reason=structured_parse_failed model={self._model} error={exc}"
             )
-            return {}
+            return {}, raw_text
 
         print(
             f"[stock_behavior_llm] stage=prefetched_evidence status=success model={self._model}"
         )
-        return parsed
+        return parsed, raw_text

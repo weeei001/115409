@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from datetime import date
 from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -27,8 +28,26 @@ class StockBehaviorRagRequest(BaseModel):
         description="股票代號陣列。Swagger 與目前後端流程只會使用第一個有效代號。",
         examples=[["2330"]],
     )
+    as_of_date: Optional[date] = Field(
+        default=None,
+        description="分析基準日（含當日收盤資料），預設今天；供歷史回測重放。",
+    )
+    lookback_days: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=120,
+        description="新聞回溯天數；預設由後端使用 30 天。",
+    )
 
-    model_config = ConfigDict(json_schema_extra={"example": {"symbols": ["2330"]}})
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "symbols": ["2330"],
+                "as_of_date": "2024-01-31",
+                "lookback_days": 30,
+            }
+        }
+    )
 
 
 class AnalyzeNewsSourceItem(BaseModel):
@@ -56,11 +75,16 @@ class StockBehaviorRagPayload(BaseModel):
 
 class StockBehaviorAiRequest(StockBehaviorRagPayload):
     symbol: str = Field(..., min_length=1, max_length=10, description="單一股票代號，例如 2330。")
+    as_of_date: Optional[date] = Field(
+        default=None,
+        description="分析基準日（含當日收盤資料），預設今天；供歷史回測重放。",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "symbol": "2330",
+                "as_of_date": "2024-01-31",
                 "news_sources": [
                     {
                         "id": "news-001",
