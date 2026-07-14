@@ -3,7 +3,7 @@ from database import Base
 
 
 class DailyPrice(Base):
-    __tablename__ = "daily_prices"
+    __tablename__ = "fm_daily_prices"
 
     date = Column(Date, primary_key=True, nullable=False, comment='日期')
     symbol = Column(String(10), primary_key=True, nullable=False, comment='股票代號')

@@ -1,12 +1,13 @@
 import React from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Sun, Moon } from 'lucide-react';
 import { useTheme } from '../lib/ThemeContext';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 
 export function ThemeToggle() {
   const { theme, mounted, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
 
   if (!mounted) {
     return (
@@ -20,7 +21,7 @@ export function ThemeToggle() {
       className="relative w-11 h-11 rounded-xl border border-[var(--color-border)]
                  bg-[var(--color-bg-card)] flex items-center justify-center overflow-hidden
                  hover:border-brand/40 hover:shadow-[0_0_16px_var(--glow-brand)]
-                 transition-all duration-300 cursor-pointer"
+                 transition-[color,background-color,transform] duration-300 cursor-pointer"
       aria-label={isDark ? '切換至亮色模式' : '切換至暗色模式'}
     >
       <AnimatePresence mode="wait" initial={false}>

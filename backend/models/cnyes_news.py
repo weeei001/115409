@@ -22,11 +22,6 @@ class CnyesTWStockNews(Base):
         nullable=False,
         comment="建立時間（由資料庫預設 CURRENT_TIMESTAMP）",
     )
-    updated_at = Column(
-        DateTime,
-        nullable=False,
-        comment="更新時間（由資料庫預設 CURRENT_TIMESTAMP ON UPDATE）",
-    )
 
     __table_args__ = (
         UniqueConstraint("news_id", name="uk_news_id"),

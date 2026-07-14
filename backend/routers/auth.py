@@ -36,6 +36,14 @@ router = APIRouter(prefix="/auth", tags=["認證"])
 
 _FORGOT_OK_MSG = "若此 email 已註冊且可重設密碼，您將收到重設連結。"
 
+_AUTH_ERROR_RESPONSES = {
+    400: {"description": "請求資料不合法或帳號狀態不允許此操作"},
+    401: {"description": "認證失敗，帳號密碼或 token 無效"},
+    403: {"description": "帳號已停用或沒有權限"},
+    409: {"description": "帳號綁定或資料衝突"},
+    422: {"description": "欄位驗證失敗"},
+}
+
 
 def _google_audiences() -> list[str]:
     s = (get_settings().GOOGLE_CLIENT_ID or "").strip()
@@ -53,7 +61,20 @@ def _token_response(user: User) -> TokenResponse:
     )
 
 
-@router.post("/register", response_model=TokenResponse)
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    summary="註冊 email 密碼帳號",
+    description=(
+        "建立本地 email 密碼帳號並立即回傳 JWT。"
+        "若 email 已存在會回傳 400；同一 email 不能重複註冊。"
+    ),
+    responses={
+        200: {"description": "註冊成功並回傳登入 token"},
+        400: {"description": "此 email 已註冊"},
+        422: {"description": "email 或密碼格式驗證失敗"},
+    },
+)
 def register(body: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
     if user_crud.get_by_email(db, str(body.email)):
         raise HTTPException(
@@ -76,7 +97,18 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)) -> TokenRespo
     return _token_response(user)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="使用 email 密碼登入",
+    description="驗證本地密碼帳號後回傳 JWT。純 Google 帳號若尚未設定本地密碼，請使用 Google 登入或忘記密碼流程建立密碼。",
+    responses={
+        200: {"description": "登入成功"},
+        401: {"description": "帳號或密碼錯誤"},
+        403: {"description": "帳號已停用"},
+        422: {"description": "欄位驗證失敗"},
+    },
+)
 def login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = user_crud.get_by_email(db, str(body.email))
     if user is None or not user.password_hash:
@@ -97,7 +129,25 @@ def login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     return _token_response(user)
 
 
-@router.post("/google", response_model=TokenResponse)
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    summary="使用 Google id_token 登入或註冊",
+    description=(
+        "驗證 Google Sign-In 的 `id_token` 後登入。"
+        "若 email 已有本地帳號且尚未綁定 Google，系統會綁定同一帳號；"
+        "若為新 email，會建立 Google 帳號。需先設定 `GOOGLE_CLIENT_ID`。"
+    ),
+    responses={
+        200: {"description": "Google 登入成功"},
+        400: {"description": "Google token 缺少必要欄位或 email 未驗證"},
+        401: {"description": "Google token 驗證失敗"},
+        403: {"description": "帳號已停用"},
+        409: {"description": "email 已綁定其他 Google 帳號或建立帳號衝突"},
+        503: {"description": "後端尚未設定 Google OAuth"},
+        422: {"description": "欄位驗證失敗"},
+    },
+)
 def auth_google(body: GoogleAuthRequest, db: Session = Depends(get_db)) -> TokenResponse:
     audiences = _google_audiences()
     if not audiences:
@@ -172,12 +222,33 @@ def auth_google(body: GoogleAuthRequest, db: Session = Depends(get_db)) -> Token
     return _token_response(user)
 
 
-@router.get("/me", response_model=UserPublic)
+@router.get(
+    "/me",
+    response_model=UserPublic,
+    summary="取得目前登入使用者",
+    description="使用 `Authorization: Bearer <access_token>` 取得目前 token 對應的使用者資料。",
+    responses={
+        200: {"description": "成功取得使用者資料"},
+        401: {"description": "未提供 token、token 無效或已過期"},
+    },
+)
 def me(user: Annotated[User, Depends(get_current_user)]) -> User:
     return user
 
 
-@router.post("/change-password", response_model=MessageResponse)
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    summary="變更目前登入帳號密碼",
+    description=(
+        "需登入。帳號必須已有本地密碼，系統會先驗證目前密碼，再更新為新密碼。"
+        "純 Google 註冊且尚未建立本地密碼的帳號，請使用忘記密碼流程建立密碼。"
+    ),
+    responses={
+        200: {"description": "密碼更新成功"},
+        **_AUTH_ERROR_RESPONSES,
+    },
+)
 def change_password(
     body: ChangePasswordRequest,
     user: Annotated[User, Depends(get_current_user)],
@@ -209,7 +280,19 @@ def change_password(
     return MessageResponse(message="密碼已更新。")
 
 
-@router.post("/forgot-password", response_model=MessageResponse)
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    summary="申請忘記密碼重設連結",
+    description=(
+        "不論 email 是否存在皆回 200，避免帳號探測。"
+        "僅針對已啟用且已有本地密碼的帳號建立重設 token；純 Google 帳號不寄送重設信。"
+    ),
+    responses={
+        200: {"description": "已接受申請；若帳號可重設密碼會寄送重設連結"},
+        422: {"description": "email 格式驗證失敗"},
+    },
+)
 def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
     """
     不論 email 是否存在皆回 200，避免被用來探測註冊帳號。
@@ -230,7 +313,18 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) 
     return MessageResponse(message=_FORGOT_OK_MSG)
 
 
-@router.post("/reset-password", response_model=MessageResponse)
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+    summary="使用重設 token 設定新密碼",
+    description="驗證忘記密碼流程產生的 token 後設定新密碼。成功後會清除該使用者所有尚未使用的重設 token。",
+    responses={
+        200: {"description": "密碼重設成功"},
+        400: {"description": "重設連結無效或已過期"},
+        403: {"description": "帳號已停用"},
+        422: {"description": "token 或新密碼格式驗證失敗"},
+    },
+)
 def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
     pair = reset_crud.find_user_by_raw_token(db, body.token.strip())
     if pair is None:

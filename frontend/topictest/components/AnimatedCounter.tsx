@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useInView, useReducedMotion, useSpring, useMotionValue } from 'motion/react';
+import { useInView, useSpring, useMotionValue } from 'motion/react';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 
 interface AnimatedCounterProps {
   value: number;
@@ -18,7 +19,7 @@ export function AnimatedCounter({
 }: AnimatedCounterProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const inView = useInView(ref, { once: true, margin: '-40px' });
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
   const [display, setDisplay] = useState(value);
 
   const motionValue = useMotionValue(0);

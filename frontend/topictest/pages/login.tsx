@@ -1,10 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
+import { useReduceMotionPreset } from '../lib/hooks/useReduceMotionPreset';
 import { LogIn, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
-import { GoogleSignInButton } from '../components/GoogleSignInButton';
+import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
 import { authGoogle, authLogin } from '../lib/api/auth';
 import { ApiRequestError } from '../lib/api/client';
 import { setAuth } from '../lib/auth/storage';
@@ -52,6 +53,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // 防止快速雙擊送出
     setError(null);
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -68,10 +70,8 @@ export default function LoginPage() {
       setError('請輸入有效的電子郵件格式');
       return;
     }
-    if (normalizedPassword.length > 128) {
-      setError('密碼長度過長');
-      return;
-    }
+    // 密碼長度由 <input maxLength={128}> 阻擋輸入，這裡不再重複驗證。
+    // 短密碼讓後端回覆，避免在登入頁洩漏密碼規則細節。
 
     setLoading(true);
     try {
@@ -87,25 +87,24 @@ export default function LoginPage() {
     }
   };
 
-  const reduceMotion = useReducedMotion();
+  const { motionProps } = useReduceMotionPreset({
+    initial: { opacity: 0, y: 24, scale: 0.96 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    transition: { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] },
+  });
 
   return (
-    <div className="min-h-screen flex flex-col relative">
+    <div className="min-h-[100dvh] flex flex-col relative">
       <Head>
         <title>股海明燈｜登入</title>
         <meta name="description" content="登入股海明燈帳號。" />
       </Head>
 
-      <div className="relative z-10 flex flex-col min-h-screen">
+      <div className="relative z-10 flex flex-col min-h-[100dvh]">
         <SubpageHeader icon={LogIn} title="股海明燈" subtitle="登入帳號" />
 
         <main className="flex-1 flex items-center justify-center px-4 py-12">
-          <motion.div
-            className="w-full max-w-md"
-            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
-            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-            transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
-          >
+          <motion.div className="w-full max-w-md" {...motionProps}>
             <div className="glass rounded-2xl shadow-[var(--shadow-elevated)] p-8">
               <div className="flex flex-col items-center mb-8">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg mb-4"
@@ -202,7 +201,7 @@ export default function LoginPage() {
                 aria-busy={loading}
                 className="relative w-full py-3 rounded-xl text-white font-semibold
                            shadow-lg hover:shadow-[0_0_24px_var(--glow-brand-strong)]
-                           transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
+                           transition-[opacity,box-shadow,transform] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer overflow-hidden"
                 style={{ background: 'var(--brand-gradient)' }}
               >
                 {loading ? (
@@ -216,16 +215,21 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[var(--color-border)]" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-3 bg-[var(--color-bg-card)]/80 rounded text-[var(--color-text-muted)] backdrop-blur-sm">或使用</span>
-              </div>
-            </div>
-
-            <GoogleSignInButton onCredential={handleGoogleCredential} />
+            {isGoogleSignInConfigured() ? (
+              <>
+                <div className="relative my-8">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-[var(--color-border)]" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="px-3 bg-[var(--color-bg-card)]/80 rounded text-[var(--color-text-muted)] backdrop-blur-sm">
+                      或使用
+                    </span>
+                  </div>
+                </div>
+                <GoogleSignInButton onCredential={handleGoogleCredential} />
+              </>
+            ) : null}
 
             <div className="mt-6 text-center text-sm text-[var(--color-text-muted)]">
               還沒有帳號？{' '}

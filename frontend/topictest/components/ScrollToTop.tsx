@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 import { ChevronUp } from 'lucide-react';
 
 const SHOW_AFTER_PX = 300;
 
 export const ScrollToTop: React.FC = () => {
   const [visible, setVisible] = useState(false);
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotionClient();
 
   const onScroll = useCallback(() => {
     setVisible(window.scrollY > SHOW_AFTER_PX);

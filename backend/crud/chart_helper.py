@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from models.daily_price import DailyPrice
 from typing import List, Dict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 
@@ -37,35 +37,49 @@ def get_candlestick_with_ma(
     """獲取K線圖數據並計算移動平均線"""
     from crud.daily_price import get_price_range
     
-    prices = get_price_range(db, symbol=symbol, start_date=start_date, end_date=end_date)
+    max_period = max(ma_periods) if ma_periods else 0
+    query_start = start_date - timedelta(days=max_period * 3)
+    prices = get_price_range(db, symbol=symbol, start_date=query_start, end_date=end_date)
     
     if not prices:
         return None
     
-    dates = []
-    closes = []
-    candlestick_data = []
+    rows = []
     
     for price in prices:
         if price.open and price.high and price.low and price.close:
-            dates.append(price.date.isoformat())
-            closes.append(float(price.close))
-            candlestick_data.append({
-                "date": price.date.isoformat(),
-                "open": float(price.open),
-                "high": float(price.high),
-                "low": float(price.low),
+            rows.append({
+                "date": price.date,
                 "close": float(price.close),
-                "volume": price.volume_shares or 0,
-                "amount": price.amount or 0,
-                "change": float(price.change) if price.change else 0
+                "candlestick": {
+                    "date": price.date.isoformat(),
+                    "open": float(price.open),
+                    "high": float(price.high),
+                    "low": float(price.low),
+                    "close": float(price.close),
+                    "volume": price.volume_shares or 0,
+                    "amount": price.amount or 0,
+                    "change": float(price.change) if price.change else 0
+                }
             })
+
+    visible_indices = [
+        idx for idx, row in enumerate(rows)
+        if start_date <= row["date"] <= end_date
+    ]
+
+    if not visible_indices:
+        return None
+
+    dates = [rows[idx]["date"].isoformat() for idx in visible_indices]
+    closes = [row["close"] for row in rows]
+    candlestick_data = [rows[idx]["candlestick"] for idx in visible_indices]
     
     # 計算移動平均線
     ma_data = {}
     for period in ma_periods:
         ma_values = calculate_moving_average(closes, period)
-        ma_data[f"MA{period}"] = ma_values
+        ma_data[f"MA{period}"] = [ma_values[idx] for idx in visible_indices]
     
     return {
         "symbol": symbol,

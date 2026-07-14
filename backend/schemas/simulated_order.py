@@ -2,22 +2,43 @@ from datetime import date, datetime
 from typing import List, Literal, Optional
 import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-class SimulatedOrderCreate(BaseModel):
+OrderSide = Literal["buy", "sell"]
+SellPlan = Optional[Literal["long_term", "by_date"]]
+
+
+class SimulatedOrderBase(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128, description="使用者識別（前端匿名 user id）")
     symbol: str = Field(..., min_length=1, max_length=12, description="股票代號")
-    side: Literal["buy", "sell"] = Field(..., description="買賣方向")
-    trade_date: Optional[date] = Field(None, description="模擬下單日期（可指定過去日期）")
+    side: OrderSide = Field(..., description="買賣方向")
     quantity: int = Field(..., gt=0, description="委託數量（張）")
-    sell_plan: Optional[Literal["long_term", "by_date"]] = Field(
+    sell_plan: SellPlan = Field(
         default=None,
         description="僅買進：長期持有或指定預計賣出日；賣出單應為 null（無預計賣出計畫）",
     )
     planned_sell_date: Optional[date] = Field(
         None,
         description="預計賣出日（僅買進且 sell_plan=by_date 時必填）",
+    )
+
+
+class SimulatedOrderCreate(SimulatedOrderBase):
+    trade_date: Optional[date] = Field(None, description="模擬下單日期（可指定過去日期）")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user_id": "guest-001",
+                "symbol": "2330",
+                "side": "buy",
+                "quantity": 2,
+                "sell_plan": "long_term",
+                "planned_sell_date": None,
+                "trade_date": "2026-05-20",
+            }
+        }
     )
 
     @field_validator("user_id")
@@ -71,15 +92,9 @@ class SimulatedOrderCreate(BaseModel):
         return self
 
 
-class SimulatedOrderResponse(BaseModel):
+class SimulatedOrderResponse(SimulatedOrderBase):
     id: str = Field(..., description="委託編號")
-    user_id: str = Field(..., max_length=128, description="使用者識別（前端匿名 user id）")
-    symbol: str = Field(..., description="股票代號")
-    side: Literal["buy", "sell"] = Field(..., description="買賣方向")
     trade_date: date = Field(..., description="模擬下單日期")
-    quantity: int = Field(..., description="委託數量（張）")
-    sell_plan: Optional[Literal["long_term", "by_date"]] = Field(None, description="賣出計畫；賣出單為 null")
-    planned_sell_date: Optional[date] = Field(None, description="預計賣出日")
     status: Literal["pending", "filled", "cancelled"] = Field(..., description="委託狀態")
     estimated_amount: int = Field(..., description="預估成交金額（元）")
     markup_basis: Optional[Literal["latest", "planned_sell", "fifo_realized"]] = Field(
@@ -98,11 +113,34 @@ class SimulatedOrderResponse(BaseModel):
     )
     created_at: datetime = Field(..., description="建立時間")
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "ORD-000001",
+                "user_id": "guest-001",
+                "symbol": "2330",
+                "side": "buy",
+                "quantity": 2,
+                "sell_plan": "long_term",
+                "planned_sell_date": None,
+                "trade_date": "2026-05-20",
+                "status": "filled",
+                "estimated_amount": 1840000,
+                "markup_basis": "latest",
+                "reference_date": "2026-05-20",
+                "reference_close": 920.0,
+                "markup_amount": 0,
+                "markup_rate": 0.0,
+                "created_at": "2026-05-20T10:30:00",
+            }
+        }
+    )
+
 
 class SimulatedOrderListResponse(BaseModel):
-    user_id: str
-    total: int
-    data: List[SimulatedOrderResponse]
+    user_id: str = Field(..., description="使用者識別")
+    total: int = Field(..., description="委託筆數")
+    data: List[SimulatedOrderResponse] = Field(..., description="委託列表，依建立時間倒序")
 
 
 class AvailableLotsResponse(BaseModel):
@@ -116,7 +154,7 @@ class SimulatedOrderCategoryProfitItem(BaseModel):
     order_count: int = Field(..., description="該股票委託筆數")
     symbols: List[str] = Field(..., description="涉及股票代號（與 category 一致，供相容用）")
     cost_amount: int = Field(..., description="成本金額（元）")
-    market_amount: int = Field(..., description="最新估值金額（元）")
+    market_amount: int = Field(..., description="估值或實現金額（元）；已到預計賣出日者使用預計賣出日收盤價")
     profit_amount: int = Field(..., description="收益金額（元）")
     profit_rate: float = Field(..., description="收益率（%）")
 
@@ -127,3 +165,25 @@ class SimulatedOrderCategoryProfitResponse(BaseModel):
     priced_orders: int = Field(..., description="可估值委託筆數")
     unpriced_orders: int = Field(..., description="無最新行情委託筆數")
     data: List[SimulatedOrderCategoryProfitItem] = Field(default_factory=list, description="依股票代號彙總之收益統計")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user_id": "guest-001",
+                "total_orders": 2,
+                "priced_orders": 2,
+                "unpriced_orders": 0,
+                "data": [
+                    {
+                        "category": "2330",
+                        "order_count": 2,
+                        "symbols": ["2330"],
+                        "cost_amount": 1840000,
+                        "market_amount": 1860000,
+                        "profit_amount": 20000,
+                        "profit_rate": 1.09,
+                    }
+                ],
+            }
+        }
+    )

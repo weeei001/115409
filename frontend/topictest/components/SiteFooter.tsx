@@ -1,15 +1,9 @@
 import React, { useEffect, useId, useRef } from 'react';
 import Link from 'next/link';
+import { FOOTER_NAV } from '../lib/nav';
+import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
 
-const NAV_ITEMS = [
-  { href: '/', label: '首頁' },
-  { href: '/compare', label: '多股比較' },
-  { href: '/advisor', label: '投資顧問' },
-  { href: '/ai', label: 'AI 投資顧問' },
-  { href: '/order', label: '模擬下單' },
-] as const;
-
-function SparkBars({ gradientId }: { gradientId: string }) {
+function SparkBars({ gradientId, animate }: { gradientId: string; animate: boolean }) {
   const bars = [40, 55, 35, 65, 50, 72, 48, 80, 60, 90, 70, 95, 60, 90, 70, 95];
   const maxH = 100;
   return (
@@ -32,13 +26,15 @@ function SparkBars({ gradientId }: { gradientId: string }) {
             fill={`url(#${gradientId})`}
             style={{ transformOrigin: `${i * 10 + 4.5}px ${maxH}px` }}
           >
-            <animateTransform
-              attributeName="transform"
-              type="scale"
-              values={`1 1;1 ${scaleUp};1 1`}
-              dur={`${2 + i * 0.15}s`}
-              repeatCount="indefinite"
-            />
+            {animate && (
+              <animateTransform
+                attributeName="transform"
+                type="scale"
+                values={`1 1;1 ${scaleUp};1 1`}
+                dur={`${2 + i * 0.15}s`}
+                repeatCount="indefinite"
+              />
+            )}
           </rect>
         );
       })}
@@ -56,10 +52,15 @@ export function SiteFooter() {
   const year = new Date().getFullYear();
   const lineRef = useRef<HTMLDivElement>(null);
   const barGradId = useId().replace(/:/g, '');
+  const reduceMotion = usePrefersReducedMotionClient();
 
   useEffect(() => {
     const el = lineRef.current;
     if (!el) return;
+    if (reduceMotion) {
+      el.style.transform = 'scaleX(1)';
+      return;
+    }
     el.style.transform = 'scaleX(0)';
     el.style.transformOrigin = 'left';
     el.style.transition = 'transform 0.8s cubic-bezier(0.16,1,0.3,1)';
@@ -68,7 +69,7 @@ export function SiteFooter() {
         el.style.transform = 'scaleX(1)';
       });
     });
-  }, []);
+  }, [reduceMotion]);
 
   return (
     <footer
@@ -103,23 +104,23 @@ export function SiteFooter() {
               Stock Market Beacon
             </p>
           </div>
-          <SparkBars gradientId={barGradId} />
+          <SparkBars gradientId={barGradId} animate={!reduceMotion} />
         </div>
 
         <div className="mb-4 h-px w-full bg-gradient-to-r from-transparent via-brand/20 to-transparent" aria-hidden />
 
         <nav className="flex flex-wrap items-center justify-center gap-x-0 gap-y-1 mb-4" aria-label="頁尾導覽">
-          {NAV_ITEMS.map((item, i) => (
-            <React.Fragment key={item.href}>
+          {FOOTER_NAV.map((item, i) => (
+            <React.Fragment key={item.path}>
               {i > 0 && (
                 <span className="mx-3 sm:mx-5 text-[var(--color-border)] select-none text-xs" aria-hidden>·</span>
               )}
               <Link
-                href={item.href}
+                href={item.path}
                 className="group relative text-[13px] sm:text-sm text-[var(--color-text-secondary)] transition-colors duration-200 hover:text-brand"
               >
                 {item.label}
-                <span className="absolute -bottom-0.5 left-0 h-px w-0 group-hover:w-full transition-all duration-300 bg-brand" aria-hidden />
+                <span className="absolute -bottom-0.5 left-0 h-px w-0 group-hover:w-full transition-[width] duration-300 bg-brand" aria-hidden />
               </Link>
             </React.Fragment>
           ))}

@@ -36,7 +36,20 @@ interface BentoCellProps {
   noPad?: boolean;
   animate?: boolean;
   delay?: number;
+  /** 僅小於 sm：單欄敘事順序；sm 以上恢復預設網格排列 */
+  orderMobile?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** 套用在網格項目外層（例如手機隱藏） */
+  wrapperClassName?: string;
 }
+
+const ORDER_MOBILE_CLASS: Record<number, string> = {
+  1: 'order-1',
+  2: 'order-2',
+  3: 'order-3',
+  4: 'order-4',
+  5: 'order-5',
+  6: 'order-6',
+};
 
 const spanClass: Record<number, string> = {
   1: '',
@@ -57,6 +70,8 @@ export function BentoCell({
   noPad = false,
   animate = true,
   delay = 0,
+  orderMobile,
+  wrapperClassName,
 }: BentoCellProps) {
   const reduceMotion = usePrefersReducedMotionClient();
   const skipAnim = !animate || reduceMotion;
@@ -64,10 +79,17 @@ export function BentoCell({
   /** 一律相同兩層結構，避免 reduceMotion 分支造成水合與伺服器 HTML 不一致 */
   return (
     <motion.div
-      className={clsx(spanClass[span], rowSpanClass[rowSpan])}
+      className={clsx(
+        spanClass[span],
+        rowSpanClass[rowSpan],
+        orderMobile != null && ORDER_MOBILE_CLASS[orderMobile],
+        orderMobile != null && 'sm:order-none',
+        wrapperClassName,
+      )}
       initial={skipAnim ? false : { opacity: 0, y: 24, scale: 0.97 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true, margin: '-60px' }}
+      animate={skipAnim ? { opacity: 1, y: 0, scale: 1 } : undefined}
+      whileInView={skipAnim ? undefined : { opacity: 1, y: 0, scale: 1 }}
+      viewport={skipAnim ? undefined : { once: true, margin: '-60px' }}
       transition={
         skipAnim
           ? { duration: 0 }

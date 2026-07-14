@@ -214,12 +214,46 @@ def _build_indicator_rows(prices: Sequence[DailyPrice], symbol: str) -> List[Dic
     ma10 = _calc_sma(closes, 10)
     ma20 = _calc_sma(closes, 20)
     ma60 = _calc_sma(closes, 60)
+    ma120 = _calc_sma(closes, 120)
+    ma240 = _calc_sma(closes, 240)
     volume_ma5 = _calc_sma(volumes, 5)
 
-    k_values, d_values = _calc_kd(highs, lows, closes, period=9)
-    rsi14 = _calc_rsi(closes, period=14)
-    macd, macd_signal, macd_hist = _calc_macd(closes, fast=12, slow=26, signal=9)
-    bb_upper, bb_middle, bb_lower = _calc_bollinger(closes, period=20, std_dev=2.0)
+    rsi5 = _calc_rsi(closes, period=5)
+    rsi10 = _calc_rsi(closes, period=10)
+
+    rsv9_values: List[Optional[float]] = [None] * len(closes)
+    kd_k9: List[Optional[float]] = [None] * len(closes)
+    kd_d9: List[Optional[float]] = [None] * len(closes)
+    kd_j9: List[Optional[float]] = [None] * len(closes)
+    prev_k = 50.0
+    prev_d = 50.0
+    for idx in range(len(closes)):
+        high_window = highs[max(0, idx - 8) : idx + 1]
+        low_window = lows[max(0, idx - 8) : idx + 1]
+        close_value = closes[idx]
+        if close_value is None or not high_window or not low_window:
+            continue
+        highest = max(v for v in high_window if v is not None)
+        lowest = min(v for v in low_window if v is not None)
+        if highest == lowest:
+            rsv = 50.0
+        else:
+            rsv = ((close_value - lowest) / (highest - lowest)) * 100
+        prev_k = (2.0 / 3.0) * prev_k + (1.0 / 3.0) * rsv
+        prev_d = (2.0 / 3.0) * prev_d + (1.0 / 3.0) * prev_k
+        rsv9_values[idx] = rsv
+        kd_k9[idx] = prev_k
+        kd_d9[idx] = prev_d
+        kd_j9[idx] = 3.0 * prev_k - 2.0 * prev_d
+
+    ema12 = _calc_ema(closes, 12)
+    ema26 = _calc_ema(closes, 26)
+    macd_dif = [None if ema12[idx] is None or ema26[idx] is None else ema12[idx] - ema26[idx] for idx in range(len(closes))]
+    macd_dea = _calc_ema(macd_dif, 9)
+    macd_hist = [None if macd_dif[idx] is None or macd_dea[idx] is None else macd_dif[idx] - macd_dea[idx] for idx in range(len(closes))]
+
+    boll_mid20 = _calc_sma(closes, 20)
+    boll_upper20, _, boll_lower20 = _calc_bollinger(closes, period=20, std_dev=2.0)
 
     rows: List[Dict] = []
     for idx, row_date in enumerate(dates):
@@ -227,19 +261,28 @@ def _build_indicator_rows(prices: Sequence[DailyPrice], symbol: str) -> List[Dic
             {
                 "date": row_date,
                 "symbol": symbol,
+                "close": _quantize(closes[idx], "0.01"),
                 "ma5": _quantize(ma5[idx], "0.01"),
                 "ma10": _quantize(ma10[idx], "0.01"),
                 "ma20": _quantize(ma20[idx], "0.01"),
                 "ma60": _quantize(ma60[idx], "0.01"),
-                "k_value": _quantize(k_values[idx], "0.01"),
-                "d_value": _quantize(d_values[idx], "0.01"),
-                "rsi14": _quantize(rsi14[idx], "0.01"),
-                "macd": _quantize(macd[idx], "0.0001"),
-                "macd_signal": _quantize(macd_signal[idx], "0.0001"),
+                "ma120": _quantize(ma120[idx], "0.01"),
+                "ma240": _quantize(ma240[idx], "0.01"),
+                "rsi5": _quantize(rsi5[idx], "0.01"),
+                "rsi10": _quantize(rsi10[idx], "0.01"),
+                "rsv9": _quantize(rsv9_values[idx], "0.01"),
+                "kd_k9": _quantize(kd_k9[idx], "0.01"),
+                "kd_d9": _quantize(kd_d9[idx], "0.01"),
+                "kd_j9": _quantize(kd_j9[idx], "0.01"),
+                "ema12": _quantize(ema12[idx], "0.0001"),
+                "ema26": _quantize(ema26[idx], "0.0001"),
+                "macd_dif": _quantize(macd_dif[idx], "0.0001"),
+                "macd_dea": _quantize(macd_dea[idx], "0.0001"),
+                "macd_signal": _quantize(macd_dea[idx], "0.0001"),
                 "macd_hist": _quantize(macd_hist[idx], "0.0001"),
-                "bb_upper": _quantize(bb_upper[idx], "0.01"),
-                "bb_middle": _quantize(bb_middle[idx], "0.01"),
-                "bb_lower": _quantize(bb_lower[idx], "0.01"),
+                "boll_mid20": _quantize(boll_mid20[idx], "0.01"),
+                "boll_upper20": _quantize(boll_upper20[idx], "0.01"),
+                "boll_lower20": _quantize(boll_lower20[idx], "0.01"),
                 "volume_ma5": _quantize(volume_ma5[idx], "0.01"),
             }
         )
@@ -256,19 +299,28 @@ def _upsert_rows(db: Session, rows: Sequence[Dict], chunk_size: int = 1000) -> i
         chunk = list(rows[start_idx : start_idx + chunk_size])
         stmt = mysql_insert(TechnicalIndicator).values(chunk)
         update_columns = {
+            "close": stmt.inserted.close,
             "ma5": stmt.inserted.ma5,
             "ma10": stmt.inserted.ma10,
             "ma20": stmt.inserted.ma20,
             "ma60": stmt.inserted.ma60,
-            "k_value": stmt.inserted.k_value,
-            "d_value": stmt.inserted.d_value,
-            "rsi14": stmt.inserted.rsi14,
-            "macd": stmt.inserted.macd,
+            "ma120": stmt.inserted.ma120,
+            "ma240": stmt.inserted.ma240,
+            "rsi5": stmt.inserted.rsi5,
+            "rsi10": stmt.inserted.rsi10,
+            "rsv9": stmt.inserted.rsv9,
+            "kd_k9": stmt.inserted.kd_k9,
+            "kd_d9": stmt.inserted.kd_d9,
+            "kd_j9": stmt.inserted.kd_j9,
+            "ema12": stmt.inserted.ema12,
+            "ema26": stmt.inserted.ema26,
+            "macd_dif": stmt.inserted.macd_dif,
+            "macd_dea": stmt.inserted.macd_dea,
             "macd_signal": stmt.inserted.macd_signal,
             "macd_hist": stmt.inserted.macd_hist,
-            "bb_upper": stmt.inserted.bb_upper,
-            "bb_middle": stmt.inserted.bb_middle,
-            "bb_lower": stmt.inserted.bb_lower,
+            "boll_mid20": stmt.inserted.boll_mid20,
+            "boll_upper20": stmt.inserted.boll_upper20,
+            "boll_lower20": stmt.inserted.boll_lower20,
             "volume_ma5": stmt.inserted.volume_ma5,
         }
         stmt = stmt.on_duplicate_key_update(**update_columns)

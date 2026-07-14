@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
+import { useReduceMotionPreset } from '../lib/hooks/useReduceMotionPreset';
 import { KeyRound, Mail, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../components/SubpageHeader';
 import { authForgotPassword } from '../lib/api/auth';
@@ -15,10 +16,11 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const reduceMotion = useReducedMotion();
+  const { motionProps } = useReduceMotionPreset();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // 防止快速雙擊送出
     setError(null);
 
     const normalized = email.trim().toLowerCase();
@@ -46,7 +48,7 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col">
       <Head>
         <title>股海明燈｜重設密碼</title>
         <meta name="description" content="申請重設密碼連結至您的電子郵件。" />
@@ -54,12 +56,7 @@ export default function ForgotPasswordPage() {
       <SubpageHeader icon={KeyRound} title="股海明燈" subtitle="重設密碼" />
 
       <main className="flex-1 flex items-center justify-center px-4 py-12">
-        <motion.div
-          className="w-full max-w-md"
-          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
-          animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-          transition={reduceMotion ? { duration: 0 } : { duration: 0.5 }}
-        >
+        <motion.div className="w-full max-w-md" {...motionProps}>
           <div className="bg-[var(--color-bg-card)] rounded-2xl border border-[var(--color-border)] shadow-sm p-8">
             {sent ? (
               <div className="flex flex-col items-center text-center">
@@ -73,7 +70,7 @@ export default function ForgotPasswordPage() {
                 <button
                   type="button"
                   onClick={() => router.push('/login')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-all cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg shadow-brand/20 hover:shadow-xl transition-[opacity,box-shadow,transform] cursor-pointer"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
                   <ArrowLeft size={16} />
@@ -131,7 +128,7 @@ export default function ForgotPasswordPage() {
                     aria-busy={loading}
                     className="w-full py-3 rounded-xl text-white font-semibold
                                shadow-lg shadow-brand/20 hover:shadow-xl
-                               transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                               transition-[opacity,box-shadow,transform] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                     style={{ background: 'var(--brand-gradient)' }}
                   >
                     {loading ? (

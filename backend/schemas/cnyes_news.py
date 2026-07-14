@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NewsBase(BaseModel):
@@ -22,10 +22,22 @@ class NewsBase(BaseModel):
 class News(NewsBase):
     id: int = Field(..., description="主鍵 id")
     created_at: datetime = Field(..., description="建立時間")
-    updated_at: datetime = Field(..., description="更新時間")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "news_id": 202605200001,
+                "title": "台股盤中上漲，電子權值股領軍",
+                "content": "台股今日由電子權值股帶動上攻，市場關注後續法說會展望。",
+                "related_stocks": "2330.TW,2317.TW",
+                "publish_time": "2026-05-20T09:30:00",
+                "url": "https://example.com/news/202605200001",
+                "created_at": "2026-05-20T10:00:00",
+            }
+        },
+    )
 
 
 class PaginatedNewsResponse(BaseModel):
@@ -33,4 +45,26 @@ class PaginatedNewsResponse(BaseModel):
     page_size: int = Field(..., description="每頁筆數")
     total: int = Field(..., description="符合條件的總筆數")
     items: List[News] = Field(..., description="新聞列表")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "page": 1,
+                "page_size": 20,
+                "total": 1,
+                "items": [
+                    {
+                        "id": 1,
+                        "news_id": 202605200001,
+                        "title": "台股盤中上漲，電子權值股領軍",
+                        "content": "台股今日由電子權值股帶動上攻，市場關注後續法說會展望。",
+                        "related_stocks": "2330.TW,2317.TW",
+                        "publish_time": "2026-05-20T09:30:00",
+                        "url": "https://example.com/news/202605200001",
+                        "created_at": "2026-05-20T10:00:00",
+                    }
+                ],
+            }
+        }
+    )
 

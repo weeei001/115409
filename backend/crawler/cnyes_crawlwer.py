@@ -4,7 +4,6 @@ import logging
 import re
 import sys
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pymysql
 import requests
-import schedule
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -46,8 +44,8 @@ MYSQL_CONFIG = dict(get_pymysql_connect_kwargs(autocommit=True))
 PAGE_LIMIT = 30
 IS_CATEGORY_HEADLINE = 0
 MAX_WORKERS = 4
-SCHEDULE_LOOKBACK_DAYS = 14
-SCHEDULE_INTERVAL_MINUTES = 30
+MONTH_BACKFILL_DAYS = 30
+SCHEDULE_LOOKBACK_DAYS = 5
 
 
 # =========================
@@ -74,8 +72,7 @@ def upsert_news(conn, item: Dict[str, Any]) -> None:
         content = VALUES(content),
         related_stocks = VALUES(related_stocks),
         publish_time = VALUES(publish_time),
-        url = VALUES(url),
-        updated_at = CURRENT_TIMESTAMP
+        url = VALUES(url)
     """
     with conn.cursor() as cursor:
         cursor.execute(sql, item)
@@ -382,80 +379,45 @@ def run_by_year_month(
 
 
 def _scheduled_crawl_job() -> None:
-    """排程用：僅回溯最近 N 天，避免每日重掃全歷史。"""
+    """排程用：固定回補最近 5 天，避免每日重掃全歷史。"""
     days = max(1, SCHEDULE_LOOKBACK_DAYS)
     end_dt = datetime.now()
     start_dt = end_dt - timedelta(days=days)
-    log.info("開始排程抓取鉅亨新聞（回溯 %s 天）", days)
+    log.info("開始排程抓取鉅亨新聞（固定回補 %s 天）", days)
     try:
         run_by_year_month(start_dt=start_dt, end_dt=end_dt)
     except Exception:
         log.exception("排程抓取發生未預期錯誤")
 
 
-def run_scheduler(interval_minutes: int) -> None:
-    """固定間隔（預設每 30 分鐘）執行。"""
-    interval_minutes = max(1, interval_minutes)
-    log.info("啟動鉅亨新聞排程器，每 %s 分鐘執行一次", interval_minutes)
-    schedule.every(interval_minutes).minutes.do(_scheduled_crawl_job)
-    try:
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-    except KeyboardInterrupt:
-        log.info("收到中斷訊號，排程器已停止。")
+def _month_backfill_job() -> None:
+    """手動回補：只回補最近一個月。"""
+    end_dt = datetime.now()
+    start_dt = end_dt - timedelta(days=MONTH_BACKFILL_DAYS)
+    log.info("開始手動回補鉅亨新聞（最近 %s 天）", MONTH_BACKFILL_DAYS)
+    run_by_year_month(start_dt=start_dt, end_dt=end_dt)
 
 
 def main() -> None:
-    default_interval = SCHEDULE_INTERVAL_MINUTES
     parser = argparse.ArgumentParser(description="鉅亨網台股新聞爬蟲")
     parser.add_argument(
         "--scheduled-once",
         action="store_true",
-        help="執行一次排程用抓取（回溯 SCHEDULE_LOOKBACK_DAYS）後結束，供 scheduler_utils 統一排程",
+        help=f"執行一次排程抓取：固定回補最近 {SCHEDULE_LOOKBACK_DAYS} 天，供 scheduler_utils 呼叫",
     )
     parser.add_argument(
-        "--schedule",
+        "--backfill-month",
         action="store_true",
-        help=f"啟動定時排程：預設每 {SCHEDULE_INTERVAL_MINUTES} 分鐘執行（可用 --every-minutes 覆寫）",
-    )
-    parser.add_argument(
-        "--every-minutes",
-        type=int,
-        default=None,
-        metavar="N",
-        help=f"排程間隔分鐘數（預設 {default_interval}，與程式內 SCHEDULE_INTERVAL_MINUTES 相同）",
-    )
-    parser.add_argument(
-        "--last-days",
-        type=int,
-        default=None,
-        metavar="N",
-        help="僅抓取最近 N 天（起迄為現在往前推算；未指定時維持自 2024-01-01 起全量）",
+        help=f"手動回補最近 {MONTH_BACKFILL_DAYS} 天；未帶參數時也會執行此模式",
     )
     args = parser.parse_args()
 
-    if args.schedule:
-        if args.scheduled_once:
-            parser.error("--schedule 與 --scheduled-once 請勿併用")
-        if args.last_days is not None:
-            parser.error("--last-days 與 --schedule 請勿併用（排程回溯天數請改程式內 SCHEDULE_LOOKBACK_DAYS）")
-        interval = args.every_minutes if args.every_minutes is not None else default_interval
-        if interval < 1:
-            parser.error("--every-minutes 須為 >= 1 的整數")
-        run_scheduler(interval)
-    elif args.scheduled_once:
-        if args.last_days is not None:
-            parser.error("--last-days 與 --scheduled-once 請勿併用（回溯天數請改 SCHEDULE_LOOKBACK_DAYS）")
+    if args.scheduled_once:
+        if args.backfill_month:
+            parser.error("--scheduled-once 與 --backfill-month 請勿併用")
         _scheduled_crawl_job()
-    elif args.last_days is not None:
-        if args.last_days < 1:
-            parser.error("--last-days 須為 >= 1 的整數")
-        end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=args.last_days)
-        run_by_year_month(start_dt=start_dt, end_dt=end_dt)
     else:
-        run_by_year_month()
+        _month_backfill_job()
 
 
 if __name__ == "__main__":
