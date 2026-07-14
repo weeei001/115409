@@ -22,6 +22,29 @@ _ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
 _MEDIUM_TEXT = Text().with_variant(MEDIUMTEXT(), "mysql")
 
 
+class StockBehaviorBacktestRun(Base):
+    __tablename__ = "sb_backtest_runs"
+
+    id = Column(_ID_TYPE, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    finished_at = Column(DateTime, nullable=True)
+    status = Column(String(16), nullable=False, default="running")
+    config_hash = Column(String(64), nullable=False)
+    config_json = Column(Text, nullable=False)
+    symbols = Column(String(128), nullable=False)
+    date_start = Column(Date, nullable=False)
+    date_end = Column(Date, nullable=False)
+    freq = Column(String(8), nullable=False)
+    repeats = Column(Integer, nullable=False, default=1)
+    planned_points = Column(Integer, nullable=False, default=0)
+    completed_points = Column(Integer, nullable=False, default=0)
+    skipped_points = Column(Integer, nullable=False, default=0)
+    failed_points = Column(Integer, nullable=False, default=0)
+    note = Column(String(255), nullable=True)
+
+    __table_args__ = (Index("idx_sbbr_config", "config_hash"),)
+
+
 class StockBehaviorAnalysisSnapshot(Base):
     __tablename__ = "sb_analysis_snapshots"
 

@@ -17,6 +17,7 @@ from .user import User
 from .password_reset_token import PasswordResetToken
 from .analysis_snapshot import (
     StockBehaviorAnalysisSnapshot,
+    StockBehaviorBacktestRun,
     StockBehaviorProjectionScore,
 )
 
@@ -37,5 +38,6 @@ __all__ = [
     "User",
     "PasswordResetToken",
     "StockBehaviorAnalysisSnapshot",
+    "StockBehaviorBacktestRun",
     "StockBehaviorProjectionScore",
 ]

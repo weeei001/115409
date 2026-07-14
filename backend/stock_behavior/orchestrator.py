@@ -56,6 +56,27 @@ def _analysis_window(as_of_date: date, lookback_days: int) -> tuple[date, date]:
     return as_of_date - timedelta(days=lookback_days), as_of_date
 
 
+def build_analysis_config(settings: Any, model_name: str) -> dict[str, Any]:
+    return {
+        "window_days": AI_ANALYSIS_WINDOW_DAYS,
+        "horizon_days": AI_DEFAULT_HORIZON_DAYS,
+        "projection_days": SCENARIO_PROJECTION_DAYS,
+        "rag_lookback_days": RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
+        "rag_max_events": RAG_DEFAULT_MAX_NEWS_EVENTS,
+        "max_llm_news_sources": MAX_LLM_NEWS_SOURCES,
+        "model_name": model_name,
+        "temperature": getattr(settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
+        "max_completion_tokens": LLM_MAX_COMPLETION_TOKENS,
+        "prompt_version": PROMPT_VERSION,
+        "llm_timeout_seconds": LLM_TIMEOUT_SECONDS,
+    }
+
+
+def compute_config_hash(config: dict[str, Any]) -> str:
+    canonical = json.dumps(config, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class StockBehaviorOrchestrator:
     def __init__(self, *, db: Session, settings: Any) -> None:
         self._db = db
@@ -661,19 +682,7 @@ class StockBehaviorOrchestrator:
             "model_name",
             self._settings.ADVISOR_LLM_MODEL or "",
         )
-        config = {
-            "window_days": AI_ANALYSIS_WINDOW_DAYS,
-            "horizon_days": AI_DEFAULT_HORIZON_DAYS,
-            "projection_days": SCENARIO_PROJECTION_DAYS,
-            "rag_lookback_days": RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
-            "rag_max_events": RAG_DEFAULT_MAX_NEWS_EVENTS,
-            "max_llm_news_sources": MAX_LLM_NEWS_SOURCES,
-            "model_name": model_name,
-            "temperature": getattr(self._settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
-            "max_completion_tokens": LLM_MAX_COMPLETION_TOKENS,
-            "prompt_version": PROMPT_VERSION,
-            "llm_timeout_seconds": LLM_TIMEOUT_SECONDS,
-        }
+        config = build_analysis_config(self._settings, model_name)
         config_json = json.dumps(config, ensure_ascii=False, sort_keys=True)
         try:
             create_snapshot(
@@ -685,7 +694,7 @@ class StockBehaviorOrchestrator:
                     if req.as_of_date is not None and req.as_of_date < today
                     else "live"
                 ),
-                config_hash=hashlib.sha256(config_json.encode("utf-8")).hexdigest(),
+                config_hash=compute_config_hash(config),
                 config_json=config_json,
                 model_name=model_name,
                 prompt_version=PROMPT_VERSION,
