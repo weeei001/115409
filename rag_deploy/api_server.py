@@ -1055,7 +1055,9 @@ class NewsSource(BaseModel):
 class StockAnalysisResponse(BaseModel):
     news_sources: list[NewsSource]
     fallback_mode: bool
-    raw_answer: str
+    sentiment: str
+    summary: str
+    risk: str
 
 
 STOCK_ANALYSIS_PROMPT = (
@@ -1065,10 +1067,12 @@ STOCK_ANALYSIS_PROMPT = (
     "【資料時間範圍】{time_from} ～ {time_to}\n\n"
     "以下是近一個月的相關新聞片段：\n\n"
     "{context}\n\n"
-    "請根據以上新聞，用繁體中文輸出以下格式，文字簡潔：\n\n"
-    "市場情緒：看漲 📈 / 中性 ➡️ / 看跌 📉（擇一）\n"
-    "一句話結論：（50字以內，說明判斷原因）\n"
-    "風險提醒：（一句話，說明主要下行風險）\n"
+    "請根據以上新聞，用繁體中文以下列 JSON 格式回覆，不要輸出其他文字：\n\n"
+    "{{\n"
+    '  "sentiment": "看漲 📈 / 中性 ➡️ / 看跌 📉（擇一）",\n'
+    '  "summary": "一句話結論，50字以內，說明判斷原因",\n'
+    '  "risk": "一句話風險提醒，說明主要下行風險"\n'
+    "}}"
 )
 
 
@@ -1159,7 +1163,9 @@ async def analyze_stocks(req: StockAnalysisRequest):
 
     # 呼叫 LLM
     fallback_mode = False
-    raw_answer = ""
+    sentiment = "中性 ➡️"
+    summary = ""
+    risk = ""
     tokens_input = None
     tokens_output = None
     tokens_thinking = None
@@ -1179,12 +1185,22 @@ async def analyze_stocks(req: StockAnalysisRequest):
         think_match = re.search(r"<think>(.*?)</think>", full_content, re.DOTALL)
         tokens_thinking = len(think_match.group(1)) // 4 if think_match else None
 
-        raw_answer = re.sub(r"<think>.*?</think>\s*", "", full_content, flags=re.DOTALL).strip()
+        cleaned = re.sub(r"<think>.*?</think>\s*", "", full_content, flags=re.DOTALL).strip()
+        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not json_match:
+            raise ValueError(f"LLM 回應未包含 JSON：{cleaned[:200]}")
+        parsed = json.loads(json_match.group())
+        sentiment = parsed.get("sentiment", sentiment)
+        summary = parsed.get("summary", "")
+        risk = parsed.get("risk", "")
+        if not summary:
+            raise ValueError("LLM 回應缺少 summary 欄位")
     except Exception as e:
         fallback_mode = True
-        raw_answer = f"LLM 服務暫時無法使用，以下為原始新聞摘要：\n\n" + "\n".join(
-            f"- {ns.title}（{ns.timestamp[:10]}）" for ns in news_sources
+        summary = "LLM 服務暫時無法使用，以下為近期相關新聞：" + "；".join(
+            f"{ns.title}（{ns.timestamp[:10]}）" for ns in news_sources[:5]
         )
+        risk = "AI 分析暫時無法使用，請人工確認相關風險。"
 
     duration_ms = int((time.time() - start) * 1000)
 
@@ -1196,11 +1212,12 @@ async def analyze_stocks(req: StockAnalysisRequest):
         sys.path.insert(0, str(pathlib.Path(__file__).parent))
         from qa_logger import log_qa
 
+    ai_answer_log = f"市場情緒：{sentiment}\n一句話結論：{summary}\n風險提醒：{risk}"
     log_qa(
         query=f"[股票分析] {','.join(valid_symbols)}",
         prompt=prompt_str,
         chunks=all_hits,
-        ai_answer=raw_answer if not fallback_mode else None,
+        ai_answer=ai_answer_log if not fallback_mode else None,
         duration_ms=duration_ms,
         status="success_analyze" if not fallback_mode else "error_analyze",
         tokens_input=tokens_input,
@@ -1211,7 +1228,9 @@ async def analyze_stocks(req: StockAnalysisRequest):
     return StockAnalysisResponse(
         news_sources=news_sources,
         fallback_mode=fallback_mode,
-        raw_answer=raw_answer,
+        sentiment=sentiment,
+        summary=summary,
+        risk=risk,
     )
 
 
