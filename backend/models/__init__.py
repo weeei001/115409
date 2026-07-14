@@ -20,6 +20,7 @@ from .analysis_snapshot import (
     StockBehaviorBacktestRun,
     StockBehaviorProjectionScore,
 )
+from .trend_prediction import TrendPredictionScore, TrendPredictionSnapshot
 
 __all__ = [
     "DailyPrice",
@@ -40,4 +41,6 @@ __all__ = [
     "StockBehaviorAnalysisSnapshot",
     "StockBehaviorBacktestRun",
     "StockBehaviorProjectionScore",
+    "TrendPredictionSnapshot",
+    "TrendPredictionScore",
 ]
