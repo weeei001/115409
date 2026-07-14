@@ -19,6 +19,10 @@ from models.analysis_snapshot import (  # noqa: F401
     StockBehaviorBacktestRun,
     StockBehaviorProjectionScore,
 )
+from models.trend_prediction import (  # noqa: F401
+    TrendPredictionScore,
+    TrendPredictionSnapshot,
+)
 
 settings = get_settings()
 
