@@ -21,11 +21,13 @@ CRAWLER_DIR = Path(__file__).resolve().parent
 CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
 FINMIND_FETCH_SCRIPT = CRAWLER_DIR / "finmind" / "fetch_finmind.py"
 FINMIND_IMPORT_SCRIPT = CRAWLER_DIR / "finmind" / "import_finmind_csv.py"
+SCORING_SCRIPT = CRAWLER_DIR.parent / "scripts" / "score_snapshots.py"
 FINMIND_OUT_DIR = CRAWLER_DIR / "finmind" / "finmind_output"
 FINMIND_START_DATE = "2021-01-01"
 FINMIND_SCHEDULE_TIME = "17:00"  
 FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
 RUN_CNYES_NEWS_CRAWL = True
+RUN_SNAPSHOT_SCORING = True
 CNYES_INTERVAL_MINUTES = 30
 CNYES_SCHEDULE_LOOKBACK_DAYS = 5
 
@@ -93,6 +95,13 @@ def run_finmind_job(start_date: str = FINMIND_START_DATE) -> None:
     ]
     if not _run_python_command(import_command, "FinMind CSV 匯入 MySQL"):
         return
+
+    if RUN_SNAPSHOT_SCORING and SCORING_SCRIPT.exists():
+        try:
+            if not _run_python_command([python_cmd, str(SCORING_SCRIPT)], "快照評分"):
+                log.error("快照評分失敗，FinMind 匯入仍視為完成。")
+        except Exception as exc:
+            log.error("快照評分發生例外，FinMind 匯入仍視為完成：%s", exc)
 
     log.info("✅ FinMind 抓取與匯入完成！")
 

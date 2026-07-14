@@ -10,7 +10,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from database import SessionLocal
+from database import Base, SessionLocal, engine
 from stock_behavior.scoring import score_pending_snapshots
 
 
@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--deadband", type=float, default=0.01)
     args = parser.parse_args()
 
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         result = score_pending_snapshots(
