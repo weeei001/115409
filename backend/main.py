@@ -14,6 +14,10 @@ from routers import (
 )
 from config import get_settings
 from models.password_reset_token import PasswordResetToken  # noqa: F401
+from models.analysis_snapshot import (  # noqa: F401
+    StockBehaviorAnalysisSnapshot,
+    StockBehaviorProjectionScore,
+)
 
 settings = get_settings()
 

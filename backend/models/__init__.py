@@ -15,6 +15,10 @@ from .finmind_extra import (
 )
 from .user import User
 from .password_reset_token import PasswordResetToken
+from .analysis_snapshot import (
+    StockBehaviorAnalysisSnapshot,
+    StockBehaviorProjectionScore,
+)
 
 __all__ = [
     "DailyPrice",
@@ -32,4 +36,6 @@ __all__ = [
     "StockValuation",
     "User",
     "PasswordResetToken",
+    "StockBehaviorAnalysisSnapshot",
+    "StockBehaviorProjectionScore",
 ]

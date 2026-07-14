@@ -1,11 +1,15 @@
 ﻿from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date, timedelta
+from time import perf_counter
 from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from crud.analysis_snapshot import create_snapshot
 from crud.daily_price import get_price_range
 from crud.institutional_trade import get_by_symbol_range
 from crud.technical_indicator import get_indicators
@@ -17,12 +21,19 @@ from schemas.stock_behavior import (
     StockBehaviorDataInventory,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
+    SCENARIO_PROJECTION_DAYS,
 )
-from stock_behavior.llm import StockBehaviorLlmService
+from stock_behavior.llm import (
+    LLM_MAX_COMPLETION_TOKENS,
+    LLM_TIMEOUT_SECONDS,
+    StockBehaviorLlmService,
+)
 from stock_behavior.normalizer import (
+    FALLBACK_SUMMARY,
     build_stock_behavior_analysis_fallback,
     normalize_llm_analysis_payload,
 )
+from stock_behavior.prompt_templates import PROMPT_VERSION
 from stock_behavior.tools import (
     ToolExecutor,
     serialize_chip_window_rows,
@@ -32,13 +43,13 @@ from stock_behavior.tools import (
 from stock_behavior.utils import PolicyViolationError
 
 
-MAX_LLM_RAW_ANSWER_CHARS = 4000
-MAX_LLM_NEWS_SOURCES = 8
+MAX_LLM_RAW_ANSWER_CHARS = 2000
+MAX_LLM_NEWS_SOURCES = 5
 AI_ANALYSIS_WINDOW_DAYS = 120
 AI_DEFAULT_HORIZON_DAYS = 40
 AI_DEFAULT_LANGUAGE = "zh-TW"
-RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60
-RAG_DEFAULT_MAX_NEWS_EVENTS = 10
+RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 30
+RAG_DEFAULT_MAX_NEWS_EVENTS = 5
 
 
 def _analysis_window(as_of_date: date, lookback_days: int) -> tuple[date, date]:
@@ -495,11 +506,14 @@ class StockBehaviorOrchestrator:
         *,
         executor: ToolExecutor,
         symbol: str,
+        as_of: date | None = None,
+        lookback_days: int = RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
     ) -> dict[str, Any]:
         rag_news = await executor.get_rag_news(
             symbol=symbol,
-            lookback_days=RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
+            lookback_days=lookback_days,
             max_events=RAG_DEFAULT_MAX_NEWS_EVENTS,
+            as_of=as_of,
         )
         return {
             "rag_news": rag_news,
@@ -546,12 +560,15 @@ class StockBehaviorOrchestrator:
         rag = await self._collect_rag_news_with_executor(
             executor=executor,
             symbol=symbol,
+            as_of=req.as_of_date,
+            lookback_days=req.lookback_days or RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
         )
         return StockBehaviorRagResponse.model_validate(rag["rag_news"])
 
     async def generate_llm_analysis(self, req: StockBehaviorAiRequest) -> StockBehaviorAiResponse:
         symbol = req.symbol.strip().upper()
-        as_of_date = date.today()
+        today = date.today()
+        as_of_date = req.as_of_date or today
         as_of_date_text = as_of_date.isoformat()
         llm_evidence = self._collect_llm_evidence_from_crud(
             symbol=symbol,
@@ -586,8 +603,11 @@ class StockBehaviorOrchestrator:
             }
         )
 
+        llm_started_at = perf_counter()
         try:
-            raw_llm_response = await self._llm.generate_analysis_from_evidence(task_packet=task_packet)
+            raw_llm_response, raw_llm_text = await self._llm.generate_analysis_from_evidence(
+                task_packet=task_packet
+            )
         except RuntimeError as exc:
             raise PolicyViolationError(
                 "LLM analysis failed",
@@ -598,8 +618,10 @@ class StockBehaviorOrchestrator:
                     "reason": str(exc),
                 },
             ) from exc
+        latency_ms = round((perf_counter() - llm_started_at) * 1000)
 
         normalized_llm_response: dict[str, Any] = {}
+        is_fallback = False
         try:
             normalized_llm_response = normalize_llm_analysis_payload(
                 raw_llm_response,
@@ -607,6 +629,7 @@ class StockBehaviorOrchestrator:
             )
             validated = StockBehaviorAnalysisPayload.model_validate(normalized_llm_response)
         except ValidationError as exc:
+            is_fallback = True
             formatted_errors = self._format_validation_errors(exc)
             fallback_payload = build_stock_behavior_analysis_fallback(
                 f"LLM 分析結構驗證失敗：{formatted_errors}",
@@ -616,12 +639,15 @@ class StockBehaviorOrchestrator:
                 fallback_payload["projection"] = normalized_llm_response["projection"]
             validated = StockBehaviorAnalysisPayload.model_validate(fallback_payload)
 
+        if validated.summary == FALLBACK_SUMMARY:
+            is_fallback = True
+
         public_projection = self._build_public_projection(
             validated=validated,
             data_inventory=data_inventory,
             horizon_days=AI_DEFAULT_HORIZON_DAYS,
         )
-        return StockBehaviorAiResponse(
+        response = StockBehaviorAiResponse(
             symbol=symbol,
             as_of_date=as_of_date_text,
             generated_by=getattr(self._llm, "model_name", self._settings.ADVISOR_LLM_MODEL or ""),
@@ -629,3 +655,62 @@ class StockBehaviorOrchestrator:
             data_inventory=StockBehaviorDataInventory.model_validate(data_inventory),
             projection=public_projection,
         )
+
+        model_name = getattr(
+            self._llm,
+            "model_name",
+            self._settings.ADVISOR_LLM_MODEL or "",
+        )
+        config = {
+            "window_days": AI_ANALYSIS_WINDOW_DAYS,
+            "horizon_days": AI_DEFAULT_HORIZON_DAYS,
+            "projection_days": SCENARIO_PROJECTION_DAYS,
+            "rag_lookback_days": RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
+            "rag_max_events": RAG_DEFAULT_MAX_NEWS_EVENTS,
+            "max_llm_news_sources": MAX_LLM_NEWS_SOURCES,
+            "model_name": model_name,
+            "temperature": getattr(self._settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
+            "max_completion_tokens": LLM_MAX_COMPLETION_TOKENS,
+            "prompt_version": PROMPT_VERSION,
+            "llm_timeout_seconds": LLM_TIMEOUT_SECONDS,
+        }
+        config_json = json.dumps(config, ensure_ascii=False, sort_keys=True)
+        try:
+            create_snapshot(
+                self._db,
+                symbol=symbol,
+                as_of_date=as_of_date,
+                run_kind=(
+                    "backtest"
+                    if req.as_of_date is not None and req.as_of_date < today
+                    else "live"
+                ),
+                config_hash=hashlib.sha256(config_json.encode("utf-8")).hexdigest(),
+                config_json=config_json,
+                model_name=model_name,
+                prompt_version=PROMPT_VERSION,
+                is_fallback=is_fallback,
+                rag_fallback_mode=bool(rag_news.get("fallback_mode", False)),
+                news_count=len(rag_news.get("news_sources", [])),
+                base_close=public_projection.base_close,
+                base_volume=public_projection.base_volume,
+                summary=validated.summary,
+                news_sources_json=json.dumps(
+                    rag_news.get("news_sources", []), ensure_ascii=False, default=str
+                ),
+                data_inventory_json=json.dumps(data_inventory, ensure_ascii=False, default=str),
+                normalized_payload_json=json.dumps(
+                    validated.model_dump(mode="json"), ensure_ascii=False
+                ),
+                public_projection_json=json.dumps(
+                    public_projection.model_dump(mode="json"), ensure_ascii=False
+                ),
+                task_packet_json=json.dumps(task_packet, ensure_ascii=False, default=str),
+                raw_llm_text=raw_llm_text,
+                latency_ms=latency_ms,
+            )
+        except Exception as exc:
+            print(f"[stock_behavior_snapshot] status=fail symbol={symbol} error={exc}")
+            self._db.rollback()
+
+        return response
