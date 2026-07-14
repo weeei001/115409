@@ -1054,27 +1054,11 @@ class NewsSource(BaseModel):
 
 class StockAnalysisResponse(BaseModel):
     news_sources: list[NewsSource]
-    fallback_mode: bool
-    raw_answer: str
-
-
-STOCK_ANALYSIS_PROMPT = (
-    "你是一位專業的台股財經分析師。\n"
-    "【目前時間】{current_time}\n"
-    "【分析對象】{stock_names}（{symbols}）\n"
-    "【資料時間範圍】{time_from} ～ {time_to}\n\n"
-    "以下是近一個月的相關新聞片段：\n\n"
-    "{context}\n\n"
-    "請根據以上新聞，用繁體中文輸出以下格式，文字簡潔：\n\n"
-    "市場情緒：看漲 📈 / 中性 ➡️ / 看跌 📉（擇一）\n"
-    "一句話結論：（50字以內，說明判斷原因）\n"
-    "風險提醒：（一句話，說明主要下行風險）\n"
-)
 
 
 @app.post("/api/analyze", response_model=StockAnalysisResponse)
 async def analyze_stocks(req: StockAnalysisRequest):
-    """根據股票代號，取得近一個月新聞並進行 AI 分析"""
+    """根據股票代號，取得近一個月相關新聞"""
     if not qdrant_client or not embeddings:
         raise HTTPException(503, "服務尚未就緒")
 
@@ -1088,8 +1072,6 @@ async def analyze_stocks(req: StockAnalysisRequest):
 
     now = _dt.now()
     time_from = (now - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-    time_to = now.strftime("%Y-%m-%d %H:%M:%S")
-    current_time_str = now.strftime("%Y年%m月%d日 %H:%M")
 
     # 每支股票取最相關的 10 筆
     all_hits = []
@@ -1127,92 +1109,15 @@ async def analyze_stocks(req: StockAnalysisRequest):
         if title in seen_titles:
             continue
         seen_titles.add(title)
-        content = p.get("page_content", "")
         news_sources.append(NewsSource(
             id=p.get("chunk_id", str(hit.id)),
             title=title,
-            summary=content[:100] + "..." if len(content) > 100 else content,
+            summary=p.get("page_content", ""),
             timestamp=p.get("pub_time", ""),
             url=p.get("url", ""),
         ))
 
-    # 組裝 context 給 LLM
-    context_lines = []
-    for i, hit in enumerate(all_hits, 1):
-        p = hit.payload or {}
-        context_lines.append(
-            f"[片段{i}] 標題：{p.get('title', '')}\n"
-            f"來源：{get_source_name(p.get('source', ''))} | 時間：{p.get('pub_time', '')}\n"
-            f"內容：{p.get('page_content', '')}\n"
-            f"連結：{p.get('url', '')}"
-        )
-    context_str = "\n\n".join(context_lines)
-
-    prompt_str = STOCK_ANALYSIS_PROMPT.format(
-        current_time=current_time_str,
-        stock_names=stock_names,
-        symbols="、".join(valid_symbols),
-        time_from=time_from[:10],
-        time_to=time_to[:10],
-        context=context_str,
-    )
-
-    # 呼叫 LLM
-    fallback_mode = False
-    raw_answer = ""
-    tokens_input = None
-    tokens_output = None
-    tokens_thinking = None
-    start = time.time()
-    try:
-        completion = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
-            messages=[{"role": "user", "content": prompt_str}],
-            temperature=0.6, top_p=0.7, max_tokens=4096,
-            stream=False,
-        )
-        full_content = completion.choices[0].message.content
-        tokens_input = completion.usage.prompt_tokens
-        tokens_output = completion.usage.completion_tokens
-
-        # 提取 thinking tokens
-        think_match = re.search(r"<think>(.*?)</think>", full_content, re.DOTALL)
-        tokens_thinking = len(think_match.group(1)) // 4 if think_match else None
-
-        raw_answer = re.sub(r"<think>.*?</think>\s*", "", full_content, flags=re.DOTALL).strip()
-    except Exception as e:
-        fallback_mode = True
-        raw_answer = f"LLM 服務暫時無法使用，以下為原始新聞摘要：\n\n" + "\n".join(
-            f"- {ns.title}（{ns.timestamp[:10]}）" for ns in news_sources
-        )
-
-    duration_ms = int((time.time() - start) * 1000)
-
-    # 記錄 QA
-    try:
-        from qa_logger import log_qa
-    except ImportError:
-        import sys, pathlib
-        sys.path.insert(0, str(pathlib.Path(__file__).parent))
-        from qa_logger import log_qa
-
-    log_qa(
-        query=f"[股票分析] {','.join(valid_symbols)}",
-        prompt=prompt_str,
-        chunks=all_hits,
-        ai_answer=raw_answer if not fallback_mode else None,
-        duration_ms=duration_ms,
-        status="success_analyze" if not fallback_mode else "error_analyze",
-        tokens_input=tokens_input,
-        tokens_output=tokens_output,
-        tokens_thinking=tokens_thinking,
-    )
-
-    return StockAnalysisResponse(
-        news_sources=news_sources,
-        fallback_mode=fallback_mode,
-        raw_answer=raw_answer,
-    )
+    return StockAnalysisResponse(news_sources=news_sources)
 
 
 def _mysql_conn():
