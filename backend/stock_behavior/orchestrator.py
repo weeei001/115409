@@ -43,7 +43,6 @@ from stock_behavior.tools import (
 from stock_behavior.utils import PolicyViolationError
 
 
-MAX_LLM_RAW_ANSWER_CHARS = 2000
 MAX_LLM_NEWS_SOURCES = 5
 AI_ANALYSIS_WINDOW_DAYS = 120
 AI_DEFAULT_HORIZON_DAYS = 40
@@ -463,16 +462,10 @@ class StockBehaviorOrchestrator:
             news_sources = rag_news.get("news_sources")
             if isinstance(news_sources, list):
                 rag_news["news_sources"] = news_sources[:MAX_LLM_NEWS_SOURCES]
-            raw_answer = rag_news.get("raw_answer")
-            if isinstance(raw_answer, str):
-                rag_news["raw_answer"] = raw_answer[:MAX_LLM_RAW_ANSWER_CHARS]
             reference_materials = rag_news.get("reference_materials")
             if isinstance(reference_materials, dict):
                 rag_api_response = reference_materials.get("rag_api_response")
                 if isinstance(rag_api_response, dict):
-                    raw_answer = rag_api_response.get("raw_answer")
-                    if isinstance(raw_answer, str):
-                        rag_api_response["raw_answer"] = raw_answer[:MAX_LLM_RAW_ANSWER_CHARS]
                     news_sources = rag_api_response.get("news_sources")
                     if isinstance(news_sources, list):
                         rag_api_response["news_sources"] = news_sources[:MAX_LLM_NEWS_SOURCES]
@@ -545,13 +538,10 @@ class StockBehaviorOrchestrator:
         return {
             "news_sources": [],
             "fallback_mode": False,
-            "raw_answer": "",
-            "raw_answer_usage": "reference_only",
             "reference_materials": {
                 "rag_api_response": {
                     "fallback_mode": False,
                     "usage": "reference_only",
-                    "raw_answer": "",
                     "news_sources": [],
                 },
             },
@@ -563,13 +553,10 @@ class StockBehaviorOrchestrator:
         return {
             "news_sources": news_sources,
             "fallback_mode": req.fallback_mode,
-            "raw_answer": req.raw_answer,
-            "raw_answer_usage": "reference_only",
             "reference_materials": {
                 "rag_api_response": {
                     "usage": "reference_only",
                     "fallback_mode": req.fallback_mode,
-                    "raw_answer": req.raw_answer,
                     "news_sources": news_sources,
                 }
             },
@@ -597,7 +584,7 @@ class StockBehaviorOrchestrator:
             lookback_days=AI_ANALYSIS_WINDOW_DAYS,
         )
         rag_news = self._build_client_rag_news_payload(req)
-        if not rag_news.get("news_sources") and not rag_news.get("raw_answer"):
+        if not rag_news.get("news_sources"):
             rag_news = self._empty_rag_news_payload()
         data_inventory = self._build_data_inventory(
             llm_evidence=llm_evidence,

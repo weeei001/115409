@@ -69,7 +69,7 @@ class StockBehaviorRagPayload(BaseModel):
     )
     raw_answer: str = Field(
         default="",
-        description="RAG 回傳的原始摘要文字。",
+        description="已棄用：RAG 服務已移除此欄位，恆為空字串，僅為前端相容保留",
     )
 
 
@@ -95,7 +95,7 @@ class StockBehaviorAiRequest(StockBehaviorRagPayload):
                     }
                 ],
                 "fallback_mode": False,
-                "raw_answer": "近期新聞以先進製程需求與法說會展望為主。",
+                "raw_answer": "",
             }
         }
     )
@@ -265,7 +265,7 @@ class StockBehaviorRagResponse(StockBehaviorRagPayload):
                     }
                 ],
                 "fallback_mode": False,
-                "raw_answer": "近期新聞以先進製程需求與法說會展望為主。",
+                "raw_answer": "",
             }
         }
     )
