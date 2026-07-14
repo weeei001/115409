@@ -155,11 +155,14 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
         f"規則：\n"
         f"- 幾乎每次都要給一個 follow_up（建議追問，label 用中文，query 為具體問題）\n"
         f"- 第二個從以下擇一：涉及走勢/預測給 chart；涉及新聞/事件給 news；涉及主觀判斷/該不該買給 save_view；"
-        f"涉及進出場時機、是否該買賣、且已偵測到股票代號時，可給 order（前往模擬下單）\n"
+        f"涉及進出場時機、是否該買賣、且已偵測到股票代號時，可給 order\n"
+        f"- order 的 label 要像自然語言的追問句、口吻跟 follow_up 一致，"
+        f"例如「根據以上資料，要不要嘗試看看模擬下單？」，不要用生硬的按鈕文字（如「前往模擬下單」）\n"
         f"- 若只有一個合適的就只給一個\n"
         f"- stock_id 只能從 {stocks_json} 中選，沒有偵測到股票時省略 stock_id 欄位\n\n"
         f"只輸出 JSON 陣列，不要其他文字：\n"
-        f'[{{"type":"follow_up","label":"...","query":"..."}},{{"type":"order","label":"前往模擬下單","stock_id":"XXXX"}}]'
+        f'[{{"type":"follow_up","label":"...","query":"..."}},'
+        f'{{"type":"order","label":"根據以上資料，要不要嘗試看看模擬下單？","stock_id":"XXXX"}}]'
     )
     try:
         resp = openai_client.chat.completions.create(
