@@ -11,7 +11,7 @@ class NewsStorageManager:
     """
     MEDIA_SOURCES = {"cnyes", "ltn", "moneydj", "udn", "yahoo", "chinatimes"}
 
-    def __init__(self, db_root="news_db_local"):
+    def __init__(self, db_root="news_db_filtered"):
         self.db_root = db_root
         self.index_path = os.path.join(db_root, "index.json")
         # content_dir 保留作為回溯相容（舊檔案仍在這裡）
@@ -114,7 +114,7 @@ class NewsStorageManager:
             "pub_time": pub_time,
             "url": url,
             "tags": tags,
-            "content_file": f"{source_group}/{content_filename}"
+            "content_file": f"{source_group}/content/{content_filename}"
         }
         self.index['news'].append(metadata)
         

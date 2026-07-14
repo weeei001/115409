@@ -1,7 +1,33 @@
 import os
+import re
 import pandas as pd
 from news_storage import NewsStorageManager
 from adapters.yahoo_adapter import YahooAdapter
+
+# 6 檔目標台股的代號 + 別名（公司名）。比對順序：代號 → 任一別名。
+# 命中第一檔即回傳，避免一篇談台積電供應鏈的新聞被歸到鴻海。
+TARGET_STOCKS_ALIASES = [
+    ("2330", ["台積電", "台積", "TSMC"]),
+    ("2317", ["鴻海", "Foxconn", "富士康"]),
+    ("2454", ["聯發科", "MediaTek"]),
+    ("2881", ["富邦金", "富邦金控"]),
+    ("2408", ["南亞科"]),
+    ("2615", ["萬海"]),
+]
+
+
+def extract_stock_id(*texts):
+    """從任意數量的文字片段（標題、標籤、內文…）判定股票代號。
+    命中白名單回傳代號，否則 'tw_stock'。
+    """
+    haystack = " ".join(t for t in texts if t)
+    for code, aliases in TARGET_STOCKS_ALIASES:
+        if code in haystack:
+            return code
+        for name in aliases:
+            if name in haystack:
+                return code
+    return "tw_stock"
 
 def ingest_csv_data(db_manager, csv_dir):
     """將現有的 crawler/*.csv 資料存入本機資料庫"""
@@ -48,17 +74,6 @@ def ingest_csv_data(db_manager, csv_dir):
 
 def ingest_other_web_data(db_manager, base_path):
     """掃描 OtherNewWeb 底下的各家媒體資料"""
-    import re
-
-    def extract_stock_from_title_or_tags(title, tags):
-        """從標題或標籤中提取股票代號，找不到則回傳 'tw_stock'"""
-        text = f"{title} {tags}"
-        # 比對 4 位數股票代號（如 2330、0050 等）
-        match = re.search(r'\b([0-9]{4,5}[A-Z]?)\b', text)
-        if match:
-            return match.group(1)
-        return "tw_stock"
-
     # 處理各個新聞來源資料夾
     news_sources = {
         'cnyes': 'cnyes_news.csv',
@@ -89,8 +104,8 @@ def ingest_other_web_data(db_manager, base_path):
                 url = row.get('連結', '')
                 tags = str(row.get('標籤', ''))
 
-                # 從標題或標籤中提取股票代號，找不到則用 tw_stock
-                stock_id = extract_stock_from_title_or_tags(title, tags)
+                # 用白名單比對標題 + 標籤 + 內文前段
+                stock_id = extract_stock_id(title, tags, content[:1000])
 
                 # 標題為空則跳過
                 if not title:
@@ -123,11 +138,6 @@ if __name__ == "__main__":
         other_web_folder = "OtherNewWeb/News_Crawler-master/NewsDB"
         ltn_path = os.path.join(other_web_folder, "ltn", "ltn_news_cleaned.csv")
         if os.path.exists(ltn_path):
-            import re
-            def extract_stock(title):
-                match = re.search(r'\b([0-9]{4,5}[A-Z]?)\b', title)
-                return match.group(1) if match else "tw_stock"
-
             df = pd.read_csv(ltn_path, encoding='utf-8-sig')
             count = 0
             for _, row in df.iterrows():
@@ -137,7 +147,7 @@ if __name__ == "__main__":
                     continue
                 success, _ = db.add_news(
                     source='ltn',
-                    stock_id=extract_stock(title),
+                    stock_id=extract_stock_id(title, content[:1000]),
                     title=title,
                     content=content,
                     pub_time=row.get('發布時間', '2024-01-01 00:00:00'),
