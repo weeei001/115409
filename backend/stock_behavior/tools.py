@@ -143,20 +143,17 @@ def serialize_technical_window_rows(rows: list[Any], *, start_date: date, end_da
 class RagResponse(BaseModel):
     news_sources: list[dict[str, Any]] = Field(default_factory=list)
     fallback_mode: bool = False
-    raw_answer: str = ""
 
 
 def _build_reference_materials(
     *,
     fallback_mode: bool,
-    raw_answer: str,
     news_sources: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "rag_api_response": {
             "usage": "reference_only",
             "fallback_mode": fallback_mode,
-            "raw_answer": raw_answer,
             "news_sources": news_sources,
         },
     }
@@ -166,23 +163,19 @@ def _build_rag_news_payload(
     *,
     news_sources: list[dict[str, Any]],
     fallback_mode: bool,
-    raw_answer: str,
 ) -> dict[str, Any]:
     return {
         "news_sources": news_sources,
         "fallback_mode": fallback_mode,
-        "raw_answer": raw_answer,
-        "raw_answer_usage": "reference_only",
         "reference_materials": _build_reference_materials(
             fallback_mode=fallback_mode,
-            raw_answer=raw_answer,
             news_sources=news_sources,
         ),
     }
 
 
 def _fallback_rag_news_payload() -> dict[str, Any]:
-    return _build_rag_news_payload(news_sources=[], fallback_mode=True, raw_answer="")
+    return _build_rag_news_payload(news_sources=[], fallback_mode=True)
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -259,7 +252,7 @@ async def fetch_rag_news(
         "lookback_days": lookback_days,
     }
     if as_of is not None:
-        payload["as_of"] = as_of.isoformat()
+        payload["as_of"] = f"{as_of.isoformat()} 23:59:59"
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -270,7 +263,6 @@ async def fetch_rag_news(
             {
                 "news_sources": _parse_news_source_items(data),
                 "fallback_mode": bool(data.get("fallback_mode", False)),
-                "raw_answer": str(data.get("raw_answer") or ""),
             }
         )
     except (httpx.HTTPError, ValidationError, ValueError):
@@ -309,7 +301,6 @@ async def fetch_rag_news(
     return _build_rag_news_payload(
         news_sources=deduped,
         fallback_mode=parsed.fallback_mode,
-        raw_answer=parsed.raw_answer,
     )
 
 

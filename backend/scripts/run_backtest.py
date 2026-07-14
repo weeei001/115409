@@ -194,7 +194,6 @@ async def run_backtest(
                         as_of_date=as_of,
                         news_sources=[item.model_dump(mode="python") for item in rag.news_sources],
                         fallback_mode=rag.fallback_mode,
-                        raw_answer=rag.raw_answer,
                     )
                 )
                 completed += 1

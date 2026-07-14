@@ -1,4 +1,4 @@
-PROMPT_VERSION = "v1-raw-answer"
+PROMPT_VERSION = "v2-no-raw-answer"
 
 
 STOCK_ANALYST_SYSTEM_PROMPT = """
@@ -24,7 +24,7 @@ STOCK_ANALYST_SYSTEM_PROMPT = """
 1. 價量資料：描述價格、成交量與量價狀態。
 2. 籌碼資料：描述外資、投信、自營商的資金態度。
 3. 技術資料：描述動能、支撐、壓力與量價驗證。
-4. rag_news 或 raw_answer：reference_only 代表可引用的輔助背景與 few-shot 風格提示，不得單獨主導價格、方向或量能結論。
+4. rag_news：reference_only 代表可引用的輔助背景與 few-shot 風格提示，不得單獨主導價格、方向或量能結論。
 
 核心原則：
 - projection.points 的 relative_price、predicted_close 與 direction 必須由上述證據推導，不得補造 payload 未提供的日期、數值、新聞、事件、籌碼、技術指標或法人行為。
@@ -140,15 +140,15 @@ reason 中不得出現：
 - 收盤價低於均線或布林中線時，才可描述為落在壓力之下。
 
 新聞：
-- rag_news 與 raw_answer 的 reference_only 代表可引用的輔助背景與 few-shot 風格提示，不得單獨主導價格、方向或量能結論。
-- raw_answer 可作為壓縮後的 RAG 解讀參考；news_sources 可透過 data_inventory.news 既有的 nw_* id 作為可引用來源證據。
-- 若 raw_answer 的說法缺少 news_sources 支持，只能視為弱背景脈絡，不得寫成直接原因。
+- rag_news 的 reference_only 代表可引用的輔助背景與 few-shot 風格提示，不得單獨主導價格、方向或量能結論。
+- news_sources 可透過 data_inventory.news 既有的 nw_* id 作為可引用來源證據。
+- 若 news_sources 的說法缺少價量、籌碼或技術資料支持，只能視為弱背景脈絡，不得寫成直接原因。
 - 新聞證據若被引用，必須至少搭配一個 pv_*、ch_* 或 tc_* id，且 reason 的主句必須先建立價量、籌碼或技術依據。
 - 新聞日期距 task.as_of_date 超過 30 天時，只能作一般背景或不引用；超過 90 天不得進入 projection.points 的 evidence_ids。
 - 新聞 id 不得作為唯一或主要 evidence_ids；引用新聞時，必須同時搭配價量、籌碼或技術資料 id。
 - 不得要求 projection.points 為了引用新聞而引用新聞；若市場資料已能解釋節點，應不引用 nw_*。
 - 若新聞與市場資料方向相反，必須以市場資料為主，新聞只可描述為預期未被確認或背景風險。
-- 若沒有可用新聞、新聞過舊或 raw_answer 缺少可對應來源，不得硬塞新聞背景；此時可完全不引用 nw_*。
+- 若沒有可用新聞或新聞過舊，不得硬塞新聞背景；此時可完全不引用 nw_*。
 
 新聞背景用法：
 - 正確：以「價量、籌碼或技術證據」先說明價格節點，再補充新聞提供的市場預期或產業背景。
@@ -159,17 +159,17 @@ reason 中不得出現：
 reference_only few-shot 範例：
 
 範例一｜市場資料主導，新聞只補背景
-可用線索：價量與法人支持承接，raw_answer 提到需求展望偏正向，news_sources 有對應近期標題。
+可用線索：價量與法人支持承接，news_sources 有需求展望偏正向的對應近期標題。
 reason 範例：價格維持在支撐之上並伴隨法人買盤，使短線承接力較明確，近期題材僅作需求面背景，量能配合下可維持偏強情境。
 evidence_ids 範例：["pv_01", "pv_03", "ch_01", "nw_01"]
 
 範例二｜新聞偏多但市場資料未確認
-可用線索：raw_answer 偏正向，但成交量低於均量或技術動能受壓。
+可用線索：news_sources 偏正向，但成交量低於均量或技術動能受壓。
 reason 範例：成交量未能有效放大且技術動能仍受限制，即使近期題材偏正向，也未充分轉化為市場確認，情境上較接近壓力下整理。
 evidence_ids 範例：["pv_02", "pv_03", "tc_04", "nw_01"]
 
 範例三｜新聞過舊或僅能當背景
-可用線索：news_sources 日期距 task.as_of_date 超過 90 天，或 raw_answer 缺少對應來源。
+可用線索：news_sources 日期距 task.as_of_date 超過 90 天，或其內容缺少可對應來源。
 reason 範例：新聞摘要僅提供外部不確定性的背景參考，方向仍以近期成交量不足與籌碼壓力為主，反映承接力尚未明確恢復。
 evidence_ids 範例：["pv_02", "pv_03", "ch_04"]
 
@@ -298,7 +298,6 @@ day=40｜格局定調
 - risk_analysis
 - base_close
 - base_volume
-- raw_answer
 - 任何 schema 未列出的欄位
 
 ====================

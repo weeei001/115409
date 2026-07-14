@@ -12,7 +12,8 @@ TOOLS_TEXT = (
 
 
 def test_prompt_keeps_news_as_background_only():
-    assert PROMPT_VERSION == "v1-raw-answer"
+    assert PROMPT_VERSION == "v2-no-raw-answer"
+    assert "raw_answer" not in STOCK_ANALYST_SYSTEM_PROMPT
     assert "新聞只能提供背景脈絡；不得把新聞當作價格節點的唯一或主要原因。" in STOCK_ANALYST_SYSTEM_PROMPT
     assert "不得要求 projection.points 為了引用新聞而引用新聞" in STOCK_ANALYST_SYSTEM_PROMPT
     assert "新聞因果句型" not in STOCK_ANALYST_SYSTEM_PROMPT
@@ -20,7 +21,6 @@ def test_prompt_keeps_news_as_background_only():
 
 
 def test_rag_news_context_is_capped_as_secondary_material():
-    assert "MAX_LLM_RAW_ANSWER_CHARS = 2000" in ORCHESTRATOR_TEXT
     assert "MAX_LLM_NEWS_SOURCES = 5" in ORCHESTRATOR_TEXT
     assert "RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 30" in ORCHESTRATOR_TEXT
     assert "RAG_DEFAULT_MAX_NEWS_EVENTS = 5" in ORCHESTRATOR_TEXT
