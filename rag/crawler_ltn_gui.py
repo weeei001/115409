@@ -1,12 +1,17 @@
 # coding: utf-8
 """
-自由財經（LTN）新聞爬蟲 — GUI 版
+自由財經（LTN）新聞爬蟲 — GUI 版 + headless 排程版
 Phase 1: list_ajax API 取得近期文章（2025-06 起）— 並行 + 智慧早停
 Phase 2: 抓取 Phase 1 的文章內文
-Phase 3: 編號掃描歷史文章（2023-08 ~ 2025-05）
+Phase 3: 編號掃描歷史文章（2023-08 ~ 2025-05，不排入日常排程，手動執行）
 Phase 2 & 3 可並行執行
+
+headless 用法（供 scheduler_utils.py 呼叫，或手動回補缺口）：
+    python crawler_ltn_gui.py --scheduled-once   # 跑一次 Phase 1+2 增量抓取
 """
 
+import argparse
+import logging
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -17,6 +22,13 @@ import json
 import time
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+    level=logging.INFO,
+)
+log = logging.getLogger(__name__)
 
 
 # ─────────────────── 設定 ───────────────────
@@ -668,7 +680,142 @@ class LtnCrawlerGUI:
         ))
 
 
+# ─────────────────── Headless（無 UI）版 Phase 1+2 ───────────────────
+def _headless_phase1_listing(existing_urls):
+    """與 LtnCrawlerGUI._phase1_listing 相同邏輯，改用 log 取代 UI 更新，回傳 (articles, oldest, newest)。"""
+    all_articles = {}
+    all_known_count = 0
+    empty_count = 0
+    page = 2
+    stop = False
+    oldest_date = "—"
+    newest_date = "—"
+
+    def update_date(d):
+        nonlocal oldest_date, newest_date
+        if d and d > "2000":
+            if oldest_date == "—" or d < oldest_date:
+                oldest_date = d
+            if newest_date == "—" or d > newest_date:
+                newest_date = d
+
+    while page < MAX_PAGES + 2 and not stop:
+        batch_end = min(page + API_BATCH_SIZE, MAX_PAGES + 2)
+        pages_to_fetch = list(range(page, batch_end))
+
+        results = {}
+        with ThreadPoolExecutor(max_workers=API_WORKERS) as pool:
+            futures = {pool.submit(_fetch_api_page, p): p for p in pages_to_fetch}
+            for future in as_completed(futures):
+                pg, data = future.result()
+                results[pg] = data
+
+        for pg in sorted(results.keys()):
+            data = results[pg]
+            if data is None:
+                empty_count += 1
+                if empty_count >= 3:
+                    stop = True
+                    break
+                continue
+            empty_count = 0
+
+            new_on_page = 0
+            for item in data:
+                url = item.get("url", "")
+                if url and url not in existing_urls:
+                    all_articles[url] = {
+                        "title": item.get("LTNA_Title", ""),
+                        "date": item.get("A_ViewTime", ""),
+                    }
+                    new_on_page += 1
+                update_date(item.get("A_ViewTime", "")[:10])
+
+            if new_on_page == 0 and len(data) > 0:
+                all_known_count += 1
+                if all_known_count >= EARLY_EXIT_THRESHOLD:
+                    stop = True
+                    break
+            else:
+                all_known_count = 0
+
+        page = batch_end
+
+    return all_articles, oldest_date, newest_date
+
+
+def _headless_phase2_fetch(csv_path, existing_urls, all_articles):
+    """與 LtnCrawlerGUI._phase2_fetch 相同邏輯，改用 log 取代 UI 更新，回傳 (done, fail)。"""
+    if not all_articles:
+        return 0, 0
+
+    fieldnames = ["標題", "發布時間", "內文", "連結", "來源"]
+    write_lock = threading.Lock()
+    csv_file = open(csv_path, "a", encoding="utf-8-sig", newline="")
+    writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+    if not existing_urls:
+        writer.writeheader()
+
+    done, fail = 0, 0
+    urls = list(all_articles.keys())
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(_fetch_article, u): u for u in urls}
+        for future in as_completed(futures):
+            data = future.result()
+            if data:
+                with write_lock:
+                    writer.writerow(data)
+                    csv_file.flush()
+                done += 1
+            else:
+                fail += 1
+
+    csv_file.close()
+    return done, fail
+
+
+def run_incremental_crawl() -> None:
+    """Phase 1+2 增量抓取一次：取得近期列表、抓全文、寫入 CSV。供排程/手動回補使用。"""
+    ltn_dir = os.path.join(NEWS_DB_PATH, "ltn")
+    os.makedirs(ltn_dir, exist_ok=True)
+    csv_path = os.path.join(ltn_dir, "ltn_news.csv")
+
+    existing_urls = _load_existing_urls(csv_path)
+    log.info("既有文章數：%d", len(existing_urls))
+
+    log.info("Phase 1：取得近期文章列表...")
+    all_articles, oldest_date, newest_date = _headless_phase1_listing(existing_urls)
+    log.info("Phase 1 完成，新增 %d 篇（日期範圍 %s ~ %s）", len(all_articles), oldest_date, newest_date)
+
+    log.info("Phase 2：抓取文章內文...")
+    done, fail = _headless_phase2_fetch(csv_path, existing_urls, all_articles)
+    log.info("Phase 2 完成，成功 %d 篇，失敗 %d 篇", done, fail)
+
+
+def _scheduled_crawl_job() -> None:
+    log.info("開始排程抓取 LTN 新聞（Phase 1+2 增量）")
+    try:
+        run_incremental_crawl()
+    except Exception:
+        log.exception("排程抓取發生未預期錯誤")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="LTN 自由財經新聞爬蟲")
+    parser.add_argument(
+        "--scheduled-once",
+        action="store_true",
+        help="執行一次 Phase 1+2 增量抓取後結束，供 scheduler_utils 統一排程（不含 Phase 3 歷史回填）",
+    )
+    args = parser.parse_args()
+
+    if args.scheduled_once:
+        _scheduled_crawl_job()
+    else:
+        root = tk.Tk()
+        app = LtnCrawlerGUI(root)
+        root.mainloop()
+
+
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = LtnCrawlerGUI(root)
-    root.mainloop()
+    main()

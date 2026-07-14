@@ -22,6 +22,21 @@ load_dotenv(verbose=True)
 # 併發數
 MAX_WORKERS = 4
 
+
+def _pub_time_to_ts(pub_time):
+    """將 pub_time ISO 字串轉為 Unix timestamp（供 Qdrant Range filter 使用，pub_time 本身是字串無法直接做數值範圍查詢）"""
+    if not pub_time:
+        return None
+    s = pub_time.replace("T", " ")
+    if "+" in s:
+        s = s[:s.index("+")]
+    s = s[:19].strip()
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(s).timestamp()
+    except Exception:
+        return None
+
 class VectorDBGUI:
     def __init__(self, root, total_tasks, initial_done):
         self.root = root
@@ -245,6 +260,7 @@ def build_worker_pool(gui, update_queue, client, collection_name, existing_ids):
                                   "title": c['title'],
                                   "source": c['source'],
                                   "pub_time": c['pub_time'],
+                                  "pub_ts": _pub_time_to_ts(c['pub_time']),
                                   "url": c.get('url', ''),
                                   "tags": c.get('tags', ''),
                               })

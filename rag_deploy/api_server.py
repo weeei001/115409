@@ -493,7 +493,7 @@ async def _stream_ask(req):
         time_fallback = False
 
         if time_from and time_to:
-            count_filter_must = [FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]
+            count_filter_must = [FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]
             if effective_stock_id:
                 count_filter_must.append(FieldCondition(key="stock_id", match=MatchValue(value=effective_stock_id)))
             count_result = qdrant_client.count(collection_name=collection_name, count_filter=Filter(must=count_filter_must))
@@ -519,7 +519,7 @@ async def _stream_ask(req):
             for sid in auto_detected_ids:
                 stock_must = [FieldCondition(key="stock_id", match=MatchValue(value=sid))]
                 if time_from and time_to:
-                    in_range_r = qdrant_client.query_points(collection_name=collection_name, query=query_vector, query_filter=Filter(must=stock_must + [FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]), limit=PER_STOCK_LIMIT, with_payload=True)
+                    in_range_r = qdrant_client.query_points(collection_name=collection_name, query=query_vector, query_filter=Filter(must=stock_must + [FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]), limit=PER_STOCK_LIMIT, with_payload=True)
                     bg_r = qdrant_client.query_points(collection_name=collection_name, query=query_vector, query_filter=Filter(must=stock_must), limit=max(3, PER_STOCK_LIMIT // 2), with_payload=True)
                     seen = {p.id for p in in_range_r.points}
                     combined = in_range_r.points + [p for p in bg_r.points if p.id not in seen]
@@ -533,7 +533,7 @@ async def _stream_ask(req):
             if effective_stock_id:
                 stock_must.append(FieldCondition(key="stock_id", match=MatchValue(value=effective_stock_id)))
             if time_from and time_to:
-                in_range_r = qdrant_client.query_points(collection_name=collection_name, query=query_vector, query_filter=Filter(must=stock_must + [FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]) if stock_must else Filter(must=[FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]), limit=base_limit, with_payload=True)
+                in_range_r = qdrant_client.query_points(collection_name=collection_name, query=query_vector, query_filter=Filter(must=stock_must + [FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]) if stock_must else Filter(must=[FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))]), limit=base_limit, with_payload=True)
                 bg_r = qdrant_client.query_points(collection_name=collection_name, query=query_vector, query_filter=Filter(must=stock_must) if stock_must else None, limit=max(5, base_limit // 2), with_payload=True)
                 seen = {p.id for p in in_range_r.points}
                 combined = in_range_r.points + [p for p in bg_r.points if p.id not in seen]
@@ -800,7 +800,7 @@ async def ask(req: AskRequest):
     # ── 步驟一：確認時間範圍內真的有資料（用 count 查資料庫，不依賴向量搜尋結果）──
     if time_from and time_to:
         count_filter_must = [
-            FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
+            FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
         ]
         if effective_stock_id:
             count_filter_must.append(FieldCondition(key="stock_id", match=MatchValue(value=effective_stock_id)))
@@ -849,7 +849,7 @@ async def ask(req: AskRequest):
                     collection_name=collection_name,
                     query=query_vector,
                     query_filter=Filter(must=stock_must + [
-                        FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
+                        FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
                     ]),
                     limit=PER_STOCK_LIMIT,
                     with_payload=True,
@@ -884,9 +884,9 @@ async def ask(req: AskRequest):
                 collection_name=collection_name,
                 query=query_vector,
                 query_filter=Filter(must=stock_must + [
-                    FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
+                    FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
                 ]) if stock_must else Filter(must=[
-                    FieldCondition(key="pub_time", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
+                    FieldCondition(key="pub_ts", range=Range(gte=to_timestamp(time_from), lte=to_timestamp(time_to)))
                 ]),
                 limit=base_limit,
                 with_payload=True,
@@ -1650,19 +1650,8 @@ async def get_trend_predict(
 
     # ── 2. 加權線性回歸（指數衰減權重，近期資料影響力較高） ──
     import math as _math
-    lam = 0.1  # 衰減係數，越大近期權重越高
-    weights = [_math.exp(lam * i) for i in range(n)]  # i=0 最舊，i=n-1 最新
-    w_sum = sum(weights)
-    x_vals = list(range(n))
-    x_mean_w = sum(weights[i] * x_vals[i] for i in range(n)) / w_sum
-    y_mean_w = sum(weights[i] * closes[i]  for i in range(n)) / w_sum
-    num_w    = sum(weights[i] * (x_vals[i] - x_mean_w) * (closes[i] - y_mean_w) for i in range(n))
-    den_w    = sum(weights[i] * (x_vals[i] - x_mean_w) ** 2 for i in range(n))
-    slope     = num_w / den_w if den_w else 0
-    intercept = y_mean_w - slope * x_mean_w
-
-    # 回歸線覆蓋現有資料（供前端畫完整回歸線用）
-    regression_history = [round(slope * i + intercept, 2) for i in x_vals]
+    from prediction_core import compute_weighted_regression
+    regression_history, slope, intercept = compute_weighted_regression(closes, lam=0.1)
 
     # ── 3. 產生未來 20 個交易日日期（約 1 個月） ──
     def next_trading_days(from_str: str, n: int):
@@ -1678,29 +1667,8 @@ async def get_trend_predict(
     future_dates = next_trading_days(last_date_str, 20)
 
     # ── 短期動能 + 均值回歸曲線預測 ──
-    # 短期斜率：最近 5 天加權回歸
-    n5 = min(5, n)
-    closes5 = closes[-n5:]
-    x5 = list(range(n5))
-    w5 = [_math.exp(0.2 * i) for i in range(n5)]
-    w5s = sum(w5)
-    x5mw = sum(w5[i] * x5[i] for i in range(n5)) / w5s
-    y5mw = sum(w5[i] * closes5[i] for i in range(n5)) / w5s
-    n5d  = sum(w5[i] * (x5[i]-x5mw)**2 for i in range(n5))
-    short_slope = sum(w5[i]*(x5[i]-x5mw)*(closes5[i]-y5mw) for i in range(n5)) / n5d if n5d else slope
-
-    # 長期均線（MA20）作為均值回歸目標
-    ma20 = sum(closes[-20:]) / min(20, n)
-    # 每日往 MA20 方向拉力（分 20 步回歸）
-    mean_pull_per_day = (ma20 - last_price) / 20
-
-    regression_future = []
-    price = last_price
-    for i in range(20):
-        decay = _math.exp(-0.18 * i)          # 動能指數衰減
-        daily_move = decay * short_slope + (1 - decay) * mean_pull_per_day
-        price = round(price + daily_move, 2)
-        regression_future.append(price)
+    from prediction_core import compute_momentum_meanreversion_curve
+    regression_future = compute_momentum_meanreversion_curve(closes, horizon_days=20)
 
     # ── 4. 取最近 20 則新聞 ──
     recent_news_titles = []
@@ -1730,52 +1698,22 @@ async def get_trend_predict(
         except Exception:
             pass
 
-    # ── 5. LLM 預測 ──
+    # ── 5. LLM 預測（透過共用預測核心，與回測腳本共用同一套邏輯） ──
+    from prediction_core import StrategyConfig, generate_prediction
     stock_name = STOCK_OPTIONS.get(stock_id, stock_id)
-    price_change_pct = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if closes[0] else 0
-    price_trend_desc = f"最近 {n} 個交易日，收盤價從 {closes[0]} 元變化至 {closes[-1]} 元（{price_change_pct:+.2f}%），線性回歸斜率每日 {slope:+.2f} 元。"
-    news_desc = "\n".join(f"- {t}" for t in recent_news_titles) if recent_news_titles else "（無近期新聞）"
-
-    prompt = f"""你是台股分析師，請根據以下資訊預測 {stock_name}（{stock_id}）未來 20 個交易日（約一個月）的股價走勢。
-
-## 近期價格趨勢
-{price_trend_desc}
-
-## 近期相關新聞（最多 20 則）
-{news_desc}
-
-請以 JSON 格式回答，不要輸出其他文字：
-{{
-  "direction": "up 或 down",
-  "change_pct_total": 預估兩週後總漲跌幅（數字，例如 2.5 表示漲 2.5%，-1.8 表示跌 1.8%），
-  "confidence": 信心指數 1-5（整數），
-  "summary": "兩到三句繁體中文分析理由"
-}}"""
-
-    ai_direction = "up"
-    ai_change_pct = 0.0
-    ai_confidence = 1
-    ai_summary = "AI 預測服務暫時無法使用。"
-    try:
-        resp = await asyncio.to_thread(
-            openai_client.chat.completions.create,
-            model="meta/llama-3.3-70b-instruct",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=300,
-        )
-        raw = resp.choices[0].message.content.strip()
-        # 嘗試解析 JSON（可能包裹在 ```json ... ``` 中）
-        import re as _re
-        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
-        if m:
-            parsed = json.loads(m.group())
-            ai_direction   = parsed.get("direction", "up")
-            ai_change_pct  = float(parsed.get("change_pct_total", 0))
-            ai_confidence  = int(parsed.get("confidence", 1))
-            ai_summary     = parsed.get("summary", "")
-    except Exception as e:
-        ai_summary = f"AI 預測失敗：{e}"
+    live_strategy = StrategyConfig(name="live_default", news_window_days=30, news_limit=20)
+    prediction = await generate_prediction(
+        stock_id=stock_id,
+        stock_name=stock_name,
+        price_records=records,
+        news_titles=recent_news_titles,
+        strategy=live_strategy,
+        openai_client=openai_client,
+    )
+    ai_direction = prediction["direction"]
+    ai_change_pct = prediction["change_pct_total"]
+    ai_confidence = prediction["confidence"]
+    ai_summary = prediction["summary"]
 
     # ── 6. 計算歷史日波動率（σ） ──
     import math
