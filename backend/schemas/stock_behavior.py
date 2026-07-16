@@ -19,6 +19,17 @@ TrendState = Literal[
 ConfidenceLevel = Literal["low", "medium", "high"]
 RiskLevel = Literal["low", "medium", "high"]
 ProjectionDirection = Literal["up", "down", "neutral", "uncertain"]
+ClaimDirection = Literal["positive", "negative", "mixed", "neutral", "not_applicable"]
+StanceLevel = Literal[
+    "bullish",
+    "mildly_bullish",
+    "mixed",
+    "neutral",
+    "mildly_bearish",
+    "bearish",
+    "uncertain",
+]
+HorizonKey = Literal["short_1_5", "swing_6_20", "medium_21_40"]
 
 
 class StockBehaviorRagRequest(BaseModel):
@@ -311,3 +322,232 @@ class StockBehaviorAiResponse(StockBehaviorResponseBase):
             }
         }
     )
+
+
+class TextBriefClaim(BaseModel):
+    id: str
+    claim_type: Literal["observation", "inference", "conflict", "limitation"]
+    text: str = Field(max_length=160)
+    direction: ClaimDirection
+    evidence_ids: list[str] = Field(default_factory=list)
+    importance: Literal["high", "medium"] = "medium"
+
+
+class TextBriefEvent(BaseModel):
+    id: str
+    event_date: str | None = None
+    recency: Literal["today", "recent", "background"]
+    title: str
+    description: str
+    information_type: Literal["event", "opinion", "mixed"]
+    evidence_ids: list[str] = Field(default_factory=list)
+    materiality: Literal["high", "medium"] = "medium"
+
+
+class TextBriefImpact(BaseModel):
+    id: str
+    source_item_ids: list[str] = Field(default_factory=list)
+    text: str
+    direction: Literal["positive", "negative", "neutral", "mixed", "uncertain"]
+    time_horizon: Literal["immediate", "short", "medium", "unknown"]
+    thesis_effect: Literal["strengthens", "weakens", "unchanged", "uncertain"]
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class TextBriefConditionTrigger(BaseModel):
+    metric: Literal[
+        "close_vs_ma20",
+        "close_vs_ma60",
+        "volume_vs_ma5",
+        "volume_vs_ma20",
+        "foreign_net_daily",
+        "foreign_net_10d",
+        "trust_net_daily",
+        "macd_histogram",
+        "rsi_level",
+        "named_event",
+    ]
+    operator: Literal[
+        "crosses_above",
+        "crosses_below",
+        "stays_above",
+        "stays_below",
+        "turns_positive",
+        "turns_negative",
+        "occurs",
+    ]
+    persistence_sessions: int = Field(default=1, ge=1, le=5)
+    event_ref: str | None = None
+
+
+class TextBriefConditionThen(BaseModel):
+    effect_on_view: Literal["strengthens", "weakens", "invalidates"]
+    direction: StanceLevel
+    within_trading_days: Literal[5, 20, 40]
+    text: str
+
+
+class TextBriefCondition(BaseModel):
+    id: str
+    kind: Literal["confirmation", "invalidation", "risk"]
+    trigger: TextBriefConditionTrigger
+    then: TextBriefConditionThen
+    rationale: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    scorable: bool = False
+
+
+class TextBriefForwardView(BaseModel):
+    horizon: HorizonKey
+    text: str
+    stance: StanceLevel
+    confidence: ConfidenceLevel
+    basis_item_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    confirmation_condition_ids: list[str] = Field(default_factory=list)
+    invalidation_condition_ids: list[str] = Field(default_factory=list)
+
+
+class TextBriefThesis(BaseModel):
+    statement: str
+    status: Literal["new", "insufficient_data"]
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class StockBehaviorTextBrief(BaseModel):
+    headline: str = Field(max_length=80)
+    current_status: list[TextBriefClaim] = Field(min_length=1, max_length=3)
+    key_reasons: list[TextBriefClaim] = Field(min_length=2, max_length=4)
+    events: list[TextBriefEvent] = Field(default_factory=list, max_length=3)
+    potential_impacts: list[TextBriefImpact] = Field(default_factory=list, max_length=3)
+    source_divergences: list[TextBriefClaim] = Field(default_factory=list, max_length=3)
+    watch_conditions: list[TextBriefCondition] = Field(min_length=1, max_length=3)
+    forward_views: list[TextBriefForwardView]
+    thesis: TextBriefThesis
+    overall_stance: StanceLevel
+    confidence: ConfidenceLevel
+    confidence_reason: str
+    limitations: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("forward_views")
+    @classmethod
+    def validate_forward_view_horizons(
+        cls, value: list[TextBriefForwardView]
+    ) -> list[TextBriefForwardView]:
+        horizons = [item.horizon for item in value]
+        expected = {"short_1_5", "swing_6_20", "medium_21_40"}
+        if len(horizons) != 3 or set(horizons) != expected:
+            raise ValueError("forward_views must contain each horizon exactly once")
+        return value
+
+
+class TextBriefVerification(BaseModel):
+    filtered_evidence_ids: list[str] = Field(default_factory=list)
+    compliance_violations: list[str] = Field(default_factory=list)
+    simplified_chars: list[str] = Field(default_factory=list)
+    future_dated_items: list[str] = Field(default_factory=list)
+
+
+class TextBriefDisclaimer(BaseModel):
+    version: str
+    text: str
+
+
+class StockBehaviorTextBriefResponse(BaseModel):
+    schema_version: str = "text-first-v1"
+    symbol: str
+    as_of_date: str
+    generated_by: str
+    status: Literal["verified", "limited", "unavailable"]
+    brief: StockBehaviorTextBrief | None
+    evidence_catalog: list[StockBehaviorInventoryItem] = Field(default_factory=list)
+    verification: TextBriefVerification
+    disclaimer: TextBriefDisclaimer
+    limitations: list[str] = Field(default_factory=list)
+
+
+class RawTextBriefClaim(BaseModel):
+    id: Any = None
+    claim_type: Any = None
+    text: Any = None
+    direction: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+    importance: Any = "medium"
+
+
+class RawTextBriefEvent(BaseModel):
+    id: Any = None
+    event_date: Any = None
+    recency: Any = None
+    title: Any = None
+    description: Any = None
+    information_type: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+    materiality: Any = "medium"
+
+
+class RawTextBriefImpact(BaseModel):
+    id: Any = None
+    source_item_ids: Any = Field(default_factory=list)
+    text: Any = None
+    direction: Any = None
+    time_horizon: Any = None
+    thesis_effect: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+
+
+class RawTextBriefConditionTrigger(BaseModel):
+    metric: Any = None
+    operator: Any = None
+    persistence_sessions: Any = 1
+    event_ref: Any = None
+
+
+class RawTextBriefConditionThen(BaseModel):
+    effect_on_view: Any = None
+    direction: Any = None
+    within_trading_days: Any = None
+    text: Any = None
+
+
+class RawTextBriefCondition(BaseModel):
+    id: Any = None
+    kind: Any = None
+    trigger: Any = None
+    then: Any = None
+    rationale: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+    scorable: Any = False
+
+
+class RawTextBriefForwardView(BaseModel):
+    horizon: Any = None
+    text: Any = None
+    stance: Any = None
+    confidence: Any = None
+    basis_item_ids: Any = Field(default_factory=list)
+    evidence_ids: Any = Field(default_factory=list)
+    confirmation_condition_ids: Any = Field(default_factory=list)
+    invalidation_condition_ids: Any = Field(default_factory=list)
+
+
+class RawTextBriefThesis(BaseModel):
+    statement: Any = None
+    status: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+
+
+class RawStockBehaviorTextBrief(BaseModel):
+    headline: Any = None
+    current_status: Any = Field(default_factory=list)
+    key_reasons: Any = Field(default_factory=list)
+    events: Any = Field(default_factory=list)
+    potential_impacts: Any = Field(default_factory=list)
+    source_divergences: Any = Field(default_factory=list)
+    watch_conditions: Any = Field(default_factory=list)
+    forward_views: Any = Field(default_factory=list)
+    thesis: Any = None
+    overall_stance: Any = None
+    confidence: Any = None
+    confidence_reason: Any = None
+    limitations: Any = Field(default_factory=list)

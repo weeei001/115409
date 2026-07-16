@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from datetime import date, timedelta
 from time import perf_counter
 from typing import Any
@@ -14,15 +15,34 @@ from crud.daily_price import get_price_range
 from crud.institutional_trade import get_by_symbol_range
 from crud.technical_indicator import get_indicators
 from schemas.stock_behavior import (
+    RawStockBehaviorTextBrief,
+    RawTextBriefClaim,
+    RawTextBriefCondition,
+    RawTextBriefEvent,
+    RawTextBriefForwardView,
+    RawTextBriefImpact,
+    RawTextBriefThesis,
     StockBehaviorAiProjection,
     StockBehaviorAiResponse,
     StockBehaviorAiRequest,
     StockBehaviorAnalysisPayload,
     StockBehaviorDataInventory,
+    StockBehaviorInventoryItem,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
+    StockBehaviorTextBrief,
+    StockBehaviorTextBriefResponse,
+    TextBriefClaim,
+    TextBriefCondition,
+    TextBriefDisclaimer,
+    TextBriefEvent,
+    TextBriefForwardView,
+    TextBriefImpact,
+    TextBriefThesis,
+    TextBriefVerification,
     SCENARIO_PROJECTION_DAYS,
 )
+from stock_behavior.compliance import COMPLIANCE_POLICY_VERSION, scan_compliance
 from stock_behavior.llm import (
     LLM_MAX_COMPLETION_TOKENS,
     LLM_TIMEOUT_SECONDS,
@@ -33,14 +53,14 @@ from stock_behavior.normalizer import (
     build_stock_behavior_analysis_fallback,
     normalize_llm_analysis_payload,
 )
-from stock_behavior.prompt_templates import PROMPT_VERSION
+from stock_behavior.prompt_templates import PROMPT_VERSION, TEXT_BRIEF_PROMPT_VERSION
 from stock_behavior.tools import (
     ToolExecutor,
     serialize_chip_window_rows,
     serialize_price_window_rows,
     serialize_technical_window_rows,
 )
-from stock_behavior.utils import PolicyViolationError
+from stock_behavior.utils import PolicyViolationError, detect_simplified_chinese
 
 
 MAX_LLM_NEWS_SOURCES = 5
@@ -49,6 +69,14 @@ AI_DEFAULT_HORIZON_DAYS = 40
 AI_DEFAULT_LANGUAGE = "zh-TW"
 RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 30
 RAG_DEFAULT_MAX_NEWS_EVENTS = 5
+TEXT_BRIEF_SCHEMA_VERSION = "text-first-v1"
+TEXT_BRIEF_DISCLAIMER_VERSION = "v1"
+TEXT_BRIEF_DISCLAIMER_TEXT = (
+    "本內容由 AI 系統彙整公開資訊自動產生，僅供參考，不構成投資建議或個股買賣依據；"
+    "投資人應自行獨立判斷並自負投資風險。行情與公告請以臺灣證券交易所、"
+    "證券櫃檯買賣中心及公開資訊觀測站公告為準。"
+)
+TEXT_BRIEF_UNAVAILABLE_MESSAGE = "模型輸出無法解析，本次無法提供簡報。"
 
 
 def _analysis_window(as_of_date: date, lookback_days: int) -> tuple[date, date]:
@@ -714,6 +742,467 @@ class StockBehaviorOrchestrator:
                     public_projection.model_dump(mode="json"), ensure_ascii=False
                 ),
                 task_packet_json=json.dumps(task_packet, ensure_ascii=False, default=str),
+                raw_llm_text=raw_llm_text,
+                latency_ms=latency_ms,
+            )
+            print(
+                f"[stock_behavior_snapshot] status=success symbol={symbol} "
+                f"is_fallback={is_fallback} "
+                f"finish_reason={llm_meta.get('finish_reason')}"
+            )
+        except Exception as exc:
+            print(
+                f"[stock_behavior_snapshot] status=fail symbol={symbol} "
+                f"finish_reason={llm_meta.get('finish_reason')} error={exc}"
+            )
+            self._db.rollback()
+
+        return response
+
+    @staticmethod
+    def _normalize_text_brief_items(
+        raw_items: Any,
+        *,
+        raw_model: Any,
+        strict_model: Any,
+        id_prefix: str,
+        section: str,
+        discarded: list[str],
+    ) -> list[dict[str, Any]]:
+        if not isinstance(raw_items, list):
+            discarded.append(section)
+            return []
+
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_items):
+            item_label = f"{section}[{index}]"
+            try:
+                raw_item = raw_model.model_validate(item).model_dump(mode="python")
+            except ValidationError:
+                discarded.append(item_label)
+                continue
+
+            item_id = raw_item.get("id")
+            if not isinstance(item_id, str) or re.fullmatch(
+                rf"{re.escape(id_prefix)}_[0-9]+", item_id
+            ) is None:
+                discarded.append(item_id if isinstance(item_id, str) else item_label)
+                continue
+            if strict_model is TextBriefCondition:
+                raw_item["scorable"] = False
+            try:
+                normalized.append(
+                    strict_model.model_validate(raw_item).model_dump(mode="python")
+                )
+            except ValidationError:
+                discarded.append(item_id)
+        return normalized
+
+    @classmethod
+    def _normalize_text_brief_payload(
+        cls,
+        payload: dict[str, Any],
+    ) -> tuple[StockBehaviorTextBrief | None, list[str]]:
+        discarded: list[str] = []
+        try:
+            raw = RawStockBehaviorTextBrief.model_validate(payload).model_dump(
+                mode="python"
+            )
+        except ValidationError:
+            return None, ["root"]
+
+        normalized = {
+            "headline": raw["headline"],
+            "current_status": cls._normalize_text_brief_items(
+                raw["current_status"],
+                raw_model=RawTextBriefClaim,
+                strict_model=TextBriefClaim,
+                id_prefix="cs",
+                section="current_status",
+                discarded=discarded,
+            ),
+            "key_reasons": cls._normalize_text_brief_items(
+                raw["key_reasons"],
+                raw_model=RawTextBriefClaim,
+                strict_model=TextBriefClaim,
+                id_prefix="why",
+                section="key_reasons",
+                discarded=discarded,
+            ),
+            "events": cls._normalize_text_brief_items(
+                raw["events"],
+                raw_model=RawTextBriefEvent,
+                strict_model=TextBriefEvent,
+                id_prefix="event",
+                section="events",
+                discarded=discarded,
+            ),
+            "potential_impacts": cls._normalize_text_brief_items(
+                raw["potential_impacts"],
+                raw_model=RawTextBriefImpact,
+                strict_model=TextBriefImpact,
+                id_prefix="impact",
+                section="potential_impacts",
+                discarded=discarded,
+            ),
+            "source_divergences": cls._normalize_text_brief_items(
+                raw["source_divergences"],
+                raw_model=RawTextBriefClaim,
+                strict_model=TextBriefClaim,
+                id_prefix="div",
+                section="source_divergences",
+                discarded=discarded,
+            ),
+            "watch_conditions": cls._normalize_text_brief_items(
+                raw["watch_conditions"],
+                raw_model=RawTextBriefCondition,
+                strict_model=TextBriefCondition,
+                id_prefix="cond",
+                section="watch_conditions",
+                discarded=discarded,
+            ),
+            "forward_views": [],
+            "thesis": None,
+            "overall_stance": raw["overall_stance"],
+            "confidence": raw["confidence"],
+            "confidence_reason": raw["confidence_reason"],
+            "limitations": raw["limitations"],
+        }
+
+        if isinstance(raw["forward_views"], list):
+            for index, item in enumerate(raw["forward_views"]):
+                try:
+                    raw_view = RawTextBriefForwardView.model_validate(item).model_dump(
+                        mode="python"
+                    )
+                    normalized["forward_views"].append(
+                        TextBriefForwardView.model_validate(raw_view).model_dump(
+                            mode="python"
+                        )
+                    )
+                except ValidationError:
+                    discarded.append(f"forward_views[{index}]")
+        else:
+            discarded.append("forward_views")
+
+        try:
+            raw_thesis = RawTextBriefThesis.model_validate(raw["thesis"]).model_dump(
+                mode="python"
+            )
+            normalized["thesis"] = TextBriefThesis.model_validate(
+                raw_thesis
+            ).model_dump(mode="python")
+        except ValidationError:
+            discarded.append("thesis")
+
+        try:
+            return StockBehaviorTextBrief.model_validate(normalized), discarded
+        except ValidationError as exc:
+            print(
+                "[stock_behavior_text_brief] status=fallback "
+                f"reason=validation_failed error={cls._format_validation_errors(exc)}"
+            )
+            return None, discarded
+
+    @staticmethod
+    def _filter_text_brief_evidence_ids(
+        value: Any,
+        *,
+        allowed_ids: set[str],
+        filtered_ids: list[str],
+    ) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "evidence_ids" and isinstance(item, list):
+                    kept = []
+                    for evidence_id in item:
+                        if evidence_id in allowed_ids:
+                            kept.append(evidence_id)
+                        else:
+                            filtered_ids.append(evidence_id)
+                    value[key] = kept
+                else:
+                    StockBehaviorOrchestrator._filter_text_brief_evidence_ids(
+                        item,
+                        allowed_ids=allowed_ids,
+                        filtered_ids=filtered_ids,
+                    )
+        elif isinstance(value, list):
+            for item in value:
+                StockBehaviorOrchestrator._filter_text_brief_evidence_ids(
+                    item,
+                    allowed_ids=allowed_ids,
+                    filtered_ids=filtered_ids,
+                )
+
+    @staticmethod
+    def _text_brief_compliance_text(value: Any) -> str:
+        parts: list[str] = []
+
+        def collect(item: Any) -> None:
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    if key in {
+                        "text",
+                        "title",
+                        "description",
+                        "rationale",
+                        "headline",
+                        "statement",
+                        "confidence_reason",
+                    }:
+                        if isinstance(child, str):
+                            parts.append(child)
+                    elif key == "limitations" and isinstance(child, list):
+                        parts.extend(entry for entry in child if isinstance(entry, str))
+                    else:
+                        collect(child)
+            elif isinstance(item, list):
+                for child in item:
+                    collect(child)
+
+        collect(value)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _text_brief_referenced_ids(value: Any) -> set[str]:
+        referenced: set[str] = set()
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "evidence_ids" and isinstance(item, list):
+                    referenced.update(
+                        evidence_id
+                        for evidence_id in item
+                        if isinstance(evidence_id, str)
+                    )
+                else:
+                    referenced.update(
+                        StockBehaviorOrchestrator._text_brief_referenced_ids(item)
+                    )
+        elif isinstance(value, list):
+            for item in value:
+                referenced.update(
+                    StockBehaviorOrchestrator._text_brief_referenced_ids(item)
+                )
+        return referenced
+
+    async def generate_text_brief(
+        self,
+        req: StockBehaviorAiRequest,
+    ) -> StockBehaviorTextBriefResponse:
+        symbol = req.symbol.strip().upper()
+        today = date.today()
+        as_of_date = req.as_of_date or today
+        as_of_date_text = as_of_date.isoformat()
+        llm_evidence = self._collect_llm_evidence_from_crud(
+            symbol=symbol,
+            as_of_date=as_of_date,
+            lookback_days=AI_ANALYSIS_WINDOW_DAYS,
+        )
+        rag_news = self._build_client_rag_news_payload(req)
+        if not rag_news.get("news_sources"):
+            rag_news = self._empty_rag_news_payload()
+        data_inventory = self._build_data_inventory(
+            llm_evidence=llm_evidence,
+            rag_news=rag_news,
+        )
+        task_packet = self._build_llm_task_packet(
+            {
+                "task": {
+                    "type": "stock_behavior_text_brief",
+                    "symbol": symbol,
+                    "as_of_date": as_of_date_text,
+                    "horizon_days": AI_DEFAULT_HORIZON_DAYS,
+                    "recent_lookback_days": AI_ANALYSIS_WINDOW_DAYS,
+                    "analysis_language": AI_DEFAULT_LANGUAGE,
+                },
+                "price_window": llm_evidence["price_window"],
+                "chip_window": llm_evidence["chip_window"],
+                "technical_window": llm_evidence["technical_window"],
+                "rag_news": rag_news,
+                "data_inventory": data_inventory,
+                "reference_materials": rag_news.get("reference_materials", {}),
+                "analysis_mode": "prefetched_db_and_client_rag_text_brief",
+            }
+        )
+
+        llm_started_at = perf_counter()
+        try:
+            (
+                raw_llm_response,
+                raw_llm_text,
+                llm_meta,
+            ) = await self._llm.generate_text_brief_from_evidence(
+                task_packet=task_packet
+            )
+        except RuntimeError as exc:
+            raise PolicyViolationError(
+                "LLM text brief failed",
+                code="llm_text_brief_failed",
+                context={
+                    "symbol": symbol,
+                    "as_of_date": as_of_date_text,
+                    "reason": str(exc),
+                },
+            ) from exc
+        latency_ms = round((perf_counter() - llm_started_at) * 1000)
+
+        filtered_ids: list[str] = []
+        future_dated_items: list[str] = []
+        compliance_violations: list[str] = []
+        simplified_chars = detect_simplified_chinese(raw_llm_text)
+        discarded: list[str] = []
+        brief: StockBehaviorTextBrief | None = None
+        if raw_llm_response and not llm_meta.get("truncated"):
+            brief, discarded = self._normalize_text_brief_payload(raw_llm_response)
+
+        if brief is not None:
+            brief_payload = brief.model_dump(mode="python")
+            self._filter_text_brief_evidence_ids(
+                brief_payload,
+                allowed_ids=self._inventory_ids(data_inventory),
+                filtered_ids=filtered_ids,
+            )
+            kept_events = []
+            for event in brief_payload["events"]:
+                event_date_text = event.get("event_date")
+                if event_date_text is None:
+                    kept_events.append(event)
+                    continue
+                try:
+                    event_date = date.fromisoformat(event_date_text)
+                except (TypeError, ValueError):
+                    discarded.append(event["id"])
+                    continue
+                if event_date > as_of_date:
+                    future_dated_items.append(event["id"])
+                    continue
+                kept_events.append(event)
+            brief_payload["events"] = kept_events
+            brief = StockBehaviorTextBrief.model_validate(brief_payload)
+            compliance_violations = scan_compliance(
+                self._text_brief_compliance_text(brief_payload)
+            )
+
+        filtered_ids = list(dict.fromkeys(filtered_ids))
+        future_dated_items = list(dict.fromkeys(future_dated_items))
+        if discarded:
+            print(
+                "[stock_behavior_text_brief] status=limited "
+                f"discarded_items={','.join(discarded)}"
+            )
+
+        is_fallback = brief is None
+        status_value = (
+            "unavailable"
+            if is_fallback
+            else (
+                "limited"
+                if filtered_ids
+                or future_dated_items
+                or compliance_violations
+                or discarded
+                else "verified"
+            )
+        )
+        limitations = [TEXT_BRIEF_UNAVAILABLE_MESSAGE] if is_fallback else []
+        verification = TextBriefVerification(
+            filtered_evidence_ids=filtered_ids,
+            compliance_violations=compliance_violations,
+            simplified_chars=simplified_chars,
+            future_dated_items=future_dated_items,
+        )
+
+        evidence_catalog: list[StockBehaviorInventoryItem] = []
+        if brief is not None:
+            referenced_ids = self._text_brief_referenced_ids(
+                brief.model_dump(mode="python")
+            )
+            for key in ("price_volume", "chip", "technical", "news"):
+                for item in data_inventory.get(key, []):
+                    if isinstance(item, dict) and item.get("id") in referenced_ids:
+                        evidence_catalog.append(
+                            StockBehaviorInventoryItem.model_validate(item)
+                        )
+
+        model_name = getattr(
+            self._llm,
+            "model_name",
+            self._settings.ADVISOR_LLM_MODEL or "",
+        )
+        response = StockBehaviorTextBriefResponse(
+            symbol=symbol,
+            as_of_date=as_of_date_text,
+            generated_by=model_name,
+            status=status_value,
+            brief=brief,
+            evidence_catalog=evidence_catalog,
+            verification=verification,
+            disclaimer=TextBriefDisclaimer(
+                version=TEXT_BRIEF_DISCLAIMER_VERSION,
+                text=TEXT_BRIEF_DISCLAIMER_TEXT,
+            ),
+            limitations=limitations,
+        )
+
+        config = {
+            **build_analysis_config(self._settings, model_name),
+            "prompt_version": TEXT_BRIEF_PROMPT_VERSION,
+            "compliance_policy_version": COMPLIANCE_POLICY_VERSION,
+            "schema_version": TEXT_BRIEF_SCHEMA_VERSION,
+        }
+        base_volume = self._inventory_value(data_inventory, "volume_ma5")
+        if base_volume is None:
+            base_volume = self._inventory_value(data_inventory, "volume_shares")
+        normalized_payload = (
+            brief.model_dump(mode="json")
+            if brief is not None
+            else {"limitations": limitations}
+        )
+        try:
+            create_snapshot(
+                self._db,
+                symbol=symbol,
+                as_of_date=as_of_date,
+                run_kind=(
+                    "backtest"
+                    if req.as_of_date is not None and req.as_of_date < today
+                    else "live"
+                ),
+                config_hash=compute_config_hash(config),
+                config_json=json.dumps(config, ensure_ascii=False, sort_keys=True),
+                model_name=model_name,
+                prompt_version=TEXT_BRIEF_PROMPT_VERSION,
+                is_fallback=is_fallback,
+                rag_fallback_mode=bool(rag_news.get("fallback_mode", False)),
+                news_count=len(rag_news.get("news_sources", [])),
+                base_close=self._inventory_value(data_inventory, "close"),
+                base_volume=base_volume,
+                summary=(
+                    brief.headline
+                    if brief is not None
+                    else TEXT_BRIEF_UNAVAILABLE_MESSAGE
+                ),
+                news_sources_json=json.dumps(
+                    rag_news.get("news_sources", []),
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                data_inventory_json=json.dumps(
+                    data_inventory,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                normalized_payload_json=json.dumps(
+                    normalized_payload,
+                    ensure_ascii=False,
+                ),
+                public_projection_json="{}",
+                task_packet_json=json.dumps(
+                    task_packet,
+                    ensure_ascii=False,
+                    default=str,
+                ),
                 raw_llm_text=raw_llm_text,
                 latency_ms=latency_ms,
             )
