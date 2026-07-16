@@ -14,6 +14,7 @@ from schemas.stock_behavior import (
     StockBehaviorAiRequest,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
+    StockBehaviorTextBriefResponse,
 )
 from stock_behavior.orchestrator import StockBehaviorOrchestrator
 from stock_behavior.utils import PolicyViolationError
@@ -84,3 +85,22 @@ async def get_stock_behavior_ai(
 ) -> StockBehaviorAiResponse:
     orchestrator = _build_orchestrator(db)
     return await _run_stock_behavior_task(orchestrator.generate_llm_analysis(req))
+
+
+@router.post(
+    "/text-brief",
+    response_model=StockBehaviorTextBriefResponse,
+    summary="產生股票文字簡報（shadow）",
+    description="以 text-first-v1 schema 產生平行文字簡報，不影響既有 AI 分析端點。",
+    responses={
+        200: {"description": "成功產生文字簡報"},
+        422: {"description": "請求資料或政策檢查未通過"},
+        504: {"description": "文字簡報產生逾時"},
+    },
+)
+async def get_stock_behavior_text_brief(
+    req: StockBehaviorAiRequest,
+    db: Session = Depends(get_db),
+) -> StockBehaviorTextBriefResponse:
+    orchestrator = _build_orchestrator(db)
+    return await _run_stock_behavior_task(orchestrator.generate_text_brief(req))

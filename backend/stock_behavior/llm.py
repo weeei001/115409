@@ -18,7 +18,10 @@ try:
 except ImportError:  # pragma: no cover - local test fallback
     ChatOpenAI = None
 
-from stock_behavior.prompt_templates import STOCK_ANALYST_SYSTEM_PROMPT
+from stock_behavior.prompt_templates import (
+    STOCK_ANALYST_SYSTEM_PROMPT,
+    TEXT_BRIEF_SYSTEM_PROMPT,
+)
 from stock_behavior.utils import detect_simplified_chinese
 
 
@@ -139,6 +142,27 @@ JSON_NUMBER_RE = r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"
 JSON_NUMERIC_EXPR_RE = re.compile(
     rf"(?P<prefix>:\s*)(?P<left>{JSON_NUMBER_RE})\s*(?P<op>[*/])\s*(?P<right>{JSON_NUMBER_RE})(?P<suffix>\s*[,}}\]])"
 )
+TEXT_BRIEF_OUTPUT_SCHEMA = """{
+  "headline": "string (max 80)",
+  "current_status": "TextBriefClaim[1..3]",
+  "key_reasons": "TextBriefClaim[2..4]",
+  "events": "TextBriefEvent[0..3]",
+  "potential_impacts": "TextBriefImpact[0..3]",
+  "source_divergences": "TextBriefClaim[0..3]",
+  "watch_conditions": "TextBriefCondition[1..3]",
+  "forward_views": "TextBriefForwardView[3], horizons short_1_5|swing_6_20|medium_21_40 each once",
+  "thesis": "TextBriefThesis",
+  "overall_stance": "bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain",
+  "confidence": "low|medium|high",
+  "confidence_reason": "string",
+  "limitations": "string[0..5]",
+  "TextBriefClaim": {"id":"string","claim_type":"observation|inference|conflict|limitation","text":"string max 160","direction":"positive|negative|mixed|neutral|not_applicable","evidence_ids":"string[]","importance":"high|medium"},
+  "TextBriefEvent": {"id":"string","event_date":"ISO date|null","recency":"today|recent|background","title":"string","description":"string","information_type":"event|opinion|mixed","evidence_ids":"string[]","materiality":"high|medium"},
+  "TextBriefImpact": {"id":"string","source_item_ids":"string[]","text":"string","direction":"positive|negative|neutral|mixed|uncertain","time_horizon":"immediate|short|medium|unknown","thesis_effect":"strengthens|weakens|unchanged|uncertain","evidence_ids":"string[]"},
+  "TextBriefCondition": {"id":"string","kind":"confirmation|invalidation|risk","trigger":{"metric":"close_vs_ma20|close_vs_ma60|volume_vs_ma5|volume_vs_ma20|foreign_net_daily|foreign_net_10d|trust_net_daily|macd_histogram|rsi_level|named_event","operator":"crosses_above|crosses_below|stays_above|stays_below|turns_positive|turns_negative|occurs","persistence_sessions":"integer 1..5","event_ref":"string|null"},"then":{"effect_on_view":"strengthens|weakens|invalidates","direction":"bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain","within_trading_days":"5|20|40","text":"string"},"rationale":"string","evidence_ids":"string[]","scorable":false},
+  "TextBriefForwardView": {"horizon":"short_1_5|swing_6_20|medium_21_40","text":"string","stance":"bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain","confidence":"low|medium|high","basis_item_ids":"string[]","evidence_ids":"string[]","confirmation_condition_ids":"string[]","invalidation_condition_ids":"string[]"},
+  "TextBriefThesis": {"statement":"string","status":"new|insufficient_data","evidence_ids":"string[]"}
+}"""
 
 
 def _build_stock_behavior_system_prompt(format_instructions: str = "") -> str:
@@ -357,4 +381,77 @@ class StockBehaviorLlmService:
         print(
             f"[stock_behavior_llm] stage=prefetched_evidence status=success model={self._model}"
         )
+        return parsed, raw_text, meta
+
+    async def generate_text_brief_from_evidence(
+        self,
+        *,
+        task_packet: dict[str, Any],
+    ) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        if not self._enabled or self._client is None:
+            print(
+                f"[stock_behavior_llm] stage=text_brief status=fail reason=disabled "
+                f"enabled={self._enabled} model={self._model}"
+            )
+            raise RuntimeError(
+                "LLM service is disabled: missing NIM_API_KEY, NIM_BASE_URL, model, or langchain dependencies"
+            )
+
+        payload = json.dumps(task_packet, ensure_ascii=False, default=str)
+        user_prompt = (
+            f"<prefetched_evidence_payload>\n{payload}\n</prefetched_evidence_payload>\n\n"
+            f"<output_schema>\n{TEXT_BRIEF_OUTPUT_SCHEMA}\n</output_schema>\n\n"
+            "請依 system 指示產出文字簡報 JSON。"
+        )
+        messages = [
+            ("system", TEXT_BRIEF_SYSTEM_PROMPT),
+            ("human", user_prompt),
+        ]
+
+        print(f"[stock_behavior_llm] stage=text_brief status=start model={self._model}")
+        response = await self._client.ainvoke(messages)
+        raw_content = response.content
+        raw_text = _coerce_llm_text(raw_content)
+        response_metadata = getattr(response, "response_metadata", {}) or {}
+        finish_reason = response_metadata.get("finish_reason")
+        token_usage = response_metadata.get("token_usage") or {}
+        completion_tokens = token_usage.get("completion_tokens")
+        if completion_tokens is None:
+            completion_tokens = (getattr(response, "usage_metadata", {}) or {}).get(
+                "output_tokens"
+            )
+        meta = {
+            "finish_reason": finish_reason,
+            "completion_tokens": (
+                completion_tokens if isinstance(completion_tokens, int) else None
+            ),
+            "truncated": finish_reason == "length",
+        }
+
+        print(
+            "[stock_behavior_llm] stage=text_brief raw_response",
+            {
+                "model": self._model,
+                "content_type": type(raw_content).__name__,
+                "content_len": len(raw_text),
+                "content_preview": raw_text[:3000],
+            },
+        )
+
+        if meta["truncated"]:
+            print(
+                f"[stock_behavior_llm] stage=text_brief status=fallback "
+                f"reason=truncated model={self._model}"
+            )
+            return {}, raw_text, meta
+
+        parsed = _load_json_object(raw_text)
+        if parsed is None:
+            print(
+                f"[stock_behavior_llm] stage=text_brief status=fallback "
+                f"reason=structured_parse_failed model={self._model}"
+            )
+            return {}, raw_text, meta
+
+        print(f"[stock_behavior_llm] stage=text_brief status=success model={self._model}")
         return parsed, raw_text, meta
