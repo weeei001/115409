@@ -15,8 +15,9 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from config import get_settings
 from schemas.stock_behavior import StockBehaviorTextBrief
-from stock_behavior.compliance import scan_compliance
+from stock_behavior.compliance import scan_compliance_hits
 from stock_behavior.llm import StockBehaviorLlmService
+from stock_behavior.trend_map import derive_trend
 from stock_behavior.utils import detect_simplified_chinese
 
 
@@ -107,24 +108,43 @@ async def run(symbol: str, dump_raw: str | None = None) -> None:
     if dump_raw:
         Path(dump_raw).write_text(raw_text, encoding="utf-8")
 
-    status = "unavailable"
+    schema_status = "unavailable"
     horizons: list[str] = []
+    trend_horizons: list[dict] = []
     validation_error = ""
     if parsed and not meta["truncated"]:
         try:
             brief = StockBehaviorTextBrief.model_validate(parsed)
             horizons = [view.horizon for view in brief.forward_views]
-            status = "verified"
+            trend_horizons = [
+                {
+                    "horizon": horizon.horizon,
+                    "direction": horizon.score_direction,
+                    "eligible": horizon.score_eligible,
+                }
+                for horizon in derive_trend(brief).horizons
+            ]
+            schema_status = "verified"
         except ValidationError as exc:
             validation_error = str(exc)
+
+    compliance_hits = scan_compliance_hits(raw_text)
 
     print(f"model={service.model_name}")
     print(f"finish_reason={meta['finish_reason']}")
     print(f"truncated={meta['truncated']}")
-    print(f"status={status}")
+    print(f"schema_status={schema_status}")
     print(f"forward_views={horizons}")
+    print(f"trend={trend_horizons}")
     print(f"simplified_chinese={detect_simplified_chinese(raw_text)}")
-    print(f"compliance_violations={scan_compliance(raw_text)}")
+    print(
+        "hard_compliance_hits="
+        f"{[f'{hit.rule}: {hit.snippet}' for hit in compliance_hits if hit.severity == 'hard']}"
+    )
+    print(
+        "soft_compliance_hits="
+        f"{[f'{hit.rule}: {hit.snippet}' for hit in compliance_hits if hit.severity == 'soft']}"
+    )
     print(f"validation_error={validation_error}")
     print(f"latency_ms={latency_ms}")
 

@@ -30,6 +30,7 @@ StanceLevel = Literal[
     "uncertain",
 ]
 HorizonKey = Literal["short_1_5", "swing_6_20", "medium_21_40"]
+ScoreDirection = Literal["up", "down", "neutral", "uncertain"]
 
 
 class StockBehaviorRagRequest(BaseModel):
@@ -441,11 +442,56 @@ class StockBehaviorTextBrief(BaseModel):
         return value
 
 
+class TextBriefTrendHorizon(BaseModel):
+    horizon: HorizonKey
+    trading_day_range: list[int]
+    evaluation_day: Literal[5, 20, 40]
+    directional_band: StanceLevel
+    score_direction: ScoreDirection
+    confidence: ConfidenceLevel
+    basis_item_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    confirmation_condition_ids: list[str] = Field(default_factory=list)
+    invalidation_condition_ids: list[str] = Field(default_factory=list)
+    score_eligible: bool
+    not_scoreable_reason: str | None = None
+
+
+class TextBriefTrend(BaseModel):
+    derivation_version: str = "trend-map-v1"
+    method: str = "structured_anchor_mapping"
+    horizon_days: int = 40
+    horizons: list[TextBriefTrendHorizon]
+    contains_price_forecast: bool = False
+
+    @field_validator("horizons")
+    @classmethod
+    def validate_horizons(
+        cls, value: list[TextBriefTrendHorizon]
+    ) -> list[TextBriefTrendHorizon]:
+        horizons = [item.horizon for item in value]
+        expected = {"short_1_5", "swing_6_20", "medium_21_40"}
+        if len(horizons) != 3 or set(horizons) != expected:
+            raise ValueError("trend horizons must contain each horizon exactly once")
+        return value
+
+    @field_validator("contains_price_forecast")
+    @classmethod
+    def reject_price_forecast(cls, value: bool) -> bool:
+        if value:
+            raise ValueError("contains_price_forecast must be false")
+        return value
+
+
 class TextBriefVerification(BaseModel):
     filtered_evidence_ids: list[str] = Field(default_factory=list)
     compliance_violations: list[str] = Field(default_factory=list)
     simplified_chars: list[str] = Field(default_factory=list)
     future_dated_items: list[str] = Field(default_factory=list)
+    removed_item_ids: list[str] = Field(default_factory=list)
+    dangling_internal_ids: list[str] = Field(default_factory=list)
+    downgraded_view_horizons: list[str] = Field(default_factory=list)
+    soft_compliance_hits: list[str] = Field(default_factory=list)
 
 
 class TextBriefDisclaimer(BaseModel):
@@ -460,6 +506,7 @@ class StockBehaviorTextBriefResponse(BaseModel):
     generated_by: str
     status: Literal["verified", "limited", "unavailable"]
     brief: StockBehaviorTextBrief | None
+    trend: TextBriefTrend | None = None
     evidence_catalog: list[StockBehaviorInventoryItem] = Field(default_factory=list)
     verification: TextBriefVerification
     disclaimer: TextBriefDisclaimer
