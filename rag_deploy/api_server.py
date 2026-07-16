@@ -155,14 +155,17 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
         f"規則：\n"
         f"- 幾乎每次都要給一個 follow_up（建議追問，label 用中文，query 為具體問題）\n"
         f"- 第二個從以下擇一：涉及走勢/預測給 chart；涉及新聞/事件給 news；涉及主觀判斷/該不該買給 save_view；"
-        f"涉及進出場時機、是否該買賣、且已偵測到股票代號時，可給 order\n"
-        f"- order 的 label 要像自然語言的追問句、口吻跟 follow_up 一致，"
-        f"例如「根據以上資料，要不要嘗試看看模擬下單？」，不要用生硬的按鈕文字（如「前往模擬下單」）\n"
+        f"涉及進出場時機、是否該買賣、且已偵測到股票代號時，可給 order；"
+        f"問題明確涉及個股、且已偵測到股票代號時，也可給 external_link（推薦去外部網站看更完整資訊）\n"
+        f"- order/external_link 的 label 要像自然語言的追問句、口吻跟 follow_up 一致，"
+        f"例如「根據以上資料，要不要嘗試看看模擬下單？」「想去 Yahoo 財經看看更完整的資訊嗎？」，"
+        f"不要用生硬的按鈕文字（如「前往模擬下單」）\n"
+        f"- external_link 只需要 type/label/stock_id，不要自己填 url（url 由系統另外組成）\n"
         f"- 若只有一個合適的就只給一個\n"
         f"- stock_id 只能從 {stocks_json} 中選，沒有偵測到股票時省略 stock_id 欄位\n\n"
         f"只輸出 JSON 陣列，不要其他文字：\n"
         f'[{{"type":"follow_up","label":"...","query":"..."}},'
-        f'{{"type":"order","label":"根據以上資料，要不要嘗試看看模擬下單？","stock_id":"XXXX"}}]'
+        f'{{"type":"external_link","label":"想去 Yahoo 財經看看 XX 更完整的資訊嗎？","stock_id":"XXXX"}}]'
     )
     try:
         resp = openai_client.chat.completions.create(
@@ -174,7 +177,11 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
         raw = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
         actions = json.loads(raw)
         if isinstance(actions, list):
-            return actions[:2]
+            actions = actions[:2]
+            for a in actions:
+                if a.get("type") == "external_link" and a.get("stock_id"):
+                    a["url"] = f"https://tw.stock.yahoo.com/quote/{a['stock_id']}.TW"
+            return actions
     except Exception:
         pass
     return []

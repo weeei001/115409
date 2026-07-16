@@ -497,6 +497,8 @@ function renderActions(actions) {
         document.getElementById("orderStock").value = a.stock_id;
         switchTab("order");
       };
+    } else if (a.type === "external_link" && a.url) {
+      btn.onclick = () => window.open(a.url, "_blank", "noopener,noreferrer");
     }
     wrap.appendChild(btn);
   });
