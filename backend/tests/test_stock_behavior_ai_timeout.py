@@ -18,7 +18,13 @@ def test_llm_client_uses_bounded_non_thinking_json_generation(monkeypatch):
             captured.update(kwargs)
 
         async def ainvoke(self, messages):
-            return SimpleNamespace(content='{"summary": "ok"}')
+            return SimpleNamespace(
+                content='{"summary": "ok"}',
+                response_metadata={
+                    "finish_reason": "stop",
+                    "token_usage": {"completion_tokens": 7},
+                },
+            )
 
     monkeypatch.setattr(llm, "ChatOpenAI", FakeChatOpenAI)
 
@@ -26,18 +32,26 @@ def test_llm_client_uses_bounded_non_thinking_json_generation(monkeypatch):
         SimpleNamespace(
             NIM_API_KEY="token",
             NIM_BASE_URL="https://example.test/v1",
-            ADVISOR_LLM_MODEL="test-model",
+            ADVISOR_LLM_MODEL="deepseek-ai/deepseek-v4-pro",
             ADVISOR_LLM_TEMPERATURE=0.35,
+            ADVISOR_LLM_MAX_COMPLETION_TOKENS=4096,
+            ADVISOR_LLM_RESPONSE_FORMAT="json_object",
         )
     )
 
-    parsed, raw_text = asyncio.run(
+    parsed, raw_text, meta = asyncio.run(
         service.generate_analysis_from_evidence(task_packet={"task": {}})
     )
 
     assert 600 <= captured["timeout"] < STOCK_BEHAVIOR_TIMEOUT_SECONDS
-    assert captured["max_completion_tokens"] <= 2048
+    assert captured["max_completion_tokens"] == 4096
     assert captured["temperature"] == 0.35
-    assert captured["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+    assert captured["extra_body"]["chat_template_kwargs"]["thinking"] is False
+    assert captured["model_kwargs"]["response_format"] == {"type": "json_object"}
     assert parsed["summary"] == "ok"
     assert raw_text == '{"summary": "ok"}'
+    assert meta == {
+        "finish_reason": "stop",
+        "completion_tokens": 7,
+        "truncated": False,
+    }
