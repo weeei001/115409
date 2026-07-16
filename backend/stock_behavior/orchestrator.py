@@ -65,7 +65,17 @@ def build_analysis_config(settings: Any, model_name: str) -> dict[str, Any]:
         "max_llm_news_sources": MAX_LLM_NEWS_SOURCES,
         "model_name": model_name,
         "temperature": getattr(settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
-        "max_completion_tokens": LLM_MAX_COMPLETION_TOKENS,
+        "max_completion_tokens": getattr(
+            settings,
+            "ADVISOR_LLM_MAX_COMPLETION_TOKENS",
+            LLM_MAX_COMPLETION_TOKENS,
+        ),
+        "response_format": getattr(
+            settings,
+            "ADVISOR_LLM_RESPONSE_FORMAT",
+            "json_object",
+        ),
+        "parser_version": "strict-root-v1",
         "prompt_version": PROMPT_VERSION,
         "llm_timeout_seconds": LLM_TIMEOUT_SECONDS,
     }
@@ -613,9 +623,11 @@ class StockBehaviorOrchestrator:
 
         llm_started_at = perf_counter()
         try:
-            raw_llm_response, raw_llm_text = await self._llm.generate_analysis_from_evidence(
-                task_packet=task_packet
-            )
+            (
+                raw_llm_response,
+                raw_llm_text,
+                llm_meta,
+            ) = await self._llm.generate_analysis_from_evidence(task_packet=task_packet)
         except RuntimeError as exc:
             raise PolicyViolationError(
                 "LLM analysis failed",
@@ -629,7 +641,7 @@ class StockBehaviorOrchestrator:
         latency_ms = round((perf_counter() - llm_started_at) * 1000)
 
         normalized_llm_response: dict[str, Any] = {}
-        is_fallback = False
+        is_fallback = bool(llm_meta.get("truncated") or not raw_llm_response)
         try:
             normalized_llm_response = normalize_llm_analysis_payload(
                 raw_llm_response,
@@ -705,8 +717,16 @@ class StockBehaviorOrchestrator:
                 raw_llm_text=raw_llm_text,
                 latency_ms=latency_ms,
             )
+            print(
+                f"[stock_behavior_snapshot] status=success symbol={symbol} "
+                f"is_fallback={is_fallback} "
+                f"finish_reason={llm_meta.get('finish_reason')}"
+            )
         except Exception as exc:
-            print(f"[stock_behavior_snapshot] status=fail symbol={symbol} error={exc}")
+            print(
+                f"[stock_behavior_snapshot] status=fail symbol={symbol} "
+                f"finish_reason={llm_meta.get('finish_reason')} error={exc}"
+            )
             self._db.rollback()
 
         return response

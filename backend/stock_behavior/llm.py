@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - local test fallback
     ChatOpenAI = None
 
 from stock_behavior.prompt_templates import STOCK_ANALYST_SYSTEM_PROMPT
+from stock_behavior.utils import detect_simplified_chinese
 
 
 class RawTrendAssessment(BaseModel):
@@ -130,7 +131,7 @@ LLM_ANALYSIS_OUTPUT_PARSER = (
     if PydanticOutputParser is not None
     else None
 )
-LLM_MAX_COMPLETION_TOKENS = 2048
+LLM_MAX_COMPLETION_TOKENS = 8192
 LLM_TIMEOUT_SECONDS = 900
 THINKING_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>\s*", re.IGNORECASE | re.DOTALL)
 CODE_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
@@ -176,31 +177,37 @@ def _repair_json_numeric_expressions(text: str) -> str:
     return JSON_NUMERIC_EXPR_RE.sub(replace, text)
 
 
+def _thinking_extra_body(model: str) -> dict[str, Any]:
+    model = model.lower()
+    if model.startswith(("deepseek-ai/", "moonshotai/")):
+        return {"chat_template_kwargs": {"thinking": False}}
+    if model.startswith(("qwen/", "z-ai/")):
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    return {}
+
+
 def _load_json_object(text: str) -> dict[str, Any] | None:
     text = _clean_llm_json_text(text)
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        repaired_text = _repair_json_numeric_expressions(text)
-        if repaired_text != text:
-            try:
-                parsed = json.loads(repaired_text)
-            except json.JSONDecodeError:
-                pass
-            else:
-                return parsed if isinstance(parsed, dict) else None
-            text = repaired_text
+    repaired_text = _repair_json_numeric_expressions(text)
+    candidates = (text,) if repaired_text == text else (text, repaired_text)
 
-        decoder = json.JSONDecoder()
-        for match in re.finditer(r"\{", text):
-            try:
-                parsed, _ = decoder.raw_decode(text[match.start() :])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict):
-                return parsed
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        return parsed if isinstance(parsed, dict) else None
+
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        if not candidate.startswith("{"):
+            continue
+        try:
+            parsed, _ = decoder.raw_decode(candidate)
+        except json.JSONDecodeError:
+            continue
+        return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 def _is_projection_payload(value: dict[str, Any]) -> bool:
@@ -210,18 +217,12 @@ def _is_projection_payload(value: dict[str, Any]) -> bool:
 def _parse_structured_analysis_payload(content: str | list[Any] | None) -> dict[str, Any]:
     text = _coerce_llm_text(content)
     loaded = _load_json_object(text)
-    if loaded is not None:
-        if _is_projection_payload(loaded):
-            parsed_projection = RawProjection.model_validate(loaded)
-            return {"projection": parsed_projection.model_dump(mode="python")}
-        parsed = RawStructuredAnalysisPayload.model_validate(loaded)
-        return parsed.model_dump(mode="python")
-
-    if LLM_ANALYSIS_OUTPUT_PARSER is None:
-        parsed = RawStructuredAnalysisPayload.model_validate(json.loads(_clean_llm_json_text(text)))
-        return parsed.model_dump(mode="python")
-
-    parsed = LLM_ANALYSIS_OUTPUT_PARSER.parse(_clean_llm_json_text(text))
+    if loaded is None:
+        raise ValueError("LLM output is not a complete root JSON object")
+    if _is_projection_payload(loaded):
+        parsed_projection = RawProjection.model_validate(loaded)
+        return {"projection": parsed_projection.model_dump(mode="python")}
+    parsed = RawStructuredAnalysisPayload.model_validate(loaded)
     return parsed.model_dump(mode="python")
 
 
@@ -229,6 +230,16 @@ class StockBehaviorLlmService:
     def __init__(self, settings: Any) -> None:
         self._settings = settings
         self._model = settings.ADVISOR_LLM_MODEL or "meta/llama-3.1-70b-instruct"
+        self._max_completion_tokens = getattr(
+            settings,
+            "ADVISOR_LLM_MAX_COMPLETION_TOKENS",
+            LLM_MAX_COMPLETION_TOKENS,
+        )
+        self._response_format = getattr(
+            settings,
+            "ADVISOR_LLM_RESPONSE_FORMAT",
+            "json_object",
+        )
         self._enabled = bool(
             settings.NIM_API_KEY and settings.NIM_BASE_URL and self._model
         )
@@ -239,8 +250,13 @@ class StockBehaviorLlmService:
                 model=self._model,
                 temperature=getattr(settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
                 timeout=LLM_TIMEOUT_SECONDS,
-                max_completion_tokens=LLM_MAX_COMPLETION_TOKENS,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                max_completion_tokens=self._max_completion_tokens,
+                model_kwargs=(
+                    {"response_format": {"type": "json_object"}}
+                    if self._response_format == "json_object"
+                    else {}
+                ),
+                extra_body=_thinking_extra_body(self._model),
             )
             if self._enabled and ChatOpenAI is not None
             else None
@@ -258,7 +274,7 @@ class StockBehaviorLlmService:
         self,
         *,
         task_packet: dict[str, Any],
-    ) -> tuple[dict[str, Any], str]:
+    ) -> tuple[dict[str, Any], str, dict[str, Any]]:
         if not self._enabled or self._client is None:
             print(
                 f"[stock_behavior_llm] stage=prefetched_evidence status=fail reason=disabled "
@@ -289,6 +305,21 @@ class StockBehaviorLlmService:
         response = await self._client.ainvoke(messages)
         raw_content = response.content
         raw_text = _coerce_llm_text(raw_content)
+        response_metadata = getattr(response, "response_metadata", {}) or {}
+        finish_reason = response_metadata.get("finish_reason")
+        token_usage = response_metadata.get("token_usage") or {}
+        completion_tokens = token_usage.get("completion_tokens")
+        if completion_tokens is None:
+            completion_tokens = (getattr(response, "usage_metadata", {}) or {}).get(
+                "output_tokens"
+            )
+        meta = {
+            "finish_reason": finish_reason,
+            "completion_tokens": (
+                completion_tokens if isinstance(completion_tokens, int) else None
+            ),
+            "truncated": finish_reason == "length",
+        }
 
         print(
             "[stock_behavior_llm] stage=prefetched_evidence raw_response",
@@ -300,6 +331,13 @@ class StockBehaviorLlmService:
             },
         )
 
+        if meta["truncated"]:
+            print(
+                f"[stock_behavior_llm] stage=prefetched_evidence status=fallback "
+                f"reason=truncated model={self._model}"
+            )
+            return {}, raw_text, meta
+
         try:
             parsed = _parse_structured_analysis_payload(raw_content)
         except (OutputParserException, ValueError, json.JSONDecodeError) as exc:
@@ -307,9 +345,16 @@ class StockBehaviorLlmService:
                 f"[stock_behavior_llm] stage=prefetched_evidence status=fallback "
                 f"reason=structured_parse_failed model={self._model} error={exc}"
             )
-            return {}, raw_text
+            return {}, raw_text, meta
+
+        simplified_chars = detect_simplified_chinese(raw_text)
+        if simplified_chars:
+            print(
+                "[stock_behavior_llm] warn=simplified_chinese "
+                f"chars={''.join(simplified_chars)}"
+            )
 
         print(
             f"[stock_behavior_llm] stage=prefetched_evidence status=success model={self._model}"
         )
-        return parsed, raw_text
+        return parsed, raw_text, meta

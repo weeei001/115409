@@ -91,10 +91,19 @@ def test_weekly_grid_resume_and_keyless_dry_run():
             NIM_BASE_URL="",
             ADVISOR_LLM_MODEL="test-model",
             ADVISOR_LLM_TEMPERATURE=0.2,
+            ADVISOR_LLM_MAX_COMPLETION_TOKENS=4096,
+            ADVISOR_LLM_RESPONSE_FORMAT="off",
         )
         config = build_analysis_config(settings, "test-model")
+        assert config["model_name"] == "test-model"
+        assert config["max_completion_tokens"] == 4096
+        assert config["response_format"] == "off"
+        assert config["parser_version"] == "strict-root-v1"
         canonical = json.dumps(config, ensure_ascii=False, sort_keys=True)
         assert compute_config_hash(config) == hashlib.sha256(canonical.encode()).hexdigest()
+        assert compute_config_hash(config) != compute_config_hash(
+            {**config, "max_completion_tokens": 8192}
+        )
 
         result = asyncio.run(
             run_backtest(

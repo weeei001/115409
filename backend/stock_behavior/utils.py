@@ -7,6 +7,18 @@ from decimal import Decimal
 from typing import Any
 
 
+SIMPLIFIED_CHINESE_CHARS = frozenset(
+    "门为说经开关证买卖风险机会亿万点涨势后头复资达预测币价业东个产众优体债"
+    "仅从仓传伤伦伪侧侦兑兰兴冲决况净击则刚创删别剂务动劳华协单卫压历县叶号叹"
+    "吗吨听启员响图场坏块坚坛坝壮声处备够夹夺奖妇妈孙学宁宝实审写导层岁师帐带"
+    "帮库应废广庄庆异弃张弯归录当彻径忆怀态总恋恶惊惯戏户执扩扫扬扰护报担拟拣"
+)
+
+
+def detect_simplified_chinese(text: str) -> list[str]:
+    return list(dict.fromkeys(char for char in text if char in SIMPLIFIED_CHINESE_CHARS))
+
+
 class PolicyViolationError(ValueError):
     def __init__(
         self,
