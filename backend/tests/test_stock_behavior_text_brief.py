@@ -14,11 +14,16 @@ from database import get_db
 from routers import stock_behavior as router_module
 from schemas.stock_behavior import (
     StockBehaviorAiRequest,
+    StockBehaviorTextBrief,
     StockBehaviorTextBriefResponse,
 )
 from stock_behavior import llm as llm_module
 from stock_behavior import orchestrator as orchestrator_module
-from stock_behavior.compliance import COMPLIANCE_POLICY_VERSION, scan_compliance
+from stock_behavior.compliance import (
+    COMPLIANCE_POLICY_VERSION,
+    scan_compliance,
+    scan_compliance_hits,
+)
 from stock_behavior.llm import StockBehaviorLlmService
 from stock_behavior.orchestrator import (
     TEXT_BRIEF_DISCLAIMER_TEXT,
@@ -28,6 +33,7 @@ from stock_behavior.prompt_templates import (
     TEXT_BRIEF_PROMPT_VERSION,
     TEXT_BRIEF_SYSTEM_PROMPT,
 )
+from stock_behavior.trend_map import TREND_DERIVATION_VERSION, derive_trend
 
 
 def _settings(**overrides):
@@ -66,7 +72,15 @@ def _inventory():
             {"id": "tc_01", "field": "ma20", "date": "2026-07-15", "value": 1070},
             {"id": "tc_02", "field": "rsi_5", "date": "2026-07-15", "value": 58},
         ],
-        "news": [],
+        "news": [
+            {
+                "id": "nw_01",
+                "field": "news",
+                "date": "2026-07-15",
+                "value": "法說會摘要",
+                "reference_only": True,
+            }
+        ],
         "missing_fields": [],
     }
 
@@ -135,7 +149,7 @@ def _valid_brief():
                 "stance": "mildly_bullish",
                 "confidence": "medium",
                 "basis_item_ids": ["why_01"],
-                "evidence_ids": ["pv_01"],
+                "evidence_ids": ["pv_01", "tc_01"],
                 "confirmation_condition_ids": ["cond_01"],
                 "invalidation_condition_ids": [],
             },
@@ -230,6 +244,12 @@ def test_schema_happy_path_is_verified_with_fixed_disclaimer_and_used_catalog(
     ]
     assert captured["task_packet"]["task"]["type"] == "stock_behavior_text_brief"
     assert captured["snapshot"]["is_fallback"] is False
+    assert len(response.trend.horizons) == 3
+    projection = json.loads(captured["snapshot"]["public_projection_json"])
+    assert len(projection["horizons"]) == 3
+    config = json.loads(captured["snapshot"]["config_json"])
+    assert config["derivation_version"] == TREND_DERIVATION_VERSION
+    assert config["compliance_policy_version"] == "q7-blacklist-v2"
 
 
 @pytest.mark.parametrize("variant", ["missing", "duplicate"])
@@ -292,17 +312,188 @@ def test_future_event_is_removed_and_marks_limited(monkeypatch):
     assert response.verification.future_dated_items == ["event_01"]
 
 
-def test_compliance_scan_is_observational_and_ignores_historical_close(monkeypatch):
+def test_internal_references_to_removed_items_are_cleaned_and_trend_is_auditable(
+    monkeypatch,
+):
+    brief = _valid_brief()
+    brief["events"] = [
+        {
+            "id": "event_01",
+            "event_date": "2026-07-16",
+            "recency": "today",
+            "title": "未來事件",
+            "description": "此事件日期晚於分析基準日。",
+            "information_type": "event",
+            "evidence_ids": ["nw_01"],
+            "materiality": "high",
+        }
+    ]
+    brief["potential_impacts"] = [
+        {
+            "id": "impact_01",
+            "source_item_ids": ["event_01"],
+            "text": "事件影響仍待後續市場資料驗證。",
+            "direction": "uncertain",
+            "time_horizon": "unknown",
+            "thesis_effect": "uncertain",
+            "evidence_ids": ["nw_01"],
+        }
+    ]
+    brief["forward_views"][0]["basis_item_ids"] = ["event_01", "why_01"]
+    brief["forward_views"][0]["confirmation_condition_ids"] = [
+        "cond_01",
+        "cond_99",
+    ]
+
+    response, _ = _run_brief(monkeypatch, brief)
+
+    assert response.brief.potential_impacts[0].source_item_ids == []
+    assert response.brief.forward_views[0].basis_item_ids == ["why_01"]
+    assert response.brief.forward_views[0].confirmation_condition_ids == ["cond_01"]
+    assert response.verification.dangling_internal_ids == ["event_01", "cond_99"]
+    existing_ids = {
+        item.id
+        for section in (
+            response.brief.current_status,
+            response.brief.key_reasons,
+            response.brief.events,
+            response.brief.potential_impacts,
+            response.brief.source_divergences,
+        )
+        for item in section
+    }
+    assert all(
+        set(horizon.basis_item_ids) <= existing_ids
+        for horizon in response.trend.horizons
+    )
+
+
+def test_item_compliance_hard_gate_removes_claim_and_ignores_historical_close(
+    monkeypatch,
+):
     brief = _valid_brief()
     brief["current_status"][0]["text"] = "建議買進，後續上看 1200 元。"
+    brief["forward_views"][0]["basis_item_ids"] = ["cs_01", "why_01"]
 
     response, _ = _run_brief(monkeypatch, brief)
 
     assert response.status == "limited"
-    assert any(item.startswith("操作指令詞:") for item in response.verification.compliance_violations)
-    assert any(item.startswith("目標價型:") for item in response.verification.compliance_violations)
-    historical = scan_compliance("收盤 1085 元站上月線")
-    assert not any(item.startswith(("操作指令詞:", "目標價型:")) for item in historical)
+    assert [item.id for item in response.brief.current_status] == ["cs_02"]
+    assert response.verification.removed_item_ids == ["cs_01"]
+    assert response.brief.forward_views[0].basis_item_ids == ["why_01"]
+    assert response.verification.dangling_internal_ids == ["cs_01"]
+    assert any(
+        item.startswith("操作指令-hard:")
+        for item in response.verification.compliance_violations
+    )
+    assert any(
+        item.startswith("目標價型-hard:")
+        for item in response.verification.compliance_violations
+    )
+    historical = scan_compliance_hits("收盤 1085 元站上月線")
+    assert not any(hit.severity == "hard" for hit in historical)
+
+
+def test_item_compliance_removal_below_required_minimum_is_unavailable(monkeypatch):
+    brief = _valid_brief()
+    brief["key_reasons"][0]["text"] = "建議買進。"
+
+    response, captured = _run_brief(monkeypatch, brief)
+
+    assert response.status == "unavailable"
+    assert response.brief is None
+    assert response.trend is None
+    assert response.limitations == ["簡報內容未通過合規檢查，本次無法提供。"]
+    assert response.verification.removed_item_ids == ["why_01"]
+    assert captured["snapshot"]["is_fallback"] is True
+
+
+def test_core_compliance_hard_gate_preserves_blocked_payload_for_research(monkeypatch):
+    brief = _valid_brief()
+    brief["headline"] = "股價上看 1200 元"
+
+    response, captured = _run_brief(monkeypatch, brief)
+
+    assert response.status == "unavailable"
+    assert response.brief is None
+    assert response.trend is None
+    assert captured["snapshot"]["is_fallback"] is True
+    blocked = json.loads(captured["snapshot"]["normalized_payload_json"])
+    assert blocked["blocked_by_compliance"] is True
+    assert blocked["headline"] == "股價上看 1200 元"
+    assert captured["snapshot"]["public_projection_json"] == "{}"
+
+
+@pytest.mark.parametrize(
+    ("text", "severity"),
+    [
+        ("吸引技術性買盤進場", "soft"),
+        ("今日上漲 2.1%", "soft"),
+        ("預期上看 5%", "hard"),
+        ("建議逢低進場", "hard"),
+    ],
+)
+def test_compliance_false_positive_regressions(text, severity):
+    hits = scan_compliance_hits(text)
+
+    assert any(hit.severity == severity for hit in hits)
+    if severity == "soft":
+        assert not any(hit.severity == "hard" for hit in hits)
+    else:
+        assert not any(hit.severity == "soft" for hit in hits)
+
+
+@pytest.mark.parametrize(
+    ("text", "rule"),
+    [
+        ("目標價為 1200 元", "目標價型-hard"),
+        ("支撐區落在 100 元", "未來價位型-hard"),
+        ("建議持有", "操作指令-hard"),
+        ("預期上漲 5%", "前瞻報酬-hard"),
+        ("保證獲利", "承諾詞-hard"),
+        ("投入三成資金", "資金配置-hard"),
+    ],
+)
+def test_each_hard_compliance_rule_is_classified(text, rule):
+    assert any(
+        hit.rule == rule and hit.severity == "hard"
+        for hit in scan_compliance_hits(text)
+    )
+    assert scan_compliance(text)
+
+
+def test_soft_compliance_hit_marks_limited_without_removing_item(monkeypatch):
+    brief = _valid_brief()
+    brief["current_status"][0]["text"] = "消息有助於吸引技術性買盤進場。"
+
+    response, _ = _run_brief(monkeypatch, brief)
+
+    assert response.status == "limited"
+    assert [item.id for item in response.brief.current_status] == ["cs_01", "cs_02"]
+    assert response.verification.compliance_violations == []
+    assert any(
+        item.startswith("進出場-descriptive-soft:")
+        for item in response.verification.soft_compliance_hits
+    )
+
+
+def test_directional_view_with_one_market_evidence_category_is_downgraded(
+    monkeypatch,
+):
+    brief = _valid_brief()
+    brief["forward_views"][0]["evidence_ids"] = ["nw_01"]
+
+    response, _ = _run_brief(monkeypatch, brief)
+
+    view = response.brief.forward_views[0]
+    horizon = response.trend.horizons[0]
+    assert response.status == "limited"
+    assert view.stance == "uncertain"
+    assert view.confidence == "low"
+    assert response.verification.downgraded_view_horizons == ["short_1_5"]
+    assert horizon.score_direction == "uncertain"
+    assert horizon.score_eligible is False
+    assert horizon.not_scoreable_reason == "證據不足"
 
 
 def test_truncated_output_is_unavailable_and_creates_fallback_snapshot(monkeypatch):
@@ -329,13 +520,15 @@ def test_truncated_output_is_unavailable_and_creates_fallback_snapshot(monkeypat
 
 
 def test_text_brief_route_returns_response_envelope(monkeypatch):
+    brief = StockBehaviorTextBrief.model_validate(_valid_brief())
     expected = StockBehaviorTextBriefResponse.model_validate(
         {
             "symbol": "2330",
             "as_of_date": "2026-07-15",
             "generated_by": "mock",
             "status": "verified",
-            "brief": _valid_brief(),
+            "brief": brief,
+            "trend": derive_trend(brief),
             "evidence_catalog": [],
             "verification": {
                 "filtered_evidence_ids": [],
@@ -381,6 +574,7 @@ def test_text_brief_route_returns_response_envelope(monkeypatch):
     assert response.status_code == 200
     assert response.json()["schema_version"] == "text-first-v1"
     assert response.json()["status"] == "verified"
+    assert len(response.json()["trend"]["horizons"]) == 3
     assert response.json()["brief"]["forward_views"][2]["horizon"] == "medium_21_40"
 
 
@@ -421,9 +615,10 @@ def test_llm_text_brief_uses_v3_prompt_static_schema_and_strict_root_json(
 
 
 def test_v3_prompt_matches_wave1_spec_verbatim():
-    spec = (
-        Path(__file__).resolve().parents[2] / "docs" / "wave1_spec.md"
-    ).read_text(encoding="utf-8")
+    spec_path = Path(__file__).resolve().parents[2] / "docs" / "wave1_spec.md"
+    if not spec_path.exists():
+        pytest.skip("docs/wave1_spec.md 未入版控，僅在有本地規格檔時執行逐字比對")
+    spec = spec_path.read_text(encoding="utf-8")
     block = re.search(
         r'\x60\x60\x60python\n(TEXT_BRIEF_PROMPT_VERSION = "v3-text-first-01"\n\n'
         r'TEXT_BRIEF_SYSTEM_PROMPT = """.*?"""\n)\x60\x60\x60',
