@@ -4,7 +4,7 @@ import re
 from typing import NamedTuple
 
 
-COMPLIANCE_POLICY_VERSION = "q7-blacklist-v2"
+COMPLIANCE_POLICY_VERSION = "q7-blacklist-v3"
 
 
 class ComplianceHit(NamedTuple):
@@ -18,9 +18,19 @@ _HARD_RULES = (
     ("未來價位型-hard", re.compile(r"(支撐|壓力|防守|買點|賣點)[^。]{0,12}\d+(\.\d+)?\s*(元|塊)")),
     (
         "操作指令-hard",
+        # 只攔「對使用者下指令」的語境：建議/可/應/宜等引導詞＋操作動詞。
+        # 描述法人或市場行為（外資減碼、技術性停損賣壓、波段減碼格局）屬分析語言，
+        # 落 soft 觀測（見 _SOFT_RULES 操作詞-descriptive-soft）。
+        # 引導詞的單字型（可/應/宜/設）須排除常見複合詞：可能/可望、反應/因應、便宜、假設/建設。
         re.compile(
-            r"買進|賣出|加碼|減碼|空手觀望|建議持有|停損|停利|"
-            r"(建議|可|應|宜|不妨|逢低|逢高)[^。]{0,8}(進場|出場)"
+            r"空手觀望|建議持有|"
+            r"(建議|不妨|逢低|逢高|嚴設"
+            r"|(?<![反回因供適對])應"
+            r"|(?<![不認許])可(?!能|望|見|謂)"
+            r"|(?<![假建增])設定?"
+            r"|(?<![便合適權])宜"
+            r")[^。]{0,8}"
+            r"(買進|賣出|加碼|減碼|進場|出場|停損|停利)"
         ),
     ),
     (
@@ -38,7 +48,10 @@ _HARD_RULES = (
 )
 
 _SOFT_RULES = (
-    ("進出場-descriptive-soft", re.compile(r"進場|出場")),
+    (
+        "操作詞-descriptive-soft",
+        re.compile(r"買進|賣出|加碼|減碼|進場|出場|停損|停利"),
+    ),
     ("歷史報酬-soft", re.compile(r"(漲|跌)幅?\s*\d+(\.\d+)?\s*%")),
 )
 
