@@ -249,7 +249,7 @@ def test_schema_happy_path_is_verified_with_fixed_disclaimer_and_used_catalog(
     assert len(projection["horizons"]) == 3
     config = json.loads(captured["snapshot"]["config_json"])
     assert config["derivation_version"] == TREND_DERIVATION_VERSION
-    assert config["compliance_policy_version"] == "q7-blacklist-v2"
+    assert config["compliance_policy_version"] == "q7-blacklist-v3"
 
 
 @pytest.mark.parametrize("variant", ["missing", "duplicate"])
@@ -429,8 +429,13 @@ def test_core_compliance_hard_gate_preserves_blocked_payload_for_research(monkey
     [
         ("吸引技術性買盤進場", "soft"),
         ("今日上漲 2.1%", "soft"),
+        ("可能引發技術性停損賣壓", "soft"),
+        ("呈現單日承接、波段減碼的拉扯格局", "soft"),
+        ("估值相對便宜，外資買進力道回溫", "soft"),
         ("預期上看 5%", "hard"),
         ("建議逢低進場", "hard"),
+        ("應設停損以控制風險", "hard"),
+        ("可考慮加碼持股", "hard"),
     ],
 )
 def test_compliance_false_positive_regressions(text, severity):
@@ -472,7 +477,7 @@ def test_soft_compliance_hit_marks_limited_without_removing_item(monkeypatch):
     assert [item.id for item in response.brief.current_status] == ["cs_01", "cs_02"]
     assert response.verification.compliance_violations == []
     assert any(
-        item.startswith("進出場-descriptive-soft:")
+        item.startswith("操作詞-descriptive-soft:")
         for item in response.verification.soft_compliance_hits
     )
 
@@ -598,6 +603,9 @@ def test_llm_text_brief_uses_v3_prompt_static_schema_and_strict_root_json(
             )
 
     monkeypatch.setattr(llm_module, "ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setattr(
+        llm_module.few_shot_examples, "FEW_SHOT_EXAMPLES", []
+    )
     parsed, raw_text, meta = asyncio.run(
         StockBehaviorLlmService(
             _settings(NIM_API_KEY="token")
