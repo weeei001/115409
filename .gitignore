@@ -57,3 +57,5 @@ temp/
 
 # PDF 文档（可选保留重要的，删除过程文档）
 docs/week*.pdf
+backend/golden_candidates/
+backend/eval_reports/

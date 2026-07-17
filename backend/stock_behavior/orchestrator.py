@@ -49,6 +49,7 @@ from stock_behavior.compliance import (
     ComplianceHit,
     scan_compliance_hits,
 )
+from stock_behavior.few_shot_examples import example_set_version
 from stock_behavior.llm import (
     LLM_MAX_COMPLETION_TOKENS,
     LLM_TIMEOUT_SECONDS,
@@ -1344,6 +1345,7 @@ class StockBehaviorOrchestrator:
         config = {
             **build_analysis_config(self._settings, model_name),
             "prompt_version": TEXT_BRIEF_PROMPT_VERSION,
+            "example_set_version": example_set_version(),
             "compliance_policy_version": COMPLIANCE_POLICY_VERSION,
             "schema_version": TEXT_BRIEF_SCHEMA_VERSION,
             "derivation_version": TREND_DERIVATION_VERSION,
