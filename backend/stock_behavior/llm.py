@@ -22,6 +22,7 @@ from stock_behavior.prompt_templates import (
     STOCK_ANALYST_SYSTEM_PROMPT,
     TEXT_BRIEF_SYSTEM_PROMPT,
 )
+from stock_behavior import few_shot_examples
 from stock_behavior.utils import detect_simplified_chinese
 
 
@@ -397,9 +398,17 @@ class StockBehaviorLlmService:
                 "LLM service is disabled: missing NIM_API_KEY, NIM_BASE_URL, model, or langchain dependencies"
             )
 
+        examples = "".join(
+            "<example>\n"
+            f"<input>\n{json.dumps(example['input_payload'], ensure_ascii=False)}\n</input>\n"
+            f"<output>\n{json.dumps(example['output_brief'], ensure_ascii=False)}\n</output>\n"
+            "</example>\n"
+            for example in few_shot_examples.FEW_SHOT_EXAMPLES
+        )
+        examples_block = f"<examples>\n{examples}</examples>\n\n" if examples else ""
         payload = json.dumps(task_packet, ensure_ascii=False, default=str)
         user_prompt = (
-            f"<prefetched_evidence_payload>\n{payload}\n</prefetched_evidence_payload>\n\n"
+            f"{examples_block}<prefetched_evidence_payload>\n{payload}\n</prefetched_evidence_payload>\n\n"
             f"<output_schema>\n{TEXT_BRIEF_OUTPUT_SCHEMA}\n</output_schema>\n\n"
             "請依 system 指示產出文字簡報 JSON。"
         )
