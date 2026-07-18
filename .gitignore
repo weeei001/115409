@@ -63,6 +63,7 @@ docs/week*.pdf
 rag/CLAUDE.md
 rag/docker-compose.yml
 rag/nginx.conf
+CLAUDE.md
 
 # 備份資料夾（帶時間戳）
 news_db_filtered.bak_*/
