@@ -7,6 +7,8 @@ analysis_digests 資料存取層
 MySQL 連線沿用 qa_logger 同一組 MYSQL_* 環境變數（同一個 rag_logs DB）。
 """
 
+from __future__ import annotations
+
 import os
 import json
 import datetime
