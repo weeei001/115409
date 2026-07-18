@@ -1,13 +1,13 @@
 """build_vector_db.py 的純終端機版本（不依賴 Tkinter）。
-邏輯與 build_vector_db.py 相同：掃描 news_db_filtered/*/chunks/*_chunks.json，
+邏輯與 build_vector_db.py 相同：從 MySQL news_chunks 表讀取切塊資料，
 以 chunk_id 判斷斷點續傳，並行寫入 Qdrant，僅將進度改印在終端機。
 """
 import os
-import glob
+import sys
 import time
-import json
 import uuid
 import threading
+import queue
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
@@ -15,6 +15,9 @@ from langchain_core.documents import Document
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "rag"))
+from chunk_storage_mysql import iter_chunks_grouped_by_stock  # noqa: E402
 
 load_dotenv(verbose=True)
 
@@ -35,9 +38,9 @@ def _pub_time_to_ts(pub_time):
         return None
 
 
-db_lock = threading.Lock()
 progress_lock = threading.Lock()
 progress = {"done": 0, "total": 0, "start": time.time()}
+db_write_queue = queue.Queue()
 
 
 def _print_progress():
@@ -50,37 +53,16 @@ def _print_progress():
         print(f"\r進度: {done}/{total} ({pct:.1f}%)  {speed:.1f} chunks/秒  預估剩餘 {eta/60:.1f} 分鐘", end="", flush=True)
 
 
-def process_batch_task(batch_docs, embeddings, stock_id, client, collection_name):
+def process_batch_task(batch_docs, embeddings, stock_id):
+    """僅負責呼叫 embedding API（thread-safe），實際 Qdrant 寫入交給主執行緒的 queue 處理，
+    避免 local QdrantClient（SQLite-backed）跨執行緒使用而崩潰。"""
     MAX_RETRY = 3
     for attempt in range(MAX_RETRY):
         try:
             texts = [doc.page_content for doc in batch_docs]
             metadatas = [doc.metadata for doc in batch_docs]
-
             vectors = embeddings.embed_documents(texts)
-
-            with db_lock:
-                try:
-                    client.get_collection(collection_name)
-                except Exception:
-                    client.create_collection(
-                        collection_name=collection_name,
-                        vectors_config=VectorParams(size=len(vectors[0]), distance=Distance.COSINE)
-                    )
-
-                points = [
-                    PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=vector,
-                        payload={"page_content": text, **metadata}
-                    )
-                    for text, vector, metadata in zip(texts, vectors, metadatas)
-                ]
-                client.upsert(collection_name=collection_name, points=points)
-
-            with progress_lock:
-                progress["done"] += len(batch_docs)
-            _print_progress()
+            db_write_queue.put((stock_id, texts, vectors, metadatas, len(batch_docs)))
             return
         except Exception as e:
             err_short = str(e)[:120]
@@ -90,6 +72,7 @@ def process_batch_task(batch_docs, embeddings, stock_id, client, collection_name
                 time.sleep(wait)
             else:
                 print(f"\n❌ {stock_id} 批次最終失敗: {err_short}")
+                db_write_queue.put(None)  # 通知主執行緒此任務結束（失敗）
 
 
 def main():
@@ -116,21 +99,14 @@ def main():
 
     print(f"已存在 chunk 數: {len(existing_ids)}")
 
-    chunk_files = (
-        glob.glob(os.path.join("news_db_filtered", "*", "chunks", "*_chunks.json")) +
-        glob.glob(os.path.join("news_db_filtered", "chunks", "*_chunks.json"))
-    )
+    print("從 MySQL 讀取 chunks...")
+    chunks_by_stock = iter_chunks_grouped_by_stock()
 
     stocks_data = {}
-    for f in chunk_files:
-        with open(f, "r", encoding="utf-8") as jf:
-            chunks = json.load(jf)
+    for sid, chunks in chunks_by_stock.items():
         if not chunks:
             continue
-        sid = chunks[0]["stock_id"]
-        if sid not in stocks_data:
-            stocks_data[sid] = {"total": 0, "rem_docs": []}
-        stocks_data[sid]["total"] += len(chunks)
+        stocks_data[sid] = {"total": len(chunks), "rem_docs": []}
         for c in chunks:
             if c["chunk_id"] in existing_ids:
                 continue
@@ -174,9 +150,38 @@ def main():
     _print_progress()
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [
-            executor.submit(process_batch_task, docs, embeddings, sid, client, collection_name)
+            executor.submit(process_batch_task, docs, embeddings, sid)
             for sid, docs in all_batch_tasks
         ]
+
+        # 主執行緒是唯一操作 Qdrant client 的地方（local/SQLite 模式無法跨執行緒使用）
+        pending = len(futures)
+        while pending > 0:
+            item = db_write_queue.get()
+            pending -= 1
+            if item is None:
+                continue
+            stock_id, texts, vectors, metadatas, n = item
+            try:
+                client.get_collection(collection_name)
+            except Exception:
+                client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=len(vectors[0]), distance=Distance.COSINE)
+                )
+            points = [
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=vector,
+                    payload={"page_content": text, **metadata}
+                )
+                for text, vector, metadata in zip(texts, vectors, metadatas)
+            ]
+            client.upsert(collection_name=collection_name, points=points)
+            with progress_lock:
+                progress["done"] += n
+            _print_progress()
+
         for fut in futures:
             fut.result()
 

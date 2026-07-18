@@ -3,30 +3,43 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 專案簡介
-針對 6 檔台股（2330 台積電、2317 鴻海、2454 聯發科、2881 富邦金、2408 南亞、2615 萬海）的財經新聞 RAG 系統。
+針對 6 檔台股（2330 台積電、2317 鴻海、2454 聯發科、2881 富邦金、2408 南亞、2615 萬海）的財經新聞 RAG 系統，整合股價走勢圖與 AI 問答。多人協作專案（見 README.md「開發者」一節）：`rag/` 由 wei 負責、`frontend/` + AI 顧問由 Victor 負責、`backend/`（FastAPI + MySQL 股價 API，獨立系統）由另一位開發者負責、Docker 部署與 RAG API 整合（`rag_deploy/`）由 bob（此帳號）負責。**本檔案內容聚焦 bob 負責的範圍（`rag_deploy/`、`rag/` 資料管線、Docker 部署），`backend/` 不屬於此範圍，除非明確被要求，否則不應修改。**
+
+## ⚠️ 目錄結構重要說明（容易混淆之處）
+
+- **`rag/`**：資料處理 pipeline 原始碼（爬蟲 → 清洗 → 切塊 → 向量化），排程器實際會呼叫這裡的腳本（見下方「爬蟲排程部署」）。**這裡的程式碼是現役、會被執行的**，不是舊版。
+- **`rag_deploy/`**：只有 API 服務層（`api_server.py` FastAPI + `qa_logger.py`），消費 `rag/` pipeline 產出的 Qdrant 向量庫，是實際對外服務的部署單位（`docker-compose.yml` 的 `build: ./rag_deploy`）。
+- repo 根目錄也有 `build_vector_db.py`、`crawl_to_qdrant.py` 等腳本，是 `rag/` 底下同名腳本的**獨立副本**（曾發生兩邊各自修改、需要手動同步的情況——修改向量化/爬蟲邏輯時，記得確認是否也要同步另一份）。
+- `backend/` 是完全獨立的 FastAPI + MySQL（DB 名稱 `topic_stock`）股價 API 系統，有自己的 `README.md`/`API_DOCS.md`，資料庫、`.env`、依賴都與 `rag_deploy/`（DB 名稱 `rag_logs`）互不相通，**不要假設兩者共用資料庫或設定**。
+- 若看到 `rag/` 底下巢狀出現另一份 `rag_deploy/`，那是舊快照（已於 2026-07 清理過一次），不應再出現；若重新出現代表有人誤操作，應確認後刪除。
 
 ## 執行指令
 
 ```bash
-# 啟動 Streamlit UI（主要入口）
-streamlit run viewer.py
+# 啟動 Streamlit UI（rag/ 底下，本地開發用）
+cd rag && streamlit run viewer.py
 
-# 啟動 FastAPI 後端（供前端串接）
+# 啟動 FastAPI 後端（rag_deploy/，供前端串接，對外服務走這個）
 cd rag_deploy && uvicorn api_server:app --host 0.0.0.0 --port 8000
 
 # 前端測試頁面
 cd rag_deploy && python -m http.server 3000
 # 開啟 http://localhost:3000/index.html
 
-# 完整資料管線（依序執行）
+# 完整資料管線（於 rag/ 目錄下依序執行）
+cd rag
 python ingest_sources.py       # 1. 攝入 CSV + OtherNewWeb → news_db_local/
 python run_chunking.py         # 2. 切塊 → news_db_local/*/chunks/*.json
 python build_vector_db.py      # 3. 向量化 → qdrant_db/（有 Tkinter GUI）
 
-# 個別爬蟲
+# 個別爬蟲（於 rag/ 目錄下）
 python crawler_gui.py          # cnyes 爬蟲（Streamlit GUI）
 python crawler_ltn_gui.py      # LTN Phase 1+2 爬蟲（Tkinter GUI）
-python crawler_ltn_history_gui.py  # LTN Phase 3 歷史 ID 掃描
+python crawler_ltn_gui.py --scheduled-once  # LTN 排程用 headless 模式（不開 GUI，供 scheduler_utils.py 呼叫）
+python crawler_ltn_history_gui.py  # LTN Phase 3 歷史 ID 掃描（手動觸發，不排入日常排程）
+
+# 股價回測 / AI 預測準確率驗證（rag_deploy/backtest/，開發中）
+cd rag_deploy && python backtest/run_backtest.py --stock 2330 --start 2025-01-01 --end 2025-07-01 --strategy baseline_v1
 ```
 
 ## 架構與資料流
@@ -64,6 +77,8 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 | GET | `/api/history/{id}` | 單筆 QA 詳情 |
 | GET | `/api/news` | 瀏覽新聞列表 |
 | GET | `/api/health` | 健康檢查 |
+| GET | `/api/trend_predict` | 股價走勢 AI 預測（迴歸線 + 新聞情緒，未來 20 交易日） |
+| GET | `/api/trend_predict_stream` | 同上，SSE 逐週推送版本 |
 
 **對外服務**：透過 Cloudflare Tunnel（Docker cloudflared）公開至 `ragggggggg.bobhsu.dpdns.org`
 
@@ -72,6 +87,11 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 - 時間作為加權排序而非硬過濾：範圍內新聞標 ★ 優先，範圍外保留當背景
 - 有指定時間點時，過濾掉之後的資料（不用未來資料分析過去）
 - `pub_time` 格式為 ISO（`2024-05-01T12:00:00+08:00`），比較前需 `normalize_time()` 轉換
+- Qdrant payload 另有數值型 `pub_ts`（Unix timestamp）欄位，供未來改用 Range filter 做數值區間查詢（目前 `/api/ask` 仍是撈出後字串比對，尚未改用 `pub_ts` 篩選）
+
+**股價走勢預測（`prediction_core.py`）**：
+- `get_trend_predict`/`trend_predict_stream` 的核心邏輯（加權線性迴歸、動能+均值回歸曲線、prompt 組裝、LLM 呼叫與 JSON 解析）已抽出至 `rag_deploy/prediction_core.py`，供未來的歷史回測腳本（`rag_deploy/backtest/`，開發中）共用同一套預測邏輯，避免即時預測與回測各寫一份。
+- 兩個端點目前皆為**即時查詢**：股價即時打 `yfinance`（未存檔）、新聞即時查 Qdrant 最近 30 天，預測結果**不落地**（無資料庫記錄），因此無法回頭驗證預測準確率——這是 `rag_deploy/backtest/` 想補上的部分。
 
 ## 關鍵設定
 

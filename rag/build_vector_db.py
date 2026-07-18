@@ -1,7 +1,6 @@
 import os
-import glob
+import sys
 import time
-import json
 import uuid
 import threading
 import queue
@@ -16,11 +15,29 @@ from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "rag"))
+from chunk_storage_mysql import iter_chunks_grouped_by_stock  # noqa: E402
+
 # 1. 載入 .env
 load_dotenv(verbose=True)
 
 # 併發數
 MAX_WORKERS = 4
+
+
+def _pub_time_to_ts(pub_time):
+    """將 pub_time ISO 字串轉為 Unix timestamp（供 Qdrant Range filter 使用，pub_time 本身是字串無法直接做數值範圍查詢）"""
+    if not pub_time:
+        return None
+    s = pub_time.replace("T", " ")
+    if "+" in s:
+        s = s[:s.index("+")]
+    s = s[:19].strip()
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(s).timestamp()
+    except Exception:
+        return None
 
 class VectorDBGUI:
     def __init__(self, root, total_tasks, initial_done):
@@ -216,20 +233,14 @@ def build_worker_pool(gui, update_queue, client, collection_name, existing_ids):
     vectorstore_ref = {"client": client}
 
 
-    # 掃描新結構（各來源子資料夾）+ 舊結構（chunks/）
-    chunk_files = (
-        glob.glob(os.path.join("news_db_filtered", "*", "chunks", "*_chunks.json")) +
-        glob.glob(os.path.join("news_db_filtered", "chunks", "*_chunks.json"))
-    )
+    # 從 MySQL news_chunks 表讀取所有切塊資料，依股票分組
+    chunks_by_stock = iter_chunks_grouped_by_stock()
     stocks_data = {} # 聚合資料: stock_id -> {'total': int, 'rem_docs': list, 'done': int}
 
-    # 1. 聚合所有檔案中的 chunks 到以股票為單位的字典
-    for f in chunk_files:
-        with open(f, 'r', encoding='utf-8') as jf:
-            chunks = json.load(jf)
+    # 1. 聚合所有 chunks 到以股票為單位的字典
+    for sid, chunks in chunks_by_stock.items():
         if not chunks: continue
 
-        sid = chunks[0]['stock_id']
         if sid not in stocks_data:
             stocks_data[sid] = {'total': 0, 'rem_docs': [], 'done': 0}
 
@@ -245,6 +256,7 @@ def build_worker_pool(gui, update_queue, client, collection_name, existing_ids):
                                   "title": c['title'],
                                   "source": c['source'],
                                   "pub_time": c['pub_time'],
+                                  "pub_ts": _pub_time_to_ts(c['pub_time']),
                                   "url": c.get('url', ''),
                                   "tags": c.get('tags', ''),
                               })
@@ -296,19 +308,13 @@ def main():
         print(f"建立 client 失敗: {e}")
         client = None
 
-    chunk_files = (
-        glob.glob(os.path.join("news_db_filtered", "*", "chunks", "*_chunks.json")) +
-        glob.glob(os.path.join("news_db_filtered", "chunks", "*_chunks.json"))
-    )
+    chunks_by_stock_for_count = iter_chunks_grouped_by_stock()
     total_all = 0
     done_all = 0
 
-    for f in chunk_files:
-        with open(f, 'r', encoding='utf-8') as jf:
-            data = json.load(jf)
-            total_all += len(data)
-            # 全域 Done 數也只計算目前存在於 JSON 裡的 ID
-            done_all += sum(1 for c in data if c['chunk_id'] in existing_ids)
+    for sid, data in chunks_by_stock_for_count.items():
+        total_all += len(data)
+        done_all += sum(1 for c in data if c['chunk_id'] in existing_ids)
 
     gui = VectorDBGUI(root, total_all, done_all)
     q = queue.Queue()

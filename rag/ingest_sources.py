@@ -1,7 +1,7 @@
 import os
 import re
 import pandas as pd
-from news_storage import NewsStorageManager
+from news_storage_mysql import NewsStorageManagerMySQL
 from adapters.yahoo_adapter import YahooAdapter
 
 # 6 檔目標台股的代號 + 別名（公司名）。比對順序：代號 → 任一別名。
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     import sys
     ltn_only = "--ltn-only" in sys.argv
 
-    db = NewsStorageManager()
+    db = NewsStorageManagerMySQL()
 
     if ltn_only:
         # 只處理 LTN
@@ -169,7 +169,8 @@ if __name__ == "__main__":
         if os.path.exists(other_web_folder):
             ingest_other_web_data(db, other_web_folder)
 
-    print("\nLocal Database Status:")
-    print(f"Total News Count: {db.index['stats']['total_count']}")
-    for source, count in db.index['stats']['sources'].items():
+    stats = db.get_stats()
+    print("\nMySQL Database Status:")
+    print(f"Total News Count: {stats['total_count']}")
+    for source, count in stats['sources'].items():
         print(f"  - {source}: {count}")
