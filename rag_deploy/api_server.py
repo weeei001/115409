@@ -331,6 +331,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] MySQL users 初始化失敗: {e}")
 
+    try:
+        import digest_store
+        digest_store.ensure_table()
+        print("[startup] MySQL analysis_digests 資料表就緒")
+    except Exception as e:
+        print(f"[startup] MySQL analysis_digests 初始化失敗（不影響 RAG 運行）: {e}")
+
     yield  # app 運行中
 
     if qdrant_client:
@@ -1899,6 +1906,71 @@ async def trend_predict_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── 第二支 API：預建的個股分析總結（digest）────────────
+@app.get("/api/analysis_digest")
+async def get_analysis_digest(
+    symbol: str = Query(..., description="股票代號，如 2330"),
+    as_of: str = Query(..., description="時間點 YYYY-MM-DD（截至當日、不含之後）"),
+    period: str = Query("week", description="週期：week 或 month"),
+):
+    """回傳某時間點「預先用模型分析好的個股分析總結」，供下游 LLM 當專業分析基礎引用。
+    優先回傳離線預建（H200）結果；查無時即時產生一筆並落地（需 H200 設定）。"""
+    if symbol not in STOCK_OPTIONS:
+        raise HTTPException(400, f"無效的股票代號，支援：{list(STOCK_OPTIONS.keys())}")
+    if period not in ("week", "month"):
+        raise HTTPException(400, "period 只能是 week 或 month")
+    try:
+        datetime.strptime(as_of[:10], "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "as_of 格式錯誤，請用 YYYY-MM-DD")
+
+    import digest_store
+    from digest_core import make_h200_client, generate_digest, DigestConfigError
+
+    existing = await asyncio.to_thread(digest_store.get, symbol, as_of, period)
+    if existing:
+        return {
+            "stock_id": existing["stock_id"],
+            "as_of_date": existing["as_of_date"],
+            "period": existing["period"],
+            "digest": existing["digest_json"],
+            "technical": existing["technical_json"],
+            "analyst_count": len(existing["analyst_json"] or []),
+            "news_count": len(existing["news_json"] or []),
+            "generated_by": "prebuilt",
+        }
+
+    # 查無 → 即時產生 fallback
+    if not qdrant_client or not embeddings:
+        raise HTTPException(503, "向量庫尚未就緒，無法即時產生 digest")
+    llm_client, model_name = make_h200_client()
+    if llm_client is None:
+        raise HTTPException(503, "查無預建結果，且 H200 尚未設定（.env 需填 H200_BASE_URL/H200_API_KEY）無法即時產生")
+    try:
+        record = await asyncio.to_thread(
+            generate_digest, qdrant_client, embeddings, llm_client, model_name,
+            symbol, as_of, period,
+        )
+        await asyncio.to_thread(digest_store.upsert, record)
+    except DigestConfigError as e:
+        raise HTTPException(503, str(e))
+    except AssertionError as e:
+        raise HTTPException(500, f"資料防洩漏檢查失敗：{e}")
+    except Exception as e:
+        raise HTTPException(502, f"即時產生 digest 失敗：{e}")
+
+    return {
+        "stock_id": record["stock_id"],
+        "as_of_date": record["as_of_date"],
+        "period": record["period"],
+        "digest": record["digest_json"],
+        "technical": record["technical_json"],
+        "analyst_count": len(record["analyst_json"]),
+        "news_count": len(record["news_json"]),
+        "generated_by": "on_demand",
+    }
 
 
 # ── 前端頁面 ─────────────────────────────────────────

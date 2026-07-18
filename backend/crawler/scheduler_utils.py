@@ -28,6 +28,11 @@ FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
 CNYES_SCHEDULE_LOOKBACK_DAYS = 5
+# LTN（自由時報）：headless 入口在 rag/crawler_ltn_gui.py，只跑 Phase 1+2 增量抓取。
+# 因為腳本內 NEWS_DB_PATH 是相對路徑，執行時 cwd 必須固定為 rag/（見腳本所在目錄）。
+LTN_CRAWLER_SCRIPT = CRAWLER_DIR.parent.parent / "rag" / "crawler_ltn_gui.py"
+RUN_LTN_NEWS_CRAWL = True
+LTN_INTERVAL_MINUTES = 30
 
 
 def _python_executable() -> str:
@@ -127,6 +132,37 @@ def run_cnyes_job() -> None:
         log.error(f"執行鉅亨爬蟲時發生未預期例外: {e}")
 
 
+def run_ltn_job() -> None:
+    """自由時報新聞：排程跑 Phase 1+2 增量抓取（--scheduled-once），不含 Phase 3 歷史回填。"""
+    if not RUN_LTN_NEWS_CRAWL:
+        return
+    script_path = LTN_CRAWLER_SCRIPT
+    python_cmd = _python_executable()
+    if not script_path.exists():
+        log.error("找不到 LTN 爬蟲檔案 '%s'。", script_path)
+        return
+    try:
+        command = [python_cmd, str(script_path), "--scheduled-once"]
+        output_encoding = _subprocess_text_encoding()
+        log.info("📰 開始執行 LTN 新聞排程抓取...")
+        log.info(f"執行指令: {' '.join(command)}")
+        result = subprocess.run(
+            command,
+            cwd=str(script_path.parent),  # NEWS_DB_PATH 為相對路徑，須在 rag/ 下執行
+            capture_output=True,
+            text=True,
+            encoding=output_encoding,
+            errors="replace",
+        )
+        if result.returncode == 0:
+            log.info("✅ LTN 新聞抓取完成！")
+        else:
+            log.error(f"❌ LTN 新聞抓取失敗 (Return code: {result.returncode})")
+            log.error(f"錯誤訊息：\n{result.stderr}")
+    except Exception as e:
+        log.error(f"執行 LTN 爬蟲時發生未預期例外: {e}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="台股爬蟲排程器")
     parser.add_argument("--start", default=FINMIND_START_DATE, help="FinMind 回補起始日 YYYY-MM-DD；結束日固定為今天")
@@ -158,6 +194,15 @@ def main():
             interval,
             CNYES_CRAWLER_SCRIPT.name,
             CNYES_SCHEDULE_LOOKBACK_DAYS,
+        )
+
+    if RUN_LTN_NEWS_CRAWL:
+        ltn_interval = max(1, LTN_INTERVAL_MINUTES)
+        schedule.every(ltn_interval).minutes.do(run_ltn_job)
+        log.info(
+            "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，Phase 1+2 增量）",
+            ltn_interval,
+            LTN_CRAWLER_SCRIPT.name,
         )
 
     # ----------------------------------------------------
