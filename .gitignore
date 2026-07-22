@@ -7,6 +7,7 @@
 qdrant_db/
 news_db_local/
 news_db_filtered/
+rag/news_db_filtered
 
 # 数据库文件
 *.db
@@ -59,3 +60,34 @@ temp/
 docs/week*.pdf
 backend/golden_candidates/
 backend/eval_reports/
+
+# rag/ 子資料夾內不上傳的設定/說明檔
+rag/CLAUDE.md
+rag/docker-compose.yml
+rag/nginx.conf
+CLAUDE.md
+
+# 備份資料夾（帶時間戳）
+news_db_filtered.bak_*/
+
+# 分析/視覺化暫存產物（非原始碼）
+umap_*.png
+umap_cache.npz
+visualize_qdrant_umap.py
+evaluate_news_quality.py
+news_quality_report.json
+scratch_*.py
+
+# 個人專案狀態筆記（非交付內容）
+PROJECT_STATUS.md
+
+# 新聞原始資料（大型資料，不進版控）
+rag/OtherNewWeb/
+OtherNewWeb/
+
+# 資料匯出檔（一次性交付用，非原始碼）
+news_articles.sql
+news_chunks.sql
+
+# 排程心跳檔
+backend/crawler/.last_run
