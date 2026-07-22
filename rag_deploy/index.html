@@ -75,6 +75,7 @@
   <div class="tab" onclick="switchTab('chart')">走勢圖</div>
   <div class="tab" onclick="switchTab('news')">新聞瀏覽</div>
   <div class="tab" onclick="switchTab('history')">歷史紀錄</div>
+  <div class="tab" onclick="switchTab('order')">下單（Demo）</div>
   <div class="tab" id="profileTab" onclick="switchTab('profile')" style="display:none">個人觀點</div>
   <span class="health" id="healthBadge">檢查中...</span>
   <span id="userBadge" style="font-size:13px;color:#90a4ae;cursor:pointer" onclick="showAuthModal()">登入</span>
@@ -141,6 +142,33 @@
   <div id="newsResult"></div>
 </div>
 
+<!-- ===== 模擬下單（Demo） ===== -->
+<div class="page" id="page-order">
+  <div class="card" style="margin-bottom:16px;border-color:#5d4037;background:#2a1f16">
+    <p style="color:#ffcc80;font-size:13px">⚠️ Demo 展示用，未串接真實下單系統，送出後不會真的建立委託。</p>
+  </div>
+  <div class="card">
+    <h3>模擬委託單</h3>
+    <div style="margin-bottom:10px">
+      <label style="font-size:13px;color:#90a4ae;display:block;margin-bottom:4px">股票代號</label>
+      <input type="text" id="orderStock" placeholder="例如：2330" style="width:200px" />
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:13px;color:#90a4ae;display:block;margin-bottom:4px">買賣方向</label>
+      <select id="orderSide">
+        <option value="buy">買進</option>
+        <option value="sell">賣出</option>
+      </select>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:13px;color:#90a4ae;display:block;margin-bottom:4px">數量（張）</label>
+      <input type="number" id="orderQty" value="1" min="1" style="width:120px" />
+    </div>
+    <button onclick="submitDemoOrder()">送出模擬委託</button>
+  </div>
+  <div id="orderResult" style="margin-top:16px"></div>
+</div>
+
 <!-- ===== 個人觀點 ===== -->
 <div class="page" id="page-profile">
   <div class="card" style="margin-bottom:16px">
@@ -169,7 +197,7 @@ const API = window.location.origin;
 
 // ── Tab 切換 ──
 function switchTab(name) {
-  const labels = { ask: "問答", chart: "走勢", news: "新聞", history: "歷史", profile: "個人" };
+  const labels = { ask: "問答", chart: "走勢", news: "新聞", history: "歷史", order: "下單", profile: "個人" };
   document.querySelectorAll(".tab").forEach(t => {
     t.classList.toggle("active", t.textContent.includes(labels[name] || ""));
   });
@@ -464,6 +492,13 @@ function renderActions(actions) {
       };
     } else if (a.type === "save_view") {
       btn.onclick = () => switchTab("profile");
+    } else if (a.type === "order" && a.stock_id) {
+      btn.onclick = () => {
+        document.getElementById("orderStock").value = a.stock_id;
+        switchTab("order");
+      };
+    } else if (a.type === "external_link" && a.url) {
+      btn.onclick = () => window.open(a.url, "_blank", "noopener,noreferrer");
     }
     wrap.appendChild(btn);
   });
@@ -871,6 +906,23 @@ async function loadHistory(page) {
   } catch (e) {
     result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ ${e.message}</div>`;
   }
+}
+
+// ── 模擬下單（Demo，未串接真實 API） ──
+function submitDemoOrder() {
+  const stock = document.getElementById("orderStock").value.trim();
+  const side = document.getElementById("orderSide").value;
+  const qty = document.getElementById("orderQty").value;
+  const result = document.getElementById("orderResult");
+  if (!stock) {
+    result.innerHTML = `<div class="card" style="border-color:#b71c1c">❌ 請輸入股票代號</div>`;
+    return;
+  }
+  const sideLabel = side === "buy" ? "買進" : "賣出";
+  result.innerHTML = `<div class="card" style="border-color:#388e3c">
+    ✅（Demo）模擬委託已建立：${stock} ${sideLabel} ${qty} 張
+    <p class="meta">此為展示用假資料，未實際送出至下單系統</p>
+  </div>`;
 }
 
 async function viewDetail(id) {

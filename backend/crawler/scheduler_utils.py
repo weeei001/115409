@@ -24,8 +24,10 @@ FINMIND_IMPORT_SCRIPT = CRAWLER_DIR / "finmind" / "import_finmind_csv.py"
 SCORING_SCRIPT = CRAWLER_DIR.parent / "scripts" / "score_snapshots.py"
 FINMIND_OUT_DIR = CRAWLER_DIR / "finmind" / "finmind_output"
 FINMIND_START_DATE = "2021-01-01"
-FINMIND_SCHEDULE_TIME = "17:00"  
+FINMIND_SCHEDULE_TIME = "17:00"
 FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
+# 2026-07-19：股價排程屬另一位開發者負責範圍，重載時意外一併生效，先關閉待其確認後再開。
+RUN_FINMIND = False
 RUN_CNYES_NEWS_CRAWL = True
 RUN_SNAPSHOT_SCORING = True
 CNYES_INTERVAL_MINUTES = 30
@@ -150,14 +152,17 @@ def main():
     args = parse_args()
     log.info("🕒 啟動台股爬蟲排程器...")
 
-    schedule.every().day.at(FINMIND_SCHEDULE_TIME).do(run_finmind_job, args.start)
-    log.info(
-        "✅ 已設定每日 %s 執行：FinMind（起點 %s，迄今日）",
-        FINMIND_SCHEDULE_TIME,
-        args.start,
-    )
-    if args.run_now:
-        run_finmind_job(args.start)
+    if RUN_FINMIND:
+        schedule.every().day.at(FINMIND_SCHEDULE_TIME).do(run_finmind_job, args.start)
+        log.info(
+            "✅ 已設定每日 %s 執行：FinMind（起點 %s，迄今日）",
+            FINMIND_SCHEDULE_TIME,
+            args.start,
+        )
+        if args.run_now:
+            run_finmind_job(args.start)
+    else:
+        log.info("⏸️ FinMind 股價排程已停用（RUN_FINMIND=False，待負責人確認）")
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)
