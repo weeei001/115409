@@ -148,10 +148,7 @@ TEXT_BRIEF_OUTPUT_SCHEMA = """{
   "current_status": "TextBriefClaim[1..3]",
   "key_reasons": "TextBriefClaim[2..4]",
   "events": "TextBriefEvent[0..3]",
-  "potential_impacts": "TextBriefImpact[0..3]",
   "source_divergences": "TextBriefClaim[0..3]",
-  "watch_conditions": "TextBriefCondition[1..3]",
-  "forward_views": "TextBriefForwardView[3], horizons short_1_5|swing_6_20|medium_21_40 each once",
   "thesis": "TextBriefThesis",
   "overall_stance": "bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain",
   "confidence": "low|medium|high",
@@ -159,9 +156,6 @@ TEXT_BRIEF_OUTPUT_SCHEMA = """{
   "limitations": "string[0..5]",
   "TextBriefClaim": {"id":"string","claim_type":"observation|inference|conflict|limitation","text":"string max 160","direction":"positive|negative|mixed|neutral|not_applicable","evidence_ids":"string[]","importance":"high|medium"},
   "TextBriefEvent": {"id":"string","event_date":"ISO date|null","recency":"today|recent|background","title":"string","description":"string","information_type":"event|opinion|mixed","evidence_ids":"string[]","materiality":"high|medium"},
-  "TextBriefImpact": {"id":"string","source_item_ids":"string[]","text":"string","direction":"positive|negative|neutral|mixed|uncertain","time_horizon":"immediate|short|medium|unknown","thesis_effect":"strengthens|weakens|unchanged|uncertain","evidence_ids":"string[]"},
-  "TextBriefCondition": {"id":"string","kind":"confirmation|invalidation|risk","trigger":{"metric":"close_vs_ma20|close_vs_ma60|volume_vs_ma5|volume_vs_ma20|foreign_net_daily|foreign_net_10d|trust_net_daily|macd_histogram|rsi_level|named_event","operator":"crosses_above|crosses_below|stays_above|stays_below|turns_positive|turns_negative|occurs","persistence_sessions":"integer 1..5","event_ref":"string|null"},"then":{"effect_on_view":"strengthens|weakens|invalidates","direction":"bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain","within_trading_days":"5|20|40","text":"string"},"rationale":"string","evidence_ids":"string[]","scorable":false},
-  "TextBriefForwardView": {"horizon":"short_1_5|swing_6_20|medium_21_40","text":"string","stance":"bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain","confidence":"low|medium|high","basis_item_ids":"string[]","evidence_ids":"string[]","confirmation_condition_ids":"string[]","invalidation_condition_ids":"string[]"},
   "TextBriefThesis": {"statement":"string","status":"new|insufficient_data","evidence_ids":"string[]"}
 }"""
 

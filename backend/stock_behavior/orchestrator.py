@@ -18,10 +18,7 @@ from crud.technical_indicator import get_indicators
 from schemas.stock_behavior import (
     RawStockBehaviorTextBrief,
     RawTextBriefClaim,
-    RawTextBriefCondition,
     RawTextBriefEvent,
-    RawTextBriefForwardView,
-    RawTextBriefImpact,
     RawTextBriefThesis,
     StockBehaviorAiProjection,
     StockBehaviorAiResponse,
@@ -34,13 +31,9 @@ from schemas.stock_behavior import (
     StockBehaviorTextBrief,
     StockBehaviorTextBriefResponse,
     TextBriefClaim,
-    TextBriefCondition,
     TextBriefDisclaimer,
     TextBriefEvent,
-    TextBriefForwardView,
-    TextBriefImpact,
     TextBriefThesis,
-    TextBriefTrend,
     TextBriefVerification,
     SCENARIO_PROJECTION_DAYS,
 )
@@ -67,7 +60,6 @@ from stock_behavior.tools import (
     serialize_price_window_rows,
     serialize_technical_window_rows,
 )
-from stock_behavior.trend_map import TREND_DERIVATION_VERSION, derive_trend
 from stock_behavior.utils import PolicyViolationError, detect_simplified_chinese
 
 
@@ -797,8 +789,6 @@ class StockBehaviorOrchestrator:
             ) is None:
                 discarded.append(item_id if isinstance(item_id, str) else item_label)
                 continue
-            if strict_model is TextBriefCondition:
-                raw_item["scorable"] = False
             try:
                 normalized.append(
                     strict_model.model_validate(raw_item).model_dump(mode="python")
@@ -846,14 +836,6 @@ class StockBehaviorOrchestrator:
                 section="events",
                 discarded=discarded,
             ),
-            "potential_impacts": cls._normalize_text_brief_items(
-                raw["potential_impacts"],
-                raw_model=RawTextBriefImpact,
-                strict_model=TextBriefImpact,
-                id_prefix="impact",
-                section="potential_impacts",
-                discarded=discarded,
-            ),
             "source_divergences": cls._normalize_text_brief_items(
                 raw["source_divergences"],
                 raw_model=RawTextBriefClaim,
@@ -862,37 +844,12 @@ class StockBehaviorOrchestrator:
                 section="source_divergences",
                 discarded=discarded,
             ),
-            "watch_conditions": cls._normalize_text_brief_items(
-                raw["watch_conditions"],
-                raw_model=RawTextBriefCondition,
-                strict_model=TextBriefCondition,
-                id_prefix="cond",
-                section="watch_conditions",
-                discarded=discarded,
-            ),
-            "forward_views": [],
             "thesis": None,
             "overall_stance": raw["overall_stance"],
             "confidence": raw["confidence"],
             "confidence_reason": raw["confidence_reason"],
             "limitations": raw["limitations"],
         }
-
-        if isinstance(raw["forward_views"], list):
-            for index, item in enumerate(raw["forward_views"]):
-                try:
-                    raw_view = RawTextBriefForwardView.model_validate(item).model_dump(
-                        mode="python"
-                    )
-                    normalized["forward_views"].append(
-                        TextBriefForwardView.model_validate(raw_view).model_dump(
-                            mode="python"
-                        )
-                    )
-                except ValidationError:
-                    discarded.append(f"forward_views[{index}]")
-        else:
-            discarded.append("forward_views")
 
         try:
             raw_thesis = RawTextBriefThesis.model_validate(raw["thesis"]).model_dump(
@@ -981,37 +938,6 @@ class StockBehaviorOrchestrator:
             for hit in scan_compliance_hits(text)
         ]
 
-    @staticmethod
-    def _clean_text_brief_internal_ids(
-        brief_payload: dict[str, Any],
-        dangling_ids: list[str],
-    ) -> None:
-        item_ids = {
-            item["id"]
-            for section in (
-                "current_status",
-                "key_reasons",
-                "events",
-                "potential_impacts",
-                "source_divergences",
-            )
-            for item in brief_payload[section]
-        }
-        condition_ids = {item["id"] for item in brief_payload["watch_conditions"]}
-
-        def clean(item: dict[str, Any], key: str, allowed_ids: set[str]) -> None:
-            dangling_ids.extend(
-                item_id for item_id in item[key] if item_id not in allowed_ids
-            )
-            item[key] = [item_id for item_id in item[key] if item_id in allowed_ids]
-
-        for impact in brief_payload["potential_impacts"]:
-            clean(impact, "source_item_ids", item_ids)
-        for view in brief_payload["forward_views"]:
-            clean(view, "basis_item_ids", item_ids)
-            clean(view, "confirmation_condition_ids", condition_ids)
-            clean(view, "invalidation_condition_ids", condition_ids)
-
     @classmethod
     def _apply_text_brief_compliance_gate(
         cls,
@@ -1025,9 +951,7 @@ class StockBehaviorOrchestrator:
             "current_status",
             "key_reasons",
             "events",
-            "potential_impacts",
             "source_divergences",
-            "watch_conditions",
         ):
             kept = []
             for item in brief_payload[section]:
@@ -1052,9 +976,6 @@ class StockBehaviorOrchestrator:
             "thesis": brief_payload["thesis"],
             "confidence_reason": brief_payload["confidence_reason"],
             "limitations": brief_payload["limitations"],
-            "forward_views": [
-                {"text": view["text"]} for view in brief_payload["forward_views"]
-            ],
         }
         core_hits = cls._scan_text_brief_compliance(core_payload)
         hard_violations.extend(
@@ -1073,39 +994,6 @@ class StockBehaviorOrchestrator:
             soft_hits,
             any(hit.severity == "hard" for hit in core_hits),
         )
-
-    @staticmethod
-    def _downgrade_text_brief_forward_views(
-        brief_payload: dict[str, Any],
-    ) -> list[str]:
-        item_evidence = {
-            item["id"]: item["evidence_ids"]
-            for section in (
-                "current_status",
-                "key_reasons",
-                "events",
-                "potential_impacts",
-                "source_divergences",
-            )
-            for item in brief_payload[section]
-        }
-        downgraded: list[str] = []
-        for view in brief_payload["forward_views"]:
-            if view["stance"] in {"neutral", "uncertain"}:
-                continue
-            evidence_ids = set(view["evidence_ids"])
-            for item_id in view["basis_item_ids"]:
-                evidence_ids.update(item_evidence[item_id])
-            categories = {
-                evidence_id.partition("_")[0]
-                for evidence_id in evidence_ids
-                if evidence_id.partition("_")[0] in {"pv", "ch", "tc"}
-            }
-            if len(categories) < 2:
-                view["stance"] = "uncertain"
-                view["confidence"] = "low"
-                downgraded.append(view["horizon"])
-        return downgraded
 
     @staticmethod
     def _text_brief_referenced_ids(value: Any) -> set[str]:
@@ -1194,13 +1082,10 @@ class StockBehaviorOrchestrator:
         future_dated_items: list[str] = []
         compliance_violations: list[str] = []
         removed_item_ids: list[str] = []
-        dangling_internal_ids: list[str] = []
-        downgraded_view_horizons: list[str] = []
         soft_compliance_hits: list[str] = []
         simplified_chars = detect_simplified_chinese(raw_llm_text)
         discarded: list[str] = []
         brief: StockBehaviorTextBrief | None = None
-        trend: TextBriefTrend | None = None
         blocked_payload: dict[str, Any] | None = None
         fallback_message = TEXT_BRIEF_UNAVAILABLE_MESSAGE
         if raw_llm_response and not llm_meta.get("truncated"):
@@ -1229,10 +1114,6 @@ class StockBehaviorOrchestrator:
                     continue
                 kept_events.append(event)
             brief_payload["events"] = kept_events
-            self._clean_text_brief_internal_ids(
-                brief_payload,
-                dangling_internal_ids,
-            )
             brief = StockBehaviorTextBrief.model_validate(brief_payload)
 
             pre_compliance_payload = deepcopy(brief_payload)
@@ -1250,29 +1131,17 @@ class StockBehaviorOrchestrator:
                 fallback_message = TEXT_BRIEF_COMPLIANCE_UNAVAILABLE_MESSAGE
                 brief = None
             else:
-                self._clean_text_brief_internal_ids(
-                    brief_payload,
-                    dangling_internal_ids,
-                )
                 try:
                     brief = StockBehaviorTextBrief.model_validate(brief_payload)
                 except ValidationError:
                     fallback_message = TEXT_BRIEF_COMPLIANCE_UNAVAILABLE_MESSAGE
                     brief = None
-                if brief is not None:
-                    downgraded_view_horizons = (
-                        self._downgrade_text_brief_forward_views(brief_payload)
-                    )
-                    brief = StockBehaviorTextBrief.model_validate(brief_payload)
-                    trend = derive_trend(brief)
 
         filtered_ids = list(dict.fromkeys(filtered_ids))
         future_dated_items = list(dict.fromkeys(future_dated_items))
         discarded = list(dict.fromkeys(discarded))
         compliance_violations = list(dict.fromkeys(compliance_violations))
         removed_item_ids = list(dict.fromkeys(removed_item_ids))
-        dangling_internal_ids = list(dict.fromkeys(dangling_internal_ids))
-        downgraded_view_horizons = list(dict.fromkeys(downgraded_view_horizons))
         soft_compliance_hits = list(dict.fromkeys(soft_compliance_hits))
         if discarded:
             print(
@@ -1291,8 +1160,6 @@ class StockBehaviorOrchestrator:
                 or compliance_violations
                 or discarded
                 or removed_item_ids
-                or dangling_internal_ids
-                or downgraded_view_horizons
                 or soft_compliance_hits
                 else "verified"
             )
@@ -1304,8 +1171,6 @@ class StockBehaviorOrchestrator:
             simplified_chars=simplified_chars,
             future_dated_items=future_dated_items,
             removed_item_ids=removed_item_ids,
-            dangling_internal_ids=dangling_internal_ids,
-            downgraded_view_horizons=downgraded_view_horizons,
             soft_compliance_hits=soft_compliance_hits,
         )
 
@@ -1332,7 +1197,6 @@ class StockBehaviorOrchestrator:
             generated_by=model_name,
             status=status_value,
             brief=brief,
-            trend=trend,
             evidence_catalog=evidence_catalog,
             verification=verification,
             disclaimer=TextBriefDisclaimer(
@@ -1348,7 +1212,6 @@ class StockBehaviorOrchestrator:
             "example_set_version": example_set_version(),
             "compliance_policy_version": COMPLIANCE_POLICY_VERSION,
             "schema_version": TEXT_BRIEF_SCHEMA_VERSION,
-            "derivation_version": TREND_DERIVATION_VERSION,
         }
         base_volume = self._inventory_value(data_inventory, "volume_ma5")
         if base_volume is None:
@@ -1396,10 +1259,7 @@ class StockBehaviorOrchestrator:
                     normalized_payload,
                     ensure_ascii=False,
                 ),
-                public_projection_json=json.dumps(
-                    trend.model_dump(mode="json") if trend is not None else {},
-                    ensure_ascii=False,
-                ),
+                public_projection_json=json.dumps({}, ensure_ascii=False),
                 task_packet_json=json.dumps(
                     task_packet,
                     ensure_ascii=False,
