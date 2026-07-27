@@ -32,7 +32,6 @@ def _failed_response() -> dict[str, Any]:
         "verification": {
             "compliance_violations": [],
             "soft_compliance_hits": [],
-            "downgraded_view_horizons": [],
             "simplified_chars": [],
         },
     }
@@ -51,25 +50,18 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "## Stance Matrix",
             "",
-            "| Symbol | As-of | Scenario | Repeat | Status | Overall | short_1_5 | swing_6_20 | medium_21_40 |",
-            "| --- | --- | --- | ---: | --- | --- | --- | --- | --- |",
+            "| Symbol | As-of | Scenario | Repeat | Status | Overall |",
+            "| --- | --- | --- | ---: | --- | --- |",
         ]
     )
     for result in report["results"]:
         response = result["response"]
         brief = response.get("brief") or {}
-        views = {
-            item.get("horizon"): item.get("stance", "-")
-            for item in brief.get("forward_views", [])
-            if isinstance(item, dict)
-        }
         case = result["case"]
         scenario = str(case.get("scenario", "-")).replace("|", "\\|")
         lines.append(
             f"| {case['symbol']} | {case['as_of_date']} | {scenario} | {result['repeat']} | "
-            f"{response.get('status', '-')} | {brief.get('overall_stance', '-')} | "
-            f"{views.get('short_1_5', '-')} | {views.get('swing_6_20', '-')} | "
-            f"{views.get('medium_21_40', '-')} |"
+            f"{response.get('status', '-')} | {brief.get('overall_stance', '-')} |"
         )
     return "\n".join(lines) + "\n"
 

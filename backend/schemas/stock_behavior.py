@@ -29,10 +29,6 @@ StanceLevel = Literal[
     "bearish",
     "uncertain",
 ]
-HorizonKey = Literal["short_1_5", "swing_6_20", "medium_21_40"]
-ScoreDirection = Literal["up", "down", "neutral", "uncertain"]
-
-
 class StockBehaviorRagRequest(BaseModel):
     symbols: List[str] = Field(
         ...,
@@ -79,10 +75,6 @@ class StockBehaviorRagPayload(BaseModel):
         default=False,
         description="是否啟用 fallback 模式。",
     )
-    raw_answer: str = Field(
-        default="",
-        description="已棄用：RAG 服務已移除此欄位，恆為空字串，僅為前端相容保留",
-    )
 
 
 class StockBehaviorAiRequest(StockBehaviorRagPayload):
@@ -107,7 +99,6 @@ class StockBehaviorAiRequest(StockBehaviorRagPayload):
                     }
                 ],
                 "fallback_mode": False,
-                "raw_answer": "",
             }
         }
     )
@@ -277,7 +268,6 @@ class StockBehaviorRagResponse(StockBehaviorRagPayload):
                     }
                 ],
                 "fallback_mode": False,
-                "raw_answer": "",
             }
         }
     )
@@ -345,70 +335,6 @@ class TextBriefEvent(BaseModel):
     materiality: Literal["high", "medium"] = "medium"
 
 
-class TextBriefImpact(BaseModel):
-    id: str
-    source_item_ids: list[str] = Field(default_factory=list)
-    text: str
-    direction: Literal["positive", "negative", "neutral", "mixed", "uncertain"]
-    time_horizon: Literal["immediate", "short", "medium", "unknown"]
-    thesis_effect: Literal["strengthens", "weakens", "unchanged", "uncertain"]
-    evidence_ids: list[str] = Field(default_factory=list)
-
-
-class TextBriefConditionTrigger(BaseModel):
-    metric: Literal[
-        "close_vs_ma20",
-        "close_vs_ma60",
-        "volume_vs_ma5",
-        "volume_vs_ma20",
-        "foreign_net_daily",
-        "foreign_net_10d",
-        "trust_net_daily",
-        "macd_histogram",
-        "rsi_level",
-        "named_event",
-    ]
-    operator: Literal[
-        "crosses_above",
-        "crosses_below",
-        "stays_above",
-        "stays_below",
-        "turns_positive",
-        "turns_negative",
-        "occurs",
-    ]
-    persistence_sessions: int = Field(default=1, ge=1, le=5)
-    event_ref: str | None = None
-
-
-class TextBriefConditionThen(BaseModel):
-    effect_on_view: Literal["strengthens", "weakens", "invalidates"]
-    direction: StanceLevel
-    within_trading_days: Literal[5, 20, 40]
-    text: str
-
-
-class TextBriefCondition(BaseModel):
-    id: str
-    kind: Literal["confirmation", "invalidation", "risk"]
-    trigger: TextBriefConditionTrigger
-    then: TextBriefConditionThen
-    rationale: str
-    evidence_ids: list[str] = Field(default_factory=list)
-    scorable: bool = False
-
-
-class TextBriefForwardView(BaseModel):
-    horizon: HorizonKey
-    text: str
-    stance: StanceLevel
-    confidence: ConfidenceLevel
-    basis_item_ids: list[str] = Field(default_factory=list)
-    evidence_ids: list[str] = Field(default_factory=list)
-    confirmation_condition_ids: list[str] = Field(default_factory=list)
-    invalidation_condition_ids: list[str] = Field(default_factory=list)
-
-
 class TextBriefThesis(BaseModel):
     statement: str
     status: Literal["new", "insufficient_data"]
@@ -420,67 +346,12 @@ class StockBehaviorTextBrief(BaseModel):
     current_status: list[TextBriefClaim] = Field(min_length=1, max_length=3)
     key_reasons: list[TextBriefClaim] = Field(min_length=2, max_length=4)
     events: list[TextBriefEvent] = Field(default_factory=list, max_length=3)
-    potential_impacts: list[TextBriefImpact] = Field(default_factory=list, max_length=3)
     source_divergences: list[TextBriefClaim] = Field(default_factory=list, max_length=3)
-    watch_conditions: list[TextBriefCondition] = Field(min_length=1, max_length=3)
-    forward_views: list[TextBriefForwardView]
     thesis: TextBriefThesis
     overall_stance: StanceLevel
     confidence: ConfidenceLevel
     confidence_reason: str
     limitations: list[str] = Field(default_factory=list, max_length=5)
-
-    @field_validator("forward_views")
-    @classmethod
-    def validate_forward_view_horizons(
-        cls, value: list[TextBriefForwardView]
-    ) -> list[TextBriefForwardView]:
-        horizons = [item.horizon for item in value]
-        expected = {"short_1_5", "swing_6_20", "medium_21_40"}
-        if len(horizons) != 3 or set(horizons) != expected:
-            raise ValueError("forward_views must contain each horizon exactly once")
-        return value
-
-
-class TextBriefTrendHorizon(BaseModel):
-    horizon: HorizonKey
-    trading_day_range: list[int]
-    evaluation_day: Literal[5, 20, 40]
-    directional_band: StanceLevel
-    score_direction: ScoreDirection
-    confidence: ConfidenceLevel
-    basis_item_ids: list[str] = Field(default_factory=list)
-    evidence_ids: list[str] = Field(default_factory=list)
-    confirmation_condition_ids: list[str] = Field(default_factory=list)
-    invalidation_condition_ids: list[str] = Field(default_factory=list)
-    score_eligible: bool
-    not_scoreable_reason: str | None = None
-
-
-class TextBriefTrend(BaseModel):
-    derivation_version: str = "trend-map-v1"
-    method: str = "structured_anchor_mapping"
-    horizon_days: int = 40
-    horizons: list[TextBriefTrendHorizon]
-    contains_price_forecast: bool = False
-
-    @field_validator("horizons")
-    @classmethod
-    def validate_horizons(
-        cls, value: list[TextBriefTrendHorizon]
-    ) -> list[TextBriefTrendHorizon]:
-        horizons = [item.horizon for item in value]
-        expected = {"short_1_5", "swing_6_20", "medium_21_40"}
-        if len(horizons) != 3 or set(horizons) != expected:
-            raise ValueError("trend horizons must contain each horizon exactly once")
-        return value
-
-    @field_validator("contains_price_forecast")
-    @classmethod
-    def reject_price_forecast(cls, value: bool) -> bool:
-        if value:
-            raise ValueError("contains_price_forecast must be false")
-        return value
 
 
 class TextBriefVerification(BaseModel):
@@ -489,8 +360,6 @@ class TextBriefVerification(BaseModel):
     simplified_chars: list[str] = Field(default_factory=list)
     future_dated_items: list[str] = Field(default_factory=list)
     removed_item_ids: list[str] = Field(default_factory=list)
-    dangling_internal_ids: list[str] = Field(default_factory=list)
-    downgraded_view_horizons: list[str] = Field(default_factory=list)
     soft_compliance_hits: list[str] = Field(default_factory=list)
 
 
@@ -506,7 +375,6 @@ class StockBehaviorTextBriefResponse(BaseModel):
     generated_by: str
     status: Literal["verified", "limited", "unavailable"]
     brief: StockBehaviorTextBrief | None
-    trend: TextBriefTrend | None = None
     evidence_catalog: list[StockBehaviorInventoryItem] = Field(default_factory=list)
     verification: TextBriefVerification
     disclaimer: TextBriefDisclaimer
@@ -533,51 +401,6 @@ class RawTextBriefEvent(BaseModel):
     materiality: Any = "medium"
 
 
-class RawTextBriefImpact(BaseModel):
-    id: Any = None
-    source_item_ids: Any = Field(default_factory=list)
-    text: Any = None
-    direction: Any = None
-    time_horizon: Any = None
-    thesis_effect: Any = None
-    evidence_ids: Any = Field(default_factory=list)
-
-
-class RawTextBriefConditionTrigger(BaseModel):
-    metric: Any = None
-    operator: Any = None
-    persistence_sessions: Any = 1
-    event_ref: Any = None
-
-
-class RawTextBriefConditionThen(BaseModel):
-    effect_on_view: Any = None
-    direction: Any = None
-    within_trading_days: Any = None
-    text: Any = None
-
-
-class RawTextBriefCondition(BaseModel):
-    id: Any = None
-    kind: Any = None
-    trigger: Any = None
-    then: Any = None
-    rationale: Any = None
-    evidence_ids: Any = Field(default_factory=list)
-    scorable: Any = False
-
-
-class RawTextBriefForwardView(BaseModel):
-    horizon: Any = None
-    text: Any = None
-    stance: Any = None
-    confidence: Any = None
-    basis_item_ids: Any = Field(default_factory=list)
-    evidence_ids: Any = Field(default_factory=list)
-    confirmation_condition_ids: Any = Field(default_factory=list)
-    invalidation_condition_ids: Any = Field(default_factory=list)
-
-
 class RawTextBriefThesis(BaseModel):
     statement: Any = None
     status: Any = None
@@ -589,10 +412,7 @@ class RawStockBehaviorTextBrief(BaseModel):
     current_status: Any = Field(default_factory=list)
     key_reasons: Any = Field(default_factory=list)
     events: Any = Field(default_factory=list)
-    potential_impacts: Any = Field(default_factory=list)
     source_divergences: Any = Field(default_factory=list)
-    watch_conditions: Any = Field(default_factory=list)
-    forward_views: Any = Field(default_factory=list)
     thesis: Any = None
     overall_stance: Any = None
     confidence: Any = None

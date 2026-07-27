@@ -91,3 +91,11 @@ news_chunks.sql
 
 # 排程心跳檔
 backend/crawler/.last_run
+docs
+backend/select_distill_cases.py
+backend/curate_golden_examples.py
+backend/dev_cases.json
+backend/distill_case_pool.json
+backend/few_shot_examples_draft.py
+backend/golden_cases.json
+backend/golden_extra.json

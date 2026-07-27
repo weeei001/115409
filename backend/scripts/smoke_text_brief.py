@@ -17,7 +17,6 @@ from config import get_settings
 from schemas.stock_behavior import StockBehaviorTextBrief
 from stock_behavior.compliance import scan_compliance_hits
 from stock_behavior.llm import StockBehaviorLlmService
-from stock_behavior.trend_map import derive_trend
 from stock_behavior.utils import detect_simplified_chinese
 
 
@@ -109,21 +108,14 @@ async def run(symbol: str, dump_raw: str | None = None) -> None:
         Path(dump_raw).write_text(raw_text, encoding="utf-8")
 
     schema_status = "unavailable"
-    horizons: list[str] = []
-    trend_horizons: list[dict] = []
+    overall_stance = "-"
+    confidence = "-"
     validation_error = ""
     if parsed and not meta["truncated"]:
         try:
             brief = StockBehaviorTextBrief.model_validate(parsed)
-            horizons = [view.horizon for view in brief.forward_views]
-            trend_horizons = [
-                {
-                    "horizon": horizon.horizon,
-                    "direction": horizon.score_direction,
-                    "eligible": horizon.score_eligible,
-                }
-                for horizon in derive_trend(brief).horizons
-            ]
+            overall_stance = brief.overall_stance
+            confidence = brief.confidence
             schema_status = "verified"
         except ValidationError as exc:
             validation_error = str(exc)
@@ -134,8 +126,8 @@ async def run(symbol: str, dump_raw: str | None = None) -> None:
     print(f"finish_reason={meta['finish_reason']}")
     print(f"truncated={meta['truncated']}")
     print(f"schema_status={schema_status}")
-    print(f"forward_views={horizons}")
-    print(f"trend={trend_horizons}")
+    print(f"overall_stance={overall_stance}")
+    print(f"confidence={confidence}")
     print(f"simplified_chinese={detect_simplified_chinese(raw_text)}")
     print(
         "hard_compliance_hits="

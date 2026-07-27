@@ -6,9 +6,6 @@ from statistics import fmean
 from typing import Any
 
 
-HORIZONS = ("short_1_5", "swing_6_20", "medium_21_40")
-
-
 def _response(result: dict[str, Any]) -> dict[str, Any]:
     response = result.get("response")
     return response if isinstance(response, dict) else result
@@ -44,9 +41,8 @@ def _percentile(values: list[float], percentile: float) -> float:
 def aggregate_eval_results(results: list[dict]) -> dict:
     statuses = ("verified", "limited", "unavailable")
     status_counts = Counter()
-    hard_runs = soft_hits = downgrade_runs = simplified_runs = 0
+    hard_runs = soft_hits = simplified_runs = 0
     overall_by_case: dict[tuple[Any, Any], list[str]] = defaultdict(list)
-    horizon_by_case = {horizon: defaultdict(list) for horizon in HORIZONS}
     latencies: list[float] = []
 
     for result in results:
@@ -56,7 +52,6 @@ def aggregate_eval_results(results: list[dict]) -> dict:
         verification = response.get("verification") or {}
         hard_runs += bool(verification.get("compliance_violations"))
         soft_hits += len(verification.get("soft_compliance_hits") or [])
-        downgrade_runs += bool(verification.get("downgraded_view_horizons"))
         simplified_runs += bool(verification.get("simplified_chars"))
 
         latency = result.get("latency_ms")
@@ -70,12 +65,6 @@ def aggregate_eval_results(results: list[dict]) -> dict:
         stance = brief.get("overall_stance")
         if isinstance(stance, str):
             overall_by_case[key].append(stance)
-        for view in brief.get("forward_views") or []:
-            if not isinstance(view, dict):
-                continue
-            horizon, view_stance = view.get("horizon"), view.get("stance")
-            if horizon in horizon_by_case and isinstance(view_stance, str):
-                horizon_by_case[horizon][key].append(view_stance)
 
     total = len(results)
     return {
@@ -84,14 +73,9 @@ def aggregate_eval_results(results: list[dict]) -> dict:
         "unavailable_rate": status_counts["unavailable"] / total if total else 0.0,
         "hard_violation_rate": hard_runs / total if total else 0.0,
         "soft_hits_avg": soft_hits / total if total else 0.0,
-        "downgrade_rate": downgrade_runs / total if total else 0.0,
         "simplified_char_runs": simplified_runs,
         "stance_agreement": {
             "overall_stance": _agreement(overall_by_case),
-            "forward_views": {
-                horizon: _agreement(grouped)
-                for horizon, grouped in horizon_by_case.items()
-            },
         },
         "latency_ms_p50": _percentile(latencies, 0.50),
         "latency_ms_p95": _percentile(latencies, 0.95),

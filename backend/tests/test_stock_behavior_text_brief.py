@@ -33,7 +33,6 @@ from stock_behavior.prompt_templates import (
     TEXT_BRIEF_PROMPT_VERSION,
     TEXT_BRIEF_SYSTEM_PROMPT,
 )
-from stock_behavior.trend_map import TREND_DERIVATION_VERSION, derive_trend
 
 
 def _settings(**overrides):
@@ -119,61 +118,7 @@ def _valid_brief():
             },
         ],
         "events": [],
-        "potential_impacts": [],
         "source_divergences": [],
-        "watch_conditions": [
-            {
-                "id": "cond_01",
-                "kind": "confirmation",
-                "trigger": {
-                    "metric": "close_vs_ma20",
-                    "operator": "stays_above",
-                    "persistence_sessions": 2,
-                    "event_ref": None,
-                },
-                "then": {
-                    "effect_on_view": "strengthens",
-                    "direction": "mildly_bullish",
-                    "within_trading_days": 5,
-                    "text": "若收盤持續位於月線之上，短線偏強看法獲得確認。",
-                },
-                "rationale": "月線可用來觀察價格承接是否延續。",
-                "evidence_ids": ["tc_01"],
-                "scorable": False,
-            }
-        ],
-        "forward_views": [
-            {
-                "horizon": "short_1_5",
-                "text": "短線價格結構偏強，但量能仍需確認。",
-                "stance": "mildly_bullish",
-                "confidence": "medium",
-                "basis_item_ids": ["why_01"],
-                "evidence_ids": ["pv_01", "tc_01"],
-                "confirmation_condition_ids": ["cond_01"],
-                "invalidation_condition_ids": [],
-            },
-            {
-                "horizon": "swing_6_20",
-                "text": "波段表現取決於外資承接能否延續。",
-                "stance": "neutral",
-                "confidence": "medium",
-                "basis_item_ids": ["why_02"],
-                "evidence_ids": ["ch_01"],
-                "confirmation_condition_ids": ["cond_01"],
-                "invalidation_condition_ids": [],
-            },
-            {
-                "horizon": "medium_21_40",
-                "text": "中期資料仍有限，方向判斷保留不確定性。",
-                "stance": "uncertain",
-                "confidence": "low",
-                "basis_item_ids": ["why_01", "why_02"],
-                "evidence_ids": ["pv_01", "ch_01"],
-                "confirmation_condition_ids": ["cond_01"],
-                "invalidation_condition_ids": [],
-            },
-        ],
         "thesis": {
             "statement": "價格結構偏強，籌碼延續性是後續核心觀察。",
             "status": "new",
@@ -240,33 +185,12 @@ def test_schema_happy_path_is_verified_with_fixed_disclaimer_and_used_catalog(
     assert [item.id for item in response.evidence_catalog] == [
         "pv_01",
         "ch_01",
-        "tc_01",
     ]
     assert captured["task_packet"]["task"]["type"] == "stock_behavior_text_brief"
     assert captured["snapshot"]["is_fallback"] is False
-    assert len(response.trend.horizons) == 3
-    projection = json.loads(captured["snapshot"]["public_projection_json"])
-    assert len(projection["horizons"]) == 3
+    assert json.loads(captured["snapshot"]["public_projection_json"]) == {}
     config = json.loads(captured["snapshot"]["config_json"])
-    assert config["derivation_version"] == TREND_DERIVATION_VERSION
     assert config["compliance_policy_version"] == "q7-blacklist-v3"
-
-
-@pytest.mark.parametrize("variant", ["missing", "duplicate"])
-def test_forward_views_missing_or_duplicate_horizon_falls_back(
-    monkeypatch,
-    variant,
-):
-    brief = _valid_brief()
-    if variant == "missing":
-        brief["forward_views"].pop()
-    else:
-        brief["forward_views"][2]["horizon"] = "short_1_5"
-
-    response, _ = _run_brief(monkeypatch, brief)
-
-    assert response.status == "unavailable"
-    assert response.brief is None
 
 
 def test_invalid_claim_enum_discards_only_that_item_and_marks_limited(monkeypatch):
@@ -312,76 +236,17 @@ def test_future_event_is_removed_and_marks_limited(monkeypatch):
     assert response.verification.future_dated_items == ["event_01"]
 
 
-def test_internal_references_to_removed_items_are_cleaned_and_trend_is_auditable(
-    monkeypatch,
-):
-    brief = _valid_brief()
-    brief["events"] = [
-        {
-            "id": "event_01",
-            "event_date": "2026-07-16",
-            "recency": "today",
-            "title": "未來事件",
-            "description": "此事件日期晚於分析基準日。",
-            "information_type": "event",
-            "evidence_ids": ["nw_01"],
-            "materiality": "high",
-        }
-    ]
-    brief["potential_impacts"] = [
-        {
-            "id": "impact_01",
-            "source_item_ids": ["event_01"],
-            "text": "事件影響仍待後續市場資料驗證。",
-            "direction": "uncertain",
-            "time_horizon": "unknown",
-            "thesis_effect": "uncertain",
-            "evidence_ids": ["nw_01"],
-        }
-    ]
-    brief["forward_views"][0]["basis_item_ids"] = ["event_01", "why_01"]
-    brief["forward_views"][0]["confirmation_condition_ids"] = [
-        "cond_01",
-        "cond_99",
-    ]
-
-    response, _ = _run_brief(monkeypatch, brief)
-
-    assert response.brief.potential_impacts[0].source_item_ids == []
-    assert response.brief.forward_views[0].basis_item_ids == ["why_01"]
-    assert response.brief.forward_views[0].confirmation_condition_ids == ["cond_01"]
-    assert response.verification.dangling_internal_ids == ["event_01", "cond_99"]
-    existing_ids = {
-        item.id
-        for section in (
-            response.brief.current_status,
-            response.brief.key_reasons,
-            response.brief.events,
-            response.brief.potential_impacts,
-            response.brief.source_divergences,
-        )
-        for item in section
-    }
-    assert all(
-        set(horizon.basis_item_ids) <= existing_ids
-        for horizon in response.trend.horizons
-    )
-
-
 def test_item_compliance_hard_gate_removes_claim_and_ignores_historical_close(
     monkeypatch,
 ):
     brief = _valid_brief()
     brief["current_status"][0]["text"] = "建議買進，後續上看 1200 元。"
-    brief["forward_views"][0]["basis_item_ids"] = ["cs_01", "why_01"]
 
     response, _ = _run_brief(monkeypatch, brief)
 
     assert response.status == "limited"
     assert [item.id for item in response.brief.current_status] == ["cs_02"]
     assert response.verification.removed_item_ids == ["cs_01"]
-    assert response.brief.forward_views[0].basis_item_ids == ["why_01"]
-    assert response.verification.dangling_internal_ids == ["cs_01"]
     assert any(
         item.startswith("操作指令-hard:")
         for item in response.verification.compliance_violations
@@ -402,7 +267,6 @@ def test_item_compliance_removal_below_required_minimum_is_unavailable(monkeypat
 
     assert response.status == "unavailable"
     assert response.brief is None
-    assert response.trend is None
     assert response.limitations == ["簡報內容未通過合規檢查，本次無法提供。"]
     assert response.verification.removed_item_ids == ["why_01"]
     assert captured["snapshot"]["is_fallback"] is True
@@ -416,7 +280,6 @@ def test_core_compliance_hard_gate_preserves_blocked_payload_for_research(monkey
 
     assert response.status == "unavailable"
     assert response.brief is None
-    assert response.trend is None
     assert captured["snapshot"]["is_fallback"] is True
     blocked = json.loads(captured["snapshot"]["normalized_payload_json"])
     assert blocked["blocked_by_compliance"] is True
@@ -482,25 +345,6 @@ def test_soft_compliance_hit_marks_limited_without_removing_item(monkeypatch):
     )
 
 
-def test_directional_view_with_one_market_evidence_category_is_downgraded(
-    monkeypatch,
-):
-    brief = _valid_brief()
-    brief["forward_views"][0]["evidence_ids"] = ["nw_01"]
-
-    response, _ = _run_brief(monkeypatch, brief)
-
-    view = response.brief.forward_views[0]
-    horizon = response.trend.horizons[0]
-    assert response.status == "limited"
-    assert view.stance == "uncertain"
-    assert view.confidence == "low"
-    assert response.verification.downgraded_view_horizons == ["short_1_5"]
-    assert horizon.score_direction == "uncertain"
-    assert horizon.score_eligible is False
-    assert horizon.not_scoreable_reason == "證據不足"
-
-
 def test_truncated_output_is_unavailable_and_creates_fallback_snapshot(monkeypatch):
     response, captured = _run_brief(
         monkeypatch,
@@ -517,7 +361,7 @@ def test_truncated_output_is_unavailable_and_creates_fallback_snapshot(monkeypat
     assert response.limitations == ["模型輸出無法解析，本次無法提供簡報。"]
     snapshot = captured["snapshot"]
     assert snapshot["is_fallback"] is True
-    assert snapshot["prompt_version"] == "v3-text-first-01"
+    assert snapshot["prompt_version"] == "v4-text-only-01"
     config = json.loads(snapshot["config_json"])
     assert config["prompt_version"] == TEXT_BRIEF_PROMPT_VERSION
     assert config["schema_version"] == "text-first-v1"
@@ -533,7 +377,6 @@ def test_text_brief_route_returns_response_envelope(monkeypatch):
             "generated_by": "mock",
             "status": "verified",
             "brief": brief,
-            "trend": derive_trend(brief),
             "evidence_catalog": [],
             "verification": {
                 "filtered_evidence_ids": [],
@@ -579,8 +422,9 @@ def test_text_brief_route_returns_response_envelope(monkeypatch):
     assert response.status_code == 200
     assert response.json()["schema_version"] == "text-first-v1"
     assert response.json()["status"] == "verified"
-    assert len(response.json()["trend"]["horizons"]) == 3
-    assert response.json()["brief"]["forward_views"][2]["horizon"] == "medium_21_40"
+    assert "trend" not in response.json()
+    assert "forward_views" not in response.json()["brief"]
+    assert response.json()["brief"]["overall_stance"] == "mildly_bullish"
 
 
 def test_llm_text_brief_uses_v3_prompt_static_schema_and_strict_root_json(
@@ -628,7 +472,7 @@ def test_v3_prompt_matches_wave1_spec_verbatim():
         pytest.skip("docs/wave1_spec.md 未入版控，僅在有本地規格檔時執行逐字比對")
     spec = spec_path.read_text(encoding="utf-8")
     block = re.search(
-        r'\x60\x60\x60python\n(TEXT_BRIEF_PROMPT_VERSION = "v3-text-first-01"\n\n'
+        r'\x60\x60\x60python\n(TEXT_BRIEF_PROMPT_VERSION = "v4-text-only-01"\n\n'
         r'TEXT_BRIEF_SYSTEM_PROMPT = """.*?"""\n)\x60\x60\x60',
         spec,
         re.DOTALL,

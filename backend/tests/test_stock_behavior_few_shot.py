@@ -144,26 +144,13 @@ def _eval_result(
     case: str,
     status: str,
     overall: str | None,
-    stances: tuple[str, str, str] | None,
     latency_ms: int,
     *,
     hard: bool = False,
     soft_hits: int = 0,
-    downgraded: bool = False,
     simplified: bool = False,
 ) -> dict:
-    brief = None
-    if overall and stances:
-        brief = {
-            "overall_stance": overall,
-            "forward_views": [
-                {"horizon": horizon, "stance": stance}
-                for horizon, stance in zip(
-                    ("short_1_5", "swing_6_20", "medium_21_40"),
-                    stances,
-                )
-            ],
-        }
+    brief = {"overall_stance": overall} if overall else None
     return {
         "case": {"symbol": case, "as_of_date": "2025-03-14"},
         "latency_ms": latency_ms,
@@ -173,7 +160,6 @@ def _eval_result(
             "verification": {
                 "compliance_violations": ["hard"] if hard else [],
                 "soft_compliance_hits": ["soft"] * soft_hits,
-                "downgraded_view_horizons": ["short_1_5"] if downgraded else [],
                 "simplified_chars": ["发"] if simplified else [],
             },
         },
@@ -182,12 +168,12 @@ def _eval_result(
 
 def test_aggregate_eval_results_all_metrics_and_modal_agreement():
     results = [
-        _eval_result("A", "verified", "bullish", ("bullish", "mixed", "bullish"), 100),
-        _eval_result("A", "limited", "bullish", ("bullish", "mixed", "bearish"), 200, soft_hits=2, downgraded=True),
-        _eval_result("A", "verified", "bearish", ("bearish", "mixed", "bearish"), 300, hard=True),
-        _eval_result("B", "verified", "neutral", ("neutral", "neutral", "uncertain"), 400, simplified=True),
-        _eval_result("B", "limited", "neutral", ("mixed", "neutral", "uncertain"), 500, soft_hits=1, downgraded=True),
-        _eval_result("B", "unavailable", None, None, 600),
+        _eval_result("A", "verified", "bullish", 100),
+        _eval_result("A", "limited", "bullish", 200, soft_hits=2),
+        _eval_result("A", "verified", "bearish", 300, hard=True),
+        _eval_result("B", "verified", "neutral", 400, simplified=True),
+        _eval_result("B", "limited", "neutral", 500, soft_hits=1),
+        _eval_result("B", "unavailable", None, 600),
     ]
 
     metrics = aggregate_eval_results(results)
@@ -197,14 +183,9 @@ def test_aggregate_eval_results_all_metrics_and_modal_agreement():
     assert metrics["unavailable_rate"] == pytest.approx(1 / 6)
     assert metrics["hard_violation_rate"] == pytest.approx(1 / 6)
     assert metrics["soft_hits_avg"] == pytest.approx(0.5)
-    assert metrics["downgrade_rate"] == pytest.approx(1 / 3)
     assert metrics["simplified_char_runs"] == 1
     assert metrics["stance_agreement"]["overall_stance"] == pytest.approx(5 / 6)
-    assert metrics["stance_agreement"]["forward_views"] == {
-        "short_1_5": pytest.approx(7 / 12),
-        "swing_6_20": pytest.approx(1.0),
-        "medium_21_40": pytest.approx(5 / 6),
-    }
+    assert "forward_views" not in metrics["stance_agreement"]
     assert metrics["latency_ms_p50"] == 350
     assert metrics["latency_ms_p95"] == 575
 
