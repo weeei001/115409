@@ -3,7 +3,7 @@ from . import chart_helper
 from . import technical_indicator
 from . import simulated_order
 from . import finmind_extra
-from . import analysis_snapshot
+from . import llm_response
 
 __all__ = [
     "daily_price",
@@ -11,5 +11,5 @@ __all__ = [
     "technical_indicator",
     "simulated_order",
     "finmind_extra",
-    "analysis_snapshot",
+    "llm_response",
 ]

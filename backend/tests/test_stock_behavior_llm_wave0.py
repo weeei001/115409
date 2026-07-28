@@ -132,7 +132,7 @@ def test_truncated_orchestrator_result_creates_fallback_snapshot(monkeypatch):
     }
     monkeypatch.setattr(
         orchestrator_module,
-        "create_snapshot",
+        "create_llm_response",
         lambda db, **fields: captured.update(fields),
     )
 

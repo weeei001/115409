@@ -11,10 +11,14 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from crud.analysis_snapshot import create_snapshot, get_cached_snapshot
 from crud.daily_price import get_price_range
 from crud.institutional_trade import get_by_symbol_range
+from crud.llm_response import create_llm_response, get_cached_llm_response
 from crud.technical_indicator import get_indicators
+from models.llm_response import (
+    LLM_RESPONSE_KIND_PROJECTION,
+    LLM_RESPONSE_KIND_TEXT_BRIEF,
+)
 from schemas.stock_behavior import (
     RawStockBehaviorTextBrief,
     RawTextBriefClaim,
@@ -786,47 +790,36 @@ class StockBehaviorOrchestrator:
         config = build_analysis_config(self._settings, model_name)
         config_json = json.dumps(config, ensure_ascii=False, sort_keys=True)
         try:
-            create_snapshot(
+            create_llm_response(
                 self._db,
                 symbol=symbol,
                 as_of_date=as_of_date,
-                run_kind=(
-                    "backtest"
-                    if req.as_of_date is not None and req.as_of_date < today
-                    else "live"
-                ),
+                kind=LLM_RESPONSE_KIND_PROJECTION,
                 config_hash=compute_config_hash(config),
                 config_json=config_json,
                 model_name=model_name,
                 prompt_version=PROMPT_VERSION,
                 is_fallback=is_fallback,
-                rag_fallback_mode=bool(rag_news.get("fallback_mode", False)),
                 news_count=len(rag_news.get("news_sources", [])),
-                base_close=public_projection.base_close,
-                base_volume=public_projection.base_volume,
                 summary=validated.summary,
-                news_sources_json=json.dumps(
-                    rag_news.get("news_sources", []), ensure_ascii=False, default=str
-                ),
-                data_inventory_json=json.dumps(data_inventory, ensure_ascii=False, default=str),
-                normalized_payload_json=json.dumps(
+                prompt_json=json.dumps(task_packet, ensure_ascii=False, default=str),
+                raw_llm_text=raw_llm_text,
+                normalized_json=json.dumps(
                     validated.model_dump(mode="json"), ensure_ascii=False
                 ),
-                public_projection_json=json.dumps(
-                    public_projection.model_dump(mode="json"), ensure_ascii=False
+                response_json=json.dumps(
+                    response.model_dump(mode="json"), ensure_ascii=False, default=str
                 ),
-                task_packet_json=json.dumps(task_packet, ensure_ascii=False, default=str),
-                raw_llm_text=raw_llm_text,
                 latency_ms=latency_ms,
             )
             print(
-                f"[stock_behavior_snapshot] status=success symbol={symbol} "
+                f"[stock_behavior_llm_response] status=success symbol={symbol} "
                 f"is_fallback={is_fallback} "
                 f"finish_reason={llm_meta.get('finish_reason')}"
             )
         except Exception as exc:
             print(
-                f"[stock_behavior_snapshot] status=fail symbol={symbol} "
+                f"[stock_behavior_llm_response] status=fail symbol={symbol} "
                 f"finish_reason={llm_meta.get('finish_reason')} error={exc}"
             )
             self._db.rollback()
@@ -1340,19 +1333,18 @@ class StockBehaviorOrchestrator:
         symbol: str,
         as_of_date: date,
         config_hash: str,
-        run_kind: str,
     ) -> StockBehaviorTextBriefResponse | None:
-        snapshot = get_cached_snapshot(
+        row = get_cached_llm_response(
             self._db,
             symbol=symbol,
             as_of_date=as_of_date,
+            kind=LLM_RESPONSE_KIND_TEXT_BRIEF,
             config_hash=config_hash,
-            run_kind=run_kind,
         )
-        if snapshot is None or not snapshot.public_projection_json:
+        if row is None or not row.response_json:
             return None
         try:
-            stored = json.loads(snapshot.public_projection_json)
+            stored = json.loads(row.response_json)
             response = StockBehaviorTextBriefResponse.model_validate(stored)
         except (ValueError, ValidationError):
             return None
@@ -1364,10 +1356,8 @@ class StockBehaviorOrchestrator:
         req: StockBehaviorTextBriefRequest,
     ) -> StockBehaviorTextBriefResponse:
         symbol = req.symbol.strip().upper()
-        today = date.today()
-        as_of_date = req.as_of_date or today
+        as_of_date = req.as_of_date or date.today()
         as_of_date_text = as_of_date.isoformat()
-        run_kind = "backtest" if req.as_of_date is not None and req.as_of_date < today else "live"
         model_name = getattr(
             self._llm,
             "model_name",
@@ -1379,7 +1369,6 @@ class StockBehaviorOrchestrator:
             "text_brief.request",
             symbol=symbol,
             as_of=as_of_date_text,
-            run_kind=run_kind,
             model=model_name,
             force_refresh=req.force_refresh,
             config_hash=config_hash[:12],
@@ -1390,7 +1379,6 @@ class StockBehaviorOrchestrator:
                 symbol=symbol,
                 as_of_date=as_of_date,
                 config_hash=config_hash,
-                run_kind=run_kind,
             )
             if cached is not None:
                 log_event(
@@ -1589,64 +1577,49 @@ class StockBehaviorOrchestrator:
             limitations=limitations,
         )
 
-        latest_row = bundle.daily_timeline[-1] if bundle.daily_timeline else {}
         normalized_payload = (
             brief.model_dump(mode="json")
             if brief is not None
             else blocked_payload or {"limitations": limitations}
         )
         try:
-            create_snapshot(
+            create_llm_response(
                 self._db,
                 symbol=symbol,
                 as_of_date=as_of_date,
-                run_kind=run_kind,
+                kind=LLM_RESPONSE_KIND_TEXT_BRIEF,
                 config_hash=config_hash,
                 config_json=json.dumps(config, ensure_ascii=False, sort_keys=True),
                 model_name=model_name,
                 prompt_version=TEXT_BRIEF_PROMPT_VERSION,
                 is_fallback=is_fallback,
-                rag_fallback_mode=rag_fallback_mode,
                 news_count=len(bundle.news),
-                base_close=latest_row.get("close"),
-                base_volume=latest_row.get("vol_lots"),
                 summary=(brief.headline if brief is not None else fallback_message),
-                news_sources_json=json.dumps(
-                    bundle.news,
-                    ensure_ascii=False,
-                    default=str,
-                ),
-                data_inventory_json=json.dumps(
-                    bundle.as_payload_sections(),
-                    ensure_ascii=False,
-                    default=str,
-                ),
-                normalized_payload_json=json.dumps(
-                    normalized_payload,
-                    ensure_ascii=False,
-                ),
-                # text-brief 沒有情境推演，這個欄位改存完整對外回應，供快取重播。
-                public_projection_json=json.dumps(
-                    response.model_dump(mode="json"),
-                    ensure_ascii=False,
-                ),
-                task_packet_json=json.dumps(
+                prompt_json=json.dumps(
                     task_packet,
                     ensure_ascii=False,
                     default=str,
                 ),
                 raw_llm_text=raw_llm_text,
+                normalized_json=json.dumps(
+                    normalized_payload,
+                    ensure_ascii=False,
+                ),
+                response_json=json.dumps(
+                    response.model_dump(mode="json"),
+                    ensure_ascii=False,
+                ),
                 latency_ms=latency_ms,
             )
             log_event(
-                "text_brief.snapshot_saved",
+                "text_brief.llm_response_saved",
                 symbol=symbol,
                 is_fallback=is_fallback,
                 finish_reason=llm_meta.get("finish_reason"),
             )
         except Exception as exc:
             log_warn(
-                "text_brief.snapshot_failed",
+                "text_brief.llm_response_save_failed",
                 symbol=symbol,
                 finish_reason=llm_meta.get("finish_reason"),
                 error_type=type(exc).__name__,

@@ -261,13 +261,13 @@ def _run_brief(
     )
     monkeypatch.setattr(
         orchestrator_module,
-        "get_cached_snapshot",
+        "get_cached_llm_response",
         lambda db, **kwargs: cached_row,
     )
     monkeypatch.setattr(
         orchestrator_module,
-        "create_snapshot",
-        lambda db, **fields: captured.update(snapshot=fields),
+        "create_llm_response",
+        lambda db, **fields: captured.update(llm_response=fields),
     )
     response = asyncio.run(
         service.generate_text_brief(
@@ -297,8 +297,8 @@ def test_happy_path_is_verified_with_backfilled_numbers_and_used_catalog(monkeyp
     assert captured["task_packet"]["task"]["type"] == "stock_behavior_text_brief"
     assert "field_glossary" not in captured["task_packet"]
     assert captured["news_call"] == {"symbol": "2330", "as_of_date": AS_OF}
-    assert captured["snapshot"]["is_fallback"] is False
-    config = json.loads(captured["snapshot"]["config_json"])
+    assert captured["llm_response"]["is_fallback"] is False
+    config = json.loads(captured["llm_response"]["config_json"])
     assert config["schema_version"] == "text-first-v2"
     assert config["compliance_policy_version"] == COMPLIANCE_POLICY_VERSION
 
@@ -483,7 +483,7 @@ def test_item_compliance_removal_below_required_minimum_is_unavailable(monkeypat
     assert response.brief is None
     assert "簡報內容未通過合規檢查，本次無法提供。" in response.limitations
     assert response.verification.removed_item_ids == ["pos_01"]
-    assert captured["snapshot"]["is_fallback"] is True
+    assert captured["llm_response"]["is_fallback"] is True
 
 
 def test_core_compliance_hard_gate_preserves_blocked_payload_for_research(monkeypatch):
@@ -494,7 +494,7 @@ def test_core_compliance_hard_gate_preserves_blocked_payload_for_research(monkey
 
     assert response.status == "unavailable"
     assert response.brief is None
-    blocked = json.loads(captured["snapshot"]["normalized_payload_json"])
+    blocked = json.loads(captured["llm_response"]["normalized_json"])
     assert blocked["blocked_by_compliance"] is True
     assert blocked["headline"] == "股價上看 3000 元"
 
@@ -565,7 +565,7 @@ def test_soft_compliance_hit_marks_limited_without_removing_item(monkeypatch):
     )
 
 
-def test_truncated_output_is_unavailable_and_creates_fallback_snapshot(monkeypatch):
+def test_truncated_output_is_unavailable_and_creates_fallback_row(monkeypatch):
     response, captured = _run_brief(
         monkeypatch,
         {},
@@ -575,10 +575,10 @@ def test_truncated_output_is_unavailable_and_creates_fallback_snapshot(monkeypat
     assert response.status == "unavailable"
     assert response.brief is None
     assert "模型輸出無法解析，本次無法提供簡報。" in response.limitations
-    snapshot = captured["snapshot"]
-    assert snapshot["is_fallback"] is True
-    assert snapshot["prompt_version"] == TEXT_BRIEF_PROMPT_VERSION
-    config = json.loads(snapshot["config_json"])
+    saved = captured["llm_response"]
+    assert saved["is_fallback"] is True
+    assert saved["prompt_version"] == TEXT_BRIEF_PROMPT_VERSION
+    config = json.loads(saved["config_json"])
     assert config["schema_version"] == "text-first-v2"
 
 
@@ -615,7 +615,7 @@ def test_cache_hit_returns_stored_response_without_calling_the_model(monkeypatch
         limitations=[],
     )
     row = SimpleNamespace(
-        public_projection_json=json.dumps(stored.model_dump(mode="json"))
+        response_json=json.dumps(stored.model_dump(mode="json"))
     )
 
     response, captured = _run_brief(monkeypatch, _valid_brief(), cached_row=row)
@@ -623,11 +623,11 @@ def test_cache_hit_returns_stored_response_without_calling_the_model(monkeypatch
     assert response.cached is True
     assert response.status == "verified"
     assert "task_packet" not in captured
-    assert "snapshot" not in captured
+    assert "llm_response" not in captured
 
 
 def test_force_refresh_bypasses_the_cache(monkeypatch):
-    row = SimpleNamespace(public_projection_json=json.dumps({"broken": True}))
+    row = SimpleNamespace(response_json=json.dumps({"broken": True}))
 
     response, captured = _run_brief(
         monkeypatch, _valid_brief(), cached_row=row, force_refresh=True
@@ -638,7 +638,7 @@ def test_force_refresh_bypasses_the_cache(monkeypatch):
 
 
 def test_unparsable_cached_row_falls_back_to_a_fresh_run(monkeypatch):
-    row = SimpleNamespace(public_projection_json="not json")
+    row = SimpleNamespace(response_json="not json")
 
     response, captured = _run_brief(monkeypatch, _valid_brief(), cached_row=row)
 
@@ -671,7 +671,7 @@ def test_upstream_model_failure_becomes_a_503_instead_of_an_unhandled_500(monkey
         orchestrator_module, "build_evidence_bundle", lambda db, **kwargs: _bundle()
     )
     monkeypatch.setattr(
-        orchestrator_module, "get_cached_snapshot", lambda db, **kwargs: None
+        orchestrator_module, "get_cached_llm_response", lambda db, **kwargs: None
     )
 
     with pytest.raises(UpstreamModelError) as excinfo:

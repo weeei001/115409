@@ -179,11 +179,11 @@ def test_text_brief_snapshot_config_includes_example_set_version(monkeypatch):
         lambda db, **kwargs: EvidenceBundle(symbol="2330", as_of_date=date(2025, 3, 14)),
     )
     monkeypatch.setattr(
-        "stock_behavior.orchestrator.get_cached_snapshot",
+        "stock_behavior.orchestrator.get_cached_llm_response",
         lambda db, **kwargs: None,
     )
     monkeypatch.setattr(
-        "stock_behavior.orchestrator.create_snapshot",
+        "stock_behavior.orchestrator.create_llm_response",
         lambda db, **fields: captured.update(fields),
     )
 
