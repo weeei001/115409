@@ -19,6 +19,27 @@ def detect_simplified_chinese(text: str) -> list[str]:
     return list(dict.fromkeys(char for char in text if char in SIMPLIFIED_CHINESE_CHARS))
 
 
+class UpstreamModelError(RuntimeError):
+    """上游模型服務（NVIDIA NIM）回傳錯誤或連線失敗。
+
+    與 PolicyViolationError 分開：後者代表請求本身或設定有問題（422），
+    這個代表我們這邊沒問題、是對方掛了（503），前端應該提示稍後重試而不是修改請求。
+    實測 NIM 對 deepseek-v4-pro 的長請求會在十幾分鐘後回 504。
+    """
+
+    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.context = context or {}
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "code": "upstream_model_error",
+            "message": self.message,
+            "context": to_jsonable(self.context),
+        }
+
+
 class PolicyViolationError(ValueError):
     def __init__(
         self,

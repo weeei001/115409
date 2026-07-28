@@ -4,7 +4,7 @@ import re
 from typing import NamedTuple
 
 
-COMPLIANCE_POLICY_VERSION = "q7-blacklist-v3"
+COMPLIANCE_POLICY_VERSION = "q7-blacklist-v4"
 
 
 class ComplianceHit(NamedTuple):
@@ -47,12 +47,26 @@ _HARD_RULES = (
     ),
 )
 
+# 前瞻語境詞：與 _HARD_RULES 的「前瞻報酬-hard」互補。hard 規則攔的是
+# 預期／預估／可望／上看／挑戰／目標／將 這幾個明確承諾詞；此處補上語氣較弱、
+# 但仍指向未來的說法。純歷史陳述（「7/15 上漲 3.07%」）不再命中——key_days
+# 的核心就是描述已發生的當日波幅，若一律視為違規會讓每份簡報都被降級。
+_FORWARD_SOFT_MARKERS = (
+    r"未來|後續|接下來|有機會|預料|看好|推估|評估|下一階段|中期內|短線內|波段內"
+)
+
 _SOFT_RULES = (
     (
         "操作詞-descriptive-soft",
         re.compile(r"買進|賣出|加碼|減碼|進場|出場|停損|停利"),
     ),
-    ("歷史報酬-soft", re.compile(r"(漲|跌)幅?\s*\d+(\.\d+)?\s*%")),
+    (
+        "前瞻報酬-soft",
+        re.compile(
+            rf"(?:{_FORWARD_SOFT_MARKERS})[^。]{{0,12}}(?:上漲|下跌|漲|跌)幅?[^。]{{0,6}}\d+(?:\.\d+)?\s*%"
+            rf"|\d+(?:\.\d+)?\s*%[^。]{{0,4}}(?:的空間|上檔空間|下檔空間)"
+        ),
+    ),
 )
 
 

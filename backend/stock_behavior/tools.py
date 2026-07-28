@@ -18,7 +18,7 @@ FieldSpec = tuple[str, str, FieldConverter]
 class ToolPolicy:
     max_tool_calls_per_request: int = 10
     max_lookback_days_recent_analysis: int = 120
-    max_news_events: int = 5
+    max_news_events: int = 10
     allowed_symbols: tuple[str, ...] = ("2317", "2330", "2408", "2454", "2615", "2881")
 
 
@@ -196,7 +196,9 @@ def _parse_timestamp(value: Any) -> datetime | None:
 def _is_on_or_before_as_of(ts: datetime, as_of: date) -> bool:
     if ts.tzinfo is not None:
         ts = ts.astimezone(timezone(timedelta(hours=8))).replace(tzinfo=None)
-    cutoff = datetime.combine(as_of, time(23, 59, 59))
+    # time.max 而非 time(23, 59, 59)：後者會把 23:59:59.5 這種帶次秒的時間戳
+    # 判成「晚於 as_of」而丟掉，但它其實就落在當天。
+    cutoff = datetime.combine(as_of, time.max)
     return ts <= cutoff
 
 
@@ -218,6 +220,9 @@ def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         source_id = str(raw_item.get("id") or "").strip()
         summary = str(raw_item.get("summary") or raw_item.get("content") or "").strip()
         url_value = raw_item.get("url")
+        # kind 由 RAG 端的財測專門檢索路提供（見 repo 根目錄 TODO.txt 第 3 項）；
+        # 尚未實作前一律視為 general，簡報端會在 limitations 說明未涵蓋公司財測。
+        kind = raw_item.get("kind")
         parsed_items.append(
             {
                 "id": source_id,
@@ -225,6 +230,7 @@ def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "summary": summary,
                 "timestamp": ts,
                 "url": str(url_value).strip() if isinstance(url_value, str) and url_value.strip() else None,
+                "kind": kind if kind in {"general", "guidance"} else "general",
             }
         )
     return parsed_items
@@ -293,6 +299,7 @@ async def fetch_rag_news(
                 "summary": item_summary,
                 "timestamp": timestamp.isoformat(),
                 "url": item_url,
+                "kind": item.get("kind") or "general",
             }
         )
         if len(deduped) >= max_events:

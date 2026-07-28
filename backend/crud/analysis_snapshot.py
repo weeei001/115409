@@ -84,6 +84,29 @@ def count_snapshots(
     )
 
 
+def get_cached_snapshot(
+    db: Session,
+    *,
+    symbol: str,
+    as_of_date: date,
+    config_hash: str,
+    run_kind: str,
+) -> StockBehaviorAnalysisSnapshot | None:
+    """同一檔、同一基準日、同一組設定的最近一次成功結果，供文字簡報快取重播。"""
+    return (
+        db.query(StockBehaviorAnalysisSnapshot)
+        .filter(
+            StockBehaviorAnalysisSnapshot.symbol == symbol,
+            StockBehaviorAnalysisSnapshot.as_of_date == as_of_date,
+            StockBehaviorAnalysisSnapshot.config_hash == config_hash,
+            StockBehaviorAnalysisSnapshot.run_kind == run_kind,
+            StockBehaviorAnalysisSnapshot.is_fallback.is_(False),
+        )
+        .order_by(StockBehaviorAnalysisSnapshot.id.desc())
+        .first()
+    )
+
+
 def get_latest_backtest_run(db: Session) -> StockBehaviorBacktestRun | None:
     return db.query(StockBehaviorBacktestRun).order_by(StockBehaviorBacktestRun.id.desc()).first()
 
@@ -104,6 +127,10 @@ def get_unscored_snapshots(
     query = db.query(StockBehaviorAnalysisSnapshot).filter(
         StockBehaviorAnalysisSnapshot.is_fallback.is_(False),
         score_count < 8,
+        # 只挑真的有情境推演點位的快照。文字簡報（text-first-v2）也寫這個欄位，
+        # 但內容是簡報本身、沒有 points；不濾掉的話它們會永遠處於「未評分」狀態，
+        # 每次跑 score_snapshots 都被撈出來再算出 0 分。
+        StockBehaviorAnalysisSnapshot.public_projection_json.like('%"points"%'),
     )
     if symbol is not None:
         query = query.filter(StockBehaviorAnalysisSnapshot.symbol == symbol)
