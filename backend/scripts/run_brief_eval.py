@@ -16,8 +16,8 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from config import get_settings
 from database import Base, SessionLocal, engine
-from schemas.stock_behavior import StockBehaviorAiRequest
-from scripts.build_golden_candidates import collect_case_news, load_cases
+from schemas.stock_behavior import StockBehaviorTextBriefRequest
+from scripts.build_golden_candidates import load_cases
 from stock_behavior.compliance import COMPLIANCE_POLICY_VERSION
 from stock_behavior.eval_metrics import aggregate_eval_results
 from stock_behavior.few_shot_examples import example_set_version
@@ -72,19 +72,16 @@ async def run_eval(db: Any, settings: Any, cases: list[dict], repeats: int) -> d
     run_number = 0
     runs_total = len(cases) * repeats
     for case in cases:
-        news_sources, fallback_mode, rag_error = await collect_case_news(orchestrator, case)
-        if rag_error:
-            print(f"symbol={case['symbol']} as_of={case['as_of_date']} rag_error={rag_error}")
         for repeat in range(1, repeats + 1):
             started_at = perf_counter()
             result = {"case": case, "repeat": repeat}
             try:
+                # force_refresh：量測重複執行的一致性時不能吃到自己剛寫下的快照。
                 response = await orchestrator.generate_text_brief(
-                    StockBehaviorAiRequest(
+                    StockBehaviorTextBriefRequest(
                         symbol=case["symbol"],
                         as_of_date=case["as_of_date"],
-                        news_sources=news_sources,
-                        fallback_mode=fallback_mode,
+                        force_refresh=True,
                     )
                 )
                 result["response"] = response.model_dump(mode="json")
@@ -94,8 +91,6 @@ async def run_eval(db: Any, settings: Any, cases: list[dict], repeats: int) -> d
                 result.update(response=_failed_response(), error=str(exc))
                 print(f"symbol={case['symbol']} as_of={case['as_of_date']} repeat={repeat} result=failed error={exc}")
             result["latency_ms"] = round((perf_counter() - started_at) * 1000)
-            if rag_error:
-                result["rag_error"] = rag_error
             results.append(result)
             run_number += 1
             if run_number < runs_total:

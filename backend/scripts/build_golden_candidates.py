@@ -15,7 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from config import get_settings
 from database import Base, SessionLocal, engine
-from schemas.stock_behavior import StockBehaviorAiRequest, StockBehaviorRagRequest
+from schemas.stock_behavior import StockBehaviorTextBriefRequest
 from stock_behavior.orchestrator import StockBehaviorOrchestrator
 
 
@@ -38,42 +38,18 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
     return cases
 
 
-async def collect_case_news(
-    orchestrator: StockBehaviorOrchestrator,
-    case: dict[str, Any],
-) -> tuple[list[dict[str, Any]], bool, str | None]:
-    try:
-        rag = await orchestrator.collect_rag_news(
-            StockBehaviorRagRequest(
-                symbols=[case["symbol"]],
-                as_of_date=case["as_of_date"],
-                lookback_days=30,
-            )
-        )
-        return (
-            [item.model_dump(mode="python") for item in rag.news_sources],
-            rag.fallback_mode,
-            None,
-        )
-    except Exception as exc:
-        return [], True, str(exc)
-
-
 async def build_candidates(db: Any, settings: Any, cases: list[dict], out: Path) -> dict[str, int]:
     out.mkdir(parents=True, exist_ok=True)
     orchestrator = StockBehaviorOrchestrator(db=db, settings=settings)
     succeeded = failed = 0
     for index, case in enumerate(cases):
         try:
-            news_sources, fallback_mode, rag_error = await collect_case_news(orchestrator, case)
-            if rag_error:
-                print(f"symbol={case['symbol']} as_of={case['as_of_date']} rag_error={rag_error}")
+            # text-first-v2 由後端自行取新聞；force_refresh 避免撈到既有快照。
             response = await orchestrator.generate_text_brief(
-                StockBehaviorAiRequest(
+                StockBehaviorTextBriefRequest(
                     symbol=case["symbol"],
                     as_of_date=case["as_of_date"],
-                    news_sources=news_sources,
-                    fallback_mode=fallback_mode,
+                    force_refresh=True,
                 )
             )
             payload = {
@@ -81,8 +57,6 @@ async def build_candidates(db: Any, settings: Any, cases: list[dict], out: Path)
                 "response": response.model_dump(mode="json"),
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
-            if rag_error:
-                payload["rag_error"] = rag_error
             destination = out / f"{case['symbol']}_{case['as_of_date']}.json"
             destination.write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2),

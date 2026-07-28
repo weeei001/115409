@@ -18,6 +18,7 @@ try:
 except ImportError:  # pragma: no cover - local test fallback
     ChatOpenAI = None
 
+from stock_behavior.evidence import FIELD_GLOSSARY
 from stock_behavior.prompt_templates import (
     STOCK_ANALYST_SYSTEM_PROMPT,
     TEXT_BRIEF_SYSTEM_PROMPT,
@@ -143,21 +144,103 @@ JSON_NUMBER_RE = r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"
 JSON_NUMERIC_EXPR_RE = re.compile(
     rf"(?P<prefix>:\s*)(?P<left>{JSON_NUMBER_RE})\s*(?P<op>[*/])\s*(?P<right>{JSON_NUMBER_RE})(?P<suffix>\s*[,}}\]])"
 )
-TEXT_BRIEF_OUTPUT_SCHEMA = """{
+STANCE_ENUM = "bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain"
+TEXT_BRIEF_OUTPUT_SCHEMA = f"""{{
+  "key_days": "KeyDay[3..5]",
   "headline": "string (max 80)",
-  "current_status": "TextBriefClaim[1..3]",
-  "key_reasons": "TextBriefClaim[2..4]",
-  "events": "TextBriefEvent[0..3]",
-  "source_divergences": "TextBriefClaim[0..3]",
-  "thesis": "TextBriefThesis",
-  "overall_stance": "bullish|mildly_bullish|mixed|neutral|mildly_bearish|bearish|uncertain",
+  "current_status": "Claim[1..3]",
+  "positive_factors": "Claim[1..3]",
+  "negative_factors": "Claim[1..3]",
+  "source_divergences": "Claim[0..3]",
+  "risks": "Risk[1..3]",
+  "watch_points": "WatchPoint[2..4]",
+  "forward_views": {{"short_1_5":"ForwardView","swing_6_20":"ForwardView","medium_21_40":"ForwardView"}},
+  "overall_stance": "{STANCE_ENUM}",
   "confidence": "low|medium|high",
-  "confidence_reason": "string",
+  "confidence_reason": "string max 160",
   "limitations": "string[0..5]",
-  "TextBriefClaim": {"id":"string","claim_type":"observation|inference|conflict|limitation","text":"string max 160","direction":"positive|negative|mixed|neutral|not_applicable","evidence_ids":"string[]","importance":"high|medium"},
-  "TextBriefEvent": {"id":"string","event_date":"ISO date|null","recency":"today|recent|background","title":"string","description":"string","information_type":"event|opinion|mixed","evidence_ids":"string[]","materiality":"high|medium"},
-  "TextBriefThesis": {"statement":"string","status":"new|insufficient_data","evidence_ids":"string[]"}
-}"""
+  "KeyDay": {{"id":"kd_NN","date":"YYYY-MM-DD","ref":"daily_timeline 中該日的 id","what":"string max 200","evidence_ids":"string[]"}},
+  "Claim": {{"id":"cs_NN|pos_NN|neg_NN|div_NN","claim_type":"observation|inference|conflict|limitation","text":"string max 160","direction":"positive|negative|mixed|neutral|not_applicable","evidence_ids":"string[]","importance":"high|medium"}},
+  "Risk": {{"id":"rk_NN","risk_type":"string max 20","description":"string max 160","trigger":"string max 120","evidence_ids":"string[]"}},
+  "WatchPoint": {{"id":"wp_NN","what_to_watch":"string max 80","why_it_matters":"string max 160","when":"string max 40","evidence_ids":"string[]"}},
+  "ForwardView": {{"stance":"{STANCE_ENUM}","reason":"string max 160","invalidation":"string max 120","evidence_ids":"string[]"}}
+}}"""
+
+
+def build_text_brief_system_prompt() -> str:
+    """欄位表與輸出 schema 都是常數，放在 system 只出現一次；
+
+    若塞進 task_packet，few-shot 的三個範例輸入會各帶一份，白白多花三倍 token，
+    而且範例輸入與真實輸入必須同構，不能只在真實輸入裡附。
+    """
+    glossary = "\n".join(f"{key}：{text}" for key, text in FIELD_GLOSSARY.items())
+    return (
+        f"{TEXT_BRIEF_SYSTEM_PROMPT.rstrip()}\n\n"
+        f"<field_glossary>\n{glossary}\n</field_glossary>\n\n"
+        f"<output_schema>\n{TEXT_BRIEF_OUTPUT_SCHEMA}\n</output_schema>"
+    )
+
+
+def build_text_brief_user_message(payload: dict[str, Any]) -> str:
+    return (
+        "<payload>\n"
+        f"{json.dumps(payload, ensure_ascii=False, default=str)}\n"
+        "</payload>"
+    )
+
+
+def _example_task(example: dict[str, Any]) -> dict[str, Any]:
+    task = example.get("input_payload", {}).get("task")
+    return task if isinstance(task, dict) else {}
+
+
+def select_few_shot_examples(
+    examples: list[Any],
+    *,
+    symbol: str | None,
+    as_of_date: str | None,
+) -> list[Any]:
+    """濾掉「同一檔股票、但基準日晚於本次請求」的範例。
+
+    範例取自真實資料，帶有當時的股價與新聞。歷史回測時若把同一檔股票未來的
+    收盤價餵進上下文，模型可能直接錨定，回測結果就不成立。跨股票的範例保留，
+    它們示範的是寫法而不是這檔股票的未來。
+    """
+    if not symbol or not as_of_date:
+        return list(examples)
+
+    kept = []
+    for example in examples:
+        task = _example_task(example)
+        same_symbol = str(task.get("symbol") or "") == symbol
+        later = str(task.get("as_of_date") or "") > as_of_date
+        if same_symbol and later:
+            continue
+        kept.append(example)
+    return kept
+
+
+def build_text_brief_messages(task_packet: dict[str, Any]) -> list[tuple[str, str]]:
+    """system + few-shot 多輪 user/assistant + 真實輸入。
+
+    few-shot 以真正的對話輪次呈現（而非塞在單一 user 訊息的 XML 區塊裡），
+    範例輸入與真實輸入同構，模型才學得到「這種時間軸要怎麼讀成 key_days」。
+    """
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    examples = select_few_shot_examples(
+        few_shot_examples.FEW_SHOT_EXAMPLES,
+        symbol=str(task.get("symbol") or "") or None,
+        as_of_date=str(task.get("as_of_date") or "") or None,
+    )
+
+    messages: list[tuple[str, str]] = [("system", build_text_brief_system_prompt())]
+    for example in examples:
+        messages.append(("human", build_text_brief_user_message(example["input_payload"])))
+        messages.append(
+            ("ai", json.dumps(example["output_brief"], ensure_ascii=False))
+        )
+    messages.append(("human", build_text_brief_user_message(task_packet)))
+    return messages
 
 
 def _build_stock_behavior_system_prompt(format_instructions: str = "") -> str:
@@ -392,24 +475,7 @@ class StockBehaviorLlmService:
                 "LLM service is disabled: missing NIM_API_KEY, NIM_BASE_URL, model, or langchain dependencies"
             )
 
-        examples = "".join(
-            "<example>\n"
-            f"<input>\n{json.dumps(example['input_payload'], ensure_ascii=False)}\n</input>\n"
-            f"<output>\n{json.dumps(example['output_brief'], ensure_ascii=False)}\n</output>\n"
-            "</example>\n"
-            for example in few_shot_examples.FEW_SHOT_EXAMPLES
-        )
-        examples_block = f"<examples>\n{examples}</examples>\n\n" if examples else ""
-        payload = json.dumps(task_packet, ensure_ascii=False, default=str)
-        user_prompt = (
-            f"{examples_block}<prefetched_evidence_payload>\n{payload}\n</prefetched_evidence_payload>\n\n"
-            f"<output_schema>\n{TEXT_BRIEF_OUTPUT_SCHEMA}\n</output_schema>\n\n"
-            "請依 system 指示產出文字簡報 JSON。"
-        )
-        messages = [
-            ("system", TEXT_BRIEF_SYSTEM_PROMPT),
-            ("human", user_prompt),
-        ]
+        messages = build_text_brief_messages(task_packet)
 
         print(f"[stock_behavior_llm] stage=text_brief status=start model={self._model}")
         response = await self._client.ainvoke(messages)

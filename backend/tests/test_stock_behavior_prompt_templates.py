@@ -21,7 +21,9 @@ def test_prompt_keeps_news_as_background_only():
 
 
 def test_rag_news_context_is_capped_as_secondary_material():
-    assert "MAX_LLM_NEWS_SOURCES = 5" in ORCHESTRATOR_TEXT
-    assert "RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 30" in ORCHESTRATOR_TEXT
-    assert "RAG_DEFAULT_MAX_NEWS_EVENTS = 5" in ORCHESTRATOR_TEXT
-    assert "max_news_events: int = 5" in TOOLS_TEXT
+    # text-first-v2：回溯 60 天、上限 10 則，並與 tools 的政策上限對齊。
+    # RAG 端的 /api/analyze 仍寫死 30 天，尚未跟上（見 repo 根目錄 TODO.txt）。
+    assert "MAX_LLM_NEWS_SOURCES = 10" in ORCHESTRATOR_TEXT
+    assert "RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60" in ORCHESTRATOR_TEXT
+    assert "RAG_DEFAULT_MAX_NEWS_EVENTS = 10" in ORCHESTRATOR_TEXT
+    assert "max_news_events: int = 10" in TOOLS_TEXT

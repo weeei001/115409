@@ -64,6 +64,10 @@ class AnalyzeNewsSourceItem(BaseModel):
     summary: str = Field(default="", description="新聞摘要或內容節錄。")
     timestamp: str = Field(default="", description="新聞時間，ISO 8601 格式。")
     url: Optional[str] = Field(default=None, description="原始新聞網址。")
+    kind: Literal["general", "guidance"] = Field(
+        default="general",
+        description="general 為一般報導，guidance 為媒體轉述的公司財測／展望。",
+    )
 
 
 class StockBehaviorRagPayload(BaseModel):
@@ -315,6 +319,28 @@ class StockBehaviorAiResponse(StockBehaviorResponseBase):
     )
 
 
+class StockBehaviorTextBriefRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=10, description="單一股票代號，例如 2330。")
+    as_of_date: Optional[date] = Field(
+        default=None,
+        description="分析基準日（含當日收盤資料），預設今天；供歷史回測重放。",
+    )
+    force_refresh: bool = Field(
+        default=False,
+        description="略過相同 symbol／as_of_date／設定的既有快照，強制重新呼叫 LLM。",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "symbol": "2330",
+                "as_of_date": "2026-07-13",
+                "force_refresh": False,
+            }
+        }
+    )
+
+
 class TextBriefClaim(BaseModel):
     id: str
     claim_type: Literal["observation", "inference", "conflict", "limitation"]
@@ -324,33 +350,60 @@ class TextBriefClaim(BaseModel):
     importance: Literal["high", "medium"] = "medium"
 
 
-class TextBriefEvent(BaseModel):
+class TextBriefKeyDay(BaseModel):
+    """關鍵交易日。move_pct 與 volume_ratio 一律由後端依 ref 回填，模型不輸出。"""
+
     id: str
-    event_date: str | None = None
-    recency: Literal["today", "recent", "background"]
-    title: str
-    description: str
-    information_type: Literal["event", "opinion", "mixed"]
+    date: str
+    ref: str
+    what: str = Field(max_length=200)
     evidence_ids: list[str] = Field(default_factory=list)
-    materiality: Literal["high", "medium"] = "medium"
+    move_pct: Optional[float] = None
+    volume_ratio: Optional[float] = None
 
 
-class TextBriefThesis(BaseModel):
-    statement: str
-    status: Literal["new", "insufficient_data"]
+class TextBriefRisk(BaseModel):
+    id: str
+    risk_type: str = Field(max_length=20)
+    description: str = Field(max_length=160)
+    trigger: str = Field(max_length=120)
     evidence_ids: list[str] = Field(default_factory=list)
+
+
+class TextBriefWatchPoint(BaseModel):
+    id: str
+    what_to_watch: str = Field(max_length=80)
+    why_it_matters: str = Field(max_length=160)
+    when: str = Field(max_length=40)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class TextBriefForwardView(BaseModel):
+    stance: StanceLevel
+    reason: str = Field(max_length=160)
+    invalidation: str = Field(max_length=120)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class TextBriefForwardViews(BaseModel):
+    short_1_5: TextBriefForwardView
+    swing_6_20: TextBriefForwardView
+    medium_21_40: TextBriefForwardView
 
 
 class StockBehaviorTextBrief(BaseModel):
+    key_days: list[TextBriefKeyDay] = Field(min_length=1, max_length=5)
     headline: str = Field(max_length=80)
     current_status: list[TextBriefClaim] = Field(min_length=1, max_length=3)
-    key_reasons: list[TextBriefClaim] = Field(min_length=2, max_length=4)
-    events: list[TextBriefEvent] = Field(default_factory=list, max_length=3)
+    positive_factors: list[TextBriefClaim] = Field(min_length=1, max_length=3)
+    negative_factors: list[TextBriefClaim] = Field(min_length=1, max_length=3)
     source_divergences: list[TextBriefClaim] = Field(default_factory=list, max_length=3)
-    thesis: TextBriefThesis
+    risks: list[TextBriefRisk] = Field(min_length=1, max_length=3)
+    watch_points: list[TextBriefWatchPoint] = Field(min_length=1, max_length=4)
+    forward_views: TextBriefForwardViews
     overall_stance: StanceLevel
     confidence: ConfidenceLevel
-    confidence_reason: str
+    confidence_reason: str = Field(max_length=160)
     limitations: list[str] = Field(default_factory=list, max_length=5)
 
 
@@ -361,6 +414,10 @@ class TextBriefVerification(BaseModel):
     future_dated_items: list[str] = Field(default_factory=list)
     removed_item_ids: list[str] = Field(default_factory=list)
     soft_compliance_hits: list[str] = Field(default_factory=list)
+    unverified_numbers: list[str] = Field(default_factory=list)
+    undercount_sections: list[str] = Field(default_factory=list)
+    truncated_sections: list[str] = Field(default_factory=list)
+    jargon_hits: list[str] = Field(default_factory=list)
 
 
 class TextBriefDisclaimer(BaseModel):
@@ -368,17 +425,29 @@ class TextBriefDisclaimer(BaseModel):
     text: str
 
 
+class StockBehaviorEvidenceItem(BaseModel):
+    """證據目錄項目；不同來源的附加欄位（period、yoy_pct 等）一律保留。"""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    field: str
+    date: Optional[str] = None
+    value: Any = None
+
+
 class StockBehaviorTextBriefResponse(BaseModel):
-    schema_version: str = "text-first-v1"
+    schema_version: str = "text-first-v2"
     symbol: str
     as_of_date: str
     generated_by: str
     status: Literal["verified", "limited", "unavailable"]
     brief: StockBehaviorTextBrief | None
-    evidence_catalog: list[StockBehaviorInventoryItem] = Field(default_factory=list)
+    evidence_catalog: list[StockBehaviorEvidenceItem] = Field(default_factory=list)
     verification: TextBriefVerification
     disclaimer: TextBriefDisclaimer
     limitations: list[str] = Field(default_factory=list)
+    cached: bool = False
 
 
 class RawTextBriefClaim(BaseModel):
@@ -390,30 +459,47 @@ class RawTextBriefClaim(BaseModel):
     importance: Any = "medium"
 
 
-class RawTextBriefEvent(BaseModel):
+class RawTextBriefKeyDay(BaseModel):
     id: Any = None
-    event_date: Any = None
-    recency: Any = None
-    title: Any = None
-    description: Any = None
-    information_type: Any = None
+    date: Any = None
+    ref: Any = None
+    what: Any = None
     evidence_ids: Any = Field(default_factory=list)
-    materiality: Any = "medium"
 
 
-class RawTextBriefThesis(BaseModel):
-    statement: Any = None
-    status: Any = None
+class RawTextBriefRisk(BaseModel):
+    id: Any = None
+    risk_type: Any = None
+    description: Any = None
+    trigger: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+
+
+class RawTextBriefWatchPoint(BaseModel):
+    id: Any = None
+    what_to_watch: Any = None
+    why_it_matters: Any = None
+    when: Any = None
+    evidence_ids: Any = Field(default_factory=list)
+
+
+class RawTextBriefForwardView(BaseModel):
+    stance: Any = None
+    reason: Any = None
+    invalidation: Any = None
     evidence_ids: Any = Field(default_factory=list)
 
 
 class RawStockBehaviorTextBrief(BaseModel):
+    key_days: Any = Field(default_factory=list)
     headline: Any = None
     current_status: Any = Field(default_factory=list)
-    key_reasons: Any = Field(default_factory=list)
-    events: Any = Field(default_factory=list)
+    positive_factors: Any = Field(default_factory=list)
+    negative_factors: Any = Field(default_factory=list)
     source_divergences: Any = Field(default_factory=list)
-    thesis: Any = None
+    risks: Any = Field(default_factory=list)
+    watch_points: Any = Field(default_factory=list)
+    forward_views: Any = None
     overall_stance: Any = None
     confidence: Any = None
     confidence_reason: Any = None
