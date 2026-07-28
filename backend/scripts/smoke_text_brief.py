@@ -62,8 +62,10 @@ async def run(symbol: str, as_of: date, *, dry_run: bool, dump: str | None) -> N
     db = SessionLocal()
     try:
         orchestrator = StockBehaviorOrchestrator(db=db, settings=get_settings())
-        await _measure_prompt(orchestrator, symbol, as_of)
         if dry_run:
+            # 只有乾跑才需要自己組一次；正式跑的 payload 大小已經由
+            # text_brief.evidence / text_brief.llm 的 log 印出來，重複組會多打一次 RAG。
+            await _measure_prompt(orchestrator, symbol, as_of)
             print("dry_run=true（未呼叫 LLM）")
             return
 
