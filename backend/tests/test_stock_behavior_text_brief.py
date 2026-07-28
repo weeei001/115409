@@ -399,14 +399,25 @@ def test_oversized_sections_are_truncated_instead_of_discarding_the_brief(monkey
     }
 
 
-def test_jargon_is_recorded_but_does_not_change_status(monkeypatch):
+def test_complex_jargon_is_recorded_but_does_not_change_status(monkeypatch):
     brief = _valid_brief()
-    brief["current_status"][0]["text"] = "MACD 柱狀圖轉負，股價貼著月線整理。"
+    brief["current_status"][0]["text"] = "MACD 柱狀圖轉負，乖離收斂，KD 落在低檔。"
 
     response, _ = _run_brief(monkeypatch, brief)
 
     assert response.status == "verified"
-    assert set(response.verification.jargon_hits) == {"MACD", "月線"}
+    assert set(response.verification.jargon_hits) == {"MACD", "乖離", "KD"}
+
+
+def test_common_taiwanese_market_terms_are_not_flagged_as_jargon(monkeypatch):
+    """月線、季線、年線在台股媒體天天出現，讀者本來就懂，禁掉只會讓句子變囉嗦。"""
+    brief = _valid_brief()
+    brief["current_status"][0]["text"] = "股價貼著月線整理，尚未跌破季線與年線。"
+
+    response, _ = _run_brief(monkeypatch, brief)
+
+    assert response.status == "verified"
+    assert response.verification.jargon_hits == []
 
 
 def test_undercount_marks_limited_without_discarding_the_brief(monkeypatch):
@@ -877,7 +888,8 @@ def test_system_prompt_keeps_the_fact_consistency_rules():
     assert "不得因為當天上漲就說量能放大" in prompt
     assert "不得把單日買超講成趨勢翻多" in prompt
     assert "不得寫出任何未來的價格數字" in prompt
-    assert "不要寫 KD、MACD、RSI" in prompt
+    assert "KD、MACD、RSI、乖離、布林通道、隨機指標這類詞一律" in prompt
+    assert "月線、季線、年線這類台股媒體常見的說法可以直接用" in prompt
 
 
 def test_bundled_few_shot_examples_satisfy_every_output_rule():
