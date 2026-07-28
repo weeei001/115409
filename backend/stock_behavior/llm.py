@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - local test fallback
     ChatOpenAI = None
 
 from stock_behavior.evidence import FIELD_GLOSSARY
+from stock_behavior.observability import get_logger, log_warn, stage
 from stock_behavior.prompt_templates import (
     STOCK_ANALYST_SYSTEM_PROMPT,
     TEXT_BRIEF_SYSTEM_PROMPT,
@@ -467,28 +468,46 @@ class StockBehaviorLlmService:
         task_packet: dict[str, Any],
     ) -> tuple[dict[str, Any], str, dict[str, Any]]:
         if not self._enabled or self._client is None:
-            print(
-                f"[stock_behavior_llm] stage=text_brief status=fail reason=disabled "
-                f"enabled={self._enabled} model={self._model}"
+            log_warn(
+                "text_brief.llm.disabled",
+                enabled=self._enabled,
+                model=self._model,
+                has_api_key=bool(self._settings.NIM_API_KEY),
+                base_url=self._settings.NIM_BASE_URL or "-",
             )
             raise RuntimeError(
                 "LLM service is disabled: missing NIM_API_KEY, NIM_BASE_URL, model, or langchain dependencies"
             )
 
         messages = build_text_brief_messages(task_packet)
+        prompt_chars = sum(len(content) for _, content in messages)
 
-        print(f"[stock_behavior_llm] stage=text_brief status=start model={self._model}")
-        response = await self._client.ainvoke(messages)
-        raw_content = response.content
-        raw_text = _coerce_llm_text(raw_content)
-        response_metadata = getattr(response, "response_metadata", {}) or {}
-        finish_reason = response_metadata.get("finish_reason")
-        token_usage = response_metadata.get("token_usage") or {}
-        completion_tokens = token_usage.get("completion_tokens")
-        if completion_tokens is None:
-            completion_tokens = (getattr(response, "usage_metadata", {}) or {}).get(
-                "output_tokens"
-            )
+        # 這一段是最常卡住的地方：只印 start 而遲遲沒有 done，就代表在等 NIM 回應。
+        with stage(
+            "text_brief.llm",
+            model=self._model,
+            messages=len(messages),
+            few_shot=(len(messages) - 2) // 2,
+            prompt_chars=prompt_chars,
+            max_tokens=self._max_completion_tokens,
+            timeout_s=LLM_TIMEOUT_SECONDS,
+        ) as info:
+            response = await self._client.ainvoke(messages)
+            raw_content = response.content
+            raw_text = _coerce_llm_text(raw_content)
+            response_metadata = getattr(response, "response_metadata", {}) or {}
+            finish_reason = response_metadata.get("finish_reason")
+            token_usage = response_metadata.get("token_usage") or {}
+            completion_tokens = token_usage.get("completion_tokens")
+            if completion_tokens is None:
+                completion_tokens = (getattr(response, "usage_metadata", {}) or {}).get(
+                    "output_tokens"
+                )
+            info["finish_reason"] = finish_reason
+            info["prompt_tokens"] = token_usage.get("prompt_tokens")
+            info["completion_tokens"] = completion_tokens
+            info["reply_chars"] = len(raw_text)
+
         meta = {
             "finish_reason": finish_reason,
             "completion_tokens": (
@@ -496,31 +515,27 @@ class StockBehaviorLlmService:
             ),
             "truncated": finish_reason == "length",
         }
-
-        print(
-            "[stock_behavior_llm] stage=text_brief raw_response",
-            {
-                "model": self._model,
-                "content_type": type(raw_content).__name__,
-                "content_len": len(raw_text),
-                "content_preview": raw_text[:3000],
-            },
+        get_logger().debug(
+            "text_brief.llm.raw model=%s preview=%s", self._model, raw_text[:1500]
         )
 
         if meta["truncated"]:
-            print(
-                f"[stock_behavior_llm] stage=text_brief status=fallback "
-                f"reason=truncated model={self._model}"
+            log_warn(
+                "text_brief.llm.truncated",
+                model=self._model,
+                completion_tokens=meta["completion_tokens"],
+                max_tokens=self._max_completion_tokens,
             )
             return {}, raw_text, meta
 
         parsed = _load_json_object(raw_text)
         if parsed is None:
-            print(
-                f"[stock_behavior_llm] stage=text_brief status=fallback "
-                f"reason=structured_parse_failed model={self._model}"
+            log_warn(
+                "text_brief.llm.parse_failed",
+                model=self._model,
+                reply_chars=len(raw_text),
+                preview=raw_text[:200].replace("\n", " "),
             )
             return {}, raw_text, meta
 
-        print(f"[stock_behavior_llm] stage=text_brief status=success model={self._model}")
         return parsed, raw_text, meta

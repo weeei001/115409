@@ -57,6 +57,7 @@ from stock_behavior.llm import (
     LLM_TIMEOUT_SECONDS,
     StockBehaviorLlmService,
 )
+from stock_behavior.observability import log_event, log_warn, stage
 from stock_behavior.normalizer import (
     FALLBACK_SUMMARY,
     build_stock_behavior_analysis_fallback,
@@ -832,7 +833,7 @@ class StockBehaviorOrchestrator:
 
         return response
 
-    # ── text-first-v2 文字簡報 ────────────────────────────────────────
+    # ── text-first-v2 文字簡報（此段以下改用 observability 的結構化 log）─────
 
     @staticmethod
     def _normalize_text_brief_items(
@@ -1254,16 +1255,30 @@ class StockBehaviorOrchestrator:
     ) -> tuple[list[dict[str, Any]], bool]:
         """v2 由後端自行取新聞，不再接受前端傳入，避免分析與新聞來源對不上。"""
         try:
-            payload = await self._new_executor().get_rag_news(
+            with stage(
+                "text_brief.rag",
                 symbol=symbol,
+                url=self._settings.RAG_API_URL or "-",
                 lookback_days=RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
-                max_events=RAG_DEFAULT_MAX_NEWS_EVENTS,
-                as_of=as_of_date,
-            )
+                timeout_s=self._settings.RAG_API_TIMEOUT,
+            ) as info:
+                payload = await self._new_executor().get_rag_news(
+                    symbol=symbol,
+                    lookback_days=RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
+                    max_events=RAG_DEFAULT_MAX_NEWS_EVENTS,
+                    as_of=as_of_date,
+                )
+                info["returned"] = len(payload.get("news_sources") or [])
+                info["fallback"] = payload.get("fallback_mode")
         except PolicyViolationError:
             raise
         except Exception as exc:  # pragma: no cover - 網路層例外已在 tools 內處理
-            print(f"[stock_behavior_text_brief] stage=rag status=fail error={exc}")
+            log_warn(
+                "text_brief.rag.failed",
+                symbol=symbol,
+                error_type=type(exc).__name__,
+                error=str(exc)[:200],
+            )
             return [], True
 
         sources = payload.get("news_sources")
@@ -1301,9 +1316,10 @@ class StockBehaviorOrchestrator:
                 continue
             kept.append(source)
         if dropped:
-            print(
-                f"[stock_behavior_text_brief] stage=rag dropped_stale_news={dropped} "
-                f"earliest={earliest.isoformat()}"
+            log_warn(
+                "text_brief.rag.stale_dropped",
+                dropped=dropped,
+                earliest=earliest.isoformat(),
             )
         return kept
 
@@ -1359,6 +1375,15 @@ class StockBehaviorOrchestrator:
         )
         config = self._text_brief_config(model_name)
         config_hash = compute_config_hash(config)
+        log_event(
+            "text_brief.request",
+            symbol=symbol,
+            as_of=as_of_date_text,
+            run_kind=run_kind,
+            model=model_name,
+            force_refresh=req.force_refresh,
+            config_hash=config_hash[:12],
+        )
 
         if not req.force_refresh:
             cached = self._load_cached_text_brief(
@@ -1368,9 +1393,8 @@ class StockBehaviorOrchestrator:
                 run_kind=run_kind,
             )
             if cached is not None:
-                print(
-                    f"[stock_behavior_text_brief] status=cache_hit symbol={symbol} "
-                    f"as_of={as_of_date_text}"
+                log_event(
+                    "text_brief.cache_hit", symbol=symbol, as_of=as_of_date_text
                 )
                 return cached
 
@@ -1378,19 +1402,27 @@ class StockBehaviorOrchestrator:
             symbol=symbol,
             as_of_date=as_of_date,
         )
-        bundle = build_evidence_bundle(
-            self._db,
-            symbol=symbol,
-            as_of_date=as_of_date,
-            news_sources=news_sources,
-            news_summary_chars=NEWS_SUMMARY_CHARS,
-            rag_fallback_mode=rag_fallback_mode,
-        )
-        task_packet = self._build_text_brief_task_packet(
-            symbol=symbol,
-            as_of_date_text=as_of_date_text,
-            bundle=bundle,
-        )
+        with stage("text_brief.evidence", symbol=symbol, as_of=as_of_date_text) as info:
+            bundle = build_evidence_bundle(
+                self._db,
+                symbol=symbol,
+                as_of_date=as_of_date,
+                news_sources=news_sources,
+                news_summary_chars=NEWS_SUMMARY_CHARS,
+                rag_fallback_mode=rag_fallback_mode,
+            )
+            task_packet = self._build_text_brief_task_packet(
+                symbol=symbol,
+                as_of_date_text=as_of_date_text,
+                bundle=bundle,
+            )
+            info["timeline_rows"] = len(bundle.daily_timeline)
+            info["news"] = len(bundle.news)
+            info["fundamental"] = len(bundle.fundamental)
+            info["payload_chars"] = len(
+                json.dumps(task_packet, ensure_ascii=False, default=str)
+            )
+            info["missing"] = bundle.missing_fields or "-"
 
         llm_started_at = perf_counter()
         try:
@@ -1497,10 +1529,7 @@ class StockBehaviorOrchestrator:
         soft_compliance_hits = list(dict.fromkeys(soft_compliance_hits))
         unverified_numbers = list(dict.fromkeys(unverified_numbers))
         if discarded:
-            print(
-                "[stock_behavior_text_brief] status=limited "
-                f"discarded_items={','.join(discarded)}"
-            )
+            log_warn("text_brief.items_discarded", items=discarded)
 
         is_fallback = brief is None
         status_value = (
@@ -1609,16 +1638,37 @@ class StockBehaviorOrchestrator:
                 raw_llm_text=raw_llm_text,
                 latency_ms=latency_ms,
             )
-            print(
-                f"[stock_behavior_snapshot] status=success symbol={symbol} "
-                f"is_fallback={is_fallback} "
-                f"finish_reason={llm_meta.get('finish_reason')}"
+            log_event(
+                "text_brief.snapshot_saved",
+                symbol=symbol,
+                is_fallback=is_fallback,
+                finish_reason=llm_meta.get("finish_reason"),
             )
         except Exception as exc:
-            print(
-                f"[stock_behavior_snapshot] status=fail symbol={symbol} "
-                f"finish_reason={llm_meta.get('finish_reason')} error={exc}"
+            log_warn(
+                "text_brief.snapshot_failed",
+                symbol=symbol,
+                finish_reason=llm_meta.get("finish_reason"),
+                error_type=type(exc).__name__,
+                error=str(exc)[:200],
             )
             self._db.rollback()
 
+        log_event(
+            "text_brief.result",
+            symbol=symbol,
+            as_of=as_of_date_text,
+            status=status_value,
+            model=model_name,
+            llm_ms=latency_ms,
+            key_days=len(brief.key_days) if brief is not None else 0,
+            filtered=filtered_ids or "-",
+            removed=removed_item_ids or "-",
+            hard=len(compliance_violations),
+            soft=len(soft_compliance_hits),
+            unverified=unverified_numbers or "-",
+            undercount=undercount_sections or "-",
+            truncated=truncated_sections or "-",
+            jargon=jargon_hits or "-",
+        )
         return response
