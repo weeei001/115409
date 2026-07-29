@@ -74,19 +74,28 @@ def fetch_pit_articles(qdrant_client, embeddings, stock_id: str, as_of: str,
     - 語意檢索（query_points）+ pub_time 雙邊夾住，且一律 <= as_of 防洩漏未來。
     - 回傳 (analyst_articles, news_articles)，每筆為 dict。
     """
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
     stock_name = STOCK_NAMES.get(stock_id, stock_id)
     as_of_day = as_of[:10]
-    time_from = (date.fromisoformat(as_of_day) - timedelta(days=window_days)).strftime("%Y-%m-%d 00:00:00")
-    time_to = f"{as_of_day} 23:59:59"
+    from_dt = datetime.combine(date.fromisoformat(as_of_day) - timedelta(days=window_days), datetime.min.time())
+    to_dt = datetime.combine(date.fromisoformat(as_of_day), datetime.max.time())
+    time_from = from_dt.strftime("%Y-%m-%d %H:%M:%S")
+    time_to = to_dt.strftime("%Y-%m-%d %H:%M:%S")
+    # 數值型時間戳，與寫入端 _pub_time_to_ts 同一套換算（fromisoformat().timestamp()）
+    ts_from, ts_to = from_dt.timestamp(), to_dt.timestamp()
 
     query_text = f"{stock_name} 近期表現 營收 股價 財報 法人 展望"
     query_vector = embeddings.embed_query(query_text)
+    # 先在 Qdrant 查詢就用 pub_ts 把時間範圍夾住（≤ as_of），語意排序只在範圍內進行，
+    # 避免「先撈相關 top-N 再事後篩時間」把該時段新聞稀釋掉；null pub_ts（空白日期）不被 Range 匹配。
     results = qdrant_client.query_points(
         collection_name="news_chunks",
         query=query_vector,
-        query_filter=Filter(must=[FieldCondition(key="stock_id", match=MatchValue(value=stock_id))]),
+        query_filter=Filter(must=[
+            FieldCondition(key="stock_id", match=MatchValue(value=stock_id)),
+            FieldCondition(key="pub_ts", range=Range(gte=ts_from, lte=ts_to)),
+        ]),
         limit=pool_limit,
         with_payload=True,
     )
@@ -207,6 +216,11 @@ def build_digest_prompt(stock_id: str, as_of: str, period: str,
 }}"""
 
 
+# 自架 Gemma 模型需帶此參數關閉 thinking（對應你端的 extra_payload），
+# 否則回應可能夾帶 <think> 內容污染 JSON。
+DIGEST_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
+
+
 def call_digest_llm(client, prompt: str, model_name: str) -> dict:
     """呼叫 LLM 產出 digest JSON，含抽取與失敗預設值。"""
     result = {
@@ -219,8 +233,10 @@ def call_digest_llm(client, prompt: str, model_name: str) -> dict:
         temperature=0.3,
         max_tokens=800,
         stream=False,
+        extra_body=DIGEST_EXTRA_BODY,
     )
     raw = (resp.choices[0].message.content or "").strip()
+    raw = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()  # 防禦性：清掉殘留 thinking
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if m:
         parsed = json.loads(m.group())
