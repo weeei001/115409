@@ -14,7 +14,7 @@ from routers import (
 )
 from config import get_settings
 from models.password_reset_token import PasswordResetToken  # noqa: F401
-
+from models.llm_response import LlmResponse  # noqa: F401
 settings = get_settings()
 
 

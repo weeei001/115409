@@ -15,6 +15,7 @@ from .finmind_extra import (
 )
 from .user import User
 from .password_reset_token import PasswordResetToken
+from .llm_response import LlmResponse
 
 __all__ = [
     "DailyPrice",
@@ -32,4 +33,5 @@ __all__ = [
     "StockValuation",
     "User",
     "PasswordResetToken",
+    "LlmResponse",
 ]

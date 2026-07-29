@@ -14,9 +14,11 @@ from schemas.stock_behavior import (
     StockBehaviorAiRequest,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
+    StockBehaviorTextBriefRequest,
+    StockBehaviorTextBriefResponse,
 )
 from stock_behavior.orchestrator import StockBehaviorOrchestrator
-from stock_behavior.utils import PolicyViolationError
+from stock_behavior.utils import PolicyViolationError, UpstreamModelError
 
 router = APIRouter(prefix="/analyze/stock-behavior", tags=["AI 分析"])
 STOCK_BEHAVIOR_TIMEOUT_SECONDS = 1200
@@ -38,6 +40,11 @@ async def _run_stock_behavior_task(task: Awaitable[ResponseT]) -> ResponseT:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="分析逾時，請稍後重試") from None
     except PolicyViolationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_policy_error_detail(exc)) from exc
+    except UpstreamModelError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.to_detail(),
+        ) from exc
 
 
 @router.post(
@@ -84,3 +91,28 @@ async def get_stock_behavior_ai(
 ) -> StockBehaviorAiResponse:
     orchestrator = _build_orchestrator(db)
     return await _run_stock_behavior_task(orchestrator.generate_llm_analysis(req))
+
+
+@router.post(
+    "/text-brief",
+    response_model=StockBehaviorTextBriefResponse,
+    summary="產生股票文字簡報（shadow）",
+    description=(
+        "以 text-first-v2 schema 產生文字簡報，不影響既有 AI 分析端點。"
+        "只需傳入 `symbol`；新聞由後端自行向 RAG 取得，不再接受前端帶入 `news_sources`。"
+        "相同 symbol／as_of_date／設定已有成功結果時會直接回傳快取（`cached=true`），"
+        "需要重新產生請帶 `force_refresh=true`。"
+    ),
+    responses={
+        200: {"description": "成功產生文字簡報"},
+        422: {"description": "請求資料或政策檢查未通過"},
+        503: {"description": "上游模型服務暫時無法回應，可稍後重試"},
+        504: {"description": "文字簡報產生逾時"},
+    },
+)
+async def get_stock_behavior_text_brief(
+    req: StockBehaviorTextBriefRequest,
+    db: Session = Depends(get_db),
+) -> StockBehaviorTextBriefResponse:
+    orchestrator = _build_orchestrator(db)
+    return await _run_stock_behavior_task(orchestrator.generate_text_brief(req))
