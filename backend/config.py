@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,6 +17,9 @@ class Settings(BaseSettings):
     NIM_API_KEY: str = ""
     NIM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     ADVISOR_LLM_MODEL: str = ""
+    ADVISOR_LLM_TEMPERATURE: float = 0.2
+    ADVISOR_LLM_MAX_COMPLETION_TOKENS: int = 8192
+    ADVISOR_LLM_RESPONSE_FORMAT: Literal["off", "json_object"] = "json_object"
 
     RAG_API_URL: str = ""
     RAG_API_KEY: str = ""
