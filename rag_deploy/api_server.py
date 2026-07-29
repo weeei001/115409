@@ -1091,7 +1091,7 @@ async def analyze_stocks(req: StockAnalysisRequest):
     if not valid_symbols:
         raise HTTPException(400, f"無效的股票代號，支援：{list(STOCK_OPTIONS.keys())}")
 
-    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, Range
     from datetime import datetime as _dt
 
     if req.as_of:
@@ -1103,6 +1103,9 @@ async def analyze_stocks(req: StockAnalysisRequest):
         base_time = _dt.now()
     time_from = (base_time - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
     time_to = base_time.strftime("%Y-%m-%d %H:%M:%S")
+    # 數值型時間戳，供 Qdrant Range filter 使用（與寫入端 _pub_time_to_ts 同樣的換算）
+    ts_from = _dt.fromisoformat(time_from).timestamp()
+    ts_to = _dt.fromisoformat(time_to).timestamp()
 
     # 每支股票取最相關的 10 筆
     all_hits = []
@@ -1111,29 +1114,29 @@ async def analyze_stocks(req: StockAnalysisRequest):
     query_vector = embeddings.embed_query(query_text)
 
     for sid in valid_symbols:
-        results = qdrant_client.query_points(
+        stock_cond = FieldCondition(key="stock_id", match=MatchValue(value=sid))
+        # 先在 Qdrant 查詢就用數值型 pub_ts 把時間範圍夾住（≤ as_of），語意排序只在範圍內進行。
+        # 避免「先撈相關 top-N、再事後用 Python 篩時間」造成該時段新聞被稀釋（recall 不足）；
+        # 且 pub_ts 為 null（pub_time 空白）的點不會被 Range 匹配，順帶排除不明日期的洩漏風險。
+        in_range = qdrant_client.query_points(
             collection_name="news_chunks",
             query=query_vector,
-            query_filter=Filter(must=[FieldCondition(key="stock_id", match=MatchValue(value=sid))]),
-            limit=20,
+            query_filter=Filter(must=[stock_cond, FieldCondition(key="pub_ts", range=Range(gte=ts_from, lte=ts_to))]),
+            limit=10,
             with_payload=True,
-        )
-        # 過濾指定時間範圍（雙邊夾住，避免回測時洩漏未來新聞）
-        def normalize_time(t):
-            if not t:
-                return ""
-            t = re.sub(r"\+\d{2}:\d{2}$", "", t.strip())
-            return t.replace("T", " ")[:19]
-
-        recent = [
-            p for p in results.points
-            if time_from <= normalize_time(p.payload.get("pub_time", "")) <= time_to
-        ]
-        not_future = [
-            p for p in results.points
-            if normalize_time(p.payload.get("pub_time", "")) <= time_to
-        ]
-        all_hits.extend(recent[:10] if recent else not_future[:5])
+        ).points
+        if in_range:
+            all_hits.extend(in_range)
+        else:
+            # 範圍內查無 → 退回撈 as_of 之前（更舊）但仍嚴格不含未來的新聞
+            older = qdrant_client.query_points(
+                collection_name="news_chunks",
+                query=query_vector,
+                query_filter=Filter(must=[stock_cond, FieldCondition(key="pub_ts", range=Range(lte=ts_to))]),
+                limit=5,
+                with_payload=True,
+            ).points
+            all_hits.extend(older)
 
     if not all_hits:
         raise HTTPException(404, "指定時間範圍內無相關新聞資料")
