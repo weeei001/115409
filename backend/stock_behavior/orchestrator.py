@@ -183,7 +183,12 @@ def build_analysis_config(settings: Any, model_name: str) -> dict[str, Any]:
         ),
         "parser_version": "strict-root-v1",
         "prompt_version": PROMPT_VERSION,
-        "llm_timeout_seconds": LLM_TIMEOUT_SECONDS,
+        "llm_timeout_seconds": getattr(
+            settings,
+            "ADVISOR_LLM_TIMEOUT_SECONDS",
+            LLM_TIMEOUT_SECONDS,
+        ),
+        "llm_streaming": bool(getattr(settings, "ADVISOR_LLM_STREAMING", False)),
     }
 
 

@@ -20,7 +20,7 @@ uvicorn main:app --reload --port 8000
 然後開 `text_brief_demo.html`，確認上方 API base 是 `http://127.0.0.1:8000`，按「產生分析」。
 後端的 CORS 是 `allow_origins=["*"]`，所以 `file://` 開啟也能直接打。
 
-## 三個分頁
+## 四個分頁
 
 - **簡報**——模型輸出加上證據互相對照。
 - **檢索到的新聞**——RAG 這次回傳、並且真的進到 payload 的每一則。
@@ -30,8 +30,12 @@ uvicorn main:app --reload --port 8000
   不是整篇文章。
 - **原始 payload**——完整 40 列時間軸、長期座標、基本面、`missing_fields`，以及可展開的完整 JSON。
   模型看不到這裡沒有的任何資料。
+- **執行紀錄**——`llm_responses` 由新到舊，每一列是一次 LLM 呼叫，含失敗與 fallback 的那幾次。
+  有時間、模型、狀態、LLM 耗時、新聞數與 `config_hash`。按「載入」會用當時存下來的回應
+  重畫前三個分頁，連同那一次真正送進模型的 payload，適合拿來比較不同模型或不同設定的結果。
+  這一頁需要後端，離線範例看不到。
 
-分頁要有資料，請求必須帶 `include_payload: true`（控制列的「附帶原始 payload」預設已勾）。
+前三頁的 payload 要有資料，請求必須帶 `include_payload: true`（控制列的「附帶原始 payload」預設已勾）。
 這個欄位只是把送進 LLM 的 task packet 附在回應上，不會寫進快取；命中快取時改從
 `llm_responses.prompt_json` 還原，所以看快取結果也有 payload 可以查。
 
