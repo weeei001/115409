@@ -595,7 +595,11 @@ def build_fundamental(
     return items, missing
 
 
-def build_news_items(news_sources: Sequence[dict[str, Any]], *, summary_chars: int) -> list[dict[str, Any]]:
+def build_news_items(
+    news_sources: Sequence[dict[str, Any]],
+    *,
+    summary_chars: int | None,
+) -> list[dict[str, Any]]:
     ids = _IdGen("nw")
     items: list[dict[str, Any]] = []
     for source in news_sources:
@@ -606,7 +610,7 @@ def build_news_items(news_sources: Sequence[dict[str, Any]], *, summary_chars: i
             continue
         timestamp = str(source.get("timestamp") or "")
         summary = " ".join(str(source.get("summary") or "").split())
-        if len(summary) > summary_chars:
+        if summary_chars and len(summary) > summary_chars:
             summary = summary[:summary_chars] + "…"
         kind = source.get("kind")
         item = {
@@ -641,7 +645,7 @@ def build_evidence_bundle(
     symbol: str,
     as_of_date: date,
     news_sources: Sequence[dict[str, Any]],
-    news_summary_chars: int,
+    news_summary_chars: int | None,
     rag_fallback_mode: bool = False,
 ) -> EvidenceBundle:
     price_rows, chip_rows, technical_rows = collect_market_rows(
