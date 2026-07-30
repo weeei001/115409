@@ -146,6 +146,17 @@ table.tbl td.pos{color:var(--pos)} table.tbl td.neg{color:var(--neg)}
 .pill.q{background:var(--warn-bg);color:var(--warn)}
 .pill.m{background:transparent;color:var(--muted);border:1px solid var(--line)}
 .sumline{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+
+/* ── 模型區分 ─────────────────────────────── */
+.dot{display:inline-block;width:9px;height:9px;border-radius:99px;margin-right:7px;vertical-align:0}
+.mchip{display:inline-flex;align-items:center;gap:0;font-size:12.5px;padding:4px 11px;border-radius:99px;
+  border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;font-weight:500}
+.mchip.on{border-color:currentColor;font-weight:700}
+.mcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:0 0 14px}
+.mcard{border:1px solid var(--line);border-left-width:4px;border-radius:8px;padding:10px 12px}
+.mcard .nm{font-size:12.5px;font-weight:700;word-break:break-all;line-height:1.4}
+.mcard .st{font-size:12px;color:var(--muted);margin-top:5px;font-variant-numeric:tabular-nums}
+table.tbl td.mdl{white-space:nowrap}
 details.raw{margin-top:12px}
 details.raw>summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
 details.raw pre{margin:8px 0 0;padding:11px 13px;background:var(--bg);border:1px solid var(--line);
@@ -606,6 +617,160 @@ function payloadPane(packet){
   return wrap;
 }
 
+/* ── 分頁：執行紀錄 ───────────────────────────────────── */
+const STATUS_TONE = {verified:'ok', limited:'warn', unavailable:'bad', unknown:'plain'};
+
+function apiBase(){ return $('api').value.replace(/\/+$/, ''); }
+
+// 固定的模型配色；依「本次載入到的模型名稱排序後的位置」指派，同一批資料每次都一樣。
+const MODEL_COLORS = ['#1d4ed8', '#0f7b4f', '#b3261e', '#8a5300', '#7c3aed', '#0e7490',
+                      '#be185d', '#4d7c0f'];
+function buildModelIndex(items){
+  const names = Array.from(new Set(items.map(it => it.model_name || '未知'))).sort();
+  const index = new Map();
+  names.forEach((name, i) => index.set(name, MODEL_COLORS[i % MODEL_COLORS.length]));
+  return index;
+}
+function dot(color){
+  const n = el('span','dot');
+  n.style.background = color;
+  return n;
+}
+function median(values){
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** 每個模型一張小卡：跑幾次、成功幾次、耗時中位數 */
+function modelCards(items, colors){
+  const box = el('div','mcards');
+  const names = Array.from(colors.keys());
+  names.forEach(name => {
+    const mine = items.filter(it => (it.model_name || '未知') === name);
+    const ok = mine.filter(it => it.status === 'verified').length;
+    const bad = mine.filter(it => it.status !== 'verified').length;
+    const ms = median(mine.filter(it => it.latency_ms != null).map(it => it.latency_ms));
+    const card = el('div','mcard');
+    card.style.borderLeftColor = colors.get(name);
+    const nm = el('div','nm');
+    nm.appendChild(dot(colors.get(name)));
+    nm.appendChild(document.createTextNode(name));
+    card.appendChild(nm);
+    card.appendChild(el('div','st',
+      mine.length + ' 次　·　verified ' + ok + (bad ? '　·　其他 ' + bad : '')
+      + '　·　中位 ' + (ms == null ? '—' : (ms / 1000).toFixed(1) + ' 秒')));
+    box.appendChild(card);
+  });
+  return box;
+}
+
+function renderHistory(box, items, colors, state){
+  box.innerHTML = '';
+  const shown = state.model ? items.filter(it => (it.model_name || '未知') === state.model) : items;
+
+  box.appendChild(modelCards(items, colors));
+
+  const chips = el('div','sumline');
+  const addChip = (label, value, color) => {
+    const c = el('button','mchip' + (state.model === value ? ' on' : ''));
+    if (color) c.appendChild(dot(color));
+    c.appendChild(document.createTextNode(label));
+    if (color) c.style.color = color;
+    c.onclick = () => { state.model = value; renderHistory(box, items, colors, state); };
+    chips.appendChild(c);
+  };
+  addChip('全部模型（' + items.length + '）', null, null);
+  colors.forEach((color, name) => {
+    addChip(name + '（' + items.filter(it => (it.model_name || '未知') === name).length + '）',
+      name, color);
+  });
+  box.appendChild(chips);
+
+  const rows = shown.map(it => {
+    const name = it.model_name || '未知';
+    const cell = el('span');
+    cell.appendChild(dot(colors.get(name)));
+    cell.appendChild(document.createTextNode(name));
+    return {
+      mark: state.currentId != null && it.id === state.currentId,
+      cells: [
+        {text:'#' + it.id, cls:'id'},
+        {text:(it.created_at || '').replace('T', ' ').slice(0, 19)},
+        {text:it.symbol},
+        {text:it.as_of_date},
+        {node:cell, cls:'mdl'},
+        {node: el('span','tag ' + (STATUS_TONE[it.status] || 'plain'), it.status)},
+        num(it.latency_ms == null ? null : Math.round(it.latency_ms / 100) / 10, 1),
+        {text:it.news_count},
+        {text:it.config_hash || '—', cls:'id'},
+        {text:it.summary || '—', cls:'wrapcell'},
+        {node:(() => {
+          const b = el('button','ghost','載入');
+          b.style.padding = '3px 10px';
+          b.onclick = () => openHistory(it.id);
+          return b;
+        })()}
+      ]
+    };
+  });
+
+  box.appendChild(el('p','note',
+    '每一列是一次 LLM 呼叫，含失敗與 fallback 的那幾次。耗時是後端量到的 LLM 延遲（秒）。'
+    + '按「載入」會用當時存下來的回應重畫前三個分頁，包含那一次真正送進模型的 payload，'
+    + '所以可以把不同模型的同一題叫出來直接對照。'));
+  box.appendChild(table(
+    ['id','時間','股票','基準日','模型','狀態','耗時秒','新聞','config','摘要',''], rows));
+}
+
+async function loadHistory(box, symbol, currentId){
+  box.innerHTML = '';
+  box.appendChild(el('p','hint','讀取中…'));
+  let items;
+  try {
+    const qs = '?limit=100' + (symbol ? '&symbol=' + encodeURIComponent(symbol) : '');
+    const res = await fetch(apiBase() + '/analyze/stock-behavior/text-brief/history' + qs);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    items = (await res.json()).items || [];
+  } catch (err) {
+    box.innerHTML = '';
+    box.appendChild(el('p','hint',
+      '讀不到執行紀錄（' + err + '）。這一頁需要後端；離線範例沒有歷史可看。'));
+    return;
+  }
+  box.innerHTML = '';
+  if (!items.length){ box.appendChild(el('p','hint','還沒有任何執行紀錄。')); return; }
+  renderHistory(box, items, buildModelIndex(items), {model:null, currentId});
+}
+
+async function openHistory(id){
+  stopProgress();
+  try {
+    const res = await fetch(apiBase() + '/analyze/stock-behavior/text-brief/history/' + id);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    render(await res.json(), {historyId: id});
+  } catch (err) {
+    showError('載入執行紀錄失敗', String(err));
+  }
+}
+
+function historyPane(data, currentId){
+  const wrap = el('div');
+  const box = el('div');
+  const bar = el('div','sumline');
+  const only = el('button','ghost','只看 ' + data.symbol);
+  const all = el('button','ghost','全部股票');
+  const reload = el('button','ghost','重新整理');
+  only.onclick = () => loadHistory(box, data.symbol, currentId);
+  all.onclick = () => loadHistory(box, null, currentId);
+  reload.onclick = () => loadHistory(box, data.symbol, currentId);
+  [only, all, reload].forEach(b => { b.style.padding = '4px 12px'; bar.appendChild(b); });
+  wrap.appendChild(card('執行紀錄　（來自 llm_responses，新到舊）', bar, box));
+  loadHistory(box, data.symbol, currentId);
+  return wrap;
+}
+
 /* ── 分頁殼 ───────────────────────────────────────────── */
 function tabs(items){
   const box = el('div');
@@ -649,6 +814,8 @@ function render(data, extra){
   if (extra && extra.ms != null)
     meta.appendChild(el('span','tag plain', '耗時 ' + (extra.ms / 1000).toFixed(1) + ' 秒'));
   if (extra && extra.offline) meta.appendChild(el('span','tag info','離線範例'));
+  const historyId = extra && extra.historyId != null ? extra.historyId : null;
+  if (historyId != null) meta.appendChild(el('span','tag info','執行紀錄 #' + historyId));
 
   const packet = data.task_packet || null;
   const brief = el('div');
@@ -656,7 +823,8 @@ function render(data, extra){
   out.appendChild(tabs([
     ['簡報', null, brief],
     ['檢索到的新聞', packet ? (packet.news || []).length : null, newsPane(data, packet)],
-    ['原始 payload', packet ? (packet.daily_timeline || []).length : null, payloadPane(packet)]
+    ['原始 payload', packet ? (packet.daily_timeline || []).length : null, payloadPane(packet)],
+    ['執行紀錄', null, historyPane(data, historyId)]
   ]));
 }
 

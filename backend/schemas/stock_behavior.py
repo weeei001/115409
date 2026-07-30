@@ -461,6 +461,31 @@ class StockBehaviorTextBriefResponse(BaseModel):
     task_packet: Optional[dict[str, Any]] = None
 
 
+class TextBriefHistoryItem(BaseModel):
+    """一次 LLM 呼叫的摘要列；明細另外用 /history/{id} 取。"""
+
+    # model_name 與 pydantic 保留的 model_ 命名空間衝突，欄位名要跟 DB 一致，改放行。
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    symbol: str
+    as_of_date: str
+    model_name: Optional[str] = None
+    status: str
+    is_fallback: bool
+    news_count: int
+    latency_ms: Optional[int] = None
+    created_at: Optional[str] = None
+    summary: Optional[str] = None
+    prompt_version: Optional[str] = None
+    config_hash: Optional[str] = None
+    has_payload: bool = False
+
+
+class TextBriefHistoryResponse(BaseModel):
+    items: list[TextBriefHistoryItem] = Field(default_factory=list)
+
+
 class RawTextBriefClaim(BaseModel):
     id: Any = None
     claim_type: Any = None
