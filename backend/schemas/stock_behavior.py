@@ -329,6 +329,13 @@ class StockBehaviorTextBriefRequest(BaseModel):
         default=False,
         description="略過相同 symbol／as_of_date／設定的既有快照，強制重新呼叫 LLM。",
     )
+    include_payload: bool = Field(
+        default=False,
+        description=(
+            "附帶送進 LLM 的完整 task packet（含 daily_timeline、news 全文與 missing_fields），"
+            "供 DEMO 與資料分析檢視檢索到什麼。不影響快取內容。"
+        ),
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -336,6 +343,7 @@ class StockBehaviorTextBriefRequest(BaseModel):
                 "symbol": "2330",
                 "as_of_date": "2026-07-13",
                 "force_refresh": False,
+                "include_payload": False,
             }
         }
     )
@@ -448,6 +456,9 @@ class StockBehaviorTextBriefResponse(BaseModel):
     disclaimer: TextBriefDisclaimer
     limitations: list[str] = Field(default_factory=list)
     cached: bool = False
+    # 只在請求帶 include_payload=true 時填入；不會寫進快取的 response_json，
+    # 否則每筆快照都會被完整時間軸與新聞全文撐大一倍。
+    task_packet: Optional[dict[str, Any]] = None
 
 
 class RawTextBriefClaim(BaseModel):

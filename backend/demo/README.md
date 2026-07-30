@@ -20,6 +20,21 @@ uvicorn main:app --reload --port 8000
 然後開 `text_brief_demo.html`，確認上方 API base 是 `http://127.0.0.1:8000`，按「產生分析」。
 後端的 CORS 是 `allow_origins=["*"]`，所以 `file://` 開啟也能直接打。
 
+## 三個分頁
+
+- **簡報**——模型輸出加上證據互相對照。
+- **檢索到的新聞**——RAG 這次回傳、並且真的進到 payload 的每一則。
+  逐則標示日期、`kind`、掛在哪個交易日、有沒有被簡報引用，以及**標題與摘要有沒有出現本檔的代號或名稱**。
+  標題與摘要都沒提到的列會有底色。用來判斷檢索品質：命中的到底是個股新聞還是大盤快訊。
+  摘要那一欄就是模型看到的全部內容，也就是 RAG 回傳的切塊全文（`NEWS_SUMMARY_CHARS = None`，不截斷），
+  不是整篇文章。
+- **原始 payload**——完整 40 列時間軸、長期座標、基本面、`missing_fields`，以及可展開的完整 JSON。
+  模型看不到這裡沒有的任何資料。
+
+分頁要有資料，請求必須帶 `include_payload: true`（控制列的「附帶原始 payload」預設已勾）。
+這個欄位只是把送進 LLM 的 task packet 附在回應上，不會寫進快取；命中快取時改從
+`llm_responses.prompt_json` 還原，所以看快取結果也有 payload 可以查。
+
 ## 展示時的三個重點
 
 1. **可回溯**——這是 v2 與舊版最大的差別。
@@ -42,6 +57,7 @@ uvicorn main:app --reload --port 8000
 - **第二次呼叫會瞬間回應**，因為命中快取（畫面會顯示「來自快取」標籤）。
   要重新產生請勾「略過快取重新產生」。
 - 基準日留空＝今天。資料庫目前的行情資料到 2026-07-13，往後的日期會拿到一樣的結果。
-- 離線範例是寫死在 HTML 裡的常數。要換成新的樣本，把一次執行的回應 JSON
-  取代 `<script>` 開頭 `const SAMPLE = ...;` 那一行即可
-  （`scripts/smoke_text_brief.py --dump out.json` 可以產生）。
+- 離線範例是寫死在 HTML 裡的兩個常數：`const SAMPLE = ...;` 是回應，
+  `const SAMPLE_PACKET = ...;` 是那一次送進 LLM 的 task packet。
+  要換成新的樣本就整行取代（`scripts/smoke_text_brief.py --dump out.json` 可以產生回應；
+  payload 從 `llm_responses.prompt_json` 取）。
