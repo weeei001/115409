@@ -223,6 +223,7 @@ def _run_brief(
     bundle=None,
     cached_row=None,
     force_refresh=False,
+    include_payload=False,
 ):
     captured = {}
     bundle = bundle if bundle is not None else _bundle()
@@ -275,6 +276,7 @@ def _run_brief(
                 symbol="2330",
                 as_of_date=AS_OF.isoformat(),
                 force_refresh=force_refresh,
+                include_payload=include_payload,
             )
         )
     )
@@ -626,6 +628,49 @@ def test_cache_hit_returns_stored_response_without_calling_the_model(monkeypatch
     assert "llm_response" not in captured
 
 
+def test_include_payload_attaches_the_task_packet_without_bloating_the_cache(monkeypatch):
+    """DEMO 的 payload 分頁靠這個欄位；但快取存的 response_json 不能跟著變大。"""
+    response, captured = _run_brief(monkeypatch, _valid_brief(), include_payload=True)
+
+    assert response.task_packet == captured["task_packet"]
+    assert response.task_packet["daily_timeline"]
+    stored = json.loads(captured["llm_response"]["response_json"])
+    assert stored.get("task_packet") is None
+
+
+def test_task_packet_is_absent_unless_the_request_asks_for_it(monkeypatch):
+    response, _ = _run_brief(monkeypatch, _valid_brief())
+
+    assert response.task_packet is None
+
+
+def test_cache_hit_restores_the_task_packet_from_the_stored_prompt(monkeypatch):
+    """快取重播時 response_json 沒有 payload，改從稽核用的 prompt_json 還原。"""
+    stored = StockBehaviorTextBriefResponse(
+        symbol="2330",
+        as_of_date=AS_OF.isoformat(),
+        generated_by="test-model",
+        status="verified",
+        brief=StockBehaviorTextBrief.model_validate(_valid_brief()),
+        evidence_catalog=[],
+        verification={},
+        disclaimer={"version": "v1", "text": TEXT_BRIEF_DISCLAIMER_TEXT},
+        limitations=[],
+    )
+    row = SimpleNamespace(
+        response_json=json.dumps(stored.model_dump(mode="json")),
+        prompt_json=json.dumps({"task": {"symbol": "2330"}, "news": [{"id": "nw_01"}]}),
+    )
+
+    response, captured = _run_brief(
+        monkeypatch, _valid_brief(), cached_row=row, include_payload=True
+    )
+
+    assert response.cached is True
+    assert response.task_packet == {"task": {"symbol": "2330"}, "news": [{"id": "nw_01"}]}
+    assert "llm_response" not in captured
+
+
 def test_force_refresh_bypasses_the_cache(monkeypatch):
     row = SimpleNamespace(response_json=json.dumps({"broken": True}))
 
@@ -894,7 +939,7 @@ def test_system_prompt_keeps_the_fact_consistency_rules():
 
 def test_bundled_few_shot_examples_satisfy_every_output_rule():
     """few-shot 是模型唯一的風格範本，本身違規就會被學起來。"""
-    assert len(few_shot_examples.FEW_SHOT_EXAMPLES) == 3
+    assert len(few_shot_examples.FEW_SHOT_EXAMPLES) == 4
 
     for example in few_shot_examples.FEW_SHOT_EXAMPLES:
         payload = example["input_payload"]

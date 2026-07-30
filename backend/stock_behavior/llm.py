@@ -343,22 +343,39 @@ class StockBehaviorLlmService:
             "ADVISOR_LLM_RESPONSE_FORMAT",
             "json_object",
         )
+        self._timeout_seconds = getattr(
+            settings,
+            "ADVISOR_LLM_TIMEOUT_SECONDS",
+            LLM_TIMEOUT_SECONDS,
+        )
+        self._streaming = bool(getattr(settings, "ADVISOR_LLM_STREAMING", False))
+        self._max_retries = getattr(settings, "ADVISOR_LLM_MAX_RETRIES", 2)
+        # 0／None＝停用「chunk 之間」的 timeout；整體仍受 self._timeout_seconds 保護。
+        self._stream_chunk_timeout = (
+            getattr(settings, "ADVISOR_LLM_STREAM_CHUNK_TIMEOUT_SECONDS", 0) or None
+        )
         self._enabled = bool(
             settings.NIM_API_KEY and settings.NIM_BASE_URL and self._model
         )
+        model_kwargs: dict[str, Any] = {}
+        if self._response_format == "json_object":
+            model_kwargs["response_format"] = {"type": "json_object"}
+        if self._streaming:
+            # 串流下 token_usage 預設不會回來，要明確要求，否則 completion_tokens 全是 None，
+            # 就分不出「模型只寫這麼多」與「被 max_completion_tokens 砍斷」。
+            model_kwargs["stream_options"] = {"include_usage": True}
         self._client = (
             ChatOpenAI(
                 api_key=settings.NIM_API_KEY,
                 base_url=settings.NIM_BASE_URL,
                 model=self._model,
                 temperature=getattr(settings, "ADVISOR_LLM_TEMPERATURE", 0.2),
-                timeout=LLM_TIMEOUT_SECONDS,
+                timeout=self._timeout_seconds,
+                max_retries=self._max_retries,
                 max_completion_tokens=self._max_completion_tokens,
-                model_kwargs=(
-                    {"response_format": {"type": "json_object"}}
-                    if self._response_format == "json_object"
-                    else {}
-                ),
+                streaming=self._streaming,
+                stream_chunk_timeout=self._stream_chunk_timeout,
+                model_kwargs=model_kwargs,
                 extra_body=_thinking_extra_body(self._model),
             )
             if self._enabled and ChatOpenAI is not None
@@ -490,7 +507,9 @@ class StockBehaviorLlmService:
             few_shot=(len(messages) - 2) // 2,
             prompt_chars=prompt_chars,
             max_tokens=self._max_completion_tokens,
-            timeout_s=LLM_TIMEOUT_SECONDS,
+            timeout_s=self._timeout_seconds,
+            max_retries=self._max_retries,
+            streaming=self._streaming,
         ) as info:
             response = await self._client.ainvoke(messages)
             raw_content = response.content
