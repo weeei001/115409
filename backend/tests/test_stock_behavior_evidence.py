@@ -192,6 +192,28 @@ def test_known_percentages_only_collects_percentage_fields():
     assert 50.2 not in values  # 指標數值不是百分比
 
 
+def test_news_summary_keeps_the_full_rag_text_when_no_limit_is_set():
+    """截斷會剪掉盤中速報後段的個股漲幅，正式設定改為不截斷（NEWS_SUMMARY_CHARS=None）。"""
+    long_summary = "集中市場加權指數上漲946.67點。" * 8 + "台積電(2330-TW) 上漲 3.32%。"
+    items = build_news_items(
+        [{"title": "盤中速報", "summary": long_summary, "timestamp": "2026-07-01T11:29:32"}],
+        summary_chars=None,
+    )
+
+    assert items[0]["value"] == long_summary
+    assert "台積電" in items[0]["value"]
+    assert not items[0]["value"].endswith("…")
+
+
+def test_news_summary_whitespace_is_collapsed_without_dropping_content():
+    items = build_news_items(
+        [{"title": "速報", "summary": "第一段\n\n第二段   第三段", "timestamp": "2026-07-01T11:29:32"}],
+        summary_chars=None,
+    )
+
+    assert items[0]["value"] == "第一段 第二段 第三段"
+
+
 def test_news_summary_is_truncated_and_kind_defaults_to_general():
     items = build_news_items(
         [

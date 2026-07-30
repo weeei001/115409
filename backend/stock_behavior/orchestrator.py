@@ -87,7 +87,7 @@ AI_DEFAULT_HORIZON_DAYS = 40
 AI_DEFAULT_LANGUAGE = "zh-TW"
 RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60
 RAG_DEFAULT_MAX_NEWS_EVENTS = 10
-NEWS_SUMMARY_CHARS = 60
+NEWS_SUMMARY_CHARS: int | None = None
 TEXT_BRIEF_SCHEMA_VERSION = "text-first-v2"
 # 目標數量；低於此值不會讓整份作廢，但會把 status 降為 limited 並記在 verification。
 TEXT_BRIEF_TARGET_COUNTS = {"key_days": 3, "watch_points": 2}
@@ -1333,6 +1333,7 @@ class StockBehaviorOrchestrator:
         symbol: str,
         as_of_date: date,
         config_hash: str,
+        include_payload: bool = False,
     ) -> StockBehaviorTextBriefResponse | None:
         row = get_cached_llm_response(
             self._db,
@@ -1349,6 +1350,12 @@ class StockBehaviorOrchestrator:
         except (ValueError, ValidationError):
             return None
         response.cached = True
+        if include_payload and getattr(row, "prompt_json", None):
+            # task_packet 沒有進 response_json，快取重播時從稽核用的 prompt_json 還原。
+            try:
+                response.task_packet = json.loads(row.prompt_json)
+            except ValueError:
+                response.task_packet = None
         return response
 
     async def generate_text_brief(
@@ -1379,6 +1386,7 @@ class StockBehaviorOrchestrator:
                 symbol=symbol,
                 as_of_date=as_of_date,
                 config_hash=config_hash,
+                include_payload=req.include_payload,
             )
             if cached is not None:
                 log_event(
@@ -1644,4 +1652,7 @@ class StockBehaviorOrchestrator:
             truncated=truncated_sections or "-",
             jargon=jargon_hits or "-",
         )
+        # 寫入快取之後才掛上，response_json 才不會被完整 payload 撐大。
+        if req.include_payload:
+            response.task_packet = task_packet
         return response
