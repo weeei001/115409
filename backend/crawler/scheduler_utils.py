@@ -18,33 +18,26 @@ log = logging.getLogger(__name__)
 
 # 定期更新流程固定於此：若要改時間或腳本，請直接改常數。
 CRAWLER_DIR = Path(__file__).resolve().parent
-REPO_ROOT = CRAWLER_DIR.parents[1]
 CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
-RAG_SCHEDULER_SCRIPT = REPO_ROOT / "rag" / "scheduler_rag.py"
+LTN_CRAWLER_SCRIPT = CRAWLER_DIR / "ltn_crawler.py"
 FINMIND_FETCH_SCRIPT = CRAWLER_DIR / "finmind" / "fetch_finmind.py"
 FINMIND_IMPORT_SCRIPT = CRAWLER_DIR / "finmind" / "import_finmind_csv.py"
 FINMIND_OUT_DIR = CRAWLER_DIR / "finmind" / "finmind_output"
 FINMIND_START_DATE = "2021-01-01"
 FINMIND_SCHEDULE_TIME = "17:00"
 FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
-# 2026-07-19：股價排程屬另一位開發者負責範圍，重載時意外一併生效，先關閉待其確認後再開。
-RUN_FINMIND = False
+RUN_FINMIND = True
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
-CNYES_SCHEDULE_LOOKBACK_DAYS = 5
-# LTN（自由時報）：rag/scheduler_rag.py --run-once 會跑 抓取 → 清洗 → 匯入 news_articles。
-# rag 的爬蟲需要 beautifulsoup4，backend/env 沒裝；用不同直譯器時把路徑填在 RAG_PYTHON。
+CNYES_SCHEDULE_LOOKBACK_DAYS = 30
+# LTN（自由時報）：ltn_crawler.py --scheduled-once 抓到就直接寫入 news_articles，不經 CSV。
 RUN_LTN_NEWS_CRAWL = True
 LTN_INTERVAL_MINUTES = 30
-RAG_PYTHON = ""  # 留空＝沿用執行本排程器的 python
+LTN_SCHEDULE_LOOKBACK_DAYS = 30
 
 
 def _python_executable() -> str:
     return sys.executable
-
-
-def _rag_python_executable() -> str:
-    return RAG_PYTHON or sys.executable
 
 
 def _subprocess_text_encoding() -> str:
@@ -141,37 +134,25 @@ def run_cnyes_job() -> None:
 
 
 def run_ltn_job() -> None:
-    """自由時報新聞：抓取 → 清洗 → 匯入 news_articles，實作在 rag/scheduler_rag.py。"""
+    """自由時報新聞：排程固定回補最近 30 天，抓到就寫進 news_articles。"""
     if not RUN_LTN_NEWS_CRAWL:
         return
-    script_path = RAG_SCHEDULER_SCRIPT
+    script_path = LTN_CRAWLER_SCRIPT
     if not script_path.exists():
-        log.error("找不到 RAG 排程腳本 '%s'。", script_path)
+        log.error("找不到 LTN 爬蟲檔案 '%s'。", script_path)
         return
     try:
-        command = [_rag_python_executable(), str(script_path), "--run-once"]
-        if _run_python_command(command, "📰 LTN 新聞抓取＋清洗＋匯入"):
-            log.info("✅ LTN 新聞抓取＋匯入完成！")
+        command = [
+            _python_executable(),
+            str(script_path),
+            "--scheduled-once",
+            "--lookback-days",
+            str(LTN_SCHEDULE_LOOKBACK_DAYS),
+        ]
+        if _run_python_command(command, "📰 LTN 新聞抓取"):
+            log.info("✅ LTN 新聞抓取完成！")
     except Exception as e:
         log.error("執行 LTN 排程時發生未預期例外: %s", e)
-
-
-def _check_rag_dependencies() -> None:
-    """rag 爬蟲需要 beautifulsoup4；直譯器缺套件時每輪都會失敗，啟動時先提醒一次。"""
-    python_cmd = _rag_python_executable()
-    result = subprocess.run(
-        [python_cmd, "-c", "import bs4, pandas"],
-        capture_output=True,
-        text=True,
-        encoding=_subprocess_text_encoding(),
-        errors="replace",
-    )
-    if result.returncode != 0:
-        log.warning(
-            "⚠️ %s 缺少 rag 爬蟲需要的套件（bs4／pandas），LTN 排程會失敗。"
-            "請改用有裝 rag/requirements.txt 的直譯器（設定 RAG_PYTHON）或補裝套件。",
-            python_cmd,
-        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -214,11 +195,11 @@ def main():
         ltn_interval = max(1, LTN_INTERVAL_MINUTES)
         schedule.every(ltn_interval).minutes.do(run_ltn_job)
         log.info(
-            "✅ 已設定每 %s 分鐘執行：%s（--run-once，LTN 抓取 → 清洗 → 匯入 news_articles）",
+            "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，固定回補最近 %s 天，直接寫入 news_articles）",
             ltn_interval,
-            RAG_SCHEDULER_SCRIPT.name,
+            LTN_CRAWLER_SCRIPT.name,
+            LTN_SCHEDULE_LOOKBACK_DAYS,
         )
-        _check_rag_dependencies()
 
     # ----------------------------------------------------
     # [開發測試用]
