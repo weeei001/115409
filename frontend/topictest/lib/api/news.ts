@@ -5,13 +5,13 @@ import { dedupeFetch } from '../utils/inFlight';
 export interface FetchNewsParams {
   page?: number;
   page_size?: number;
-  news_id?: number;
-  id?: number;
+  article_id?: string;
   keyword?: string;
   stock?: string;
+  source?: string;
   start_time?: string;
   end_time?: string;
-  sort_by?: 'publish_time' | 'created_at' | 'updated_at';
+  sort_by?: 'pub_time' | 'created_at';
   sort_order?: 'asc' | 'desc';
 }
 
