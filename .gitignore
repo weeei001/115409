@@ -99,3 +99,4 @@ backend/distill_case_pool.json
 backend/few_shot_examples_draft.py
 backend/golden_cases.json
 backend/golden_extra.json
+backend/finmind_output
