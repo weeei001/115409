@@ -16,7 +16,7 @@ from config import get_settings
 from crud import password_reset as reset_crud
 from crud import user as user_crud
 from database import get_db
-from deps import get_current_user
+from auth.deps import get_current_user
 from models.user import User
 from schemas.auth import (
     ChangePasswordRequest,
