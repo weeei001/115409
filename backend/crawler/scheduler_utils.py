@@ -18,7 +18,9 @@ log = logging.getLogger(__name__)
 
 # 定期更新流程固定於此：若要改時間或腳本，請直接改常數。
 CRAWLER_DIR = Path(__file__).resolve().parent
+REPO_ROOT = CRAWLER_DIR.parents[1]
 CNYES_CRAWLER_SCRIPT = CRAWLER_DIR / "cnyes_crawlwer.py"
+RAG_SCHEDULER_SCRIPT = REPO_ROOT / "rag" / "scheduler_rag.py"
 FINMIND_FETCH_SCRIPT = CRAWLER_DIR / "finmind" / "fetch_finmind.py"
 FINMIND_IMPORT_SCRIPT = CRAWLER_DIR / "finmind" / "import_finmind_csv.py"
 FINMIND_OUT_DIR = CRAWLER_DIR / "finmind" / "finmind_output"
@@ -30,10 +32,19 @@ RUN_FINMIND = False
 RUN_CNYES_NEWS_CRAWL = True
 CNYES_INTERVAL_MINUTES = 30
 CNYES_SCHEDULE_LOOKBACK_DAYS = 5
+# LTN（自由時報）：rag/scheduler_rag.py --run-once 會跑 抓取 → 清洗 → 匯入 news_articles。
+# rag 的爬蟲需要 beautifulsoup4，backend/env 沒裝；用不同直譯器時把路徑填在 RAG_PYTHON。
+RUN_LTN_NEWS_CRAWL = True
+LTN_INTERVAL_MINUTES = 30
+RAG_PYTHON = ""  # 留空＝沿用執行本排程器的 python
 
 
 def _python_executable() -> str:
     return sys.executable
+
+
+def _rag_python_executable() -> str:
+    return RAG_PYTHON or sys.executable
 
 
 def _subprocess_text_encoding() -> str:
@@ -129,6 +140,40 @@ def run_cnyes_job() -> None:
         log.error(f"執行鉅亨爬蟲時發生未預期例外: {e}")
 
 
+def run_ltn_job() -> None:
+    """自由時報新聞：抓取 → 清洗 → 匯入 news_articles，實作在 rag/scheduler_rag.py。"""
+    if not RUN_LTN_NEWS_CRAWL:
+        return
+    script_path = RAG_SCHEDULER_SCRIPT
+    if not script_path.exists():
+        log.error("找不到 RAG 排程腳本 '%s'。", script_path)
+        return
+    try:
+        command = [_rag_python_executable(), str(script_path), "--run-once"]
+        if _run_python_command(command, "📰 LTN 新聞抓取＋清洗＋匯入"):
+            log.info("✅ LTN 新聞抓取＋匯入完成！")
+    except Exception as e:
+        log.error("執行 LTN 排程時發生未預期例外: %s", e)
+
+
+def _check_rag_dependencies() -> None:
+    """rag 爬蟲需要 beautifulsoup4；直譯器缺套件時每輪都會失敗，啟動時先提醒一次。"""
+    python_cmd = _rag_python_executable()
+    result = subprocess.run(
+        [python_cmd, "-c", "import bs4, pandas"],
+        capture_output=True,
+        text=True,
+        encoding=_subprocess_text_encoding(),
+        errors="replace",
+    )
+    if result.returncode != 0:
+        log.warning(
+            "⚠️ %s 缺少 rag 爬蟲需要的套件（bs4／pandas），LTN 排程會失敗。"
+            "請改用有裝 rag/requirements.txt 的直譯器（設定 RAG_PYTHON）或補裝套件。",
+            python_cmd,
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="台股爬蟲排程器")
     parser.add_argument("--start", default=FINMIND_START_DATE, help="FinMind 回補起始日 YYYY-MM-DD；結束日固定為今天")
@@ -165,8 +210,18 @@ def main():
             CNYES_SCHEDULE_LOOKBACK_DAYS,
         )
 
+    if RUN_LTN_NEWS_CRAWL:
+        ltn_interval = max(1, LTN_INTERVAL_MINUTES)
+        schedule.every(ltn_interval).minutes.do(run_ltn_job)
+        log.info(
+            "✅ 已設定每 %s 分鐘執行：%s（--run-once，LTN 抓取 → 清洗 → 匯入 news_articles）",
+            ltn_interval,
+            RAG_SCHEDULER_SCRIPT.name,
+        )
+        _check_rag_dependencies()
+
     # ----------------------------------------------------
-    # [開發測試用] 
+    # [開發測試用]
     # 如果你想先測試排程器是否會動，可以暫時解開下一行註解 (每分鐘執行一次)：
     # schedule.every(1).minutes.do(run_cnyes_job)
     # ----------------------------------------------------
