@@ -927,7 +927,7 @@ def test_llm_uses_multi_turn_few_shot_messages(monkeypatch):
 def test_system_prompt_keeps_the_fact_consistency_rules():
     prompt = build_text_brief_system_prompt()
 
-    assert TEXT_BRIEF_PROMPT_VERSION == "v5-timeline-01"
+    assert TEXT_BRIEF_PROMPT_VERSION == "v6-adversarial-01"
     assert "此日期之後的任何資訊視為不存在" in prompt
     assert "不得改寫成其他公司" in prompt
     assert "不得因為當天上漲就說量能放大" in prompt
@@ -939,7 +939,7 @@ def test_system_prompt_keeps_the_fact_consistency_rules():
 
 def test_bundled_few_shot_examples_satisfy_every_output_rule():
     """few-shot 是模型唯一的風格範本，本身違規就會被學起來。"""
-    assert len(few_shot_examples.FEW_SHOT_EXAMPLES) == 4
+    assert len(few_shot_examples.FEW_SHOT_EXAMPLES) == 7
 
     for example in few_shot_examples.FEW_SHOT_EXAMPLES:
         payload = example["input_payload"]

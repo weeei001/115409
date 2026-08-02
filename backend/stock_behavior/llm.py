@@ -201,11 +201,19 @@ def select_few_shot_examples(
     symbol: str | None,
     as_of_date: str | None,
 ) -> list[Any]:
-    """濾掉「同一檔股票、但基準日晚於本次請求」的範例。
+    """濾掉「在本次基準日當下還不可能知道」的範例。
 
-    範例取自真實資料，帶有當時的股價與新聞。歷史回測時若把同一檔股票未來的
-    收盤價餵進上下文，模型可能直接錨定，回測結果就不成立。跨股票的範例保留，
-    它們示範的是寫法而不是這檔股票的未來。
+    範例取自真實資料，帶有當時的股價、法人買賣與新聞。兩種情況要擋：
+
+    1. 基準日晚於本次請求——不分股票一律丟掉。先前只擋同一檔股票，但範例裡
+       別檔股票的未來收盤價、法人動向同樣是未來資訊：拿 2025 年初回放時，
+       上下文若躺著 2026 年的價量，等於告訴模型後來大盤漲到哪裡。
+    2. 基準日與本次相同、且是同一檔股票——雖然不是未來資料，但那份範例就是
+       這次要產出的答案本身，留著等於直接給答案。同一天的別檔股票不算洩漏，
+       那是當下就取得到的橫向資訊，予以保留。
+
+    濾到一個範例都不剩是可能的（回放時間早於所有範例）。這裡不補救，
+    由呼叫端的 few_shot 計數把情況記錄下來，避免無聲降級。
     """
     if not symbol or not as_of_date:
         return list(examples)
@@ -213,9 +221,10 @@ def select_few_shot_examples(
     kept = []
     for example in examples:
         task = _example_task(example)
-        same_symbol = str(task.get("symbol") or "") == symbol
-        later = str(task.get("as_of_date") or "") > as_of_date
-        if same_symbol and later:
+        example_date = str(task.get("as_of_date") or "")
+        if example_date > as_of_date:
+            continue
+        if example_date == as_of_date and str(task.get("symbol") or "") == symbol:
             continue
         kept.append(example)
     return kept

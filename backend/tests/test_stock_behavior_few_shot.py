@@ -103,33 +103,52 @@ def test_text_brief_few_shot_is_rendered_as_ordered_conversation_turns(monkeypat
     assert messages[-1][1] == build_text_brief_user_message(task_packet)
 
 
-def test_future_dated_examples_of_the_same_symbol_are_excluded(monkeypatch):
-    """範例帶著當時的真實股價；回測早於範例日期時餵同一檔的未來價會汙染結果。"""
+def _dated_example(scenario: str, symbol: str, as_of_date: str) -> dict:
+    return {
+        "scenario": scenario,
+        "input_payload": {"task": {"symbol": symbol, "as_of_date": as_of_date}},
+        "output_brief": {},
+    }
+
+
+def test_future_dated_examples_are_excluded_regardless_of_symbol():
+    """範例帶著當時的真實價量；基準日晚於本次的一律是未來資訊，不分股票。"""
     examples = [
-        {
-            "scenario": "同檔未來",
-            "input_payload": {"task": {"symbol": "2330", "as_of_date": "2026-07-13"}},
-            "output_brief": {},
-        },
-        {
-            "scenario": "同檔過去",
-            "input_payload": {"task": {"symbol": "2330", "as_of_date": "2025-12-01"}},
-            "output_brief": {},
-        },
-        {
-            "scenario": "他檔未來",
-            "input_payload": {"task": {"symbol": "2408", "as_of_date": "2026-07-13"}},
-            "output_brief": {},
-        },
+        _dated_example("同檔未來", "2330", "2026-07-13"),
+        _dated_example("同檔過去", "2330", "2025-12-01"),
+        _dated_example("他檔未來", "2408", "2026-07-13"),
+        _dated_example("他檔過去", "2408", "2025-11-27"),
     ]
 
     kept = select_few_shot_examples(examples, symbol="2330", as_of_date="2026-01-15")
 
-    # 同一檔的未來資料剔除；他檔範例保留，它示範的是寫法而不是這檔的未來
-    assert [item["scenario"] for item in kept] == ["同檔過去", "他檔未來"]
+    # 他檔的未來價量同樣洩漏後來的市場狀態，不能因為股票不同就放行
+    assert [item["scenario"] for item in kept] == ["同檔過去", "他檔過去"]
 
-    assert select_few_shot_examples(examples, symbol="2330", as_of_date="2026-12-31") == examples
+    assert (
+        select_few_shot_examples(examples, symbol="2330", as_of_date="2026-12-31")
+        == examples
+    )
     assert select_few_shot_examples(examples, symbol=None, as_of_date=None) == examples
+
+
+def test_example_on_the_same_day_is_dropped_only_for_the_same_symbol():
+    """同檔同日的範例就是這次要產出的答案本身；他檔同日只是當下的橫向資訊。"""
+    examples = [
+        _dated_example("同檔同日", "2330", "2026-07-31"),
+        _dated_example("他檔同日", "2408", "2026-07-31"),
+    ]
+
+    kept = select_few_shot_examples(examples, symbol="2330", as_of_date="2026-07-31")
+
+    assert [item["scenario"] for item in kept] == ["他檔同日"]
+
+
+def test_replaying_earlier_than_every_example_yields_no_few_shot():
+    """濾光是允許的結果，但不能靜默——呼叫端要能從 few_shot 計數看出來。"""
+    examples = [_dated_example("最早的範例", "2330", "2024-01-29")]
+
+    assert select_few_shot_examples(examples, symbol="2330", as_of_date="2023-06-30") == []
 
 
 def test_shipped_examples_are_isomorphic_with_the_real_task_packet():
