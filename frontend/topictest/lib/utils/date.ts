@@ -15,9 +15,18 @@ export function getDefaultDateRange(monthsBack = 3) {
   };
 }
 
+/**
+ * news_articles.pub_time 是字串欄位，格式可能是 '2025-10-18T22:03:55+08:00'
+ * 或 '2025-10-18 22:03:55'，後者不是合法 ISO，部分瀏覽器會解析失敗。
+ */
+export function parseNewsDate(value: string): Date {
+  return new Date(value.includes('T') ? value : value.replace(' ', 'T'));
+}
+
 export function formatTime(iso: string | null): string {
   if (!iso) return '';
-  const d = new Date(iso);
+  const d = parseNewsDate(iso);
+  if (Number.isNaN(d.getTime())) return iso;
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMin = Math.floor(diffMs / 60000);

@@ -371,15 +371,16 @@ export interface TechnicalIndicatorListApiResponse {
 // ── News API Response Types ──
 
 export interface News {
-  news_id: number;
-  title: string;
+  article_id: string;
+  source: string | null;
+  source_group: string | null;
+  stock_id: string | null;
+  title: string | null;
   content: string | null;
-  related_stocks: string | null;
-  publish_time: string | null;
+  pub_time: string | null;
   url: string | null;
-  id: number;
-  created_at: string;
-  updated_at: string;
+  tags: string | null;
+  created_at: string | null;
 }
 
 export interface PaginatedNewsResponse {

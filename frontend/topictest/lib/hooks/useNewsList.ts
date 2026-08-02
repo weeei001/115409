@@ -55,7 +55,7 @@ function buildFetchParams(
   const params: FetchNewsParams = {
     page,
     page_size: pageSize,
-    sort_by: options.defaultSort?.sort_by ?? 'publish_time',
+    sort_by: options.defaultSort?.sort_by ?? 'pub_time',
     sort_order: options.defaultSort?.sort_order ?? 'desc',
     start_time,
     end_time,
