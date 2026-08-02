@@ -35,6 +35,7 @@ google-auth==2.36.0
 
 # --- Jobs ---
 schedule==1.2.2
+beautifulsoup4>=4.12,<5
 
 # --- Tests ---
 pytest>=8.0.0
