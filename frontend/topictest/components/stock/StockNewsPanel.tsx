@@ -60,7 +60,7 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
           <div>
             {newsList.data.items.map((n, i) => (
               <NewsCard
-                key={n.id}
+                key={n.article_id}
                 news={n}
                 index={i}
               />

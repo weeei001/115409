@@ -1,6 +1,7 @@
 import React from 'react';
 import { Newspaper } from 'lucide-react';
 import { useNewsList } from '../../../lib/hooks/useNewsList';
+import { parseNewsDate } from '../../../lib/utils/date';
 import { BentoCardShell } from './BentoCardShell';
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return '';
-  const d = new Date(value);
+  const d = parseNewsDate(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
@@ -44,7 +45,7 @@ export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
       ) : (
         <ul className="flex-1 flex flex-col gap-2">
           {items.map((news) => {
-            const date = formatDate(news.publish_time);
+            const date = formatDate(news.pub_time);
             const linkable = Boolean(news.url);
             const content = (
               <>
@@ -58,7 +59,7 @@ export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
             );
             return (
               <li
-                key={news.id}
+                key={news.article_id}
                 className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/50 px-3 py-2"
               >
                 {linkable ? (
