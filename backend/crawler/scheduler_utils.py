@@ -23,6 +23,9 @@ LTN_CRAWLER_SCRIPT = CRAWLER_DIR / "ltn_crawler.py"
 FINMIND_FETCH_SCRIPT = CRAWLER_DIR / "finmind" / "fetch_finmind.py"
 FINMIND_IMPORT_SCRIPT = CRAWLER_DIR / "finmind" / "import_finmind_csv.py"
 FINMIND_OUT_DIR = CRAWLER_DIR / "finmind" / "finmind_output"
+RAG_DIR = CRAWLER_DIR.parents[1] / "rag"
+RAG_CHUNK_SCRIPT = RAG_DIR / "run_chunking.py"
+RAG_VECTOR_SCRIPT = RAG_DIR / "build_vector_db_headless.py"
 FINMIND_START_DATE = "2021-01-01"
 FINMIND_SCHEDULE_TIME = "17:00"
 FINMIND_SYMBOLS = ["2330", "2317", "2454", "2881", "2408", "2615"]
@@ -34,6 +37,11 @@ CNYES_SCHEDULE_LOOKBACK_DAYS = 30
 RUN_LTN_NEWS_CRAWL = True
 LTN_INTERVAL_MINUTES = 30
 LTN_SCHEDULE_LOOKBACK_DAYS = 30
+# 向量管線：新聞抓完後隔 RAG_DELAY_MINUTES 分鐘跑一次 切塊 → 向量化。
+# 兩支腳本都是斷點續傳（切塊看 news_chunks、向量化看 Qdrant 既有 chunk_id），重跑安全。
+RUN_RAG_PIPELINE = True
+RAG_DELAY_MINUTES = 10
+_rag_followup_armed = False
 
 
 def _python_executable() -> str:
@@ -44,12 +52,13 @@ def _subprocess_text_encoding() -> str:
     return locale.getpreferredencoding(False) or "utf-8"
 
 
-def _run_python_command(command: list[str], job_name: str) -> bool:
+def _run_python_command(command: list[str], job_name: str, cwd: Path | None = None) -> bool:
     output_encoding = _subprocess_text_encoding()
     log.info("%s", job_name)
     log.info("執行指令: %s", " ".join(command))
     result = subprocess.run(
         command,
+        cwd=str(cwd) if cwd else None,
         capture_output=True,
         text=True,
         encoding=output_encoding,
@@ -155,13 +164,61 @@ def run_ltn_job(force: bool = False) -> None:
         log.error("執行 LTN 排程時發生未預期例外: %s", e)
 
 
+def run_rag_job() -> None:
+    """向量管線：run_chunking.py 切塊 → build_vector_db_headless.py 向量化。
+
+    兩支都必須在 rag/ 底下執行：run_chunking 靠 cwd 讀 rag/.env，
+    build_vector_db_headless 的 qdrant_db 路徑也是相對於 cwd。
+    """
+    for script_path in (RAG_CHUNK_SCRIPT, RAG_VECTOR_SCRIPT):
+        if not script_path.exists():
+            log.error("找不到向量管線腳本 '%s'。", script_path)
+            return
+
+    python_cmd = _python_executable()
+    log.info("🧩 開始執行向量管線（切塊 → 向量化）...")
+    if not _run_python_command([python_cmd, str(RAG_CHUNK_SCRIPT)], "新聞切塊 run_chunking", cwd=RAG_DIR):
+        log.error("🛑 切塊失敗，本輪不進行向量化。")
+        return
+    if _run_python_command([python_cmd, str(RAG_VECTOR_SCRIPT)], "向量化 build_vector_db_headless", cwd=RAG_DIR):
+        log.info("✅ 向量管線完成！")
+
+
+def _arm_rag_followup() -> None:
+    """新聞抓完後排一次性的向量管線；已排隊時不重複排（cnyes、LTN 可能前後腳跑完）。"""
+    global _rag_followup_armed
+    if not RUN_RAG_PIPELINE or _rag_followup_armed:
+        return
+
+    _rag_followup_armed = True
+
+    def _once():
+        global _rag_followup_armed
+        _rag_followup_armed = False
+        run_rag_job()
+        return schedule.CancelJob
+
+    schedule.every(RAG_DELAY_MINUTES).minutes.do(_once)
+    log.info("⏳ 已排定 %s 分鐘後執行向量管線。", RAG_DELAY_MINUTES)
+
+
+def run_cnyes_scheduled_job() -> None:
+    run_cnyes_job()
+    _arm_rag_followup()
+
+
+def run_ltn_scheduled_job() -> None:
+    run_ltn_job()
+    _arm_rag_followup()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="台股爬蟲排程器")
     parser.add_argument("--start", default=FINMIND_START_DATE, help="FinMind 回補起始日 YYYY-MM-DD；結束日固定為今天")
     parser.add_argument("--run-now", action="store_true", help="啟動後立刻執行一次 FinMind 回補，然後進入排程")
     parser.add_argument(
         "--job",
-        choices=["finmind", "cnyes", "ltn", "all"],
+        choices=["finmind", "cnyes", "ltn", "rag", "all"],
         help="立刻執行指定工作後結束，不進入排程迴圈",
     )
     return parser.parse_args()
@@ -175,6 +232,8 @@ def run_job_once(job: str, start_date: str = FINMIND_START_DATE) -> None:
         run_cnyes_job(force=True)
     if job in ("ltn", "all"):
         run_ltn_job(force=True)
+    if job in ("rag", "all"):
+        run_rag_job()
 
 
 def main():
@@ -204,7 +263,7 @@ def main():
 
     if RUN_CNYES_NEWS_CRAWL:
         interval = max(1, CNYES_INTERVAL_MINUTES)
-        schedule.every(interval).minutes.do(run_cnyes_job)
+        schedule.every(interval).minutes.do(run_cnyes_scheduled_job)
         log.info(
             "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，固定回補最近 %s 天）",
             interval,
@@ -214,13 +273,18 @@ def main():
 
     if RUN_LTN_NEWS_CRAWL:
         ltn_interval = max(1, LTN_INTERVAL_MINUTES)
-        schedule.every(ltn_interval).minutes.do(run_ltn_job)
+        schedule.every(ltn_interval).minutes.do(run_ltn_scheduled_job)
         log.info(
             "✅ 已設定每 %s 分鐘執行：%s（--scheduled-once，固定回補最近 %s 天，直接寫入 news_articles）",
             ltn_interval,
             LTN_CRAWLER_SCRIPT.name,
             LTN_SCHEDULE_LOOKBACK_DAYS,
         )
+
+    if RUN_RAG_PIPELINE:
+        log.info("✅ 已設定：新聞抓取完成後 %s 分鐘執行向量管線（切塊 → 向量化）", RAG_DELAY_MINUTES)
+    else:
+        log.info("⏸️ 向量管線已停用（RUN_RAG_PIPELINE=False）")
 
     # ----------------------------------------------------
     # [開發測試用]
