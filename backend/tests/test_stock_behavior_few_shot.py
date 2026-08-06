@@ -156,6 +156,7 @@ def test_shipped_examples_are_isomorphic_with_the_real_task_packet():
     expected_keys = {
         "task",
         "daily_timeline",
+        "chip_summary",
         "long_term_anchor",
         "fundamental",
         "news",
