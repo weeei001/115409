@@ -103,9 +103,9 @@ def run_finmind_job(start_date: str = FINMIND_START_DATE) -> None:
     log.info("✅ FinMind 抓取與匯入完成！")
 
 
-def run_cnyes_job() -> None:
-    """鉅亨台股新聞：排程固定回補最近 5 天。"""
-    if not RUN_CNYES_NEWS_CRAWL:
+def run_cnyes_job(force: bool = False) -> None:
+    """鉅亨台股新聞：排程固定回補最近 5 天。force=True 時忽略 RUN_CNYES_NEWS_CRAWL 開關。"""
+    if not force and not RUN_CNYES_NEWS_CRAWL:
         return
     script_path = CNYES_CRAWLER_SCRIPT
     python_cmd = _python_executable()
@@ -133,9 +133,9 @@ def run_cnyes_job() -> None:
         log.error(f"執行鉅亨爬蟲時發生未預期例外: {e}")
 
 
-def run_ltn_job() -> None:
-    """自由時報新聞：排程固定回補最近 30 天，抓到就寫進 news_articles。"""
-    if not RUN_LTN_NEWS_CRAWL:
+def run_ltn_job(force: bool = False) -> None:
+    """自由時報新聞：排程固定回補最近 30 天，抓到就寫進 news_articles。force=True 時忽略 RUN_LTN_NEWS_CRAWL 開關。"""
+    if not force and not RUN_LTN_NEWS_CRAWL:
         return
     script_path = LTN_CRAWLER_SCRIPT
     if not script_path.exists():
@@ -158,8 +158,23 @@ def run_ltn_job() -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="台股爬蟲排程器")
     parser.add_argument("--start", default=FINMIND_START_DATE, help="FinMind 回補起始日 YYYY-MM-DD；結束日固定為今天")
-    parser.add_argument("--run-now", action="store_true", help="啟動後立刻執行一次 FinMind 回補")
+    parser.add_argument("--run-now", action="store_true", help="啟動後立刻執行一次 FinMind 回補，然後進入排程")
+    parser.add_argument(
+        "--job",
+        choices=["finmind", "cnyes", "ltn", "all"],
+        help="立刻執行指定工作後結束，不進入排程迴圈",
+    )
     return parser.parse_args()
+
+
+def run_job_once(job: str, start_date: str = FINMIND_START_DATE) -> None:
+    """單次執行指定工作，供 --job 使用；不受 RUN_* 開關限制。"""
+    if job in ("finmind", "all"):
+        run_finmind_job(start_date)
+    if job in ("cnyes", "all"):
+        run_cnyes_job(force=True)
+    if job in ("ltn", "all"):
+        run_ltn_job(force=True)
 
 
 def main():
@@ -167,6 +182,12 @@ def main():
     排程器主程式
     """
     args = parse_args()
+
+    if args.job:
+        log.info("▶️ 單次執行工作：%s", args.job)
+        run_job_once(args.job, args.start)
+        return
+
     log.info("🕒 啟動台股爬蟲排程器...")
 
     if RUN_FINMIND:

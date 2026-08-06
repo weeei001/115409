@@ -27,6 +27,7 @@ from crud.technical_indicator import get_indicators
 
 
 TIMELINE_TRADING_DAYS = 40
+CHIP_SUMMARY_TRADING_DAYS = 10
 LONG_TERM_LOOKBACK_DAYS = 400
 VALUATION_RANK_LOOKBACK_DAYS = 365
 FINANCIAL_LOOKBACK_DAYS = 900
@@ -149,6 +150,7 @@ class EvidenceBundle:
     symbol: str
     as_of_date: date
     daily_timeline: list[dict[str, Any]] = field(default_factory=list)
+    chip_summary: list[dict[str, Any]] = field(default_factory=list)
     long_term_anchor: list[dict[str, Any]] = field(default_factory=list)
     fundamental: list[dict[str, Any]] = field(default_factory=list)
     news: list[dict[str, Any]] = field(default_factory=list)
@@ -158,6 +160,7 @@ class EvidenceBundle:
     def as_payload_sections(self) -> dict[str, Any]:
         return {
             "daily_timeline": self.daily_timeline,
+            "chip_summary": self.chip_summary,
             "long_term_anchor": self.long_term_anchor,
             "fundamental": self.fundamental,
             "news": self.news,
@@ -166,7 +169,13 @@ class EvidenceBundle:
 
     def evidence_ids(self) -> set[str]:
         ids: set[str] = set()
-        for bucket in (self.daily_timeline, self.long_term_anchor, self.fundamental, self.news):
+        for bucket in (
+            self.daily_timeline,
+            self.chip_summary,
+            self.long_term_anchor,
+            self.fundamental,
+            self.news,
+        ):
             for item in bucket:
                 item_id = item.get("id")
                 if isinstance(item_id, str):
@@ -189,6 +198,7 @@ class EvidenceBundle:
                     },
                 }
             )
+        catalog.extend(self.chip_summary)
         catalog.extend(self.long_term_anchor)
         catalog.extend(self.fundamental)
         catalog.extend(self.news)
@@ -306,6 +316,33 @@ def build_daily_timeline(
     if len(timeline) < trading_days:
         missing.append(f"交易日不足（僅 {len(timeline)} 個交易日）")
     return timeline, missing
+
+
+def build_chip_summary(
+    *,
+    timeline: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """外資買賣超的多日累計。
+
+    單日淨額看不出調節是否延續，LLM 又不該自己把時間軸上的十列加起來，
+    所以在後端先算好。刻意從已組好的 timeline 取值而不是回頭讀 chip_rows，
+    這樣累計數與模型看得到的每日數字必定對得起來。
+    """
+    recent = list(timeline)[-CHIP_SUMMARY_TRADING_DAYS:]
+    values = [row.get("foreign_net_lots") for row in recent]
+    if len(recent) < CHIP_SUMMARY_TRADING_DAYS or any(
+        not isinstance(value, (int, float)) for value in values
+    ):
+        return [], [f"外資近 {CHIP_SUMMARY_TRADING_DAYS} 個交易日累計買賣超"]
+
+    return [
+        {
+            "id": "ch_01",
+            "field": "foreign_net_10d_lots",
+            "date": str(recent[-1].get("date")),
+            "value": int(sum(values)),
+        }
+    ], []
 
 
 def build_long_term_anchor(
@@ -617,7 +654,7 @@ def build_news_items(
             "id": ids.next(),
             "field": "news",
             "date": timestamp.split("T", 1)[0] if timestamp else None,
-            "kind": kind if kind in {"general", "guidance"} else "general",
+            "kind": kind if kind in {"general", "guidance", "market"} else "general",
             "title": title,
             "value": summary or title,
         }
@@ -658,6 +695,7 @@ def build_evidence_bundle(
         technical_rows=technical_rows,
         news_items=news,
     )
+    chip_summary, chip_missing = build_chip_summary(timeline=timeline)
     anchor, anchor_missing = build_long_term_anchor(
         price_rows=price_rows,
         technical_rows=technical_rows,
@@ -671,9 +709,12 @@ def build_evidence_bundle(
         symbol=symbol,
         as_of_date=as_of_date,
         daily_timeline=timeline,
+        chip_summary=chip_summary,
         long_term_anchor=anchor,
         fundamental=fundamental,
         news=news,
-        missing_fields=list(dict.fromkeys([*timeline_missing, *anchor_missing, *fundamental_missing])),
+        missing_fields=list(
+            dict.fromkeys([*timeline_missing, *chip_missing, *anchor_missing, *fundamental_missing])
+        ),
         rag_fallback_mode=rag_fallback_mode,
     )

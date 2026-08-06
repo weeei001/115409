@@ -8,6 +8,7 @@
 
 API 總覽：
     POST /api/ask              → AI 問答（支援 stream / 非 stream）
+    POST /api/analyze          → 個股新聞檢索（一般新聞 + 財測展望兩路，供 backend 個股分析用）
     GET  /api/stocks           → 取得可選股票清單
     GET  /api/history          → 查詢歷史 QA 紀錄
     GET  /api/history/{id}     → 取得單筆 QA 詳情
@@ -1063,26 +1064,204 @@ class StockAnalysisRequest(BaseModel):
     as_of: str | None = Field(
         None,
         description="回測用基準時間點（格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS），"
-                    "抓取範圍為此時間點往前一個月、且不含之後的新聞。不傳則預設為現在。",
+                    "抓取範圍為此時間點往前 lookback_days 天、且不含之後的新聞。不傳則預設為現在。",
         examples=["2026-06-01"],
     )
+    lookback_days: int = Field(
+        30,
+        description="往前回溯的日曆天數，預設 30，上限 120（超出自動夾住）。",
+        examples=[60],
+    )
+    max_events: int = Field(
+        10,
+        description="每支股票回傳的一般新聞則數上限，預設 10，上限 20（超出自動夾住）。"
+                    "財測（kind=guidance）另有 max(2, max_events//2) 的額度，不佔用此上限。",
+        examples=[10],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{
+                "symbols": ["2330"],
+                "as_of": "2026-07-13",
+                "lookback_days": 60,
+                "max_events": 10,
+            }]
+        }
+    }
 
 
 class NewsSource(BaseModel):
-    id: str
-    title: str
-    summary: str
-    timestamp: str
-    url: str
+    id: str = Field(..., description="chunk 唯一識別碼，可作為 LLM 引用來源的 id")
+    title: str = Field(..., description="新聞標題")
+    summary: str = Field(..., description="命中的新聞片段內文（chunk 全文，非摘要）")
+    timestamp: str = Field(..., description="發布時間（YYYY-MM-DD HH:MM:SS），保證 ≤ as_of")
+    url: str = Field(..., description="原始新聞連結")
+    kind: str = Field(
+        "general",
+        description=(
+            '資料性質：\n'
+            '- `general`：一般新聞檢索路命中（個股）\n'
+            '- `guidance`：財測／法說會展望檢索路命中（個股）\n'
+            '- `market`：大盤／總經脈絡，與個股無直接關聯\n\n'
+            '注意 `guidance` 僅代表「被財測 query 向量命中」，'
+            '不保證內容確為公司正式財測，呼叫端應只當作市場展望引用、'
+            '不得視為已實現的財務數據。\n\n'
+            '`market` 用來判斷當天的漲跌是否為整體性的，'
+            '呼叫端不得把它當成個股層級的事件歸因。'
+        ),
+        examples=["general"],
+    )
 
 
 class StockAnalysisResponse(BaseModel):
-    news_sources: list[NewsSource]
+    news_sources: list[NewsSource] = Field(
+        default_factory=list,
+        description="去重後的新聞列表；查無資料時為空陣列（不會回 404）",
+    )
+    no_recent_news: bool = Field(
+        False,
+        description=(
+            "`true` 表示指定時間範圍內查無新聞，回傳的是放寬到兩倍視窗後的較舊資料，"
+            "或完全查無時的空陣列。呼叫端可據此決定是否略過新聞分析。"
+        ),
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{
+                "news_sources": [
+                    {
+                        "id": "nw_2330_20260710_01",
+                        "title": "外資賣超471億元連6賣 光是台積電就提款310億元",
+                        "summary": "外資今日賣超集中市場 471 億元…",
+                        "timestamp": "2026-07-10 18:20:00",
+                        "url": "https://news.cnyes.com/news/id/1234567",
+                        "kind": "general",
+                    },
+                    {
+                        "id": "nw_2330_20260617_03",
+                        "title": "台積電法說會：Q3 毛利率看升，全年資本支出上修",
+                        "summary": "台積電於法說會表示…",
+                        "timestamp": "2026-06-17 15:05:00",
+                        "url": "https://news.cnyes.com/news/id/1234000",
+                        "kind": "guidance",
+                    },
+                ],
+                "no_recent_news": False,
+            }]
+        }
+    }
 
 
-@app.post("/api/analyze", response_model=StockAnalysisResponse)
+# ingest 端對「標題／內文都沒命中六檔白名單」的新聞所給的 stock_id
+# （見 rag/ingest_sources.py:extract_stock_id）。大盤與總經新聞都落在這一桶。
+_MARKET_STOCK_ID = "tw_stock"
+
+# 大盤／指數類快訊的標題特徵。這類快訊同一則會在多個時間點重發，
+# 且內容與個股無關，會把個股事件關聯分析的有效樣本稀釋掉。
+_MARKET_NOISE_KEYWORDS = (
+    "盤中速報", "集中市場加權指數", "櫃買指數", "加權指數",
+    "台股開盤", "台股收盤", "台股盤前", "台股盤中", "台股早盤",
+)
+
+# 純即時報價快訊：同一則在盤中每隔數分鐘重發一次，內容只有指數點數，
+# 沒有任何原因說明。這類在任何檢索路都是雜訊。
+_QUOTE_NOISE_KEYWORDS = ("盤中速報", "盤後速報", "盤中零股", "零股速報")
+
+# 系統性漲跌的成因特徵。大盤路只收命中這些詞的新聞，避免 tw_stock 這一桶裡
+# 的其他個股新聞（長榮、中鋼…）混進來當成大盤脈絡。
+_MARKET_CONTEXT_KEYWORDS = (
+    "台股", "大盤", "加權指數", "櫃買", "集中市場", "外資",
+    "美股", "道瓊", "那斯達克", "標普", "費城半導體", "費半", "日股", "陸股",
+    "聯準會", "Fed", "FOMC", "升息", "降息", "利率", "通膨", "CPI",
+    "關稅", "川普", "貿易戰", "出口管制", "地緣", "匯率", "新台幣", "國安基金",
+)
+
+# 近似重複標題的正規化：拿掉數字、空白與標點，
+# 讓「加權指數上漲946.67點」與「…上漲925.03點」收斂成同一個 key。
+_TITLE_NOISE_RE = re.compile(r"[\d\s%.,%．，。、％：:；;\-－_()（）〈〉《》「」【】\[\]]+")
+
+
+def _is_quote_noise(title: str) -> bool:
+    """純報價快訊：只有指數點數、沒有原因說明，且同一則會重發多次。"""
+    return any(k in title for k in _QUOTE_NOISE_KEYWORDS)
+
+
+def _is_market_noise(title: str, content: str, stock_tokens: tuple[str, ...]) -> bool:
+    """個股檢索路（general／guidance）專用：標題是大盤快訊、全文又沒提到目標個股 → 雜訊。
+
+    注意這個過濾不作用在 market 路。大盤脈絡改由獨立的第三路提供，
+    否則「川普宣布關稅→台股全面下跌」這種解釋系統性波動的新聞會被一併剔除，
+    模型手上只剩個股新聞，就會把整體性的跌幅硬歸因到公司事件上。
+    """
+    if not any(k in title for k in _MARKET_NOISE_KEYWORDS):
+        return False
+    text = f"{title}\n{content}"
+    return not any(tok in text for tok in stock_tokens)
+
+
+def _is_market_context(title: str, content: str) -> bool:
+    """是否為能解釋系統性漲跌的大盤／總經新聞。"""
+    if _is_quote_noise(title):
+        return False
+    text = f"{title}\n{content}"
+    return any(k in text for k in _MARKET_CONTEXT_KEYWORDS)
+
+
+def _title_key(title: str) -> str:
+    """去除數字與標點後的標題，用於近似重複去重"""
+    return _TITLE_NOISE_RE.sub("", title)
+
+
+@app.post(
+    "/api/analyze",
+    response_model=StockAnalysisResponse,
+    summary="個股新聞檢索（一般新聞 + 財測展望兩路）",
+    responses={
+        400: {"description": "股票代號無效，或 as_of 格式錯誤"},
+        503: {"description": "Qdrant 或 embedding 模型尚未就緒"},
+    },
+)
 async def analyze_stocks(req: StockAnalysisRequest):
-    """取得指定時間點（預設為現在）往前一個月的相關新聞，供即時查詢或歷史回測使用"""
+    """取得 `as_of`（預設現在）往前 `lookback_days` 天的個股相關新聞，供即時查詢或歷史回測使用。
+
+    ### 檢索方式
+    跑三路向量檢索，結果合併後去重：
+
+    | kind | 檢索範圍 | query 方向 | 額度 |
+    |---|---|---|---|
+    | `general` | 每檔個股 | 近期表現、營收、股價、財報 | `max_events`／檔（預設 10） |
+    | `guidance` | 每檔個股 | 法說會、財測、展望、毛利率目標、資本支出 | `max(2, max_events//2)`／檔 |
+    | `market` | `stock_id=tw_stock`，不綁個股 | 大盤、外資、美股、聯準會、關稅、匯率 | `max(3, max_events//3)` 共用 |
+
+    `market` 路是為了讓呼叫端能分辨「個股自己的事」與「整體性漲跌」。
+    只有個股新聞時，模型會把大盤共同下跌硬歸因到僅存的那則公司消息上
+    （例如把系統性回檔講成法說會利空）。此路額度刻意不隨檔數放大，
+    避免大盤脈絡反過來稀釋個股訊號。
+
+    三路都用 Qdrant 的 `pub_ts` Range filter 把時間夾在 `[as_of - lookback_days, as_of]`，
+    語意排序只在範圍內進行，**保證不會出現晚於 `as_of` 的新聞**（回測無未來資料洩漏）。
+
+    ### 結果清理
+    - **個股路的大盤雜訊過濾**：`general`／`guidance` 路中，標題含
+      「盤中速報／集中市場加權指數／台股開盤」等大盤快訊特徵、
+      且全文未提及目標個股名稱或代號者剔除。此過濾不作用於 `market` 路。
+    - **`market` 路的純報價過濾**：剔除「盤中速報」這類只有指數點數、
+      沒有原因說明且會重複發送的快訊；並要求命中大盤／總經關鍵字，
+      避免 `tw_stock` 桶內的其他個股新聞混入。
+    - **近似重複去重**：以「標題移除數字與標點」後的字串為 key，
+      同一則速報在不同時間點的多次更新只會保留一筆。個股路先跑，
+      同一篇同時被個股路與大盤路命中時保留個股標記。
+
+    ### 查無資料時
+    範圍內無結果會放寬到 `as_of - 2×lookback_days`，並回 `no_recent_news: true`；
+    完全查無則回空陣列 + `no_recent_news: true`（**不回 404**）。
+
+    ### 向後相容
+    `lookback_days`、`max_events` 不傳時維持 30 / 10；`kind`、`no_recent_news`
+    對舊呼叫端是多出來的欄位，可忽略。超出上限的參數自動夾住，不會回 422。
+    """
     if not qdrant_client or not embeddings:
         raise HTTPException(503, "服務尚未就緒")
 
@@ -1094,6 +1273,15 @@ async def analyze_stocks(req: StockAnalysisRequest):
     from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, Range
     from datetime import datetime as _dt
 
+    # 超出上限就夾住而不是回 422，避免呼叫端送大一點的值就整支掛掉
+    lookback_days = max(1, min(req.lookback_days, 120))
+    max_events = max(1, min(req.max_events, 20))
+    # 財測是低頻事件（約一季一次），份額給少一點即可，避免擠掉一般新聞
+    max_guidance = max(2, max_events // 2)
+    # 大盤脈絡只要足以判斷「這天是不是整體性漲跌」，不需要多
+    max_market = max(3, max_events // 3)
+    fetch_limit = max(20, max_events * 2)
+
     if req.as_of:
         try:
             base_time = _dt.fromisoformat(req.as_of)
@@ -1101,64 +1289,113 @@ async def analyze_stocks(req: StockAnalysisRequest):
             raise HTTPException(400, "as_of 格式錯誤，請用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS")
     else:
         base_time = _dt.now()
-    time_from = (base_time - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    time_from = (base_time - timedelta(days=lookback_days)).strftime("%Y-%m-%d %H:%M:%S")
     time_to = base_time.strftime("%Y-%m-%d %H:%M:%S")
     # 數值型時間戳，供 Qdrant Range filter 使用（與寫入端 _pub_time_to_ts 同樣的換算）
     ts_from = _dt.fromisoformat(time_from).timestamp()
     ts_to = _dt.fromisoformat(time_to).timestamp()
+    # fallback 的時間下限：最多再往前一個 lookback 視窗，不允許無下限撈到兩年前的舊聞
+    ts_fallback_from = (base_time - timedelta(days=lookback_days * 2)).timestamp()
 
-    # 每支股票取最相關的 10 筆
-    all_hits = []
     stock_names = "、".join(STOCK_OPTIONS[s] for s in valid_symbols)
-    query_text = f"{stock_names} 近期表現 營收 股價 財報"
-    query_vector = embeddings.embed_query(query_text)
+    stock_tokens = tuple(STOCK_OPTIONS[s] for s in valid_symbols) + tuple(valid_symbols)
+
+    general_vector = embeddings.embed_query(f"{stock_names} 近期表現 營收 股價 財報")
+    guidance_vector = embeddings.embed_query(
+        f"{stock_names} 法說會 財測 展望 財務預測 毛利率目標 資本支出 上修 下修"
+    )
+    # 大盤路刻意不帶股票名稱：帶了會被語意拉回個股新聞，反而撈不到
+    # 「美股重挫拖累台股」這種完全沒提到個股、卻是當天跌幅主因的報導。
+    market_vector = embeddings.embed_query(
+        "台股大盤走勢 加權指數漲跌原因 外資買賣超 美股 費城半導體指數 "
+        "聯準會利率 關稅 政策 匯率 國際情勢 系統性風險"
+    )
+
+    def _query(vector, stock_cond, gte, lte):
+        return qdrant_client.query_points(
+            collection_name="news_chunks",
+            query=vector,
+            query_filter=Filter(must=[
+                stock_cond,
+                FieldCondition(key="pub_ts", range=Range(gte=gte, lte=lte)),
+            ]),
+            limit=fetch_limit,
+            with_payload=True,
+        ).points
+
+    all_hits: list[tuple[object, str]] = []   # (hit, kind)
+    no_recent_news = False
 
     for sid in valid_symbols:
         stock_cond = FieldCondition(key="stock_id", match=MatchValue(value=sid))
         # 先在 Qdrant 查詢就用數值型 pub_ts 把時間範圍夾住（≤ as_of），語意排序只在範圍內進行。
         # 避免「先撈相關 top-N、再事後用 Python 篩時間」造成該時段新聞被稀釋（recall 不足）；
         # 且 pub_ts 為 null（pub_time 空白）的點不會被 Range 匹配，順帶排除不明日期的洩漏風險。
-        in_range = qdrant_client.query_points(
-            collection_name="news_chunks",
-            query=query_vector,
-            query_filter=Filter(must=[stock_cond, FieldCondition(key="pub_ts", range=Range(gte=ts_from, lte=ts_to))]),
-            limit=10,
-            with_payload=True,
-        ).points
-        if in_range:
-            all_hits.extend(in_range)
-        else:
-            # 範圍內查無 → 退回撈 as_of 之前（更舊）但仍嚴格不含未來的新聞
-            older = qdrant_client.query_points(
-                collection_name="news_chunks",
-                query=query_vector,
-                query_filter=Filter(must=[stock_cond, FieldCondition(key="pub_ts", range=Range(lte=ts_to))]),
-                limit=5,
-                with_payload=True,
-            ).points
-            all_hits.extend(older)
+        general = _query(general_vector, stock_cond, ts_from, ts_to)
+        if not general:
+            # 範圍內查無 → 放寬到兩倍視窗（仍有時間下限、仍嚴格不含未來），並標記給呼叫端
+            no_recent_news = True
+            general = _query(general_vector, stock_cond, ts_fallback_from, ts_to)
+        all_hits.extend((h, "general") for h in general)
 
-    if not all_hits:
-        raise HTTPException(404, "指定時間範圍內無相關新聞資料")
+        guidance = _query(guidance_vector, stock_cond, ts_from, ts_to)
+        all_hits.extend((h, "guidance") for h in guidance)
 
-    # 組裝 news_sources（去重，依 title）
-    seen_titles = set()
-    news_sources = []
-    for hit in all_hits:
-        p = hit.payload or {}
-        title = p.get("title", "")
-        if title in seen_titles:
-            continue
-        seen_titles.add(title)
-        news_sources.append(NewsSource(
-            id=p.get("chunk_id", str(hit.id)),
-            title=title,
-            summary=p.get("page_content", ""),
-            timestamp=p.get("pub_time", ""),
-            url=p.get("url", ""),
-        ))
+    # 第三路：大盤／總經脈絡。只跑一次、不綁個股，用 tw_stock 這一桶撈
+    # 「川普宣布關稅→台股全面下跌」這種解釋系統性波動的新聞。缺了這一路，
+    # 模型看不到共同因素，只能把整體性的跌幅歸因到僅存的那則個股新聞上。
+    market_cond = FieldCondition(key="stock_id", match=MatchValue(value=_MARKET_STOCK_ID))
+    all_hits.extend((h, "market") for h in _query(market_vector, market_cond, ts_from, ts_to))
 
-    return StockAnalysisResponse(news_sources=news_sources)
+    # 組裝 news_sources：先濾雜訊，再依正規化標題去重，最後依 kind 分配則數
+    picked: dict[str, NewsSource] = {}
+    counts = {"general": 0, "guidance": 0, "market": 0}
+    caps = {
+        "general": max_events * len(valid_symbols),
+        "guidance": max_guidance * len(valid_symbols),
+        # 大盤脈絡不隨檔數放大：判斷「今天是不是整體性下跌」幾則就夠，
+        # 給多了會把個股訊號稀釋掉，等於用另一種方式製造誤導。
+        "market": max_market,
+    }
+    # general 先跑，個股新聞優先佔位；market 最後，只補沒被個股路收走的大盤脈絡
+    for kind in ("general", "guidance", "market"):
+        cap = caps[kind]
+        for hit, hit_kind in all_hits:
+            if hit_kind != kind or counts[kind] >= cap:
+                continue
+            p = hit.payload or {}
+            title = p.get("title", "")
+            content = p.get("page_content", "")
+            if kind == "market":
+                if not _is_market_context(title, content):
+                    continue
+            elif _is_market_noise(title, content, stock_tokens):
+                continue
+            key = _title_key(title)
+            if not key:
+                continue
+            if key in picked:
+                # 同一篇同時被兩路命中 → 保留 guidance 標記（財測資訊量較高）
+                if kind == "guidance":
+                    picked[key].kind = "guidance"
+                continue
+            picked[key] = NewsSource(
+                id=p.get("chunk_id", str(hit.id)),
+                title=title,
+                summary=content,
+                timestamp=p.get("pub_time", ""),
+                url=p.get("url", ""),
+                kind=kind,
+            )
+            counts[kind] += 1
+
+    news_sources = list(picked.values())
+    # 查無資料時回空陣列 + no_recent_news 旗標（不再 404），
+    # 讓呼叫端能分辨「真的沒有」與「有但是舊的」
+    if not news_sources:
+        no_recent_news = True
+
+    return StockAnalysisResponse(news_sources=news_sources, no_recent_news=no_recent_news)
 
 
 def _mysql_conn():

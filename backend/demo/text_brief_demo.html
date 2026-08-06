@@ -203,7 +203,7 @@ details.raw pre{margin:8px 0 0;padding:11px 13px;background:var(--bg);border:1px
     </div>
     <div class="f">
       <label for="asof">分析基準日（留空＝今天）</label>
-      <input type="date" id="asof" value="2026-07-13">
+      <input type="date" id="asof" value="2026-08-04">
     </div>
     <div class="f chk">
       <input type="checkbox" id="fresh">
@@ -848,7 +848,7 @@ function briefPane(data, out){
     head.appendChild(el('p','reason', esc(b.confidence_reason)));
     main.appendChild(head);
 
-    main.appendChild(card('關鍵交易日　（漲跌幅與量能倍數由後端依原始資料回填，非模型自行填寫）',
+    main.appendChild(card('關鍵交易日',
       keyDays(b.key_days)));
     main.appendChild(card('現在是什麼狀態', claimList(b.current_status)));
 

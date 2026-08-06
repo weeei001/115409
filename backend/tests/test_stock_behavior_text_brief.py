@@ -927,7 +927,7 @@ def test_llm_uses_multi_turn_few_shot_messages(monkeypatch):
 def test_system_prompt_keeps_the_fact_consistency_rules():
     prompt = build_text_brief_system_prompt()
 
-    assert TEXT_BRIEF_PROMPT_VERSION == "v6-adversarial-01"
+    assert TEXT_BRIEF_PROMPT_VERSION == "v7-chip-summary-01"
     assert "此日期之後的任何資訊視為不存在" in prompt
     assert "不得改寫成其他公司" in prompt
     assert "不得因為當天上漲就說量能放大" in prompt

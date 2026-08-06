@@ -69,6 +69,43 @@ def test_fetch_rag_news_sends_as_of_and_filters_future_news(monkeypatch):
     assert "raw_answer" not in result
 
 
+def test_fetch_rag_news_keeps_newest_when_truncating(monkeypatch):
+    """RAG 依相關度回傳，截斷前必須先排序，否則會留舊聞、丟掉當週報導。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "news_sources": [
+                    {"id": "old", "title": "六月舊聞", "timestamp": "2024-01-01T09:00:00+08:00"},
+                    {"id": "newest", "title": "當日盤後", "timestamp": "2024-01-02T14:30:00+08:00"},
+                    {"id": "naive", "title": "無時區", "timestamp": "2024-01-02T09:00:00"},
+                ]
+            },
+        )
+
+    original_client = httpx.AsyncClient
+    transport = httpx.MockTransport(handler)
+
+    def client_with_transport(*args, **kwargs):
+        return original_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(tools.httpx, "AsyncClient", client_with_transport)
+    result = asyncio.run(
+        fetch_rag_news(
+            rag_api_url="https://rag.example.test/analyze",
+            rag_api_key="token",
+            symbol="2330",
+            lookback_days=30,
+            max_events=2,
+            timeout_seconds=10,
+            as_of=date(2024, 1, 2),
+        )
+    )
+
+    assert [item["id"] for item in result["news_sources"]] == ["newest", "naive"]
+
+
 def test_fetch_rag_news_tolerates_legacy_response_fields(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
