@@ -1,9 +1,12 @@
 import time
 
+from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from news_storage_mysql import NewsStorageManagerMySQL
-from chunk_storage_mysql import ensure_table, get_chunked_article_ids, insert_chunks
+load_dotenv()  # 本地執行時從 rag/.env 讀 MYSQL_* 連線設定（部署環境則由 docker env 注入）
+
+from news_storage_mysql import NewsStorageManagerMySQL  # noqa: E402
+from chunk_storage_mysql import ensure_table, get_chunked_article_ids, insert_chunks  # noqa: E402
 
 
 def run_standardized_chunking(db_manager):

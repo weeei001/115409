@@ -10,6 +10,7 @@ from stock_behavior.evidence import (
     _IdGen,
     _revenue_is_published,
     _revenue_items,
+    build_chip_summary,
     build_daily_timeline,
     build_news_items,
 )
@@ -169,6 +170,58 @@ def test_timeline_merges_sources_and_computes_derived_fields():
     # 投信當天沒有資料 → 欄位直接不存在，而不是塞 0 讓模型誤讀成「持平」
     assert "trust_net_lots" not in latest
     assert "交易日不足（僅 2 個交易日）" not in missing
+
+
+def _timeline_rows(foreign_net_lots: list[int | None]) -> list[dict]:
+    rows = []
+    for offset, lots in enumerate(foreign_net_lots):
+        row = {"id": f"d_{offset + 1:02d}", "date": f"2026-07-{offset + 1:02d}"}
+        if lots is not None:
+            row["foreign_net_lots"] = lots
+        rows.append(row)
+    return rows
+
+
+def test_chip_summary_accumulates_the_last_ten_trading_days():
+    """單日外資買超但十日累計仍是賣超——這條累計數就是用來擋「籌碼轉強」的誤讀。"""
+    timeline = _timeline_rows([-5000] * 9 + [1000])
+
+    items, missing = build_chip_summary(timeline=timeline)
+
+    assert missing == []
+    assert items == [
+        {
+            "id": "ch_01",
+            "field": "foreign_net_10d_lots",
+            "date": "2026-07-10",
+            "value": -44000,
+        }
+    ]
+
+
+def test_chip_summary_only_sums_the_most_recent_ten_days():
+    timeline = _timeline_rows([999_999] * 3 + [100] * 10)
+
+    items, _ = build_chip_summary(timeline=timeline)
+
+    assert items[0]["value"] == 1000
+    assert items[0]["date"] == "2026-07-13"
+
+
+@pytest.mark.parametrize(
+    "foreign_net_lots",
+    [
+        # 交易日不足十天
+        [-5000] * 9,
+        # 中間有一天沒有籌碼資料，加總會低估，寧可不給
+        [-5000] * 4 + [None] + [-5000] * 5,
+    ],
+)
+def test_chip_summary_is_reported_missing_instead_of_undercounted(foreign_net_lots):
+    items, missing = build_chip_summary(timeline=_timeline_rows(foreign_net_lots))
+
+    assert items == []
+    assert missing == ["外資近 10 個交易日累計買賣超"]
 
 
 def test_known_percentages_only_collects_percentage_fields():
