@@ -9,7 +9,8 @@ LLM_MODEL = "meta/llama-3.1-8b-instruct"
 
 def _get_conn():
     return pymysql.connect(
-        host=os.environ.get("MYSQL_HOST", "localhost"),
+        host=os.environ.get("MYSQL_HOST", "127.0.0.1"),
+        port=int(os.environ.get("MYSQL_PORT", 3306)),
         user=os.environ.get("MYSQL_USER", "rag"),
         password=os.environ.get("MYSQL_PASSWORD", ""),
         database=os.environ.get("MYSQL_DATABASE", "topic_stock"),
