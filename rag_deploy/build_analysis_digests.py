@@ -2,7 +2,7 @@
 離線預建「週期性個股分析總結」
 ================================
 在不同時間點（每週五 / 每月底）為指定股票預先產出個股分析 digest，
-落地到 MySQL rag_logs.analysis_digests，供第二支 API（/api/analysis_digest）直接回傳。
+落地到 MySQL topic_stock.analysis_digests，供第二支 API（/api/analysis_digest）直接回傳。
 
 用自架 H200 重模型產 digest（無限速、可用大模型），embedding 檢索仍走 NVIDIA NIM。
 斷點續傳：同 stock+as_of+period 已存在則跳過（--force 可強制重建）。

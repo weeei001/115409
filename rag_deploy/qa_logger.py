@@ -12,7 +12,7 @@ def _get_conn():
         host=os.environ.get("MYSQL_HOST", "localhost"),
         user=os.environ.get("MYSQL_USER", "rag"),
         password=os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQL_DATABASE", "rag_logs"),
+        database=os.environ.get("MYSQL_DATABASE", "topic_stock"),
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
