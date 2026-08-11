@@ -14,7 +14,9 @@ try:
         host=os.environ.get("MYSQL_HOST", "localhost"),
         user=os.environ.get("MYSQL_USER", "rag"),
         password=os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQL_DATABASE", "rag_logs"),
+        # 全部整併到 topic_stock。RAG 自己的帳號表改名為 rag_users / rag_user_views，
+        # 避開 backend 的 users（email/Google 帳號，schema 不同）。
+        database=os.environ.get("MYSQL_DATABASE", "topic_stock"),
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
@@ -24,7 +26,7 @@ try:
         print("=" * 60)
         print("【所有用户】")
         print("=" * 60)
-        cur.execute("SELECT id, username, created_at FROM users ORDER BY id")
+        cur.execute("SELECT id, username, created_at FROM rag_users ORDER BY id")
         users = cur.fetchall()
         for user in users:
             print(f"ID: {user['id']}, 用户名: {user['username']}, 创建时间: {user['created_at']}")
@@ -34,8 +36,8 @@ try:
         print("=" * 60)
         cur.execute("""
             SELECT u.username, v.id, v.question, v.personal_view, v.created_at
-            FROM user_views v
-            JOIN users u ON v.user_id = u.id
+            FROM rag_user_views v
+            JOIN rag_users u ON v.user_id = u.id
             ORDER BY u.id, v.id
         """)
         views = cur.fetchall()

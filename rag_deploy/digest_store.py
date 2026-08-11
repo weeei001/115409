@@ -1,10 +1,10 @@
 """
 analysis_digests 資料存取層
 ===========================
-落地「週期性個股分析總結」到 MySQL rag_logs.analysis_digests，
+落地「週期性個股分析總結」到 MySQL topic_stock.analysis_digests，
 供離線預建腳本 upsert、第二支 API 查詢、以及未來「前期分析當參考」查歷史。
 
-MySQL 連線沿用 qa_logger 同一組 MYSQL_* 環境變數（同一個 rag_logs DB）。
+MySQL 連線沿用 qa_logger 同一組 MYSQL_* 環境變數（同一個 topic_stock DB）。
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def _get_conn():
         host=os.environ.get("MYSQL_HOST", "localhost"),
         user=os.environ.get("MYSQL_USER", "rag"),
         password=os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQL_DATABASE", "rag_logs"),
+        database=os.environ.get("MYSQL_DATABASE", "topic_stock"),
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )

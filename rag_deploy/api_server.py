@@ -126,7 +126,7 @@ def _build_user_context_block(user_token: str | None, query: str) -> tuple[str, 
         with _mysql_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT question, personal_view FROM user_views WHERE user_id = %s ORDER BY id DESC",
+                    "SELECT question, personal_view FROM rag_user_views WHERE user_id = %s ORDER BY id DESC",
                     (user["id"],)
                 )
                 views = cur.fetchall()
@@ -328,7 +328,7 @@ async def lifespan(app: FastAPI):
 
     try:
         _init_user_db()
-        print("[startup] MySQL users/user_views 資料表就緒")
+        print("[startup] MySQL users/rag_user_views 資料表就緒")
     except Exception as e:
         print(f"[startup] MySQL users 初始化失敗: {e}")
 
@@ -1403,7 +1403,7 @@ def _mysql_conn():
         host=os.environ.get("MYSQL_HOST", "localhost"),
         user=os.environ.get("MYSQL_USER", "rag"),
         password=os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQL_DATABASE", "rag_logs"),
+        database=os.environ.get("MYSQL_DATABASE", "topic_stock"),
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )
@@ -1419,7 +1419,7 @@ def _init_user_db():
     with _mysql_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
+                CREATE TABLE IF NOT EXISTS rag_users (
                     id         INT AUTO_INCREMENT PRIMARY KEY,
                     username   VARCHAR(50) UNIQUE NOT NULL,
                     password   VARCHAR(64) NOT NULL,
@@ -1428,13 +1428,13 @@ def _init_user_db():
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS user_views (
+                CREATE TABLE IF NOT EXISTS rag_user_views (
                     id           INT AUTO_INCREMENT PRIMARY KEY,
                     user_id      INT NOT NULL,
                     question     TEXT NOT NULL,
                     personal_view TEXT NOT NULL,
                     created_at   DATETIME NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    FOREIGN KEY (user_id) REFERENCES rag_users(id) ON DELETE CASCADE
                 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
             """)
         conn.commit()
@@ -1446,7 +1446,7 @@ def _get_user_by_token(token: str | None):
     try:
         with _mysql_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, username FROM users WHERE token = %s", (token,))
+                cur.execute("SELECT id, username FROM rag_users WHERE token = %s", (token,))
                 return cur.fetchone()
     except Exception:
         return None
@@ -1472,12 +1472,12 @@ async def register(req: RegisterRequest):
     try:
         with _mysql_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE username = %s", (req.username,))
+                cur.execute("SELECT id FROM rag_users WHERE username = %s", (req.username,))
                 if cur.fetchone():
                     raise HTTPException(400, "使用者名稱已存在")
                 token = str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO users (username, password, token, created_at) VALUES (%s, %s, %s, %s)",
+                    "INSERT INTO rag_users (username, password, token, created_at) VALUES (%s, %s, %s, %s)",
                     (req.username, _hash_password(req.password), token, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 )
             conn.commit()
@@ -1493,14 +1493,14 @@ async def login(req: LoginRequest):
     try:
         with _mysql_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, token FROM users WHERE username = %s AND password = %s",
+                cur.execute("SELECT id, token FROM rag_users WHERE username = %s AND password = %s",
                             (req.username, _hash_password(req.password)))
                 user = cur.fetchone()
                 if not user:
                     raise HTTPException(401, "帳號或密碼錯誤")
                 # 更新 token
                 token = str(uuid.uuid4())
-                cur.execute("UPDATE users SET token = %s WHERE id = %s", (token, user["id"]))
+                cur.execute("UPDATE rag_users SET token = %s WHERE id = %s", (token, user["id"]))
             conn.commit()
     except HTTPException:
         raise
@@ -1516,7 +1516,7 @@ async def list_views(x_token: str | None = Header(None, alias="x-token")):
         raise HTTPException(401, "請先登入")
     with _mysql_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, question, personal_view, created_at FROM user_views WHERE user_id = %s ORDER BY id DESC",
+            cur.execute("SELECT id, question, personal_view, created_at FROM rag_user_views WHERE user_id = %s ORDER BY id DESC",
                         (user["id"],))
             rows = cur.fetchall()
     return {"views": [{"id": r["id"], "question": r["question"], "personal_view": r["personal_view"], "created_at": str(r["created_at"])} for r in rows]}
@@ -1530,7 +1530,7 @@ async def add_view(req: UserViewRequest, x_token: str | None = Header(None, alia
     with _mysql_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO user_views (user_id, question, personal_view, created_at) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO rag_user_views (user_id, question, personal_view, created_at) VALUES (%s, %s, %s, %s)",
                 (user["id"], req.question, req.personal_view, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             )
         conn.commit()
@@ -1544,7 +1544,7 @@ async def delete_view(view_id: int, x_token: str | None = Header(None, alias="x-
         raise HTTPException(401, "請先登入")
     with _mysql_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM user_views WHERE id = %s AND user_id = %s", (view_id, user["id"]))
+            cur.execute("DELETE FROM rag_user_views WHERE id = %s AND user_id = %s", (view_id, user["id"]))
         conn.commit()
     return {"message": "刪除成功"}
 
