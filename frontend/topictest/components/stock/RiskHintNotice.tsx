@@ -1,19 +1,16 @@
 import React from 'react';
 import { ArrowRight, ShieldAlert } from 'lucide-react';
-import type { UseAdvisorVerdictResult } from '../../lib/hooks/useAdvisorVerdict';
-import { getRiskToneText } from '../../lib/utils/advisorUiHelpers';
+import type { UseStockTextBriefResult } from '../../lib/hooks/useStockTextBrief';
 
 interface Props {
-  verdict: UseAdvisorVerdictResult;
+  brief: UseStockTextBriefResult;
   onOpenDetail?: () => void;
 }
 
-export const RiskHintNotice: React.FC<Props> = ({ verdict, onOpenDetail }) => {
-  const { report, pricePosition } = verdict;
-  if (!report) return null;
-
-  const riskText = getRiskToneText(report, pricePosition);
-  if (!riskText) return null;
+/** 取 text-brief 的第一項風險當頁面上方的提醒；完整清單在 AI 分析抽屜裡 */
+export const RiskHintNotice: React.FC<Props> = ({ brief, onOpenDetail }) => {
+  const risk = brief.data?.brief?.risks?.[0];
+  if (!risk) return null;
 
   return (
     <div
@@ -26,14 +23,11 @@ export const RiskHintNotice: React.FC<Props> = ({ verdict, onOpenDetail }) => {
         color: 'var(--color-warning-text)',
       }}
     >
-      <ShieldAlert
-        size={14}
-        className="mt-0.5 shrink-0 text-warning-icon"
-        aria-hidden
-      />
+      <ShieldAlert size={14} className="mt-0.5 shrink-0 text-warning-icon" aria-hidden />
       <p className="flex-1 line-clamp-2">
         <span className="font-semibold mr-1">風險提醒</span>
-        {riskText}
+        {risk.risk_type ? `${risk.risk_type}：` : ''}
+        {risk.description}
       </p>
       {onOpenDetail ? (
         <button

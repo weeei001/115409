@@ -1,30 +1,4 @@
-// ── AI Analysis (kept from original) ──
-
-import type {
-  StockBehaviorAiProjection,
-  StockBehaviorDataInventory,
-} from './stockBehavior';
-
-export type {
-  ProjectionDirection,
-  StockBehaviorAiProjection,
-  StockBehaviorAiProjectionPoint,
-  StockBehaviorDataInventory,
-  StockBehaviorInventoryItem,
-} from './stockBehavior';
-
-export interface RAGSource {
-  id: string;
-  title: string;
-  date: string;
-  url?: string;
-}
-
-export interface AITrendAnalysis {
-  conclusion: string;
-  summary: string;
-  sources: RAGSource[];
-}
+/** 個股 AI 分析的型別在 ./textBrief（schema `text-first-v2`） */
 
 export interface ChatMessage {
   id: string;
@@ -33,83 +7,6 @@ export interface ChatMessage {
   timestamp: string;
   /** RAG 串流：後端 `type: "status"` 的即時狀態列（思考／搜尋中等） */
   streamStatus?: string;
-}
-
-// ── Advisor Report Types ──
-
-export type AdvisorAction = 'buy' | 'sell' | 'wait';
-
-export interface AdvisorSource {
-  title: string;
-  url?: string | null;
-  publisher?: string | null;
-  published_at?: string | null;
-  type?: string | null;
-  /** 來自 /analyze news_sources */
-  summary?: string | null;
-}
-
-export interface AdvisorTechnicalSignal {
-  name: string;
-  value?: string | number | null;
-  interpretation: string;
-}
-
-export interface AdvisorReport {
-  symbol: string;
-  generated_at: string;
-  summary: string;
-  technical_signals: AdvisorTechnicalSignal[];
-  recommendation: AdvisorAction;
-  reasoning: string;
-  risk_notes?: string | null;
-  sources: AdvisorSource[];
-  date_start?: string;
-  date_end?: string;
-  /** 後端操作建議原文（與三態 badge 不同） */
-  recommendation_text?: string;
-  /** 後端原始 N 日情境推演（D+1..D+N），由 mapper 透傳，供 UI 渲染 ProjectionTimeline */
-  projection?: StockBehaviorAiProjection;
-  /** 後端 AI 頂層 summary 原文，供 AISummaryCard 直接顯示 */
-  ai_summary?: string;
-  /** 後端 data_inventory 原文，供 EvidenceInventoryPanel 渲染證據卡 */
-  data_inventory?: StockBehaviorDataInventory;
-}
-
-export type AdvisorStepKey = 'institutional' | 'news' | 'cross_check' | 'final';
-export type AdvisorStepStatus = 'pending' | 'running' | 'done' | 'error';
-
-export interface AdvisorStepUpdate {
-  request_id: string;
-  step_key: AdvisorStepKey;
-  step_label?: string;
-  status: AdvisorStepStatus;
-  message?: string;
-}
-
-export type AdvisorPartialDataset =
-  | 'institutional'
-  | 'prices'
-  | 'indicators'
-  | 'quick_insights'
-  | 'news';
-
-export interface AdvisorPartialDataEvent {
-  request_id: string;
-  step_key: AdvisorStepKey;
-  dataset: AdvisorPartialDataset;
-  summary?: Record<string, unknown>;
-  preview?: Record<string, unknown>[];
-}
-
-// ── Analyze news source (shared with stockBehavior) ──
-
-export interface AnalyzeNewsSourceItem {
-  id?: string;
-  title?: string;
-  summary?: string;
-  timestamp?: string;
-  url?: string | null;
 }
 
 // ── Auth (JWT) ──

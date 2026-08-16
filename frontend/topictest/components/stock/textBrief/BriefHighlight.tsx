@@ -1,5 +1,4 @@
-import clsx from 'clsx';
-import {
+import React, {
   createContext,
   useCallback,
   useContext,
@@ -9,21 +8,16 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-
-import type { Brief } from '../../../lib/demo/textBriefTypes';
-import { buildClaimMap, forwardViewKey } from '../../../lib/utils/textBriefClaims';
-import styles from '../../../styles/textBriefDemo.module.css';
-
-export { buildClaimMap, forwardViewKey };
+import type { Brief } from '../../../lib/types/textBrief';
+import { buildClaimMap } from '../../../lib/utils/textBriefClaims';
 
 /**
- * 證據互相對照：
- *   點結論 → 亮出它引用的證據
- *   點證據 → 反向亮出所有引用它的結論
- *   Esc    → 取消
+ * 證據互相對照，也就是「為什麼」那一層：
+ *   點結論 → 亮出它根據的原始資料
+ *   點原始資料 → 反向亮出所有引用它的結論
+ *   Esc → 取消
  *
- * 原本的單檔 DEMO 是邊 render 邊把節點註冊進陣列；這裡改成先從 brief 算出
- * 「結論 key → 證據 id」的對照表，highlight 只是這張表加上目前焦點的純函式結果。
+ * highlight 狀態只是「結論 key → 證據 id」對照表加上目前焦點的純函式結果。
  */
 
 export type Focus = { kind: 'claim'; key: string } | { kind: 'evidence'; id: string } | null;
@@ -35,23 +29,22 @@ interface HighlightValue {
   toggleEvidence(id: string): void;
   bindClaim(key: string): (node: HTMLElement | null) => void;
   bindEvidence(id: string): (node: HTMLElement | null) => void;
+  /** 目前是否有任何東西被選中，用來讓沒被選中的項目淡出 */
+  hasFocus: boolean;
 }
 
 const HighlightContext = createContext<HighlightValue | null>(null);
 
-export function useHighlight(): HighlightValue {
+export function useBriefHighlight(): HighlightValue {
   const ctx = useContext(HighlightContext);
-  if (!ctx) throw new Error('useHighlight 必須放在 <HighlightProvider> 內');
+  if (!ctx) throw new Error('useBriefHighlight 必須放在 <BriefHighlightProvider> 內');
   return ctx;
 }
 
-export function HighlightProvider({
-  brief,
-  children,
-}: {
+export const BriefHighlightProvider: React.FC<{
   brief: Brief | null | undefined;
   children: ReactNode;
-}) {
+}> = ({ brief, children }) => {
   const claimMap = useMemo(() => buildClaimMap(brief), [brief]);
   const [focus, setFocus] = useState<Focus>(null);
   const nodes = useRef(new Map<string, HTMLElement>());
@@ -60,14 +53,18 @@ export function HighlightProvider({
   useEffect(() => setFocus(null), [claimMap]);
 
   useEffect(() => {
+    if (!focus) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFocus(null);
+      // 抽屜本身也吃 Esc（關閉），所以有 highlight 時先攔下來只收 highlight
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setFocus(null);
     };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [focus]);
 
-  // 捲到第一個對應的節點，維持原本點擊後不用自己找的體驗
+  // 捲到第一個對應的節點，點完不用自己找
   useEffect(() => {
     if (!focus) return;
     if (focus.kind === 'claim') {
@@ -95,7 +92,7 @@ export function HighlightProvider({
       if (node) nodes.current.set(`${prefix}:${key}`, node);
       else nodes.current.delete(`${prefix}:${key}`);
     },
-    [],
+    []
   );
 
   const value = useMemo<HighlightValue>(() => {
@@ -112,61 +109,78 @@ export function HighlightProvider({
     return {
       isClaimOn,
       isEvidenceOn,
-      // 再點一次已經亮著的東西就收起來，跟原本的行為一致
+      // 再點一次已經亮著的東西就收起來
       toggleClaim: (key) => setFocus(isClaimOn(key) ? null : { kind: 'claim', key }),
       toggleEvidence: (id) => setFocus(isEvidenceOn(id) ? null : { kind: 'evidence', id }),
       bindClaim: bind('claim'),
       bindEvidence: bind('ev'),
+      hasFocus: focus != null,
     };
   }, [focus, claimMap, bind]);
 
   return <HighlightContext.Provider value={value}>{children}</HighlightContext.Provider>;
-}
+};
 
-/** 結論引用到的證據 id，點下去可反查 */
-export function EvidenceChips({ ids }: { ids: string[] }) {
-  const { toggleEvidence } = useHighlight();
+/** 結論引用到的證據 id，點下去反查那筆原始資料 */
+export const EvidenceChips: React.FC<{ ids: string[] }> = ({ ids }) => {
+  const { toggleEvidence, isEvidenceOn } = useBriefHighlight();
   if (!ids.length) return null;
   return (
-    <div className={styles.chips}>
+    <div className="mt-2 flex flex-wrap gap-1.5">
       {ids.map((id) => (
-        <span
+        <button
           key={id}
-          className={styles.chip}
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             toggleEvidence(id);
           }}
+          aria-label={`查看資料 ${id}`}
+          className={`rounded px-1.5 py-0.5 font-mono text-[11px] leading-none transition-colors cursor-pointer ${
+            isEvidenceOn(id)
+              ? 'bg-brand text-white'
+              : 'bg-brand/10 text-brand hover:bg-brand/20'
+          }`}
         >
           {id}
-        </span>
+        </button>
       ))}
     </div>
   );
-}
+};
 
-/** 可點擊、會亮出對應證據的條目 */
-export function ClaimItem({
-  claimKey,
-  ids,
-  className,
-  children,
-}: {
+/** 可點擊、會亮出對應原始資料的結論條目 */
+export const ClaimRow: React.FC<{
   claimKey: string;
   ids?: string[];
-  /** 預設 `.item`；關鍵交易日改用 `.kd` 的格線版面 */
+  /** 排版由外部決定（關鍵交易日用格線），這裡只負責互動與選中樣式 */
   className?: string;
   children: ReactNode;
-}) {
-  const { isClaimOn, toggleClaim, bindClaim } = useHighlight();
+}> = ({ claimKey, ids, className, children }) => {
+  const { isClaimOn, toggleClaim, bindClaim, hasFocus } = useBriefHighlight();
+  const on = isClaimOn(claimKey);
   return (
     <div
       ref={bindClaim(claimKey)}
-      className={clsx(className ?? styles.item, isClaimOn(claimKey) && styles.on)}
+      role="button"
+      tabIndex={0}
+      aria-pressed={on}
       onClick={() => toggleClaim(claimKey)}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        toggleClaim(claimKey);
+      }}
+      className={`rounded-xl border px-3 py-2.5 cursor-pointer transition-[background-color,border-color,opacity] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
+        on
+          ? 'border-brand/40 bg-brand/10'
+          : `border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50 ${
+              hasFocus ? 'opacity-55' : ''
+            }`
+      } ${className ?? ''}`}
     >
       {children}
       <EvidenceChips ids={ids ?? []} />
     </div>
   );
-}
+};

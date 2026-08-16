@@ -12,7 +12,8 @@ import { usePrefersReducedMotionClient } from '../../lib/usePrefersReducedMotion
 import { StockHeader } from '../StockHeader';
 import { StockSparkline, type SparklineTrend } from '../StockSparkline';
 import { AIVerdictHeroCard } from './AIVerdictHeroCard';
-import type { UseAdvisorVerdictResult } from '../../lib/hooks/useAdvisorVerdict';
+import type { UseStockTextBriefResult } from '../../lib/hooks/useStockTextBrief';
+import type { UseTechnicalSignalsResult } from '../../lib/hooks/useTechnicalSignals';
 
 interface Props {
   symbol: string;
@@ -22,7 +23,8 @@ interface Props {
   indicatorLatest: TechnicalIndicatorResponse | null;
   priceChart: PriceChartData | null;
   endDate: string | null;
-  verdict: UseAdvisorVerdictResult;
+  brief: UseStockTextBriefResult;
+  signals: UseTechnicalSignalsResult;
   onOpenAI?: () => void;
 }
 
@@ -37,7 +39,8 @@ export const StockHeroSection: React.FC<Props> = ({
   indicatorLatest,
   priceChart,
   endDate,
-  verdict,
+  brief,
+  signals,
   onOpenAI,
 }) => {
   const reduceMotion = usePrefersReducedMotionClient();
@@ -134,7 +137,13 @@ export const StockHeroSection: React.FC<Props> = ({
         animate={{ opacity: 1, y: 0 }}
         transition={reduceMotion ? { duration: 0 } : { duration: 0.4, ease: 'easeOut', delay: 0.08 }}
       >
-        <AIVerdictHeroCard symbol={symbol} endDate={endDate} verdict={verdict} onOpenDetail={onOpenAI} />
+        <AIVerdictHeroCard
+          symbol={symbol}
+          endDate={endDate}
+          brief={brief}
+          signals={signals}
+          onOpenDetail={onOpenAI}
+        />
       </motion.div>
     </div>
   );
