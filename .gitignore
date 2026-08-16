@@ -5,6 +5,7 @@
 
 # 大型数据库
 qdrant_db/
+qdrant_snapshots/
 news_db_local/
 news_db_filtered/
 rag/news_db_filtered
