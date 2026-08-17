@@ -18,9 +18,9 @@ from database import Base
 _ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
 _MEDIUM_TEXT = Text().with_variant(MEDIUMTEXT(), "mysql")
 
-# kind 欄位可用值：個股 AI 分析目前只有這兩條產線。
+# kind 欄位可用值：/ai 情境推演移除後只剩文字簡報一條產線。
+# 欄位本身保留，之後要再開第二條產線時直接加常數即可。
 LLM_RESPONSE_KIND_TEXT_BRIEF = "text_brief"
-LLM_RESPONSE_KIND_PROJECTION = "projection"
 
 
 class LlmResponse(Base):

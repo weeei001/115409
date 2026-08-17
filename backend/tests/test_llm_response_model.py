@@ -5,11 +5,10 @@ from sqlalchemy.orm import sessionmaker
 
 from crud.llm_response import create_llm_response, get_cached_llm_response
 from database import Base
-from models.llm_response import (
-    LLM_RESPONSE_KIND_PROJECTION,
-    LLM_RESPONSE_KIND_TEXT_BRIEF,
-    LlmResponse,
-)
+from models.llm_response import LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse
+
+# 目前只有 text_brief 一條產線；用一個假 kind 驗證快取確實有依 kind 隔離。
+OTHER_KIND = "some_other_kind"
 
 
 def _session():
@@ -50,7 +49,7 @@ def test_cache_lookup_returns_the_newest_non_fallback_row_for_that_kind():
         # 同一個 key 但屬於另一條產線，不該被文字簡報的快取撈到
         create_llm_response(
             db,
-            **_fields(kind=LLM_RESPONSE_KIND_PROJECTION, response_json='{"n": 3}'),
+            **_fields(kind=OTHER_KIND, response_json='{"n": 3}'),
         )
         # fallback 是失敗結果，不該被重播
         create_llm_response(db, **_fields(is_fallback=True, response_json='{"n": 4}'))

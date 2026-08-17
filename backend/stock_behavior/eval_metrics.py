@@ -9,6 +9,58 @@ from typing import Any
 
 PERCENT_IN_TEXT_RE = re.compile(r"\d+(?:\.\d+)?\s*%")
 
+FORWARD_HORIZONS = ("short_1_5", "swing_6_20", "medium_21_40")
+
+# 立場強度：量「這段建議敢不敢下判斷」。0 代表沒給方向。
+STANCE_STRENGTH = {
+    "bearish": 2.0,
+    "mildly_bearish": 1.0,
+    "neutral": 0.0,
+    "mixed": 0.0,
+    "uncertain": 0.0,
+    "mildly_bullish": 1.0,
+    "bullish": 2.0,
+}
+DIRECTIONLESS_STANCES = frozenset({"neutral", "mixed", "uncertain"})
+
+
+def forward_views_map(forward_views: Any) -> dict[str, dict[str, Any]]:
+    """把 forward_views 正規化成 {horizon: view}。
+
+    v3 的 shadow 端點輸出 list（每項帶 horizon 欄位），v4 之後改成 dict。
+    兩種都要吃，否則跨版本比對會斷在舊報告上。
+    """
+    if isinstance(forward_views, dict):
+        return {
+            horizon: view
+            for horizon, view in forward_views.items()
+            if isinstance(view, dict)
+        }
+    if isinstance(forward_views, list):
+        return {
+            item["horizon"]: item
+            for item in forward_views
+            if isinstance(item, dict) and isinstance(item.get("horizon"), str)
+        }
+    return {}
+
+
+def _view_reason(view: dict[str, Any]) -> str:
+    """v3 把理由寫在 text，v4 之後拆成 reason。"""
+    for field in ("reason", "text"):
+        value = view.get(field)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def _has_invalidation(view: dict[str, Any]) -> bool:
+    """v3 用 id 參照失效條件，v4 之後直接寫在 invalidation。"""
+    invalidation = view.get("invalidation")
+    if isinstance(invalidation, str) and invalidation.strip():
+        return True
+    return bool(view.get("invalidation_condition_ids"))
+
 
 def _response(result: dict[str, Any]) -> dict[str, Any]:
     response = result.get("response")
@@ -32,6 +84,10 @@ def _agreement(grouped: dict[tuple[Any, Any], list[str]]) -> float:
     return fmean(shares) if shares else 0.0
 
 
+def _mean(values: list[float]) -> float:
+    return round(fmean(values), 4) if values else 0.0
+
+
 def _percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
@@ -51,8 +107,11 @@ def aggregate_eval_results(results: list[dict]) -> dict:
     key_day_numbers = key_day_numbers_verified = 0
     overall_by_case: dict[tuple[Any, Any], list[str]] = defaultdict(list)
     forward_by_case: dict[str, dict[tuple[Any, Any], list[str]]] = {
-        horizon: defaultdict(list)
-        for horizon in ("short_1_5", "swing_6_20", "medium_21_40")
+        horizon: defaultdict(list) for horizon in FORWARD_HORIZONS
+    }
+    # 每個時間尺度的建議品質樣本，逐則累積後在最後取平均。
+    forward_quality: dict[str, dict[str, list[float]]] = {
+        horizon: defaultdict(list) for horizon in FORWARD_HORIZONS
     }
     latencies: list[float] = []
 
@@ -81,12 +140,23 @@ def aggregate_eval_results(results: list[dict]) -> dict:
         stance = brief.get("overall_stance")
         if isinstance(stance, str):
             overall_by_case[key].append(stance)
-        forward_views = brief.get("forward_views")
-        if isinstance(forward_views, dict):
-            for horizon, grouped in forward_by_case.items():
-                view = forward_views.get(horizon)
-                if isinstance(view, dict) and isinstance(view.get("stance"), str):
-                    grouped[key].append(view["stance"])
+        forward_views = forward_views_map(brief.get("forward_views"))
+        for horizon in FORWARD_HORIZONS:
+            view = forward_views.get(horizon)
+            if not isinstance(view, dict):
+                continue
+            view_stance = view.get("stance")
+            if not isinstance(view_stance, str):
+                continue
+            forward_by_case[horizon][key].append(view_stance)
+            samples = forward_quality[horizon]
+            samples["strength"].append(STANCE_STRENGTH.get(view_stance, 0.0))
+            samples["directionless"].append(
+                float(view_stance in DIRECTIONLESS_STANCES)
+            )
+            samples["evidence_count"].append(float(len(view.get("evidence_ids") or [])))
+            samples["invalidation"].append(float(_has_invalidation(view)))
+            samples["reason_len"].append(float(len(_view_reason(view))))
 
         both_sides_runs += bool(brief.get("positive_factors")) and bool(
             brief.get("negative_factors")
@@ -125,6 +195,19 @@ def aggregate_eval_results(results: list[dict]) -> dict:
                 horizon: _agreement(grouped)
                 for horizon, grouped in forward_by_case.items()
             },
+        },
+        # 骨架品質：三個時間尺度各自的建議具體度。量的是文字建議本身，
+        # 與股價準確度無關——時間拉遠後模型是否退回中性，看這裡。
+        "forward_view_quality": {
+            horizon: {
+                "samples": len(samples["strength"]),
+                "directionless_rate": _mean(samples["directionless"]),
+                "avg_stance_strength": _mean(samples["strength"]),
+                "invalidation_rate": _mean(samples["invalidation"]),
+                "evidence_ids_avg": _mean(samples["evidence_count"]),
+                "reason_len_avg": _mean(samples["reason_len"]),
+            }
+            for horizon, samples in forward_quality.items()
         },
         "latency_ms_p50": _percentile(latencies, 0.50),
         "latency_ms_p95": _percentile(latencies, 0.95),
