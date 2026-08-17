@@ -15,8 +15,6 @@ from crud.llm_response import get_llm_response, list_llm_responses
 from database import get_db
 from models.llm_response import LLM_RESPONSE_KIND_TEXT_BRIEF
 from schemas.stock_behavior import (
-    StockBehaviorAiResponse,
-    StockBehaviorAiRequest,
     StockBehaviorRagRequest,
     StockBehaviorRagResponse,
     StockBehaviorTextBriefRequest,
@@ -78,34 +76,11 @@ async def get_stock_behavior_rag(
 
 
 @router.post(
-    "/ai",
-    response_model=StockBehaviorAiResponse,
-    summary="產生股票 AI 建議分析",
-    description=(
-        "依股票代號、RAG 新聞來源與後端資料庫中的價量/籌碼/技術指標產生 AI 情境分析。"
-        "通常可直接把 `/analyze/stock-behavior/rag` 的 response 欄位帶入。"
-        "模型選擇由後端環境設定控制，API 請求不可指定模型。"
-    ),
-    responses={
-        200: {"description": "成功產生 AI 分析"},
-        422: {"description": "請求資料或政策檢查未通過"},
-        504: {"description": "AI 分析逾時"},
-    },
-)
-async def get_stock_behavior_ai(
-    req: StockBehaviorAiRequest,
-    db: Session = Depends(get_db),
-) -> StockBehaviorAiResponse:
-    orchestrator = _build_orchestrator(db)
-    return await _run_stock_behavior_task(orchestrator.generate_llm_analysis(req))
-
-
-@router.post(
     "/text-brief",
     response_model=StockBehaviorTextBriefResponse,
-    summary="產生股票文字簡報（shadow）",
+    summary="產生股票文字簡報",
     description=(
-        "以 text-first-v2 schema 產生文字簡報，不影響既有 AI 分析端點。"
+        "以 text-first-v2 schema 產生文字簡報。"
         "只需傳入 `symbol`；新聞由後端自行向 RAG 取得，不再接受前端帶入 `news_sources`。"
         "相同 symbol／as_of_date／設定已有成功結果時會直接回傳快取（`cached=true`），"
         "需要重新產生請帶 `force_refresh=true`。"
