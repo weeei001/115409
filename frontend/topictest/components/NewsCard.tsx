@@ -11,12 +11,15 @@ interface Props {
   defaultExpanded?: boolean;
 }
 
-function parseStocks(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((s) => s.trim().replace(/\.TW$/i, ''))
-    .filter(Boolean);
+/** 主要關聯股票放 stock_id，其餘關聯股票放 tags（逗號分隔） */
+function parseStocks(stockId: string | null, tags: string | null): string[] {
+  const raw = [stockId ?? '', ...(tags ?? '').split(',')];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const s = item.trim().replace(/\.TW$/i, '');
+    if (s) seen.add(s);
+  }
+  return [...seen];
 }
 
 function truncateContent(content: string | null, maxLen = 120): string {
@@ -39,11 +42,11 @@ function safeExternalUrl(rawUrl: string | null): string | null {
 export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0, defaultExpanded = false }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const reduceMotion = usePrefersReducedMotionClient();
-  const stocks = parseStocks(news.related_stocks);
+  const stocks = parseStocks(news.stock_id, news.tags);
   const hasContent = !!news.content?.trim();
   const snippet = truncateContent(news.content);
   const safeUrl = safeExternalUrl(news.url);
-  const contentPanelId = `news-content-${news.id ?? index}`;
+  const contentPanelId = `news-content-${news.article_id ?? index}`;
   const expandLabel = expanded ? '收合新聞內文' : '展開新聞內文';
 
   return (
@@ -72,10 +75,10 @@ export const NewsCard = React.memo<Props>(function NewsCard({ news, index = 0, d
                 {s}
               </span>
             ))}
-            {news.publish_time && (
+            {news.pub_time && (
               <span className="inline-flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
                 <Clock size={10} aria-hidden />
-                {formatTime(news.publish_time)}
+                {formatTime(news.pub_time)}
               </span>
             )}
           </div>

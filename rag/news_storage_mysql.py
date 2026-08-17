@@ -1,7 +1,7 @@
 """NewsStorageManager 的 MySQL 版本。
 
 取代 news_storage.py 的檔案系統儲存（index.json + {source}/content/*.txt），
-改為讀寫 MySQL rag_logs 資料庫的 news_articles 表。
+改為讀寫 MySQL topic_stock 資料庫的 news_articles 表。
 
 article_id 產生規則與去重邏輯與 news_storage.py 保持一致：
     article_id = md5(f"{source}_{title}_{pub_time}")
@@ -19,7 +19,7 @@ def _get_conn():
         port=int(os.environ.get("MYSQL_PORT", "3306")),
         user=os.environ.get("MYSQL_USER", "rag"),
         password=os.environ.get("MYSQL_PASSWORD", ""),
-        database=os.environ.get("MYSQL_DATABASE", "rag_logs"),
+        database=os.environ.get("MYSQL_DATABASE", "topic_stock"),
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
     )

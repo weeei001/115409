@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - MYSQL_DATABASE=rag_logs
+      - MYSQL_DATABASE=topic_stock
       - MYSQL_USER=rag
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
     volumes:
@@ -40,7 +40,7 @@ services:
       - QDRANT_HOST=qdrant
       - FINMIND_TOKEN=${FINMIND_TOKEN}
       - MYSQL_HOST=mysql
-      - MYSQL_DATABASE=rag_logs
+      - MYSQL_DATABASE=topic_stock
       - MYSQL_USER=rag
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
     depends_on:

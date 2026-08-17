@@ -14,7 +14,7 @@ from routers import (
 )
 from config import get_settings
 from models.password_reset_token import PasswordResetToken  # noqa: F401
-
+from models.llm_response import LlmResponse  # noqa: F401
 settings = get_settings()
 
 
@@ -55,7 +55,7 @@ _OPENAPI_TAGS = [
     },
     {
         "name": "新聞查詢",
-        "description": "`GET /news`，查詢鉅亨新聞列表，支援分頁、關鍵字、股票與發布時間篩選。",
+        "description": "`GET /news`，查詢多來源新聞列表，支援分頁、關鍵字、股票、來源與發布時間篩選。",
     },
     {
         "name": "技術指標",

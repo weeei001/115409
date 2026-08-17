@@ -1,234 +1,161 @@
-# 股票查詢系統 API 文件
+# 台股系統 API 文件
 
-這份文件提供給前端工程師使用，包含了所有與股票系統相關的 API 說明。這些 API 由 FastAPI 後端提供。
+給前端使用的端點索引。每個端點的完整 request/response schema、欄位型別與範例，以 runtime Swagger 為準：
 
-## 伺服器資訊
-- **Base URL**: `http://localhost:8000` (開發環境預設)
-- **API 版本**: 1.0.0
-- **數據交換格式**: JSON (`application/json`)
+```text
+http://localhost:8000/docs        # Swagger UI
+http://localhost:8000/redoc       # ReDoc
+http://localhost:8000/openapi.json
+```
 
----
+這份文件只列「有哪些端點、做什麼、要帶什麼」，不複製 schema，避免與程式碼不同步。
 
-## 狀態檢查
+## 共通規則
 
-### 1. 根路徑
-- **路徑**: `/`
-- **方法**: `GET`
-- **說明**: 獲取歡迎訊息及基本資訊。
-- **回應成功 (200 OK)**:
-  ```json
-  {
-      "message": "歡迎使用 FastAPI + MySQL 後端應用",
-      "version": "1.0.0",
-      "docs": "/docs"
-  }
-  ```
-
-### 2. 健康檢查
-- **路徑**: `/health`
-- **方法**: `GET`
-- **說明**: 檢查後端服務是否正常運行。
-- **回應成功 (200 OK)**:
-  ```json
-  {"status": "healthy"}
-  ```
+- **Base URL**：`http://localhost:8000`（開發環境預設）
+- **格式**：JSON (`application/json`)
+- **日期**：`YYYY-MM-DD`；日期時間為 ISO 8601（`YYYY-MM-DDTHH:MM:SS`）
+- **認證**：需登入的端點帶 `Authorization: Bearer <access_token>`。目前只有 `/auth/me` 與 `/auth/change-password` 需要。
+- **CORS**：後端為 `allow_origins=["*"]`，`file://` 開啟的頁面也能直接呼叫。
 
 ---
 
-## 股票基礎查詢 (Stocks)
+## 系統
 
-### 1. 獲取所有股票代號
-- **路徑**: `/stocks/symbols`
-- **方法**: `GET`
-- **說明**: 獲取資料庫中所有可用的股票代號列表，可用於前端下拉選單或自動完成功能。
-- **回應成功 (200 OK)**:
-  ```json
-  ["2317", "2330", "2454", "2881"]
-  ```
-
-### 2. 獲取最新股價
-- **路徑**: `/stocks/{symbol}/latest`
-- **方法**: `GET`
-- **說明**: 獲取指定股票的最新交易日價格數據。
-- **路徑參數**:
-  - `symbol` (字串, 必填): 股票代號（例如：2330）
-- **回應成功 (200 OK)**: 
-  ```json
-  {
-    "date": "2024-03-10",
-    "symbol": "2330",
-    "open": "590.00",
-    "high": "596.00",
-    "low": "588.00",
-    "close": "595.00",
-    "volume_shares": 25000000,
-    "amount": 14800000000,
-    "change": "5.00",
-    "trades": 12500
-  }
-  ```
-
-### 3. 獲取特定日期股價
-- **路徑**: `/stocks/{symbol}/price/{date}`
-- **方法**: `GET`
-- **說明**: 查詢指定股票在特定交易日的價格數據。如該日期為非交易日（假日、週末）將找不到數據。
-- **路徑參數**:
-  - `symbol` (字串, 必填): 股票代號
-  - `date` (字串, 必填): 日期，格式為 YYYY-MM-DD（例如：2024-03-10）
-- **回應成功 (200 OK)**: 返回指定日期的股價物件。
-- **回應失敗 (404 Not Found)**: 找不到該日期的數據。
-
-### 4. 獲取股票資料日期範圍
-- **路徑**: `/stocks/{symbol}/date-range`
-- **方法**: `GET`
-- **說明**: 獲取指定股票在資料庫中涵蓋的日期範圍。
-- **路徑參數**:
-  - `symbol` (字串, 必填): 股票代號
-
-### 5. 查詢歷史股價列表 (分頁)
-- **路徑**: `/stocks/{symbol}/history`
-- **方法**: `GET`
-- **說明**: 獲取指定股票的歷史價格數據。
-- **路徑/查詢參數**:
-  - `symbol` (字串, 必填): 股票代號
-  - `start_date` (字串, 選填): 開始日期 (YYYY-MM-DD)
-  - `end_date` (字串, 選填): 結束日期 (YYYY-MM-DD)
-  - `skip` (整數, 選填): 跳過的記錄數 (預設 0)
-  - `limit` (整數, 選填): 返回的記錄數 (預設 100，最大 1000)
-- **回應成功 (200 OK)**:
-  ```json
-  {
-    "symbol": "2330",
-    "start_date": "2024-01-01",
-    "end_date": "2024-03-10",
-    "total": 50,
-    "data": [
-       // ...股價資料陣列
-    ]
-  }
-  ```
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/` | 服務名稱、版本與文件路徑 |
+| GET | `/health` | 健康檢查，回 `{"status": "healthy"}`。不檢查 RAG / LLM / SMTP |
 
 ---
 
-## 股票比較及統計分析
+## 股價查詢（`/stocks`）
 
-### 1. 多股票價格比較
-- **路徑**: `/stocks/compare/multiple`
-- **方法**: `GET`
-- **說明**: 比較多支股票在同一時間範圍內的價格走勢。適合繪製多條折線圖。
-- **查詢參數**:
-  - `symbols` (字串, 必填): 股票代號，用逗號分隔（例如: `2330,2317,2454`），最多支援 10 支
-  - `start_date` (字串, 必填): 開始日期 (YYYY-MM-DD)
-  - `end_date` (字串, 必填): 結束日期 (YYYY-MM-DD)
-- **回應成功 (200 OK)**:
-  ```json
-  {
-    "start_date": "2024-03-01",
-    "end_date": "2024-03-10",
-    "symbols": ["2330", "2317"],
-    "data": [
-      {
-        "date": "2024-03-10",
-        "prices": {
-          "2330": 593.0,
-          "2317": 520.0
-        }
-      }
-    ]
-  }
-  ```
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/stocks/symbols` | 資料庫中所有可用股票代號 |
+| GET | `/stocks/{symbol}/latest` | 最新一個交易日的價量 |
+| GET | `/stocks/{symbol}/history` | 歷史日線列表，支援 `start_date`／`end_date`／`skip`／`limit`（上限 1000） |
+| GET | `/stocks/{symbol}/statistics` | 區間統計：最高／最低／均價／總量／交易日數。`start_date`、`end_date` 必填 |
+| GET | `/stocks/{symbol}/date-range` | 該檔在資料庫中的資料涵蓋範圍 |
+| GET | `/stocks/compare/multiple` | 多檔收盤價比較。`symbols` 逗號分隔，最多 10 檔；`start_date`、`end_date` 必填 |
 
-### 2. 股價統計數據
-- **路徑**: `/stocks/{symbol}/statistics`
-- **方法**: `GET`
-- **說明**: 獲取指定時間範圍的統計數據(包含最高價、最低價、平均收盤價、總成交量等)。
-- **參數**:
-  - `symbol` (路徑, 必填): 股票代號
-  - `start_date` (查詢, 必填): 開始日期 (YYYY-MM-DD)
-  - `end_date` (查詢, 必填): 結束日期 (YYYY-MM-DD)
-- **回應成功 (200 OK)**:
-  ```json
-  {
-    "symbol": "2330",
-    "start_date": "2024-01-01",
-    "end_date": "2024-03-10",
-    "highest_price": "600.00",
-    "lowest_price": "550.00",
-    "average_close": "575.50",
-    "total_volume": 1250000000,
-    "total_amount": 718750000000,
-    "trading_days": 45
-  }
-  ```
+## 圖表資料
+
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/stocks/{symbol}/chart/candlestick-ma` | K 線 + 移動平均。`ma_periods` 逗號分隔，預設 `5,10,20`，最多 5 條 |
+| GET | `/stocks/{symbol}/chart/volume` | 成交量分析，含漲跌方向，可畫紅綠量柱 |
+| GET | `/stocks/{symbol}/chart/price-change` | 價格變化與漲跌幅 `change_percent` |
+| GET | `/stocks/{symbol}/integrated-chart` | 一次取得前端圖表初始化所需的整合資料（進階繪圖） |
+
+## 技術指標
+
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/stocks/{symbol}/technical-indicators` | 均線、RSI、KD、MACD 等指標 |
+
+## 三大法人與籌碼
+
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/stocks/{symbol}/institutional-trades` | 三大法人買賣超 |
+| GET | `/stocks/{symbol}/chart/chips-volume` | 籌碼 + 成交量圖表資料 |
+| GET | `/stocks/{symbol}/volume-with-chips` | 成交量與三大法人整合資料 |
+
+## FinMind 財報與籌碼擴充
+
+資料由 `crawler/finmind/` 抓取後匯入，路徑統一在 `/stocks/{symbol}` 底下，皆支援 `start_date`／`end_date`。
+
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/stocks/{symbol}/fundamentals/financial-statements` | 三大財報 long-form 明細 |
+| GET | `/stocks/{symbol}/fundamentals/monthly-revenues` | 月營收 |
+| GET | `/stocks/{symbol}/fundamentals/valuations` | PER / PBR / 殖利率 |
+| GET | `/stocks/{symbol}/fundamentals/dividends` | 股利政策 |
+| GET | `/stocks/{symbol}/fundamentals/dividend-results` | 除權息結果 |
+| GET | `/stocks/{symbol}/chips/margin-trades` | 融資融券 |
+| GET | `/stocks/{symbol}/chips/foreign-shareholding` | 外資持股 |
+| GET | `/stocks/{symbol}/chips/holding-share-levels` | 持股分級 |
 
 ---
 
-## 圖表數據 API (Chart Data)
+## 新聞查詢
 
-### 1. K 線圖 (Candlestick) 基本數據
-- **路徑**: `/stocks/{symbol}/candlestick`
-- **方法**: `GET`
-- **說明**: 獲取指定範圍的 K 線（蠟燭圖）數據。包含開盤、最高、最低、收盤、成交量。
-- **參數**:
-  - `symbol` (路徑, 必填): 股票代號
-  - `start_date` (查詢, 必填): 開始日期
-  - `end_date` (查詢, 必填): 結束日期
-- **回應成功 (200 OK)**:
-  ```json
-  {
-    "symbol": "2330",
-    "start_date": "2024-01-01",
-    "end_date": "2024-03-10",
-    "total": 45,
-    "data": [
-      {
-        "date": "2024-03-10",
-        "open": 590.0,
-        "high": 596.0,
-        "low": 588.0,
-        "close": 595.0,
-        "volume": 25000000
-      }
-    ]
-  }
-  ```
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| GET | `/news` | 查詢 `news_articles`，分頁回傳 |
 
-### 2. K 線圖 + 移動平均線 (MA)
-- **路徑**: `/stocks/{symbol}/chart/candlestick-ma`
-- **方法**: `GET`
-- **說明**: 返回 K 線圖數據及自動計算的 MA 線資訊。
-- **參數**:
-  - `symbol` (路徑, 必填): 股票代號
-  - `start_date` (查詢, 必填): 開始日期
-  - `end_date` (查詢, 必填): 結束日期
-  - `ma_periods` (查詢, 選填): 移動平均線週期，用逗號分隔。預設 `5,10,20` (最多支援 5 條)
-- **回應成功 (200 OK)**: 包含 `dates`, `candlestick`, `moving_averages` 等欄位。
-
-### 3. 成交量分析 (Volume)
-- **路徑**: `/stocks/{symbol}/chart/volume`
-- **方法**: `GET`
-- **說明**: 獲取成交量分析數據，包含價格變化資訊。適合繪製帶有漲跌顏色的成交量柱狀圖。
-- **參數**: 同一般圖表查詢。
-
-### 4. 價格變化分析 (Price Change)
-- **路徑**: `/stocks/{symbol}/chart/price-change`
-- **方法**: `GET`
-- **說明**: 獲取價格變化數據，包含漲跌幅百分比 (`change_percent`)。
-- **參數**: 同一般圖表查詢。
-
-### 5. OHLC 陣列格式數據
-- **路徑**: `/stocks/{symbol}/chart/ohlc`
-- **方法**: `GET`
-- **說明**: 獲取只包含值陣列的 OHLC 格式: `[[date, open, high, low, close, volume], ...]`。適合 ECharts 等需要精簡數據格式的圖表庫。
+查詢參數：`page`（預設 1）、`page_size`（預設 20，上限 200）、`article_id`、`keyword`（標題與內容模糊查詢）、`stock`（比對 `stock_id` 與 `tags`）、`source`（`cnyes` / `ltn` / …）、`start_time`／`end_time`（比對 `pub_time`）、`sort_by`（`pub_time` / `created_at`）、`sort_order`（`asc` / `desc`）。
 
 ---
 
-## 統一錯誤處理
+## AI 分析（`/analyze/stock-behavior`）
 
-當驗證失敗或發生錯誤時，API 通常會返回對應的 HTTP 狀態碼與錯誤細節。前端請留意以下狀態碼：
+模型由後端環境變數決定，**請求不得指定模型**。
 
-- **400 Bad Request**: 請求邏輯錯誤 (例如同時比較超過10支股票、參數格式錯誤等)。
-- **404 Not Found**: 找不到資料 (可能是該範圍無數據，或該日未開盤)。
-- **422 Unprocessable Entity**: 參數驗證失敗 (例如缺少必填欄位或型別錯誤)，回應中會包含 `detail` 陣列指出哪個欄位出錯。
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| POST | `/analyze/stock-behavior/rag` | 取得該檔的 RAG 新聞來源。body：`symbols`（陣列，只取第一個有效代號）、`as_of_date`、`lookback_days`（1–120，預設 30） |
+| POST | `/analyze/stock-behavior/ai` | 產生情境分析。body：`symbol`、`as_of_date` 與上一步的 `news_sources`／`fallback_mode` |
+| POST | `/analyze/stock-behavior/text-brief` | 產生文字簡報（`text-first-v2` schema）。只需 `symbol`；新聞由後端自行向 RAG 取得 |
+| GET | `/analyze/stock-behavior/text-brief/history` | 最近幾次執行紀錄摘要。`symbol`（選填）、`limit`（預設 30，上限 100） |
+| GET | `/analyze/stock-behavior/text-brief/history/{response_id}` | 重播某一次的完整回應，並附上當時送進模型的 task packet |
 
-> 開發時可搭配 `http://localhost:8000/docs` 訪問互動式的 Swagger UI 以獲取最即時的 API 定義並進行線上測試。
+流程建議：先呼叫 `/rag`，把結果帶進 `/ai`；只要文字簡報的話直接打 `/text-brief`。
+
+`text-brief` 的行為：
+
+- **快取**：相同 `symbol` + `as_of_date` + 設定已有成功結果時直接回傳，`cached=true`。要重跑帶 `force_refresh=true`。
+- **`include_payload=true`** 會把送進 LLM 的 task packet 附在回應上（不寫入快取；命中快取時從 `llm_responses.prompt_json` 還原）。
+- **耗時約 90 秒**（未命中快取時），前端要留足夠 timeout。
+
+狀態碼：`422` 請求或政策檢查未通過、`503` 上游模型暫時無法回應、`504` 產生逾時。
+
+DEMO 頁面：[demo/text_brief_demo.html](demo/text_brief_demo.html)，說明見 [demo/README.md](demo/README.md)。
+
+---
+
+## 模擬下單（`/simulated-orders`）
+
+以前端匿名 `user_id` 識別，不走 JWT。
+
+| 方法 | 路徑 | 說明 |
+| --- | --- | --- |
+| POST | `/simulated-orders/` | 建立買進／賣出模擬委託，依 `trade_date` 收盤價計價。賣出會檢查可賣張數避免超賣 |
+| GET | `/simulated-orders/` | 委託列表，含估值與試算損益。`user_id` 必填、`limit` 預設 100（上限 200） |
+| GET | `/simulated-orders/available-lots` | 依既有委託推算可賣張數。`user_id`、`symbol` 必填 |
+| GET | `/simulated-orders/profit-by-category` | 依股票代號彙總成本、市值、損益與收益率（`category` 即股票代號，名稱為相容既有前端保留） |
+
+建立委託的錯誤：`404` 該股在交易日沒有日線資料、`400` 委託時間順序錯誤或持股不足。
+
+---
+
+## 認證（`/auth`）
+
+同一 email 可合併密碼帳號與 Google 帳號。
+
+| 方法 | 路徑 | 認證 | 說明 |
+| --- | --- | --- | --- |
+| POST | `/auth/register` | — | 註冊 email 密碼帳號，直接回 token |
+| POST | `/auth/login` | — | email + 密碼登入 |
+| POST | `/auth/google` | — | 帶 Google `id_token` 登入或註冊 |
+| GET | `/auth/me` | Bearer | 取得目前登入使用者 |
+| POST | `/auth/change-password` | Bearer | 驗證舊密碼後更新。純 Google 註冊者請先走忘記密碼流程建立密碼 |
+| POST | `/auth/forgot-password` | — | 寄出重設連結（需設定 SMTP 與 `FRONTEND_PASSWORD_RESET_URL`） |
+| POST | `/auth/reset-password` | — | 以重設 token 設定新密碼 |
+
+---
+
+## 錯誤處理
+
+錯誤回應的 body 通常是 `{"detail": "..."}`；`422` 的 `detail` 是陣列，指出哪個欄位驗證失敗。
+
+| 狀態碼 | 情境 |
+| --- | --- |
+| 400 | 請求邏輯錯誤（如比較超過 10 檔、持股不足、參數組合不合法） |
+| 401 | 未帶 token、token 過期或無效 |
+| 404 | 找不到資料（區間無資料、該日未開盤、找不到紀錄） |
+| 422 | 欄位驗證失敗，或 AI 分析的政策檢查未通過 |
+| 503 | 上游模型服務暫時無法回應 |
+| 504 | AI 分析逾時 |

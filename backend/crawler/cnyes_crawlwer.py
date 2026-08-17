@@ -1,11 +1,12 @@
 import argparse
+import hashlib
 import html
 import logging
 import re
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,6 +41,11 @@ HEADERS = {
 
 MYSQL_CONFIG = dict(get_pymysql_connect_kwargs(autocommit=True))
 
+# news_articles 的來源標記；source_group 對媒體站台而言與 source 相同
+SOURCE = "cnyes"
+SOURCE_GROUP = "cnyes"
+TAIPEI_TZ = timezone(timedelta(hours=8))
+
 # 列表抓取與排程（定期更新，參數固定於此即可）
 PAGE_LIMIT = 30
 IS_CATEGORY_HEADLINE = 0
@@ -57,44 +63,53 @@ def get_conn():
 
 def upsert_news(conn, item: Dict[str, Any]) -> None:
     sql = """
-    INSERT INTO cnyes_tw_stock_news
+    INSERT INTO news_articles
     (
-        news_id, title, content, related_stocks,
-        publish_time, url
+        article_id, source, source_group, stock_id,
+        title, pub_time, url, tags, content
     )
     VALUES
     (
-        %(news_id)s, %(title)s, %(content)s, %(related_stocks)s,
-        %(publish_time)s, %(url)s
+        %(article_id)s, %(source)s, %(source_group)s, %(stock_id)s,
+        %(title)s, %(pub_time)s, %(url)s, %(tags)s, %(content)s
     )
     ON DUPLICATE KEY UPDATE
+        source = VALUES(source),
+        source_group = VALUES(source_group),
+        stock_id = VALUES(stock_id),
         title = VALUES(title),
-        content = VALUES(content),
-        related_stocks = VALUES(related_stocks),
-        publish_time = VALUES(publish_time),
-        url = VALUES(url)
+        pub_time = VALUES(pub_time),
+        url = VALUES(url),
+        tags = VALUES(tags),
+        content = VALUES(content)
     """
     with conn.cursor() as cursor:
         cursor.execute(sql, item)
 
 
-def news_exists(conn, news_id: int) -> bool:
-    sql = "SELECT 1 FROM cnyes_tw_stock_news WHERE news_id = %s LIMIT 1"
+def news_exists(conn, article_id: str) -> bool:
+    sql = "SELECT 1 FROM news_articles WHERE article_id = %s LIMIT 1"
     with conn.cursor() as cursor:
-        cursor.execute(sql, (news_id,))
+        cursor.execute(sql, (article_id,))
         return cursor.fetchone() is not None
 
 
 # =========================
 # 工具
 # =========================
-def ts_to_mysql_datetime(ts: Optional[int]) -> Optional[str]:
+def ts_to_pub_time(ts: Optional[int]) -> Optional[str]:
+    """轉成 news_articles.pub_time 使用的 ISO8601 字串，例如 2025-10-18T22:03:55+08:00"""
     if not ts:
         return None
     try:
-        return datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromtimestamp(int(ts), tz=TAIPEI_TZ).isoformat()
     except Exception:
         return None
+
+
+def build_article_id(source: str, title: str, pub_time: Optional[str]) -> str:
+    """與 rag/news_storage_mysql.py 相同的 article_id 規則，確保跨來源去重一致。"""
+    return hashlib.md5(f"{source}_{title}_{pub_time}".encode("utf-8")).hexdigest()
 
 
 def build_article_url(news_id: Any) -> Optional[str]:
@@ -126,7 +141,7 @@ def clean_html_content(raw: Optional[str]) -> str:
     return text.strip()
 
 
-def normalize_related_stocks(row: Dict[str, Any]) -> Optional[str]:
+def normalize_related_stocks(row: Dict[str, Any]) -> List[str]:
     stocks: List[str] = []
 
     for s in row.get("stock", []) or []:
@@ -140,7 +155,7 @@ def normalize_related_stocks(row: Dict[str, Any]) -> Optional[str]:
             if code and code not in stocks:
                 stocks.append(code)
 
-    return ",".join(stocks) if stocks else None
+    return stocks
 
 
 def month_ranges(start_dt: datetime, end_dt: datetime) -> List[Tuple[int, int]]:
@@ -234,15 +249,26 @@ def transform_news_item(row: Dict[str, Any]) -> Dict[str, Any]:
     content = clean_html_content(row.get("content") or "") or summary
 
     article_url = row.get("url") or row.get("link") or build_article_url(news_id)
+
+    # news_articles.stock_id 只放主要關聯股票（VARCHAR(20)），其餘放 tags
     related_stocks = normalize_related_stocks(row)
+    stock_id = related_stocks[0][:20] if related_stocks else None
+    tags = ",".join(related_stocks)
+
+    pub_time = ts_to_pub_time(publish_at)
 
     return {
-        "news_id": news_id,
+        "article_id": build_article_id(SOURCE, title, pub_time),
+        "source": SOURCE,
+        "source_group": SOURCE_GROUP,
+        "stock_id": stock_id,
         "title": title,
-        "content": content,
-        "related_stocks": related_stocks,
-        "publish_time": ts_to_mysql_datetime(publish_at),
+        "pub_time": pub_time,
         "url": article_url,
+        "tags": tags,
+        "content": content,
+        # 非資料表欄位，僅供流程記錄與判斷
+        "news_id": news_id,
     }
 
 
@@ -251,7 +277,7 @@ def process_month_range(
     end_at: int,
     limit: int,
     is_category_headline: int,
-    processed_news_ids: set,
+    processed_article_ids: set,
     processed_lock: threading.Lock,
 ) -> Tuple[int, int, int]:
     conn = get_conn()
@@ -289,26 +315,29 @@ def process_month_range(
                 try:
                     item = transform_news_item(row)
 
-                    if item["news_id"] is None:
-                        print("[Thread] 跳過：缺少或無效 news_id")
+                    # article_id 由 title + pub_time 產生，缺一就無法穩定去重
+                    if not item["title"] or not item["pub_time"]:
+                        print("[Thread] 跳過：缺少標題或發布時間")
                         failed += 1
                         continue
 
+                    article_id = item["article_id"]
+
                     with processed_lock:
-                        if item["news_id"] in processed_news_ids:
-                            print(f"[Thread] 本次執行已處理過，跳過 news_id={item['news_id']}")
+                        if article_id in processed_article_ids:
+                            print(f"[Thread] 本次執行已處理過，跳過 article_id={article_id}")
                             skipped += 1
                             continue
-                        processed_news_ids.add(item["news_id"])
+                        processed_article_ids.add(article_id)
 
-                    if news_exists(conn, item["news_id"]):
-                        print(f"[Thread] 已存在，跳過 news_id={item['news_id']}")
+                    if news_exists(conn, article_id):
+                        print(f"[Thread] 已存在，跳過 article_id={article_id}")
                         skipped += 1
                         continue
 
                     upsert_news(conn, item)
                     success += 1
-                    print(f"[Thread] 已寫入: {item['news_id']} | {item['title']}")
+                    print(f"[Thread] 已寫入: {article_id} | {item['title']}")
 
                 except Exception as e:
                     failed += 1
@@ -346,7 +375,7 @@ def run_by_year_month(
     failed = 0
     skipped = 0
 
-    processed_news_ids = set()
+    processed_article_ids = set()
     processed_lock = threading.Lock()
 
     ranges = month_ranges(start_dt, end_dt)
@@ -359,7 +388,7 @@ def run_by_year_month(
                 end_at,
                 limit,
                 is_category_headline,
-                processed_news_ids,
+                processed_article_ids,
                 processed_lock,
             )
             for start_at, end_at in ranges
