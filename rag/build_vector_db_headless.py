@@ -7,12 +7,15 @@ build_vector_db.py 的無 GUI 版本。
 注意：本地 SQLite-backed QdrantClient（`QdrantClient(path=...)`）不支援跨
 執行緒操作，所有 Qdrant 讀寫必須集中在主執行緒依序執行（不可用 ThreadPoolExecutor
 平行呼叫 client.upsert，否則會拋出 "SQLite objects created in a thread can
-only be used in that same thread"）。
+only be used in that same thread"）。因此只有連遠端 Qdrant（設了 QDRANT_HOST）
+時才會開 MAX_WORKERS 條執行緒平行送 embedding，path 模式一律退回單執行緒。
 """
 import os
 import sys
 import time
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 from langchain_core.documents import Document
@@ -25,6 +28,9 @@ from chunk_storage_mysql import iter_chunks_grouped_by_stock  # noqa: E402
 from build_vector_db import _pub_time_to_ts  # noqa: E402
 
 load_dotenv(verbose=True)
+
+# 平行送 NVIDIA embedding 的執行緒數（僅 remote Qdrant 生效）
+MAX_WORKERS = 8
 
 
 def main():
@@ -91,10 +97,11 @@ def main():
             all_batch_tasks.append({"docs": data["rem_docs"][i:i + 50], "sid": sid})
 
     start_time = time.time()
-    done_count = 0
-    fail_count = 0
+    counters = {"done": 0, "fail": 0}
+    db_lock = threading.Lock()      # 保護 collection 建立與 upsert
+    stats_lock = threading.Lock()   # 保護計數器與進度輸出
 
-    for task in all_batch_tasks:
+    def process_batch(task):
         docs = task["docs"]
         sid = task["sid"]
         texts = [d.page_content for d in docs]
@@ -103,24 +110,28 @@ def main():
         MAX_RETRY = 3
         for attempt in range(MAX_RETRY):
             try:
+                # embedding 是純網路 I/O，放在鎖外才能真正平行
                 vectors = embeddings.embed_documents(texts)
-                try:
-                    client.get_collection(collection_name)
-                except Exception:
-                    client.create_collection(
-                        collection_name=collection_name,
-                        vectors_config=VectorParams(size=len(vectors[0]), distance=Distance.COSINE),
-                    )
-                points = [
-                    PointStruct(id=str(uuid.uuid4()), vector=vector, payload={"page_content": text, **metadata})
-                    for text, vector, metadata in zip(texts, vectors, metadatas)
-                ]
-                client.upsert(collection_name=collection_name, points=points)
-                done_count += len(docs)
-                elapsed = time.time() - start_time
-                speed = done_count / elapsed if elapsed > 0 else 0
-                print(f"[進度] {sid}: +{len(docs)}（累計 {done_count}/{todo_all}，{speed:.1f} chunks/秒）", flush=True)
-                break
+                with db_lock:
+                    try:
+                        client.get_collection(collection_name)
+                    except Exception:
+                        client.create_collection(
+                            collection_name=collection_name,
+                            vectors_config=VectorParams(size=len(vectors[0]), distance=Distance.COSINE),
+                        )
+                    points = [
+                        PointStruct(id=str(uuid.uuid4()), vector=vector, payload={"page_content": text, **metadata})
+                        for text, vector, metadata in zip(texts, vectors, metadatas)
+                    ]
+                    client.upsert(collection_name=collection_name, points=points)
+                with stats_lock:
+                    counters["done"] += len(docs)
+                    done_count = counters["done"]
+                    elapsed = time.time() - start_time
+                    speed = done_count / elapsed if elapsed > 0 else 0
+                    print(f"[進度] {sid}: +{len(docs)}（累計 {done_count}/{todo_all}，{speed:.1f} chunks/秒）", flush=True)
+                return
             except Exception as e:
                 err_short = str(e)[:120]
                 if attempt < MAX_RETRY - 1:
@@ -128,10 +139,16 @@ def main():
                     print(f"[重試 {attempt+1}/{MAX_RETRY-1}] {sid}: {err_short}，{wait}s 後重試", flush=True)
                     time.sleep(wait)
                 else:
-                    fail_count += len(docs)
+                    with stats_lock:
+                        counters["fail"] += len(docs)
                     print(f"[錯誤] {sid} 批次失敗（已重試 {MAX_RETRY} 次）: {err_short}", flush=True)
 
-    print(f"完成！成功向量化 {done_count} 筆，失敗 {fail_count} 筆（待處理共 {todo_all} 筆）。")
+    workers = MAX_WORKERS if qdrant_host else 1
+    print(f"開始向量化：{len(all_batch_tasks)} 個批次，{workers} 條執行緒", flush=True)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        list(executor.map(process_batch, all_batch_tasks))
+
+    print(f"完成！成功向量化 {counters['done']} 筆，失敗 {counters['fail']} 筆（待處理共 {todo_all} 筆）。")
 
 
 if __name__ == "__main__":
