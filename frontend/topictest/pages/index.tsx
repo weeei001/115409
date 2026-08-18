@@ -13,6 +13,7 @@ import {
   Bot,
   Sparkles,
   ShoppingCart,
+  FileText,
 } from 'lucide-react';
 import { fetchSymbols, fetchLatestPrice } from '../lib/api/stock';
 import type { DailyPriceResponse } from '../lib/types';
@@ -361,6 +362,20 @@ export default function Home() {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">模擬下單</p>
                     <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">練習下單流程</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => router.push('/demo/text-brief')}
+                  className="group flex items-center gap-2.5 p-3 rounded-xl border border-[var(--color-border)]
+                           hover:border-brand/40 hover:bg-brand/5 transition-colors text-left"
+                >
+                  <div className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-[var(--color-bg-elevated)]">
+                    <FileText size={16} className="text-brand" aria-hidden />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-brand transition-colors truncate">AI 個股分析</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate">每句話都查得到出處</p>
                   </div>
                 </button>
 

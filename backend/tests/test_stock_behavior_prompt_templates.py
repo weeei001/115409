@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from stock_behavior.prompt_templates import PROMPT_VERSION, STOCK_ANALYST_SYSTEM_PROMPT
+from stock_behavior.prompt_templates import (
+    TEXT_BRIEF_PROMPT_VERSION,
+    TEXT_BRIEF_SYSTEM_PROMPT,
+)
 
 
 ORCHESTRATOR_TEXT = (
@@ -12,12 +15,18 @@ TOOLS_TEXT = (
 
 
 def test_prompt_keeps_news_as_background_only():
-    assert PROMPT_VERSION == "v2-no-raw-answer"
-    assert "raw_answer" not in STOCK_ANALYST_SYSTEM_PROMPT
-    assert "新聞只能提供背景脈絡；不得把新聞當作價格節點的唯一或主要原因。" in STOCK_ANALYST_SYSTEM_PROMPT
-    assert "不得要求 projection.points 為了引用新聞而引用新聞" in STOCK_ANALYST_SYSTEM_PROMPT
-    assert "新聞因果句型" not in STOCK_ANALYST_SYSTEM_PROMPT
-    assert "至少 2 個 projection.points" not in STOCK_ANALYST_SYSTEM_PROMPT
+    assert TEXT_BRIEF_PROMPT_VERSION == "v7-chip-summary-01"
+    # 新聞是被分析的素材，不能單獨撐起方向性結論。
+    assert (
+        "不得單獨用新聞推導價格結論" in TEXT_BRIEF_SYSTEM_PROMPT
+    )
+    assert "新聞與市場資料方向相反時以市場資料為準" in TEXT_BRIEF_SYSTEM_PROMPT
+
+
+def test_prompt_has_no_projection_leftovers():
+    """/ai 情境推演已移除，提示詞不該再要求輸出波形或價格節點。"""
+    for term in ("projection", "波形", "relative_price", "predicted_close"):
+        assert term not in TEXT_BRIEF_SYSTEM_PROMPT
 
 
 def test_rag_news_context_is_capped_as_secondary_material():
