@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import type { UseStockDashboardResult } from '../../lib/hooks/useStockDashboard';
 import { getStockDisplayName } from '../../lib/utils/symbolNames';
@@ -10,7 +10,7 @@ import { InstitutionalKpiCards } from './InstitutionalKpiCards';
 import { InstitutionalTabs } from './InstitutionalTabs';
 import { IndicatorChartsPanel } from './IndicatorChartsPanel';
 import { StockNewsPanel } from './StockNewsPanel';
-import { StockAdvisorSection } from './StockAdvisorSection';
+import { StockTextBriefPanel } from './textBrief/StockTextBriefPanel';
 import { StockHeroSection } from './StockHeroSection';
 import { StockKpiStrip } from './StockKpiStrip';
 import { DetailDrawer } from './DetailDrawer';
@@ -19,7 +19,8 @@ import { TodayInstitutionalCard } from './bento/TodayInstitutionalCard';
 import { IndicatorSignalsCard } from './bento/IndicatorSignalsCard';
 import { TopNewsCard } from './bento/TopNewsCard';
 import { RiskHintNotice } from './RiskHintNotice';
-import { useAdvisorVerdict } from '../../lib/hooks/useAdvisorVerdict';
+import { useStockTextBrief } from '../../lib/hooks/useStockTextBrief';
+import { useTechnicalSignals } from '../../lib/hooks/useTechnicalSignals';
 
 type DrawerKey = 'chart' | 'institutional' | 'indicators' | 'ai' | 'news';
 
@@ -67,10 +68,19 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
   } = dashboard;
 
   const stockName = getStockDisplayName(symbol);
-  const verdict = useAdvisorVerdict({ symbol, dashboard });
+  // 全頁只有這一份 AI 分析：Hero 卡片、風險提醒與 AI 抽屜共用同一個 text-brief 實例。
+  const textBrief = useStockTextBrief({ symbol, asOfDate: endDate ?? undefined });
+  const signals = useTechnicalSignals(priceChart);
 
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   const close = () => setDrawer(null);
+
+  // 基準日確定、報價也回來了才發動；同一組 symbol＋基準日只會打一次
+  useEffect(() => {
+    if (!symbol.trim() || dashboard.loading || !endDate || !latest) return;
+    void textBrief.run(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 僅在代號／基準日／就緒狀態變更時自動分析
+  }, [symbol, endDate, dashboard.loading, latest]);
 
   if (!latest) return null;
 
@@ -85,13 +95,14 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
           indicatorLatest={indicatorLatest}
           priceChart={priceChart}
           endDate={endDate}
-          verdict={verdict}
+          brief={textBrief}
+          signals={signals}
           onOpenAI={() => setDrawer('ai')}
         />
       </AnimatedSection>
 
       <AnimatedSection preset="fadeUp" delay={0.06}>
-        <RiskHintNotice verdict={verdict} onOpenDetail={() => setDrawer('ai')} />
+        <RiskHintNotice brief={textBrief} onOpenDetail={() => setDrawer('ai')} />
       </AnimatedSection>
 
       <Hairline />
@@ -252,19 +263,17 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
         title="AI 投資分析"
         subtitle={
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="truncate">情境推演、訊號與資料快照</span>
-            {verdict.generatedAtLabel ? (
+            <span className="truncate">這支股票現在是什麼狀態，以及為什麼</span>
+            {textBrief.data?.as_of_date ? (
               <span className="inline-flex items-center gap-1 text-[var(--color-text-secondary)]">
-                <span className="text-[var(--color-text-muted)]">分析</span>
-                <span className="tabular-nums">{verdict.generatedAtLabel}</span>
+                <span className="text-[var(--color-text-muted)]">分析到</span>
+                <span className="tabular-nums">{textBrief.data.as_of_date}</span>
               </span>
             ) : null}
-            {verdict.report?.date_start && verdict.report?.date_end ? (
+            {textBrief.data?.generated_by ? (
               <span className="inline-flex items-center gap-1 text-[var(--color-text-secondary)]">
-                <span className="text-[var(--color-text-muted)]">區間</span>
-                <span className="tabular-nums">
-                  {verdict.report.date_start} ～ {verdict.report.date_end}
-                </span>
+                <span className="text-[var(--color-text-muted)]">模型</span>
+                <span>{textBrief.data.generated_by}</span>
               </span>
             ) : null}
           </div>
@@ -272,28 +281,21 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
         headerActions={
           <button
             type="button"
-            onClick={() => void verdict.runAnalysis(true)}
-            disabled={verdict.loading || dashboard.loading}
+            onClick={() => void textBrief.run(true)}
+            disabled={textBrief.loading}
             className="inline-flex items-center gap-1.5 rounded-full border border-brand/40 bg-gradient-to-r from-brand/10 to-brand/5 dark:from-brand/20 dark:to-brand/10 px-3 py-1.5 text-xs font-semibold text-brand transition-[opacity,background-color] hover:bg-brand/15 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             aria-label="重新分析"
           >
-            {verdict.loading ? (
+            {textBrief.loading ? (
               <Loader2 size={14} className="animate-spin" aria-hidden />
             ) : (
               <RefreshCw size={14} aria-hidden />
             )}
-            <span className="hidden sm:inline">{verdict.loading ? '分析中…' : '重新分析'}</span>
+            <span className="hidden sm:inline">{textBrief.loading ? '分析中…' : '重新分析'}</span>
           </button>
         }
       >
-        {drawer === 'ai' ? (
-          <StockAdvisorSection
-            symbol={symbol}
-            dashboard={dashboard}
-            verdict={verdict}
-            variant="drawer"
-          />
-        ) : null}
+        {drawer === 'ai' ? <StockTextBriefPanel symbol={symbol} brief={textBrief} /> : null}
       </DetailDrawer>
 
       <DetailDrawer

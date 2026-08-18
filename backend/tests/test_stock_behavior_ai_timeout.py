@@ -6,7 +6,7 @@ from stock_behavior import llm
 from stock_behavior.llm import StockBehaviorLlmService
 
 
-def test_ai_endpoint_allows_long_running_llm_response():
+def test_text_brief_endpoint_allows_long_running_llm_response():
     assert STOCK_BEHAVIOR_TIMEOUT_SECONDS >= 900
 
 
@@ -40,7 +40,7 @@ def test_llm_client_uses_bounded_non_thinking_json_generation(monkeypatch):
     )
 
     parsed, raw_text, meta = asyncio.run(
-        service.generate_analysis_from_evidence(task_packet={"task": {}})
+        service.generate_text_brief_from_evidence(task_packet={"task": {}})
     )
 
     assert 600 <= captured["timeout"] < STOCK_BEHAVIOR_TIMEOUT_SECONDS

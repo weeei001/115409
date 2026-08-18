@@ -2,16 +2,13 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from schemas.stock_behavior import StockBehaviorAiRequest
 from stock_behavior import llm
 from stock_behavior.llm import (
     StockBehaviorLlmService,
     _load_json_object,
     _thinking_extra_body,
 )
-from stock_behavior.normalizer import FALLBACK_SUMMARY
-from stock_behavior.orchestrator import StockBehaviorOrchestrator
-from stock_behavior import orchestrator as orchestrator_module
+from stock_behavior.orchestrator import build_llm_runtime_config, compute_config_hash
 from stock_behavior.utils import detect_simplified_chinese
 
 
@@ -47,9 +44,9 @@ def test_load_json_object_accepts_complete_fenced_and_think_json():
 
 def test_load_json_object_rejects_truncated_root_with_complete_inner_object():
     truncated = (
-        '{"summary":"分析中","projection":{"points":['
-        '{"day":5,"direction":"up","reason":"完整單點"},'
-        '{"day":10,"direction":"down"'
+        '{"headline":"分析中","key_days":['
+        '{"id":"kd_01","date":"2025-07-02","what":"完整單筆"},'
+        '{"id":"kd_02","date":"2025-07-03"'
     )
     assert _load_json_object(truncated) is None
 
@@ -67,7 +64,8 @@ def test_load_json_object_repairs_numeric_expression():
 
 
 def test_length_finish_reason_skips_parsing(monkeypatch):
-    raw = '{"projection":{"points":[{"day":5}],"summary":"截斷中"'
+    """finish_reason=length 代表輸出被截斷，這時解析半截 JSON 只會拿到假結果。"""
+    raw = '{"key_days":[{"id":"kd_01"}],"headline":"截斷中"'
 
     class FakeChatOpenAI:
         def __init__(self, **kwargs):
@@ -84,7 +82,7 @@ def test_length_finish_reason_skips_parsing(monkeypatch):
 
     monkeypatch.setattr(llm, "ChatOpenAI", FakeChatOpenAI)
     parsed, raw_text, meta = asyncio.run(
-        StockBehaviorLlmService(_settings()).generate_analysis_from_evidence(
+        StockBehaviorLlmService(_settings()).generate_text_brief_from_evidence(
             task_packet={"task": {}}
         )
     )
@@ -105,45 +103,17 @@ def test_detect_simplified_chinese_uses_simplified_only_characters():
     assert detect_simplified_chinese("公司股票市場分析") == []
 
 
-def test_truncated_orchestrator_result_creates_fallback_snapshot(monkeypatch):
-    captured = {}
+def test_runtime_config_carries_model_settings_into_config_hash():
+    """config_hash 要能反映模型與檢索設定，改設定就得讓既有快照失效。"""
+    config = build_llm_runtime_config(_settings(), "deepseek-ai/deepseek-v4-pro")
 
-    class FakeLlm:
-        model_name = "deepseek-ai/deepseek-v4-pro"
-
-        async def generate_analysis_from_evidence(self, *, task_packet):
-            return (
-                {},
-                '{"summary":"截斷中"',
-                {
-                    "finish_reason": "length",
-                    "completion_tokens": 8192,
-                    "truncated": True,
-                },
-            )
-
-    db = SimpleNamespace(rollback=lambda: None)
-    service = StockBehaviorOrchestrator(db=db, settings=_settings(NIM_API_KEY=""))
-    service._llm = FakeLlm()
-    service._collect_llm_evidence_from_crud = lambda **kwargs: {
-        "price_window": {"data": []},
-        "chip_window": {"data": []},
-        "technical_window": {"data": []},
-    }
-    monkeypatch.setattr(
-        orchestrator_module,
-        "create_llm_response",
-        lambda db, **fields: captured.update(fields),
-    )
-
-    response = asyncio.run(
-        service.generate_llm_analysis(StockBehaviorAiRequest(symbol="2330"))
-    )
-
-    assert response.summary == FALLBACK_SUMMARY
-    assert captured["is_fallback"] is True
-    assert captured["raw_llm_text"] == '{"summary":"截斷中"'
-    config = json.loads(captured["config_json"])
+    assert config["model_name"] == "deepseek-ai/deepseek-v4-pro"
     assert config["max_completion_tokens"] == 8192
     assert config["response_format"] == "json_object"
-    assert config["parser_version"] == "strict-root-v1"
+    assert config["rag_lookback_days"] == 60
+    # /ai 移除後不該再有情境推演的殘留設定
+    assert "projection_days" not in config
+    assert "horizon_days" not in config
+
+    other = build_llm_runtime_config(_settings(), "qwen/qwen3")
+    assert compute_config_hash(config) != compute_config_hash(other)
