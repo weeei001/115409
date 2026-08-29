@@ -46,20 +46,20 @@ def get_cached_llm_response(
     db: Session,
     *,
     symbol: str,
-    as_of_date: date,
+    as_of_date: date | None,
     kind: str,
     config_hash: str,
 ) -> LlmResponse | None:
-    """同一檔、同一基準日、同一組設定的最近一次成功回覆，供快取重播。"""
-    return (
-        db.query(LlmResponse)
-        .filter(
-            LlmResponse.symbol == symbol,
-            LlmResponse.as_of_date == as_of_date,
-            LlmResponse.kind == kind,
-            LlmResponse.config_hash == config_hash,
-            LlmResponse.is_fallback.is_(False),
-        )
-        .order_by(LlmResponse.id.desc())
-        .first()
+    """同一檔、同一組設定的最近一次成功回覆，供快取重播。
+
+    as_of_date=None 代表不限基準日，取該檔最新的一筆（cache_only 查無當日時的退路）。
+    """
+    query = db.query(LlmResponse).filter(
+        LlmResponse.symbol == symbol,
+        LlmResponse.kind == kind,
+        LlmResponse.config_hash == config_hash,
+        LlmResponse.is_fallback.is_(False),
     )
+    if as_of_date is not None:
+        query = query.filter(LlmResponse.as_of_date == as_of_date)
+    return query.order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc()).first()

@@ -90,7 +90,7 @@ export const AIVerdictHeroCard: React.FC<Props> = ({
   const { loading, error, data, seconds, run } = brief;
   const b = data?.brief;
 
-  // 有回應但沒有 brief＝AI 寫的內容沒通過系統檢查（status unavailable），不能一直轉圈
+  // 有回應但沒有 brief＝status unavailable：排程還沒產出，或 AI 寫的內容沒通過系統檢查
   if (!loading && data && !b) {
     return (
       <HeroFrame>
@@ -98,7 +98,9 @@ export const AIVerdictHeroCard: React.FC<Props> = ({
           <HeroTitle />
           <div className="ui-alert-warning flex items-start gap-2 rounded-xl border px-3 py-2 text-sm">
             <AlertTriangle size={16} aria-hidden className="mt-0.5 shrink-0 text-warning-icon" />
-            <span className="leading-relaxed">這次沒有產出分析，AI 寫的內容沒通過系統檢查。</span>
+            <span className="leading-relaxed">
+              {data.limitations?.[0] ?? '這次沒有產出分析，AI 寫的內容沒通過系統檢查。'}
+            </span>
           </div>
           <button
             type="button"

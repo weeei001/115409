@@ -216,4 +216,6 @@ export interface TextBriefRequest {
   force_refresh?: boolean;
   /** 帶 true 時回應會附上送進模型的 task packet（只有 DEMO 頁需要） */
   include_payload?: boolean;
+  /** 只讀快取、不呼叫 LLM；查無當日快照就退回該檔最近一次，產生交給排程 */
+  cache_only?: boolean;
 }

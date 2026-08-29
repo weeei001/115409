@@ -26,6 +26,7 @@ from stock_behavior.compliance import (
 from stock_behavior.evidence import EvidenceBundle
 from stock_behavior.llm import StockBehaviorLlmService, build_text_brief_system_prompt
 from stock_behavior.orchestrator import (
+    TEXT_BRIEF_CACHE_MISS_LIMITATION,
     TEXT_BRIEF_DISCLAIMER_TEXT,
     TEXT_BRIEF_NO_GUIDANCE_LIMITATION,
     TEXT_BRIEF_TARGET_COUNTS,
@@ -222,8 +223,10 @@ def _run_brief(
     meta=None,
     bundle=None,
     cached_row=None,
+    latest_row=None,
     force_refresh=False,
     include_payload=False,
+    cache_only=False,
 ):
     captured = {}
     bundle = bundle if bundle is not None else _bundle()
@@ -260,11 +263,11 @@ def _run_brief(
         "build_evidence_bundle",
         lambda db, **kwargs: bundle,
     )
-    monkeypatch.setattr(
-        orchestrator_module,
-        "get_cached_llm_response",
-        lambda db, **kwargs: cached_row,
-    )
+    def fake_cache(db, **kwargs):
+        # as_of_date=None＝cache_only 查無當日時，退回該檔最近一次的那個查詢
+        return latest_row if kwargs.get("as_of_date") is None else cached_row
+
+    monkeypatch.setattr(orchestrator_module, "get_cached_llm_response", fake_cache)
     monkeypatch.setattr(
         orchestrator_module,
         "create_llm_response",
@@ -277,6 +280,7 @@ def _run_brief(
                 as_of_date=AS_OF.isoformat(),
                 force_refresh=force_refresh,
                 include_payload=include_payload,
+                cache_only=cache_only,
             )
         )
     )
@@ -668,6 +672,43 @@ def test_cache_hit_restores_the_task_packet_from_the_stored_prompt(monkeypatch):
 
     assert response.cached is True
     assert response.task_packet == {"task": {"symbol": "2330"}, "news": [{"id": "nw_01"}]}
+    assert "llm_response" not in captured
+
+
+def test_cache_only_without_todays_snapshot_replays_the_latest_one(monkeypatch):
+    """個股頁自動載入只讀快取：當日還沒產出就先給最近一次，不在頁面上等 LLM。"""
+    stored = StockBehaviorTextBriefResponse(
+        symbol="2330",
+        as_of_date="2026-07-10",
+        generated_by="test-model",
+        status="verified",
+        brief=StockBehaviorTextBrief.model_validate(_valid_brief()),
+        evidence_catalog=[],
+        verification={},
+        disclaimer={"version": "v1", "text": TEXT_BRIEF_DISCLAIMER_TEXT},
+        limitations=[],
+    )
+    row = SimpleNamespace(response_json=json.dumps(stored.model_dump(mode="json")))
+
+    response, captured = _run_brief(
+        monkeypatch, _valid_brief(), latest_row=row, cache_only=True
+    )
+
+    assert response.cached is True
+    assert response.as_of_date == "2026-07-10"
+    assert "task_packet" not in captured
+    assert "llm_response" not in captured
+
+
+def test_cache_only_without_any_snapshot_is_unavailable_instead_of_calling_the_model(
+    monkeypatch,
+):
+    response, captured = _run_brief(monkeypatch, _valid_brief(), cache_only=True)
+
+    assert response.status == "unavailable"
+    assert response.brief is None
+    assert response.limitations == [TEXT_BRIEF_CACHE_MISS_LIMITATION]
+    assert "task_packet" not in captured
     assert "llm_response" not in captured
 
 

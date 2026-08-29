@@ -42,6 +42,11 @@ LTN_SCHEDULE_LOOKBACK_DAYS = 30
 RUN_RAG_PIPELINE = True
 RAG_DELAY_MINUTES = 10
 _rag_followup_armed = False
+# AI 個股分析：向量管線跑完（＝股價、新聞、向量都齊了）後產生 text-brief，個股頁只讀快取。
+# 不帶 force_refresh，所以同一檔＋同一基準日只會真的呼叫一次 LLM，之後每輪都是空跑。
+RUN_TEXT_BRIEF = True
+TEXT_BRIEF_SCRIPT = CRAWLER_DIR.parent / "scripts" / "warm_text_brief.py"
+TEXT_BRIEF_SYMBOLS = FINMIND_SYMBOLS
 
 
 def _python_executable() -> str:
@@ -182,6 +187,25 @@ def run_rag_job() -> None:
         return
     if _run_python_command([python_cmd, str(RAG_VECTOR_SCRIPT)], "向量化 build_vector_db_headless", cwd=RAG_DIR):
         log.info("✅ 向量管線完成！")
+        run_text_brief_job()
+
+
+def run_text_brief_job(force: bool = False) -> None:
+    """產生 AI 個股分析並寫進快取；已有當日快照的檔會直接跳過。"""
+    if not force and not RUN_TEXT_BRIEF:
+        return
+    if not TEXT_BRIEF_SCRIPT.exists():
+        log.error("找不到 text-brief 排程腳本 '%s'。", TEXT_BRIEF_SCRIPT)
+        return
+    command = [
+        _python_executable(),
+        str(TEXT_BRIEF_SCRIPT),
+        "--symbols",
+        ",".join(TEXT_BRIEF_SYMBOLS),
+    ]
+    log.info("開始產生 AI 個股分析（%s）...", ",".join(TEXT_BRIEF_SYMBOLS))
+    if _run_python_command(command, "AI 個股分析 warm_text_brief", cwd=CRAWLER_DIR.parent):
+        log.info("✅ AI 個股分析完成！")
 
 
 def _arm_rag_followup() -> None:
@@ -218,7 +242,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-now", action="store_true", help="啟動後立刻執行一次 FinMind 回補，然後進入排程")
     parser.add_argument(
         "--job",
-        choices=["finmind", "cnyes", "ltn", "rag", "all"],
+        choices=["finmind", "cnyes", "ltn", "rag", "text-brief", "all"],
         help="立刻執行指定工作後結束，不進入排程迴圈",
     )
     return parser.parse_args()
@@ -234,6 +258,8 @@ def run_job_once(job: str, start_date: str = FINMIND_START_DATE) -> None:
         run_ltn_job(force=True)
     if job in ("rag", "all"):
         run_rag_job()
+    elif job == "text-brief":
+        run_text_brief_job(force=True)
 
 
 def main():
@@ -285,6 +311,11 @@ def main():
         log.info("✅ 已設定：新聞抓取完成後 %s 分鐘執行向量管線（切塊 → 向量化）", RAG_DELAY_MINUTES)
     else:
         log.info("⏸️ 向量管線已停用（RUN_RAG_PIPELINE=False）")
+
+    if RUN_TEXT_BRIEF:
+        log.info("✅ 已設定：向量管線完成後產生 AI 個股分析（%s，同一基準日只跑一次）", ",".join(TEXT_BRIEF_SYMBOLS))
+    else:
+        log.info("⏸️ AI 個股分析排程已停用（RUN_TEXT_BRIEF=False）")
 
     # ----------------------------------------------------
     # [開發測試用]
