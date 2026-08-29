@@ -105,6 +105,13 @@ class StockBehaviorTextBriefRequest(BaseModel):
             "供 DEMO 與資料分析檢視檢索到什麼。不影響快取內容。"
         ),
     )
+    cache_only: bool = Field(
+        default=False,
+        description=(
+            "只讀快取，不呼叫 LLM：查無當日快照時退回同一檔最近一次的快照，"
+            "再查無則回 `status=unavailable`。個股頁自動載入用，實際產生交給排程。"
+        ),
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -13,8 +13,9 @@ interface Params {
  * 個股頁唯一的 AI 分析來源：`POST /analyze/stock-behavior/text-brief`。
  * Hero 卡片、風險提醒與 AI 抽屜共用同一個實例，全頁只會打一次。
  *
- * 何時發動由呼叫端決定（目前是儀表板基準日就緒時）；同一組 symbol＋as_of_date 只打一次，
- * 後端本身也有快取（`cached=true`），所以同一天重進頁面通常是秒回。
+ * 何時發動由呼叫端決定（目前是儀表板基準日就緒時）；同一組 symbol＋as_of_date 只打一次。
+ * 自動載入一律 `cache_only`：只讀排程產好的快取，不在頁面上等 LLM；
+ * 查無當日快照時後端會退回該檔最近一次的分析。要真的重跑才用 `run(true)`（force_refresh）。
  */
 export function useStockTextBrief({ symbol, asOfDate }: Params) {
   const requestSeq = useRef(0);
@@ -65,7 +66,7 @@ export function useStockTextBrief({ symbol, asOfDate }: Params) {
         const res = await postStockBehaviorTextBrief({
           symbol: trimmed,
           ...(asOfDate ? { as_of_date: asOfDate } : {}),
-          ...(force ? { force_refresh: true } : {}),
+          ...(force ? { force_refresh: true } : { cache_only: true }),
         });
         if (seq !== requestSeq.current) return;
         setData(res);

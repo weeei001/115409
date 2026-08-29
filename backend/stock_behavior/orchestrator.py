@@ -102,6 +102,7 @@ TEXT_BRIEF_DISCLAIMER_TEXT = (
 )
 TEXT_BRIEF_UNAVAILABLE_MESSAGE = "模型輸出無法解析，本次無法提供簡報。"
 TEXT_BRIEF_COMPLIANCE_UNAVAILABLE_MESSAGE = "簡報內容未通過合規檢查，本次無法提供。"
+TEXT_BRIEF_CACHE_MISS_LIMITATION = "這檔還沒有產生過 AI 分析，排程更新後才會出現；要現在跑請按「重新分析」。"
 TEXT_BRIEF_ITEM_SECTIONS = (
     "key_days",
     "current_status",
@@ -723,11 +724,33 @@ class StockBehaviorOrchestrator:
             "schema_version": TEXT_BRIEF_SCHEMA_VERSION,
         }
 
+    def _cache_miss_response(
+        self,
+        *,
+        symbol: str,
+        as_of_date_text: str,
+        model_name: str,
+    ) -> StockBehaviorTextBriefResponse:
+        """cache_only 完全查無快照：回一份 unavailable，讓前端顯示「尚未產生」而不是轉圈。"""
+        return StockBehaviorTextBriefResponse(
+            symbol=symbol,
+            as_of_date=as_of_date_text,
+            generated_by=model_name,
+            status="unavailable",
+            brief=None,
+            verification=TextBriefVerification(),
+            disclaimer=TextBriefDisclaimer(
+                version=TEXT_BRIEF_DISCLAIMER_VERSION,
+                text=TEXT_BRIEF_DISCLAIMER_TEXT,
+            ),
+            limitations=[TEXT_BRIEF_CACHE_MISS_LIMITATION],
+        )
+
     def _load_cached_text_brief(
         self,
         *,
         symbol: str,
-        as_of_date: date,
+        as_of_date: date | None,
         config_hash: str,
         include_payload: bool = False,
     ) -> StockBehaviorTextBriefResponse | None:
@@ -789,6 +812,27 @@ class StockBehaviorOrchestrator:
                     "text_brief.cache_hit", symbol=symbol, as_of=as_of_date_text
                 )
                 return cached
+
+        # 只讀快取（個股頁自動載入）：當日還沒產出就退回最近一次，產生交給排程。
+        if req.cache_only and not req.force_refresh:
+            cached = self._load_cached_text_brief(
+                symbol=symbol,
+                as_of_date=None,
+                config_hash=config_hash,
+                include_payload=req.include_payload,
+            )
+            log_event(
+                "text_brief.cache_only",
+                symbol=symbol,
+                as_of=as_of_date_text,
+                hit=cached is not None,
+                stale_as_of=cached.as_of_date if cached else None,
+            )
+            return cached or self._cache_miss_response(
+                symbol=symbol,
+                as_of_date_text=as_of_date_text,
+                model_name=model_name,
+            )
 
         news_sources, rag_fallback_mode = await self._fetch_text_brief_news(
             symbol=symbol,
