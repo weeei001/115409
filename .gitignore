@@ -106,7 +106,7 @@ backend/golden_cases.json
 backend/golden_extra.json
 backend/finmind_output
 
-deploy/.env
-deploy/logs/
+# 部署設定與 log 只留在機器上，不進版控（含 Cloudflare tunnel token）
+/deploy/
 
 /artifacts/
