@@ -53,7 +53,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
         → chunk_storage_mysql.py → MySQL topic_stock.news_chunks（斷點續傳：以 article_id 判斷是否已切過塊）
     → build_vector_db.py（MAX_WORKERS=4，Tkinter 進度 GUI；headless 版見 build_vector_db_headless.py）
         → 從 news_chunks 表讀取（chunk_storage_mysql.iter_chunks_grouped_by_stock）
-        → NVIDIA NVIDIAEmbeddings（nvidia/nv-embedqa-e5-v5, 1024-dim）
+        → NVIDIA NVIDIAEmbeddings（nvidia/nemotron-3-embed-1b, 2048-dim；2026-09-02 起，見下方「Embedding 模型變更」）
         → qdrant_db/（Qdrant local，collection=news_chunks，斷點續傳：以 chunk_id 判斷是否已向量化）
     → viewer.py（Streamlit）/ api_server.py（FastAPI）
         → AI Intent Classifier（meta/llama3-70b-instruct）
@@ -99,7 +99,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 
 | 參數 | 值 |
 |------|-----|
-| Embedding | `nvidia/nv-embedqa-e5-v5`（1024 維）|
+| Embedding | `nvidia/nemotron-3-embed-1b`（2048 維，2026-09-02 起，見下方「Embedding 模型變更」）|
 | Intent Classifier | `meta/llama3-70b-instruct`（ChatNVIDIA / LangChain）|
 | 分析 LLM | `meta/llama-3.3-70b-instruct`（OpenAI SDK 呼叫 NVIDIA NIM）|
 | Qdrant collection | `news_chunks`，路徑 `./qdrant_db/` |
@@ -184,6 +184,21 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 **已知限制**：
 - moneydj / udn / chinatimes / yahoo / CMoney 這 5 個來源目前仍**沒有**排入自動排程（本專案內完全沒有對應的爬蟲程式碼，或只是靜態檔案 adapter），仍依賴外部工具/手動匯入，現況待另外評估。
 - ltn 抓取的並行度設定（`SCAN_WORKERS=50`、`WORKERS=6`、`API_WORKERS=5`）是唯一的防封鎖節流手段，沒有顯式 sleep；長期無人值守運作時應留意是否觸發對方網站速率限制。
+
+## Embedding 模型變更（2026-09-02）
+
+背景：`nvidia/nv-embedqa-e5-v5`（1024 維）於 2026-09-02 前後在 NVIDIA NIM 端下架（410 Gone），RAG 檢索完全無法使用。官方公告的替代模型 `nvidia/llama-3.2-nv-embedqa-1b-v2` 實測**也已下架**（410，EOL 2026-05-18，早於公告文件記載）；實際查詢帳號 `/v1/models` 清單並逐一實測後，僅 `nvidia/nemotron-3-embed-1b` 可正常呼叫，已改用此模型。
+
+**關鍵差異**：新模型固定輸出 **2048 維**（不支援 `dimensions` 參數指定 1024），與舊向量庫的 1024 維不相容，**無法沿用舊向量、必須重建整個 Qdrant collection**。
+
+**已完成**：
+- 7 個呼叫點已改為 `NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")`（無 `dimensions` 參數）：`crawl_to_qdrant.py`、`rag_deploy/build_analysis_digests.py`、`rag_deploy/api_server.py`、`rag/build_vector_db.py`（2 處）、`rag/build_vector_db_headless.py`、`rag/viewer.py`。建 collection 時 vector size 皆用 `len(vectors[0])` 動態取得，未寫死 1024，故程式碼本身無需再改。
+- 舊向量庫已備份為 `qdrant_db_old_e5v5/`（1024 維，未刪除，供備查/回滾），`qdrant_db/` 已重建為新 2048 維 collection。
+- 新增一次性腳本 `rag/build_vector_db_2025plus.py`：僅向量化 `pub_time >= 2025-01-01` 的 chunk（12,208 筆，已於當日跑完，0 失敗），用於應急恢復服務，避免等全量 14,000+ 筆跑完才能上線。
+
+**尚未完成**：
+- **2025 年以前的歷史 chunk（約 3,157 筆）尚未補向量化**，目前 `qdrant_db/` 檢索範圍僅 2025-01-01 起。需要補齊時執行 `cd rag && python build_vector_db_headless.py`（全量掃描，靠 `existing_ids` 斷點續傳，不會重複算 2025+ 已做過的部分）。
+- CLAUDE.md 各處「關鍵設定」「架構與資料流」已同步更新為新模型/新維度；`rag_deploy/simulate_trading.py` 內仍留有舊的「e5-v5 已下架」說明文字（`fetch_pit_articles()` 附近），待該功能重新啟用語意檢索時應一併更新措辭。
 
 ## 常見問題與限制
 

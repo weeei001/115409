@@ -229,7 +229,7 @@ def process_batch_task(wid, batch_docs, embeddings, stock_id, current_done, upda
                 update_queue.put(("worker", (wid, f"❌ 失敗: {err_short}", "#FF0000", "white")))
 
 def build_worker_pool(gui, update_queue, client, collection_name, existing_ids):
-    embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+    embeddings = NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")
     vectorstore_ref = {"client": client}
 
 
@@ -289,7 +289,7 @@ def main():
     root = tk.Tk()
     persist_directory = "./qdrant_db"
     collection_name = "news_chunks"
-    embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+    embeddings = NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")
     existing_ids = set()
 
     # 建立唯一的 Qdrant client（避免並發鎖定），並載入已存在的 chunk_id
