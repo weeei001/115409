@@ -1,8 +1,11 @@
 /**
- * 主後端 API 基底：正式與 dev 都是同源 proxy 路徑 /api/backend（見 .env.*），
- * 只有完全沒設環境變數時才退回本機 8000。
+ * 三個服務同網域不同路徑（見 deploy/nginx.conf）：
+ *   /        前端
+ *   /backend 主後端 API
+ *   /rag     RAG 服務
+ * 沒設環境變數時退回本機各自的埠。
  */
-export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(
-  /\/+$/,
-  '',
-);
+const strip = (v: string) => v.replace(/\/+$/, '');
+
+export const API_BASE = strip(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+export const RAG_BASE = strip(process.env.NEXT_PUBLIC_RAG_API_URL || 'http://localhost:8001');
