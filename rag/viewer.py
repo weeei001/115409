@@ -175,7 +175,7 @@ with tab1:
         collection_name = "news_chunks"
         if not os.path.exists(qdrant_path):
             return None, None, None
-        embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+        embeddings = NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")
         client = QdrantClient(path=qdrant_path)
         return embeddings, client, collection_name
 

@@ -1,14 +1,12 @@
 """
-build_vector_db.py 的無 GUI 版本。
+一次性腳本：僅向量化 pub_time >= 2025-01-01 的 chunk。
 
-背景：此機器的系統 Python 綁定的 Tcl/Tk 版本過舊，無法辨識新版 macOS，
-執行 build_vector_db.py 會在 tk.Tk() 直接崩潰（"macOS XX required" 錯誤）。
+背景：2026-09-02 embedding 模型從 nvidia/nv-embedqa-e5-v5（1024維，已下架）
+換成 nvidia/nemotron-3-embed-1b（2048維），Qdrant collection 需整個重建。
+先只補 2025 年至今的資料應急，之後要補齊全量歷史時再跑 build_vector_db_headless.py
+（沿用同一顆 embedding 模型，靠 existing_ids 斷點續傳，不會重複算 2025+ 已做過的部分）。
 
-注意：本地 SQLite-backed QdrantClient（`QdrantClient(path=...)`）不支援跨
-執行緒操作，所有 Qdrant 讀寫必須集中在主執行緒依序執行（不可用 ThreadPoolExecutor
-平行呼叫 client.upsert，否則會拋出 "SQLite objects created in a thread can
-only be used in that same thread"）。因此只有連遠端 Qdrant（設了 QDRANT_HOST）
-時才會開 MAX_WORKERS 條執行緒平行送 embedding，path 模式一律退回單執行緒。
+用法：cd rag && python build_vector_db_2025plus.py
 """
 import os
 import sys
@@ -29,7 +27,7 @@ from build_vector_db import _pub_time_to_ts  # noqa: E402
 
 load_dotenv(verbose=True)
 
-# 平行送 NVIDIA embedding 的執行緒數（僅 remote Qdrant 生效）
+CUTOFF_TS = _pub_time_to_ts("2025-01-01T00:00:00+08:00")
 MAX_WORKERS = 8
 
 
@@ -45,21 +43,29 @@ def main():
         client = QdrantClient(path=persist_directory)
 
     if qdrant_host or os.path.exists(persist_directory):
-        results = client.scroll(collection_name=collection_name, limit=200_000, with_payload=True)
-        for point in results[0]:
-            if "chunk_id" in point.payload:
-                existing_ids.add(point.payload["chunk_id"])
+        try:
+            results = client.scroll(collection_name=collection_name, limit=200_000, with_payload=True)
+            for point in results[0]:
+                if "chunk_id" in point.payload:
+                    existing_ids.add(point.payload["chunk_id"])
+        except Exception:
+            pass
     print(f"Qdrant 已存在 chunk 數：{len(existing_ids)}")
 
     chunks_by_stock = iter_chunks_grouped_by_stock()
     stocks_data = {}
+    skipped_old = 0
     for sid, chunks in chunks_by_stock.items():
         if not chunks:
             continue
-        if sid not in stocks_data:
-            stocks_data[sid] = {"total": 0, "rem_docs": [], "done": 0}
-        stocks_data[sid]["total"] += len(chunks)
         for c in chunks:
+            ts = _pub_time_to_ts(c["pub_time"])
+            if ts is None or ts < CUTOFF_TS:
+                skipped_old += 1
+                continue
+            if sid not in stocks_data:
+                stocks_data[sid] = {"total": 0, "rem_docs": [], "done": 0}
+            stocks_data[sid]["total"] += 1
             if c["chunk_id"] in existing_ids:
                 stocks_data[sid]["done"] += 1
             else:
@@ -71,7 +77,7 @@ def main():
                         "title": c["title"],
                         "source": c["source"],
                         "pub_time": c["pub_time"],
-                        "pub_ts": _pub_time_to_ts(c["pub_time"]),
+                        "pub_ts": ts,
                         "url": c.get("url", ""),
                         "tags": c.get("tags", ""),
                     },
@@ -81,7 +87,7 @@ def main():
     total_all = sum(d["total"] for d in stocks_data.values())
     done_all = sum(d["done"] for d in stocks_data.values())
     todo_all = total_all - done_all
-    print(f"總 chunk 數：{total_all}，已向量化：{done_all}，待處理：{todo_all}")
+    print(f"2025-01-01 起 chunk 數：{total_all}（略過 2025 年以前：{skipped_old}），已向量化：{done_all}，待處理：{todo_all}")
     for sid, d in stocks_data.items():
         print(f"  {sid}: {d['done']}/{d['total']}")
 
@@ -98,8 +104,8 @@ def main():
 
     start_time = time.time()
     counters = {"done": 0, "fail": 0}
-    db_lock = threading.Lock()      # 保護 collection 建立與 upsert
-    stats_lock = threading.Lock()   # 保護計數器與進度輸出
+    db_lock = threading.Lock()
+    stats_lock = threading.Lock()
 
     def process_batch(task):
         docs = task["docs"]
@@ -110,7 +116,6 @@ def main():
         MAX_RETRY = 3
         for attempt in range(MAX_RETRY):
             try:
-                # embedding 是純網路 I/O，放在鎖外才能真正平行
                 vectors = embeddings.embed_documents(texts)
                 with db_lock:
                     try:

@@ -280,7 +280,7 @@ async def lifespan(app: FastAPI):
         if os.path.exists(qdrant_path):
             qdrant_client = QdrantClient(path=qdrant_path)
     if qdrant_client:
-        embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+        embeddings = NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")
 
     openai_client = OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",

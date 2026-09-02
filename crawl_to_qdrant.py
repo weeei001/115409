@@ -368,7 +368,7 @@ def main():
 
     # Embedding
     print("🚀 開始向量化並寫入...")
-    embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+    embeddings = NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")
 
     # 確保 collection 存在（用一個測試 embed 取得維度）
     test_vec = embeddings.embed_query("test")
