@@ -28,8 +28,8 @@ class LlmResponse(Base):
 
     一列 = 一次 LLM 呼叫，同時擔任兩個角色：
     1. 快取：同一檔 + 同一基準日 + 同一 config_hash + 同一 kind 直接重播 `response_json`。
-    2. 稽核：`prompt_json` / `raw_llm_text` / `normalized_json` 留下輸入與原始輸出，
-       回覆有問題時可還原現場（截斷、合規攔截、解析失敗）。
+    2. 稽核：`raw_llm_text` / `normalized_json` 留下模型原始輸出與正規化結果，
+       合規攔截或解析失敗時可還原「模型當時到底說了什麼」。
     """
 
     __tablename__ = "llm_responses"
@@ -41,12 +41,9 @@ class LlmResponse(Base):
     config_hash = Column(String(64), nullable=False)
     config_json = Column(Text, nullable=False)
     model_name = Column(String(128), nullable=True)
-    prompt_version = Column(String(32), nullable=True)
     is_fallback = Column(Boolean, nullable=False, default=False)
     news_count = Column(Integer, nullable=False, default=0)
     summary = Column(Text, nullable=True)
-    # 送進 LLM 的 task packet（含證據），回覆異常時用來還原輸入。
-    prompt_json = Column(_MEDIUM_TEXT, nullable=True)
     raw_llm_text = Column(_MEDIUM_TEXT, nullable=True)
     # 正規化後的 payload；合規攔截時存的是被擋下來的原始內容，不會出現在 response_json。
     normalized_json = Column(_MEDIUM_TEXT, nullable=True)

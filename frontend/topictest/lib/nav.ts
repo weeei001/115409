@@ -6,7 +6,6 @@ export const PRIMARY_NAV = [
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬下單' },
   { path: '/compare', label: '多股比較' },
-  { path: '/demo/text-brief', label: '個股分析' },
 ] as const;
 
 /** 頁尾連結（與主選單一致，避免遺漏項目） */
@@ -18,7 +17,6 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/ai': 'AI 對話',
   '/order': '模擬下單',
   '/compare': '多股比較',
-  '/demo/text-brief': 'AI 個股分析',
   '/login': '登入',
   '/register': '註冊',
   '/forgot-password': '忘記密碼',

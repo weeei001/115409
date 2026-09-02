@@ -99,20 +99,16 @@ http://localhost:8000/openapi.json
 | POST | `/analyze/stock-behavior/rag` | 取得該檔的 RAG 新聞來源。body：`symbols`（陣列，只取第一個有效代號）、`as_of_date`、`lookback_days`（1–120，預設 30） |
 | POST | `/analyze/stock-behavior/ai` | 產生情境分析。body：`symbol`、`as_of_date` 與上一步的 `news_sources`／`fallback_mode` |
 | POST | `/analyze/stock-behavior/text-brief` | 產生文字簡報（`text-first-v2` schema）。只需 `symbol`；新聞由後端自行向 RAG 取得 |
-| GET | `/analyze/stock-behavior/text-brief/history` | 最近幾次執行紀錄摘要。`symbol`（選填）、`limit`（預設 30，上限 100） |
-| GET | `/analyze/stock-behavior/text-brief/history/{response_id}` | 重播某一次的完整回應，並附上當時送進模型的 task packet |
 
 流程建議：先呼叫 `/rag`，把結果帶進 `/ai`；只要文字簡報的話直接打 `/text-brief`。
 
 `text-brief` 的行為：
 
 - **快取**：相同 `symbol` + `as_of_date` + 設定已有成功結果時直接回傳，`cached=true`。要重跑帶 `force_refresh=true`。
-- **`include_payload=true`** 會把送進 LLM 的 task packet 附在回應上（不寫入快取；命中快取時從 `llm_responses.prompt_json` 還原）。
+  設定指紋（`config_json.revision`）涵蓋 prompt、few-shot 與合規規則，任一改動都會自動讓舊快照失效。
 - **耗時約 90 秒**（未命中快取時），前端要留足夠 timeout。
 
 狀態碼：`422` 請求或政策檢查未通過、`503` 上游模型暫時無法回應、`504` 產生逾時。
-
-DEMO 頁面：[demo/text_brief_demo.html](demo/text_brief_demo.html)，說明見 [demo/README.md](demo/README.md)。
 
 ---
 

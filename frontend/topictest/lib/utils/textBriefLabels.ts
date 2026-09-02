@@ -30,8 +30,8 @@ export const STANCE_TONE: Record<string, BriefTone> = {
 
 export const CONF: Record<string, string> = { low: '低', medium: '中', high: '高' };
 
+/** 只在「沒有產出簡報」時用來補一句原因；verified 一定帶簡報，不會走到這裡。 */
 export const STATUS: Record<string, [BriefTone, string]> = {
-  verified: ['ok', '全部通過檢查'],
   limited: ['warn', '有幾項被系統修正過'],
   unavailable: ['bad', '這次沒有產出結果'],
 };

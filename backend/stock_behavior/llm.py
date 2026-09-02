@@ -194,7 +194,7 @@ def _load_json_object(text: str) -> dict[str, Any] | None:
 class StockBehaviorLlmService:
     def __init__(self, settings: Any) -> None:
         self._settings = settings
-        self._model = settings.ADVISOR_LLM_MODEL or "meta/llama-3.1-70b-instruct"
+        self._model = settings.ADVISOR_LLM_MODEL or "deepseek-ai/deepseek-v4-pro-0813"
         self._max_completion_tokens = getattr(
             settings,
             "ADVISOR_LLM_MAX_COMPLETION_TOKENS",

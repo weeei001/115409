@@ -4,9 +4,6 @@ import re
 from typing import NamedTuple
 
 
-COMPLIANCE_POLICY_VERSION = "q7-blacklist-v4"
-
-
 class ComplianceHit(NamedTuple):
     rule: str
     severity: str
@@ -92,3 +89,16 @@ def scan_compliance_hits(text: str) -> list[ComplianceHit]:
 def scan_compliance(text: str) -> list[str]:
     """相容介面：回傳 hard 與 soft 的格式化命中片段。"""
     return [f"{hit.rule}: {hit.snippet}" for hit in scan_compliance_hits(text)]
+
+
+def compliance_rules_signature() -> list[str]:
+    """規則內容的指紋，供快取鍵使用。
+
+    直接列出實際的 pattern，改了規則就會自動讓舊快照失效，
+    不必再維護一個要人工記得 bump 的版本字串。
+    """
+    return [
+        f"{severity}:{name}:{pattern.pattern}"
+        for severity, rules in (("hard", _HARD_RULES), ("soft", _SOFT_RULES))
+        for name, pattern in rules
+    ]

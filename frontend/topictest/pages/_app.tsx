@@ -28,9 +28,7 @@ const DEFAULT_DESCRIPTION =
  */
 function isAnalysisRoute(pathname: string, asPath: string): boolean {
   if (pathname.startsWith('/stock') || asPath.startsWith('/stock/')) return true;
-  return ['/compare', '/demo/text-brief'].some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
+  return pathname === '/compare';
 }
 
 function AppChrome({

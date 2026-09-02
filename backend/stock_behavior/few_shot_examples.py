@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any, TypedDict
 
 
@@ -3249,10 +3247,3 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [{'scenario': '資料稀少且法人�
                                   '那些日子的漲跌無法區分是公司因素還是隨盤波動。',
                                   '最新正式財報為今年第一季，法說會公布的上一季數字尚未有正式財報可以核對。',
                                   '日本廠區的產能恢復進度只有公司說明與研究機構估計，沒有實際數字可以驗證。']}}]
-
-
-def example_set_version() -> str:
-    if not FEW_SHOT_EXAMPLES:
-        return "none"
-    canonical = json.dumps(FEW_SHOT_EXAMPLES, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]

@@ -98,13 +98,6 @@ class StockBehaviorTextBriefRequest(BaseModel):
         default=False,
         description="略過相同 symbol／as_of_date／設定的既有快照，強制重新呼叫 LLM。",
     )
-    include_payload: bool = Field(
-        default=False,
-        description=(
-            "附帶送進 LLM 的完整 task packet（含 daily_timeline、news 全文與 missing_fields），"
-            "供 DEMO 與資料分析檢視檢索到什麼。不影響快取內容。"
-        ),
-    )
     cache_only: bool = Field(
         default=False,
         description=(
@@ -119,7 +112,6 @@ class StockBehaviorTextBriefRequest(BaseModel):
                 "symbol": "2330",
                 "as_of_date": "2026-07-13",
                 "force_refresh": False,
-                "include_payload": False,
             }
         }
     )
@@ -228,38 +220,9 @@ class StockBehaviorTextBriefResponse(BaseModel):
     status: Literal["verified", "limited", "unavailable"]
     brief: StockBehaviorTextBrief | None
     evidence_catalog: list[StockBehaviorEvidenceItem] = Field(default_factory=list)
-    verification: TextBriefVerification
     disclaimer: TextBriefDisclaimer
     limitations: list[str] = Field(default_factory=list)
     cached: bool = False
-    # 只在請求帶 include_payload=true 時填入；不會寫進快取的 response_json，
-    # 否則每筆快照都會被完整時間軸與新聞全文撐大一倍。
-    task_packet: Optional[dict[str, Any]] = None
-
-
-class TextBriefHistoryItem(BaseModel):
-    """一次 LLM 呼叫的摘要列；明細另外用 /history/{id} 取。"""
-
-    # model_name 與 pydantic 保留的 model_ 命名空間衝突，欄位名要跟 DB 一致，改放行。
-    model_config = ConfigDict(protected_namespaces=())
-
-    id: int
-    symbol: str
-    as_of_date: str
-    model_name: Optional[str] = None
-    status: str
-    is_fallback: bool
-    news_count: int
-    latency_ms: Optional[int] = None
-    created_at: Optional[str] = None
-    summary: Optional[str] = None
-    prompt_version: Optional[str] = None
-    config_hash: Optional[str] = None
-    has_payload: bool = False
-
-
-class TextBriefHistoryResponse(BaseModel):
-    items: list[TextBriefHistoryItem] = Field(default_factory=list)
 
 
 class RawTextBriefClaim(BaseModel):
