@@ -4,6 +4,7 @@ import Head from 'next/head';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { SubpageHeader } from '../../components/SubpageHeader';
+import { API_BASE } from '../../lib/apiBase';
 import { BriefPane } from '../../components/demo/textBrief/BriefPane';
 import { HistoryPane } from '../../components/demo/textBrief/HistoryPane';
 import { NewsPane } from '../../components/demo/textBrief/NewsPane';
@@ -27,7 +28,6 @@ import styles from '../../styles/textBriefDemo.module.css';
  */
 
 /** 固定吃環境變數，畫面上不再讓人改 */
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 /** 留空＝不帶 as_of_date，由後端當成今天 */
 const DEFAULT_AS_OF = '';
 

@@ -10,7 +10,7 @@ function parseTimeoutMs(raw: string | undefined): number {
   return Number.isFinite(n) && n >= 10_000 ? n : DEFAULT_MS;
 }
 
-/** 瀏覽器與 Node API 皆可讀（NEXT_PUBLIC_ 在 Next 會注入兩端） */
+/** 瀏覽器與 Node API 皆可讀（NEXT_PUBLIC_ 在 Next 會注入兩端，故不需另一個伺服器端變數） */
 export function getRagApiTimeoutMs(): number {
-  return parseTimeoutMs(process.env.NEXT_PUBLIC_RAG_API_TIMEOUT_MS ?? process.env.RAG_API_TIMEOUT_MS);
+  return parseTimeoutMs(process.env.NEXT_PUBLIC_RAG_API_TIMEOUT_MS);
 }

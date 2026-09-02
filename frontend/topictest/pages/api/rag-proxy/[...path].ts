@@ -8,13 +8,11 @@ import { getRagApiTimeoutMs } from '../../../lib/ragTimeout';
  * 上游基底僅允許環境變數設定，避免 repo 內硬編碼測試網域。
  */
 function getRagBase(): string | null {
-  const a = process.env.NEXT_PUBLIC_RAG_API_BASE_URL?.trim().replace(/\/$/, '');
-  const b = process.env.RAG_API_BASE_URL?.trim().replace(/\/$/, '');
-  return a || b || null;
+  return process.env.RAG_API_BASE_URL?.trim().replace(/\/$/, '') || null;
 }
 
 /** 僅允許轉發至上游的固定端點，避免任意路徑被當開放代理濫用 */
-const ALLOWED_UPSTREAM_PATHS = new Set(['api/ask']);
+const ALLOWED_UPSTREAM_PATHS = new Set(['api/ask', 'api/health']);
 
 /**
  * 驗證並正規化 catch-all path；拒絕 ..、反斜線、空段與非白名單路徑。

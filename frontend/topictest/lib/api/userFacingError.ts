@@ -1,8 +1,9 @@
+import { API_BASE } from '../apiBase';
 import { ApiRequestError } from './client';
 import { AI_TIMEOUT_MS } from './stockBehaviorTextBrief';
 
 function apiBaseLabel(): string {
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return API_BASE;
 }
 
 /** 個股 AI 分析：將 API／網路錯誤轉成繁中說明 */

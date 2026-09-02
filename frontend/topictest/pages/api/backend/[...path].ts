@@ -9,9 +9,7 @@ import { pipeline } from 'node:stream/promises';
  * 上游基底僅由環境變數決定，不在 repo 內硬編碼網域。
  */
 function getBackendBase(): string | null {
-  const a = process.env.BACKEND_API_URL?.trim().replace(/\/$/, '');
-  const b = process.env.NEXT_PUBLIC_BACKEND_API_URL?.trim().replace(/\/$/, '');
-  return a || b || null;
+  return process.env.BACKEND_API_URL?.trim().replace(/\/$/, '') || null;
 }
 
 /** 後端第一層路徑白名單，避免任意路徑被當開放代理濫用 */
