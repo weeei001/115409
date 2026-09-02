@@ -20,28 +20,6 @@ def create_llm_response(db: Session, **fields: Any) -> LlmResponse:
     return row
 
 
-def list_llm_responses(
-    db: Session,
-    *,
-    kind: str,
-    symbol: str | None = None,
-    limit: int = 30,
-) -> list[LlmResponse]:
-    """最近幾次呼叫，新到舊。含 fallback，因為失敗那幾次才是最需要回頭看的。"""
-    query = db.query(LlmResponse).filter(LlmResponse.kind == kind)
-    if symbol:
-        query = query.filter(LlmResponse.symbol == symbol)
-    return query.order_by(LlmResponse.id.desc()).limit(limit).all()
-
-
-def get_llm_response(db: Session, *, response_id: int, kind: str) -> LlmResponse | None:
-    return (
-        db.query(LlmResponse)
-        .filter(LlmResponse.id == response_id, LlmResponse.kind == kind)
-        .first()
-    )
-
-
 def get_cached_llm_response(
     db: Session,
     *,

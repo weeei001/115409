@@ -5,6 +5,7 @@ import json
 import re
 from copy import deepcopy
 from datetime import date, timedelta
+from functools import lru_cache
 from time import perf_counter
 from typing import Any
 
@@ -34,8 +35,8 @@ from schemas.stock_behavior import (
     TextBriefWatchPoint,
 )
 from stock_behavior.compliance import (
-    COMPLIANCE_POLICY_VERSION,
     ComplianceHit,
+    compliance_rules_signature,
     scan_compliance_hits,
 )
 from stock_behavior.evidence import (
@@ -43,14 +44,14 @@ from stock_behavior.evidence import (
     EvidenceBundle,
     build_evidence_bundle,
 )
-from stock_behavior.few_shot_examples import example_set_version
+from stock_behavior.few_shot_examples import FEW_SHOT_EXAMPLES
 from stock_behavior.llm import (
     LLM_MAX_COMPLETION_TOKENS,
     LLM_TIMEOUT_SECONDS,
     StockBehaviorLlmService,
 )
 from stock_behavior.observability import log_event, log_warn, stage
-from stock_behavior.prompt_templates import TEXT_BRIEF_PROMPT_VERSION
+from stock_behavior.prompt_templates import TEXT_BRIEF_SYSTEM_PROMPT
 from stock_behavior.tools import ToolExecutor
 from stock_behavior.utils import (
     PolicyViolationError,
@@ -164,6 +165,28 @@ def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
 def compute_config_hash(config: dict[str, Any]) -> str:
     canonical = json.dumps(config, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+@lru_cache(maxsize=1)
+def text_brief_revision() -> str:
+    """簡報產出邏輯的內容指紋，併入 config_hash 當快取鍵。
+
+    prompt、few-shot、合規規則、schema 任一改動都會自動讓舊快照失效。
+    直接雜湊內容而不是維護版本字串，就不會有「改了 prompt 忘記 bump」
+    導致舊快照被當成有效繼續回放的情況。
+    """
+    canonical = json.dumps(
+        {
+            "prompt": TEXT_BRIEF_SYSTEM_PROMPT,
+            "examples": FEW_SHOT_EXAMPLES,
+            "compliance": compliance_rules_signature(),
+            "schema": TEXT_BRIEF_SCHEMA_VERSION,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
 
 class StockBehaviorOrchestrator:
@@ -718,10 +741,7 @@ class StockBehaviorOrchestrator:
             **build_llm_runtime_config(self._settings, model_name),
             "window_days": TIMELINE_TRADING_DAYS,
             "news_summary_chars": NEWS_SUMMARY_CHARS,
-            "prompt_version": TEXT_BRIEF_PROMPT_VERSION,
-            "example_set_version": example_set_version(),
-            "compliance_policy_version": COMPLIANCE_POLICY_VERSION,
-            "schema_version": TEXT_BRIEF_SCHEMA_VERSION,
+            "revision": text_brief_revision(),
         }
 
     def _cache_miss_response(
@@ -738,7 +758,6 @@ class StockBehaviorOrchestrator:
             generated_by=model_name,
             status="unavailable",
             brief=None,
-            verification=TextBriefVerification(),
             disclaimer=TextBriefDisclaimer(
                 version=TEXT_BRIEF_DISCLAIMER_VERSION,
                 text=TEXT_BRIEF_DISCLAIMER_TEXT,
@@ -752,7 +771,6 @@ class StockBehaviorOrchestrator:
         symbol: str,
         as_of_date: date | None,
         config_hash: str,
-        include_payload: bool = False,
     ) -> StockBehaviorTextBriefResponse | None:
         row = get_cached_llm_response(
             self._db,
@@ -769,12 +787,6 @@ class StockBehaviorOrchestrator:
         except (ValueError, ValidationError):
             return None
         response.cached = True
-        if include_payload and getattr(row, "prompt_json", None):
-            # task_packet 沒有進 response_json，快取重播時從稽核用的 prompt_json 還原。
-            try:
-                response.task_packet = json.loads(row.prompt_json)
-            except ValueError:
-                response.task_packet = None
         return response
 
     async def generate_text_brief(
@@ -805,7 +817,6 @@ class StockBehaviorOrchestrator:
                 symbol=symbol,
                 as_of_date=as_of_date,
                 config_hash=config_hash,
-                include_payload=req.include_payload,
             )
             if cached is not None:
                 log_event(
@@ -819,7 +830,6 @@ class StockBehaviorOrchestrator:
                 symbol=symbol,
                 as_of_date=None,
                 config_hash=config_hash,
-                include_payload=req.include_payload,
             )
             log_event(
                 "text_brief.cache_only",
@@ -1017,7 +1027,6 @@ class StockBehaviorOrchestrator:
             status=status_value,
             brief=brief,
             evidence_catalog=evidence_catalog,
-            verification=verification,
             disclaimer=TextBriefDisclaimer(
                 version=TEXT_BRIEF_DISCLAIMER_VERSION,
                 text=TEXT_BRIEF_DISCLAIMER_TEXT,
@@ -1039,22 +1048,21 @@ class StockBehaviorOrchestrator:
                 config_hash=config_hash,
                 config_json=json.dumps(config, ensure_ascii=False, sort_keys=True),
                 model_name=model_name,
-                prompt_version=TEXT_BRIEF_PROMPT_VERSION,
                 is_fallback=is_fallback,
                 news_count=len(bundle.news),
                 summary=(brief.headline if brief is not None else fallback_message),
-                prompt_json=json.dumps(
-                    task_packet,
-                    ensure_ascii=False,
-                    default=str,
-                ),
                 raw_llm_text=raw_llm_text,
                 normalized_json=json.dumps(
                     normalized_payload,
                     ensure_ascii=False,
                 ),
+                # verification 不在對外回應裡，但留在存檔供稽核：status 降為 limited 時
+                # 要能回答「是哪一條規則、哪個欄位造成的」。
                 response_json=json.dumps(
-                    response.model_dump(mode="json"),
+                    {
+                        **response.model_dump(mode="json"),
+                        "verification": verification.model_dump(mode="json"),
+                    },
                     ensure_ascii=False,
                 ),
                 latency_ms=latency_ms,
@@ -1092,7 +1100,4 @@ class StockBehaviorOrchestrator:
             truncated=truncated_sections or "-",
             jargon=jargon_hits or "-",
         )
-        # 寫入快取之後才掛上，response_json 才不會被完整 payload 撐大。
-        if req.include_payload:
-            response.task_packet = task_packet
         return response

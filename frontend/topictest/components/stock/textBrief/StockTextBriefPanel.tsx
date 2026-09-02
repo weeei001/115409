@@ -363,7 +363,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({ symbol, brief }) => {
   }
 
   const b = data.brief;
-  const [statusTone, statusNote] = STATUS[data.status] ?? (['plain', data.status] as const);
+  const [, statusNote] = STATUS[data.status] ?? (['plain', data.status] as const);
 
   if (!b) {
     return (
@@ -410,8 +410,6 @@ export const StockTextBriefPanel: React.FC<Props> = ({ symbol, brief }) => {
                 整體 {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
               </Tag>
               <Tag>資料充分度 {CONF[b.confidence ?? ''] ?? b.confidence}</Tag>
-              <Tag tone={statusTone}>{statusNote}</Tag>
-              {data.cached ? <Tag tone="info">沿用先前結果</Tag> : null}
             </div>
             {b.confidence_reason ? (
               <p className="mt-3 text-sm leading-7 text-[var(--color-text-secondary)]">

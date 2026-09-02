@@ -119,7 +119,7 @@ cd backend
 pytest
 ```
 
-`tests/` 涵蓋 AI 分析的 prompt 模板、few-shot、證據組裝、as-of 時點正確性、逾時處理、文字簡報、`llm_responses` model 與 FinMind 正規化。`scripts/` 另有需要真實外部服務的冒煙腳本（`smoke_text_brief.py`、`smoke_advisor_llm.py`）與評測腳本（`run_brief_eval.py`）。
+`tests/` 涵蓋 AI 分析的 prompt 模板、few-shot、證據組裝、as-of 時點正確性、逾時處理、文字簡報、`llm_responses` model 與 FinMind 正規化。`scripts/` 放排程用的 `warm_text_brief.py`（預先產生各檔簡報進快取）與需要真實外部服務的 `smoke_advisor_llm.py`。
 
 ## 注意事項
 

@@ -4,7 +4,6 @@ import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Bot,
-  FileText,
   GitCompareArrows,
   House,
   LogIn,
@@ -39,7 +38,6 @@ const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/ai': Bot,
   '/order': ShoppingCart,
   '/compare': GitCompareArrows,
-  '/demo/text-brief': FileText,
 };
 
 const NAV_ITEMS: NavItem[] = PRIMARY_NAV.map((item) => ({
