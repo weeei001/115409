@@ -1,0 +1,37 @@
+{
+  "config": {
+    "stock": "2330",
+    "period": "week",
+    "start": "2024-01-01",
+    "end": "2024-12-31",
+    "horizon": 20,
+    "neutral_band": 3.0,
+    "provider": "h200",
+    "model": "Gemma4-31B",
+    "prompt_version": "v1_original"
+  },
+  "arms": {
+    "A": {
+      "n": 52,
+      "hit_rate": 0.5192,
+      "hits": 27,
+      "mae": 6.8606
+    },
+    "B": {
+      "n": 52,
+      "hit_rate": 0.5,
+      "hits": 26,
+      "mae": 6.9538
+    }
+  },
+  "baselines": {
+    "always_up": {
+      "n": 52,
+      "hit_rate": 0.6154
+    }
+  },
+  "coverage": {
+    "n_decision_points": 52,
+    "n_valid_as_of": 52
+  }
+}
