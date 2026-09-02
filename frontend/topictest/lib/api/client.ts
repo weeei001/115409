@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { API_BASE } from '../apiBase';
 import { clearAuth, getToken } from '../auth/storage';
 import { pickDetailMessage } from './errorDetail';
 
@@ -17,7 +18,7 @@ export class ApiRequestError extends Error {
 export const API_DEFAULT_TIMEOUT_MS = 30_000;
 
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  baseURL: API_BASE,
   timeout: API_DEFAULT_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
