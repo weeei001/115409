@@ -89,6 +89,10 @@ OtherNewWeb/
 # 資料匯出檔（一次性交付用，非原始碼）
 news_articles.sql
 news_chunks.sql
+rag_deploy/data/
+
+# 舊版檔案系統快照（資料已在 MySQL，見 CLAUDE.md 新聞儲存架構）
+export_for_server/
 
 # 排程心跳檔
 backend/crawler/.last_run
