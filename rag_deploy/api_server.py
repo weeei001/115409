@@ -47,7 +47,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -374,6 +374,20 @@ class SourceChunk(BaseModel):
     stock_id: str
     content: str
     score: float
+
+    @model_validator(mode="before")
+    @classmethod
+    def _null_str_to_empty(cls, data):
+        """Qdrant payload 的欄位可能存在但是 null（例如整體性新聞沒有 stock_id），
+        當成空字串而不是讓整個回答失敗。"""
+        if not isinstance(data, dict):
+            return data
+        return {
+            k: "" if v is None and cls.model_fields.get(k) is not None
+                     and cls.model_fields[k].annotation is str
+                  else v
+            for k, v in data.items()
+        }
 
 
 class AskResponse(BaseModel):

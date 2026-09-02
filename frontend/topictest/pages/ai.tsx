@@ -1,26 +1,18 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Head from 'next/head';
-import { Bot, Info } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { SubpageHeader } from '../components/SubpageHeader';
-import { mockAiResponse } from '../lib/api/ai';
-import { isRagConfigured, ragAskStream } from '../lib/api/ragAsk';
+import { ragAskStream } from '../lib/api/ragAsk';
 import { ApiRequestError } from '../lib/api/client';
 import type { ChatMessage } from '../lib/types';
 
-const AI_EXAMPLE_QUESTIONS_RAG = [
+const AI_EXAMPLE_QUESTIONS = [
   '近期台股與權值股有什麼財經新聞重點？',
   '通膨與利率變化對股市有什麼影響？',
   '如何解讀成交量與價格走勢的關係？',
   '外資買超或賣超通常代表什麼意義？',
-];
-
-const AI_EXAMPLE_QUESTIONS_MOCK = [
-  '台積電（2330）近期看法？',
-  '現在適合買進嗎？',
-  '投資風險要注意什麼？',
-  '如何用多股比較功能？',
 ];
 
 function generateId(): string {
@@ -28,7 +20,6 @@ function generateId(): string {
 }
 
 export default function AiPage() {
-  const ragConfigured = isRagConfigured();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
@@ -58,19 +49,6 @@ export default function AiPage() {
       let streamingAssistantId: string | undefined;
 
       try {
-        if (!ragConfigured) {
-          const reply = await mockAiResponse(text);
-          if (ctrl.signal.aborted) return;
-          const assistantMsg: ChatMessage = {
-            id: generateId(),
-            role: 'assistant',
-            content: reply,
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
-          return;
-        }
-
         const assistantId = generateId();
         streamingAssistantId = assistantId;
         const assistantMsg: ChatMessage = {
@@ -192,7 +170,7 @@ export default function AiPage() {
         if (!ctrl.signal.aborted) setLoading(false);
       }
     },
-    [ragConfigured]
+    []
   );
 
   return (
@@ -211,20 +189,6 @@ export default function AiPage() {
       />
 
       <main className="flex min-h-0 flex-1 flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-6">
-        {!ragConfigured ? (
-          <div
-            className="ui-alert-warning mb-3 flex items-start gap-2 rounded-xl px-4 py-3 text-sm"
-            role="status"
-          >
-            <Info size={18} className="shrink-0 mt-0.5 text-warning-icon" aria-hidden />
-            <p>
-              <strong>示範模式：</strong>尚未設定 RAG API，目前回覆為本機規則模擬，非即時財經新聞檢索。請設定{' '}
-              <code className="text-xs">NEXT_PUBLIC_RAG_API_USE_PROXY</code> 或{' '}
-              <code className="text-xs">NEXT_PUBLIC_RAG_API_BASE_URL</code>（詳見 .env.example）。
-            </p>
-          </div>
-        ) : null}
-
         <div className="flex min-h-0 flex-1 flex-col w-full max-w-4xl mx-auto">
           <div
             className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bento-cell border-b-0 shadow-[var(--shadow-elevated)]
@@ -233,12 +197,9 @@ export default function AiPage() {
             <ChatArea
               messages={messages}
               loading={loading}
-              loadingMode={ragConfigured ? 'rag' : 'mock'}
-              simulateTyping={!ragConfigured}
+              loadingMode="rag"
               streamingMessageId={streamingMessageId}
-              exampleQuestions={
-                ragConfigured ? AI_EXAMPLE_QUESTIONS_RAG : AI_EXAMPLE_QUESTIONS_MOCK
-              }
+              exampleQuestions={AI_EXAMPLE_QUESTIONS}
               onExampleSelect={handleSend}
             />
             <div className="flex-shrink-0">

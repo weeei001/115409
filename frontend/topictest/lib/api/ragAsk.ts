@@ -1,26 +1,9 @@
+import { RAG_BASE } from '../apiBase';
 import { getToken } from '../auth/storage';
 import { getRagApiTimeoutMs } from '../ragTimeout';
 import { ApiRequestError } from './client';
 
-function isProxyMode(): boolean {
-  const v = process.env.NEXT_PUBLIC_RAG_API_USE_PROXY;
-  return v === 'true' || v === '1';
-}
-
-/** 同源代理時為 /api/rag-proxy/api/ask；否則為完整 URL */
-export function getRagAskUrl(): string {
-  if (isProxyMode()) {
-    return '/api/rag-proxy/api/ask';
-  }
-  const base = (process.env.NEXT_PUBLIC_RAG_API_BASE_URL ?? '').trim().replace(/\/$/, '');
-  if (!base) return '';
-  return `${base}/api/ask`;
-}
-
-/** 是否可呼叫 RAG（代理模式或已設定基底 URL） */
-export function isRagConfigured(): boolean {
-  return isProxyMode() || !!process.env.NEXT_PUBLIC_RAG_API_BASE_URL?.trim();
-}
+const RAG_ASK_URL = `${RAG_BASE}/api/ask`;
 
 export interface RagAskParams {
   query: string;
@@ -94,13 +77,6 @@ export async function ragAskStream(
   handlers: RagAskStreamHandlers,
   options?: { signal?: AbortSignal }
 ): Promise<RagAskStreamResult> {
-  const url = getRagAskUrl();
-  if (!url) {
-    throw new ApiRequestError(
-      '未設定 RAG API：請設定 NEXT_PUBLIC_RAG_API_BASE_URL，或將 NEXT_PUBLIC_RAG_API_USE_PROXY 設為 true'
-    );
-  }
-
   const timeoutMs = getRagApiTimeoutMs();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -121,7 +97,7 @@ export async function ragAskStream(
   });
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch(RAG_ASK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

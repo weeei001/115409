@@ -1,5 +1,5 @@
 /**
- * RAG 請求逾時（毫秒）：供 axios 與 pages/api/rag-proxy 共用，避免兩端數字不一致。
+ * RAG 請求逾時（毫秒）：供 axios 與 RAG 串流請求共用。
  * 設長一點可配合「大庫檢索」較慢的回應；仍須一併調高上游 Nginx／CDN 逾時，否則會先被閘道斷線（常見 504）。
  */
 const DEFAULT_MS = 120_000;
