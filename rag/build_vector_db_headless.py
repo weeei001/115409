@@ -45,10 +45,13 @@ def main():
         client = QdrantClient(path=persist_directory)
 
     if qdrant_host or os.path.exists(persist_directory):
-        results = client.scroll(collection_name=collection_name, limit=200_000, with_payload=True)
-        for point in results[0]:
-            if "chunk_id" in point.payload:
-                existing_ids.add(point.payload["chunk_id"])
+        try:
+            results = client.scroll(collection_name=collection_name, limit=200_000, with_payload=True)
+            for point in results[0]:
+                if "chunk_id" in point.payload:
+                    existing_ids.add(point.payload["chunk_id"])
+        except Exception as e:
+            print(f"（collection 尚不存在或讀取失敗，視為全新建置: {e}）")
     print(f"Qdrant 已存在 chunk 數：{len(existing_ids)}")
 
     chunks_by_stock = iter_chunks_grouped_by_stock()
@@ -89,7 +92,7 @@ def main():
         print("沒有待處理的 chunk，結束。")
         return
 
-    embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+    embeddings = NVIDIAEmbeddings(model=os.environ.get("EMBED_MODEL", "nvidia/nemotron-3-embed-1b"))
 
     all_batch_tasks = []
     for sid, data in stocks_data.items():
@@ -119,6 +122,12 @@ def main():
                         client.create_collection(
                             collection_name=collection_name,
                             vectors_config=VectorParams(size=len(vectors[0]), distance=Distance.COSINE),
+                        )
+                        # api_server 依 pub_ts 做 Range filter，沒索引會退化成全掃描
+                        client.create_payload_index(
+                            collection_name=collection_name,
+                            field_name="pub_ts",
+                            field_schema="float",
                         )
                     points = [
                         PointStruct(id=str(uuid.uuid4()), vector=vector, payload={"page_content": text, **metadata})

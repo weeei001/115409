@@ -1,3 +1,4 @@
+import os
 """
 共用預測核心
 ============
@@ -76,7 +77,7 @@ class StrategyConfig:
     news_window_days: int = 30
     news_limit: int = 20
     prompt_template: str = "default"
-    model_name: str = "meta/llama-3.3-70b-instruct"
+    model_name: str = os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813")
 
 
 def build_prediction_prompt(stock_id: str, stock_name: str, price_trend_desc: str,

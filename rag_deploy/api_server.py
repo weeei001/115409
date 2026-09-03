@@ -111,6 +111,16 @@ ANALYSIS_PROMPT_TEMPLATE = (
 )
 
 
+def _llm_params(max_tokens: int, temperature: float, top_p: float | None = None) -> dict:
+    """OpenAI 原生端點（gpt-5 系列）不吃 max_tokens/top_p，temperature 也只收預設值。"""
+    if "api.openai.com" in os.environ.get("RAG_LLM_BASE_URL", ""):
+        return {"max_completion_tokens": max_tokens}
+    p = {"max_tokens": max_tokens, "temperature": temperature}
+    if top_p is not None:
+        p["top_p"] = top_p
+    return p
+
+
 def _build_user_context_block(user_token: str | None, query: str) -> tuple[str, str]:
     """
     根據使用者 token 取得個人觀點，回傳 (user_context_block, personal_view_section)
@@ -170,9 +180,9 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
     )
     try:
         resp = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it"),
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=256, stream=False,
+            stream=False, **_llm_params(256, 0.3),
         )
         raw = resp.choices[0].message.content.strip()
         raw = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
@@ -280,20 +290,23 @@ async def lifespan(app: FastAPI):
         if os.path.exists(qdrant_path):
             qdrant_client = QdrantClient(path=qdrant_path)
     if qdrant_client:
-        embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+        embeddings = NVIDIAEmbeddings(model=os.environ.get("EMBED_MODEL", "nvidia/nemotron-3-embed-1b"))
 
+    # LLM 供應商可切換：預設 NVIDIA NIM，設 RAG_LLM_BASE_URL/RAG_LLM_API_KEY 可改用 OpenAI
+    llm_base_url = os.environ.get("RAG_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    llm_api_key = (os.environ.get("RAG_LLM_API_KEY") or "").strip() or os.environ.get("NVIDIA_API_KEY", "")
     openai_client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        http_client=httpx.Client(timeout=30.0),
+        base_url=llm_base_url,
+        api_key=llm_api_key,
+        http_client=httpx.Client(timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180"))),
     )
     async_openai_client = AsyncOpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        http_client=httpx.AsyncClient(timeout=30.0),
+        base_url=llm_base_url,
+        api_key=llm_api_key,
+        http_client=httpx.AsyncClient(timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180"))),
     )
 
-    llm = ChatNVIDIA(model="meta/llama-3.1-8b-instruct", temperature=0)
+    llm = ChatNVIDIA(model=os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it"), temperature=0)
     prompt = PromptTemplate.from_template(
         "你是一個財經意圖分析器。當前時間: {current_time}\n"
         "使用者輸入一句話，你必須分析三件事並回傳 JSON：\n\n"
@@ -624,9 +637,9 @@ async def _stream_ask(req):
         await asyncio.sleep(0)
         start = time.time()
         stream_resp = await async_openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=os.environ.get("RAG_ASK_MODEL", os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")),
             messages=[{"role": "user", "content": prompt_str}],
-            temperature=0.6, top_p=0.7, max_tokens=4096,
+            **_llm_params(4096, 0.6, 0.7),
             stream=True,
         )
         full_text = ""
@@ -1016,9 +1029,9 @@ async def ask(req: AskRequest):
     start = time.time()
     try:
         completion = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=os.environ.get("RAG_ASK_MODEL", os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")),
             messages=[{"role": "user", "content": prompt_str}],
-            temperature=0.6, top_p=0.7, max_tokens=4096,
+            **_llm_params(4096, 0.6, 0.7),
             stream=False,
         )
         full_content = completion.choices[0].message.content
@@ -2114,10 +2127,9 @@ async def trend_predict_stream(
             try:
                 resp = await asyncio.to_thread(
                     openai_client.chat.completions.create,
-                    model="meta/llama-3.3-70b-instruct",
+                    model=os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813"),
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=120,
+                    **_llm_params(120, 0.3),
                 )
                 raw = resp.choices[0].message.content.strip()
                 import re as _re
