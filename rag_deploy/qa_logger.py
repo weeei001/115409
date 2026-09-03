@@ -4,7 +4,7 @@ import datetime
 import pymysql
 import pymysql.cursors
 
-LLM_MODEL = "meta/llama-3.1-8b-instruct"
+LLM_MODEL = os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")
 
 
 def _get_conn():
