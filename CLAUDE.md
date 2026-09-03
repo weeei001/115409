@@ -192,7 +192,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 **關鍵差異**：新模型固定輸出 **2048 維**（不支援 `dimensions` 參數指定 1024），與舊向量庫的 1024 維不相容，**無法沿用舊向量、必須重建整個 Qdrant collection**。
 
 **已完成**：
-- 7 個呼叫點已改為 `NVIDIAEmbeddings(model=os.environ.get("EMBED_MODEL", "nvidia/nemotron-3-embed-1b"))`（模型名走 `EMBED_MODEL` 環境變數，無 `dimensions` 參數）：`crawl_to_qdrant.py`、`rag_deploy/build_analysis_digests.py`、`rag_deploy/api_server.py`、`rag/build_vector_db.py`（2 處）、`rag/build_vector_db_headless.py`、`rag/viewer.py`。建 collection 時 vector size 皆用 `len(vectors[0])` 動態取得，未寫死 1024，故程式碼本身無需再改。
+- 7 個呼叫點已改為 `NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")`（無 `dimensions` 參數）：`crawl_to_qdrant.py`、`rag_deploy/build_analysis_digests.py`、`rag_deploy/api_server.py`、`rag/build_vector_db.py`（2 處）、`rag/build_vector_db_headless.py`、`rag/viewer.py`。建 collection 時 vector size 皆用 `len(vectors[0])` 動態取得，未寫死 1024，故程式碼本身無需再改。
 - 舊向量庫已備份為 `qdrant_db_old_e5v5/`（1024 維，未刪除，供備查/回滾），`qdrant_db/` 已重建為新 2048 維 collection。
 - 新增一次性腳本 `rag/build_vector_db_2025plus.py`：僅向量化 `pub_time >= 2025-01-01` 的 chunk（12,208 筆，已於當日跑完，0 失敗），用於應急恢復服務，避免等全量 14,000+ 筆跑完才能上線。
 
