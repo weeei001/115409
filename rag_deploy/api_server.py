@@ -2240,6 +2240,77 @@ async def get_analysis_digest(
     }
 
 
+@app.get("/api/simulate_trading")
+async def get_simulate_trading(
+    symbol: str = Query("2330", description="股票代號，目前僅離線預跑 2330"),
+    start: str = Query("2025-01-01", description="回測起始日 YYYY-MM-DD"),
+    end: str = Query("2026-09-03", description="回測結束日 YYYY-MM-DD"),
+):
+    """讀離線預跑的「LLM 每日模擬下單」回測結果（simulate_trading.py 產出）。
+
+    不即時運算：由 `simulate_trading.py` 事先逐日呼叫 LLM 決策、模擬下單後
+    落地 trades.csv + simulation_metrics.json，本端點只讀檔回傳。
+    前端顯示欄位：日期、決策、當日花費、實際成交股數、當日收盤價、當日餘額、決策原因。
+    """
+    if symbol not in STOCK_OPTIONS:
+        raise HTTPException(400, f"無效的股票代號，支援：{list(STOCK_OPTIONS.keys())}")
+    for label, v in (("start", start), ("end", end)):
+        try:
+            datetime.strptime(v[:10], "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"{label} 格式錯誤，請用 YYYY-MM-DD")
+
+    import csv as _csv
+    import pathlib as _pathlib
+
+    base = _pathlib.Path(__file__).parent / "backtest_results"
+    run_dir = base / f"{symbol}_simulate_{start}_{end}_B_v1"
+    csv_path = run_dir / "trades.csv"
+    metrics_path = run_dir / "simulation_metrics.json"
+    if not csv_path.exists():
+        raise HTTPException(
+            404,
+            f"查無此區間的預跑結果（{run_dir.name}）。需先在主機執行："
+            f"python simulate_trading.py --stock {symbol} --start {start} --end {end}",
+        )
+
+    def _load():
+        with csv_path.open(newline="", encoding="utf-8") as f:
+            rows = list(_csv.DictReader(f))
+        metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else None
+        return rows, metrics
+
+    rows, metrics = await asyncio.to_thread(_load)
+
+    days = [
+        {
+            "date": r["date"],
+            "action": r["action"],                       # buy / sell / hold
+            "cost": float(r.get("cost") or 0),            # 當日現金流出（買+含手續費／賣-為實收／hold 0）
+            "executed_shares": int(r.get("executed_shares") or 0),  # 實際成交股數（程式依收盤價換算）
+            "requested_amount": float(r.get("requested_amount") or 0),    # LLM 想投入的金額（買進）
+            "requested_sell_pct": float(r.get("requested_sell_pct") or 0),  # LLM 想賣出的持股比例
+            "clamped": str(r.get("clamped")).lower() == "true",  # LLM 想投入金額 > 現金餘額（梭哈，屬正常）
+            "close_price": float(r["price"]),            # 當日收盤價（成交價）
+            "cash_after": float(r["cash_after"]),        # 當日餘額
+            "shares_after": int(r["shares_after"]),
+            "portfolio_value": float(r["portfolio_value"]),
+            "reason": r.get("reason", ""),               # 決策原因說明
+        }
+        for r in rows
+    ]
+
+    return {
+        "symbol": symbol,
+        "stock_name": STOCK_OPTIONS[symbol],
+        "start": start,
+        "end": end,
+        "n_trading_days": len(days),
+        "metrics": metrics,       # config / performance / baseline_buy_and_hold，見 simulate_trading.py
+        "days": days,
+    }
+
+
 # ── 前端頁面 ─────────────────────────────────────────
 @app.get("/")
 async def serve_frontend():

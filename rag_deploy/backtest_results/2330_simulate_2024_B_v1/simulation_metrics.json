@@ -1,0 +1,32 @@
+{
+  "config": {
+    "stock": "2330",
+    "start": "2024-01-01",
+    "end": "2024-12-31",
+    "initial_cash": 1000000.0,
+    "provider": "h200",
+    "model": "Gemma4-31B",
+    "arm": "B",
+    "prompt_version": "v1_original",
+    "fee_rate": 0.001425,
+    "tax_rate": 0.003,
+    "note": "新聞與digest摘要皆為週頻快照（本自然週內每日相同）——原設計是新聞逐日即時PIT檢索，但embedding模型nvidia/nv-embedqa-e5-v5已於2026-08-25下架導致無法即時檢索，暫時繞過改用最新一週digest快照的news_json；交易單位為任意股數（非強制1000股一張），此為簡化假設"
+  },
+  "performance": {
+    "n_trading_days": 242,
+    "initial_cash": 1000000.0,
+    "final_portfolio_value": 1722133.74,
+    "total_return_pct": 72.21,
+    "annualized_return_pct": 76.13,
+    "max_drawdown_pct": 6.45,
+    "trade_count": 23,
+    "win_count": 12,
+    "win_rate_pct": 52.17,
+    "realized_pnl": 702098.98
+  },
+  "baseline_buy_and_hold": {
+    "shares": 1750,
+    "final_value": 1840537.66,
+    "total_return_pct": 84.05
+  }
+}
