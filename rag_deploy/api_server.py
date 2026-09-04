@@ -118,6 +118,9 @@ def _llm_params(max_tokens: int, temperature: float, top_p: float | None = None)
     p = {"max_tokens": max_tokens, "temperature": temperature}
     if top_p is not None:
         p["top_p"] = top_p
+    # Gemini 3.x flash 預設會思考，thinking token 會吃掉 max_tokens 導致 content 空白
+    if "generativelanguage.googleapis.com" in os.environ.get("RAG_LLM_BASE_URL", ""):
+        p["reasoning_effort"] = "none"
     return p
 
 
@@ -1124,6 +1127,15 @@ class NewsSource(BaseModel):
     summary: str = Field(..., description="命中的新聞片段內文（chunk 全文，非摘要）")
     timestamp: str = Field(..., description="發布時間（YYYY-MM-DD HH:MM:SS），保證 ≤ as_of")
     url: str = Field(..., description="原始新聞連結")
+    publisher: str = Field(
+        "",
+        description=(
+            "發布媒體的可讀名稱，由 ingest 階段寫入的 `source` 欄位對照而來"
+            "（見 get_source_name）。查無對照時為原始 source 值，缺欄位時為空字串。"
+            "呼叫端若要顯示「這句話的來源是誰」，用這個欄位，不要自行從 url 猜。"
+        ),
+        examples=["鉅亨網"],
+    )
     kind: str = Field(
         "general",
         description=(
@@ -1164,6 +1176,7 @@ class StockAnalysisResponse(BaseModel):
                         "summary": "外資今日賣超集中市場 471 億元…",
                         "timestamp": "2026-07-10 18:20:00",
                         "url": "https://news.cnyes.com/news/id/1234567",
+                        "publisher": "鉅亨網",
                         "kind": "general",
                     },
                     {
@@ -1172,6 +1185,7 @@ class StockAnalysisResponse(BaseModel):
                         "summary": "台積電於法說會表示…",
                         "timestamp": "2026-06-17 15:05:00",
                         "url": "https://news.cnyes.com/news/id/1234000",
+                        "publisher": "鉅亨網",
                         "kind": "guidance",
                     },
                 ],
@@ -1412,6 +1426,7 @@ async def analyze_stocks(req: StockAnalysisRequest):
                 summary=content,
                 timestamp=p.get("pub_time", ""),
                 url=p.get("url", ""),
+                publisher=get_source_name(str(p.get("source", "") or "")),
                 kind=kind,
             )
             counts[kind] += 1
