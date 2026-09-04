@@ -64,7 +64,7 @@ def build_qdrant_embeddings():
         client = QdrantClient(url=qdrant_url)
     else:
         client = QdrantClient(path="./qdrant_db")
-    embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+    embeddings = NVIDIAEmbeddings(model=os.environ.get("EMBED_MODEL", "nvidia/nemotron-3-embed-1b"))
     return client, embeddings
 
 

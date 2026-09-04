@@ -135,6 +135,10 @@ def _revenue_is_published(row_date: date, as_of: date) -> bool:
     return deadline <= as_of
 
 
+# 只給前端顯示出處用、不進 LLM payload 的新聞欄位
+_NEWS_META_KEYS = frozenset({"url", "publisher"})
+
+
 class _IdGen:
     def __init__(self, prefix: str) -> None:
         self._prefix = prefix
@@ -163,7 +167,12 @@ class EvidenceBundle:
             "chip_summary": self.chip_summary,
             "long_term_anchor": self.long_term_anchor,
             "fundamental": self.fundamental,
-            "news": self.news,
+            # 網址與發布媒體不給模型看：模型看不到就寫不出網址，前端顯示的出處
+            # 必定來自資料擷取階段的 metadata（catalog() 才會帶）。
+            "news": [
+                {key: value for key, value in item.items() if key not in _NEWS_META_KEYS}
+                for item in self.news
+            ],
             "missing_fields": self.missing_fields,
         }
 
@@ -650,6 +659,8 @@ def build_news_items(
         if summary_chars and len(summary) > summary_chars:
             summary = summary[:summary_chars] + "…"
         kind = source.get("kind")
+        url = source.get("url")
+        publisher = source.get("publisher")
         item = {
             "id": ids.next(),
             "field": "news",
@@ -657,6 +668,14 @@ def build_news_items(
             "kind": kind if kind in {"general", "guidance", "market"} else "general",
             "title": title,
             "value": summary or title,
+            # 出處 metadata 只走資料擷取階段，不進 LLM payload
+            # （見 EvidenceBundle.as_payload_sections），前端才能保證網址不是模型寫的。
+            "url": str(url).strip() if isinstance(url, str) and url.strip() else None,
+            "publisher": (
+                str(publisher).strip()
+                if isinstance(publisher, str) and publisher.strip()
+                else None
+            ),
         }
         items.append({key: value for key, value in item.items() if value is not None})
     return items

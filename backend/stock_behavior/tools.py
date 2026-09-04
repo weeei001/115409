@@ -225,6 +225,7 @@ def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         source_id = str(raw_item.get("id") or "").strip()
         summary = str(raw_item.get("summary") or raw_item.get("content") or "").strip()
         url_value = raw_item.get("url")
+        publisher_value = raw_item.get("publisher")
         # kind 由 RAG 端的三路檢索提供（/api/analyze）：guidance 為財測展望、
         # market 為大盤／總經脈絡（用來分辨整體性漲跌與個股自身事件）。
         # 舊版本或非預期值一律視為 general，簡報端會在 limitations 說明未涵蓋。
@@ -236,6 +237,12 @@ def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "summary": summary,
                 "timestamp": ts,
                 "url": str(url_value).strip() if isinstance(url_value, str) and url_value.strip() else None,
+                # 發布媒體只從 RAG metadata 帶過來；帶不到就留 None，不從 url 反推。
+                "publisher": (
+                    str(publisher_value).strip()
+                    if isinstance(publisher_value, str) and publisher_value.strip()
+                    else None
+                ),
                 "kind": kind if kind in {"general", "guidance", "market"} else "general",
             }
         )
@@ -317,6 +324,7 @@ async def fetch_rag_news(
                 "summary": item_summary,
                 "timestamp": timestamp.isoformat(),
                 "url": item_url,
+                "publisher": item.get("publisher"),
                 "kind": item.get("kind") or "general",
             }
         )

@@ -52,6 +52,10 @@ class AnalyzeNewsSourceItem(BaseModel):
     summary: str = Field(default="", description="新聞摘要或內容節錄。")
     timestamp: str = Field(default="", description="新聞時間，ISO 8601 格式。")
     url: Optional[str] = Field(default=None, description="原始新聞網址。")
+    publisher: Optional[str] = Field(
+        default=None,
+        description="發布媒體可讀名稱，由 RAG 端的 ingest metadata 對照而來；舊快照可能沒有。",
+    )
     kind: Literal["general", "guidance"] = Field(
         default="general",
         description="general 為一般報導，guidance 為媒體轉述的公司財測／展望。",

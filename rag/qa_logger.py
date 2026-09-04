@@ -1,10 +1,11 @@
+import os
 import sqlite3
 import json
 import datetime
 
 DB_PATH = "./qa_logs.db"
 
-LLM_MODEL = "meta/llama-3.3-70b-instruct"
+LLM_MODEL = os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813")
 
 
 def init_db():
