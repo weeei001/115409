@@ -11,9 +11,6 @@ import { fmtPrice } from '../../lib/utils/format';
 import { usePrefersReducedMotionClient } from '../../lib/usePrefersReducedMotionClient';
 import { StockHeader } from '../StockHeader';
 import { StockSparkline, type SparklineTrend } from '../StockSparkline';
-import { AIVerdictHeroCard } from './AIVerdictHeroCard';
-import type { UseStockTextBriefResult } from '../../lib/hooks/useStockTextBrief';
-import type { UseTechnicalSignalsResult } from '../../lib/hooks/useTechnicalSignals';
 
 interface Props {
   symbol: string;
@@ -22,10 +19,6 @@ interface Props {
   institutionalLatest: InstitutionalTradeResponse | null;
   indicatorLatest: TechnicalIndicatorResponse | null;
   priceChart: PriceChartData | null;
-  endDate: string | null;
-  brief: UseStockTextBriefResult;
-  signals: UseTechnicalSignalsResult;
-  onOpenAI?: () => void;
 }
 
 const SPARKLINE_POINTS = 60;
@@ -38,10 +31,6 @@ export const StockHeroSection: React.FC<Props> = ({
   institutionalLatest,
   indicatorLatest,
   priceChart,
-  endDate,
-  brief,
-  signals,
-  onOpenAI,
 }) => {
   const reduceMotion = usePrefersReducedMotionClient();
   const change = Number(latest.change ?? 0);
@@ -68,9 +57,9 @@ export const StockHeroSection: React.FC<Props> = ({
   }, [sparklineValues]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 items-stretch">
+    <div>
       <motion.div
-        className="lg:col-span-8 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[var(--shadow-card)] p-4 sm:p-5 flex flex-col gap-3"
+        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[var(--shadow-card)] p-4 sm:p-5 flex flex-col gap-3"
         initial={reduceMotion ? false : { opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={reduceMotion ? { duration: 0 } : { duration: 0.4, ease: 'easeOut' }}
@@ -128,21 +117,6 @@ export const StockHeroSection: React.FC<Props> = ({
           technicalSnapshot={indicatorLatest}
           compact
           hideSecondary
-        />
-      </motion.div>
-
-      <motion.div
-        className="lg:col-span-4"
-        initial={reduceMotion ? false : { opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={reduceMotion ? { duration: 0 } : { duration: 0.4, ease: 'easeOut', delay: 0.08 }}
-      >
-        <AIVerdictHeroCard
-          symbol={symbol}
-          endDate={endDate}
-          brief={brief}
-          signals={signals}
-          onOpenDetail={onOpenAI}
         />
       </motion.div>
     </div>
