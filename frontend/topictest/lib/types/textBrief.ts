@@ -26,10 +26,17 @@ export type Confidence = 'low' | 'medium' | 'high';
 /** 後端稽核後的整體狀態；`verified` 代表模型輸出一個字都沒被動過 */
 export type BriefStatus = 'verified' | 'limited' | 'unavailable';
 
+/**
+ * 結論的性質。畫面必須據此區分「有證據支撐的觀察」與「模型自己推的」：
+ * inference→AI 推論、conflict→資料矛盾、limitation→資料限制。
+ */
+export type ClaimType = 'observation' | 'inference' | 'conflict' | 'limitation';
+
 /** 一句結論。所有結論都帶 `evidence_ids`，這是 v2 可回溯的基礎 */
 export interface Claim {
   id: string;
-  claim_type?: string;
+  /** 後端列舉是 ClaimType，但舊快照／未知值仍要能顯示，所以維持寬型別 */
+  claim_type?: ClaimType | string;
   text: string;
   direction?: Direction;
   evidence_ids?: string[];
@@ -113,6 +120,15 @@ export interface EvidenceItem {
   pct_rank_1y?: number;
   last4q?: [string, number][];
   yoy_last6?: [string, number][];
+  /**
+   * 以下三個是新聞的出處 metadata，只有 `field === 'news'` 會有，而且一律來自
+   * 資料擷取階段（RAG payload），不是 LLM 寫的——LLM 的 payload 裡看不到這些欄位。
+   * 舊快照沒有這些欄位，所以全部 optional，缺少時畫面顯示「系統彙整資料」。
+   */
+  url?: string | null;
+  publisher?: string | null;
+  /** 後端目前不回；保留給未來由擷取階段標註來源型別用 */
+  source_type?: string | null;
 }
 
 export interface Disclaimer {

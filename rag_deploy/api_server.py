@@ -111,6 +111,19 @@ ANALYSIS_PROMPT_TEMPLATE = (
 )
 
 
+def _llm_params(max_tokens: int, temperature: float, top_p: float | None = None) -> dict:
+    """OpenAI 原生端點（gpt-5 系列）不吃 max_tokens/top_p，temperature 也只收預設值。"""
+    if "api.openai.com" in os.environ.get("RAG_LLM_BASE_URL", ""):
+        return {"max_completion_tokens": max_tokens}
+    p = {"max_tokens": max_tokens, "temperature": temperature}
+    if top_p is not None:
+        p["top_p"] = top_p
+    # Gemini 3.x flash 預設會思考，thinking token 會吃掉 max_tokens 導致 content 空白
+    if "generativelanguage.googleapis.com" in os.environ.get("RAG_LLM_BASE_URL", ""):
+        p["reasoning_effort"] = "none"
+    return p
+
+
 def _build_user_context_block(user_token: str | None, query: str) -> tuple[str, str]:
     """
     根據使用者 token 取得個人觀點，回傳 (user_context_block, personal_view_section)
@@ -170,9 +183,9 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
     )
     try:
         resp = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it"),
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=256, stream=False,
+            stream=False, **_llm_params(256, 0.3),
         )
         raw = resp.choices[0].message.content.strip()
         raw = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
@@ -280,20 +293,23 @@ async def lifespan(app: FastAPI):
         if os.path.exists(qdrant_path):
             qdrant_client = QdrantClient(path=qdrant_path)
     if qdrant_client:
-        embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+        embeddings = NVIDIAEmbeddings(model=os.environ.get("EMBED_MODEL", "nvidia/nemotron-3-embed-1b"))
 
+    # LLM 供應商可切換：預設 NVIDIA NIM，設 RAG_LLM_BASE_URL/RAG_LLM_API_KEY 可改用 OpenAI
+    llm_base_url = os.environ.get("RAG_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    llm_api_key = (os.environ.get("RAG_LLM_API_KEY") or "").strip() or os.environ.get("NVIDIA_API_KEY", "")
     openai_client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        http_client=httpx.Client(timeout=30.0),
+        base_url=llm_base_url,
+        api_key=llm_api_key,
+        http_client=httpx.Client(timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180"))),
     )
     async_openai_client = AsyncOpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        http_client=httpx.AsyncClient(timeout=30.0),
+        base_url=llm_base_url,
+        api_key=llm_api_key,
+        http_client=httpx.AsyncClient(timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180"))),
     )
 
-    llm = ChatNVIDIA(model="meta/llama-3.1-8b-instruct", temperature=0)
+    llm = ChatNVIDIA(model=os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it"), temperature=0)
     prompt = PromptTemplate.from_template(
         "你是一個財經意圖分析器。當前時間: {current_time}\n"
         "使用者輸入一句話，你必須分析三件事並回傳 JSON：\n\n"
@@ -624,9 +640,9 @@ async def _stream_ask(req):
         await asyncio.sleep(0)
         start = time.time()
         stream_resp = await async_openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=os.environ.get("RAG_ASK_MODEL", os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")),
             messages=[{"role": "user", "content": prompt_str}],
-            temperature=0.6, top_p=0.7, max_tokens=4096,
+            **_llm_params(4096, 0.6, 0.7),
             stream=True,
         )
         full_text = ""
@@ -1016,9 +1032,9 @@ async def ask(req: AskRequest):
     start = time.time()
     try:
         completion = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=os.environ.get("RAG_ASK_MODEL", os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")),
             messages=[{"role": "user", "content": prompt_str}],
-            temperature=0.6, top_p=0.7, max_tokens=4096,
+            **_llm_params(4096, 0.6, 0.7),
             stream=False,
         )
         full_content = completion.choices[0].message.content
@@ -1111,6 +1127,15 @@ class NewsSource(BaseModel):
     summary: str = Field(..., description="命中的新聞片段內文（chunk 全文，非摘要）")
     timestamp: str = Field(..., description="發布時間（YYYY-MM-DD HH:MM:SS），保證 ≤ as_of")
     url: str = Field(..., description="原始新聞連結")
+    publisher: str = Field(
+        "",
+        description=(
+            "發布媒體的可讀名稱，由 ingest 階段寫入的 `source` 欄位對照而來"
+            "（見 get_source_name）。查無對照時為原始 source 值，缺欄位時為空字串。"
+            "呼叫端若要顯示「這句話的來源是誰」，用這個欄位，不要自行從 url 猜。"
+        ),
+        examples=["鉅亨網"],
+    )
     kind: str = Field(
         "general",
         description=(
@@ -1151,6 +1176,7 @@ class StockAnalysisResponse(BaseModel):
                         "summary": "外資今日賣超集中市場 471 億元…",
                         "timestamp": "2026-07-10 18:20:00",
                         "url": "https://news.cnyes.com/news/id/1234567",
+                        "publisher": "鉅亨網",
                         "kind": "general",
                     },
                     {
@@ -1159,6 +1185,7 @@ class StockAnalysisResponse(BaseModel):
                         "summary": "台積電於法說會表示…",
                         "timestamp": "2026-06-17 15:05:00",
                         "url": "https://news.cnyes.com/news/id/1234000",
+                        "publisher": "鉅亨網",
                         "kind": "guidance",
                     },
                 ],
@@ -1399,6 +1426,7 @@ async def analyze_stocks(req: StockAnalysisRequest):
                 summary=content,
                 timestamp=p.get("pub_time", ""),
                 url=p.get("url", ""),
+                publisher=get_source_name(str(p.get("source", "") or "")),
                 kind=kind,
             )
             counts[kind] += 1
@@ -2114,10 +2142,9 @@ async def trend_predict_stream(
             try:
                 resp = await asyncio.to_thread(
                     openai_client.chat.completions.create,
-                    model="meta/llama-3.3-70b-instruct",
+                    model=os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813"),
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=120,
+                    **_llm_params(120, 0.3),
                 )
                 raw = resp.choices[0].message.content.strip()
                 import re as _re
@@ -2225,6 +2252,77 @@ async def get_analysis_digest(
         "analyst_count": len(record["analyst_json"]),
         "news_count": len(record["news_json"]),
         "generated_by": "on_demand",
+    }
+
+
+@app.get("/api/simulate_trading")
+async def get_simulate_trading(
+    symbol: str = Query("2330", description="股票代號，目前僅離線預跑 2330"),
+    start: str = Query("2025-01-01", description="回測起始日 YYYY-MM-DD"),
+    end: str = Query("2026-09-03", description="回測結束日 YYYY-MM-DD"),
+):
+    """讀離線預跑的「LLM 每日模擬下單」回測結果（simulate_trading.py 產出）。
+
+    不即時運算：由 `simulate_trading.py` 事先逐日呼叫 LLM 決策、模擬下單後
+    落地 trades.csv + simulation_metrics.json，本端點只讀檔回傳。
+    前端顯示欄位：日期、決策、當日花費、實際成交股數、當日收盤價、當日餘額、決策原因。
+    """
+    if symbol not in STOCK_OPTIONS:
+        raise HTTPException(400, f"無效的股票代號，支援：{list(STOCK_OPTIONS.keys())}")
+    for label, v in (("start", start), ("end", end)):
+        try:
+            datetime.strptime(v[:10], "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"{label} 格式錯誤，請用 YYYY-MM-DD")
+
+    import csv as _csv
+    import pathlib as _pathlib
+
+    base = _pathlib.Path(__file__).parent / "backtest_results"
+    run_dir = base / f"{symbol}_simulate_{start}_{end}_B_v1"
+    csv_path = run_dir / "trades.csv"
+    metrics_path = run_dir / "simulation_metrics.json"
+    if not csv_path.exists():
+        raise HTTPException(
+            404,
+            f"查無此區間的預跑結果（{run_dir.name}）。需先在主機執行："
+            f"python simulate_trading.py --stock {symbol} --start {start} --end {end}",
+        )
+
+    def _load():
+        with csv_path.open(newline="", encoding="utf-8") as f:
+            rows = list(_csv.DictReader(f))
+        metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else None
+        return rows, metrics
+
+    rows, metrics = await asyncio.to_thread(_load)
+
+    days = [
+        {
+            "date": r["date"],
+            "action": r["action"],                       # buy / sell / hold
+            "cost": float(r.get("cost") or 0),            # 當日現金流出（買+含手續費／賣-為實收／hold 0）
+            "executed_shares": int(r.get("executed_shares") or 0),  # 實際成交股數（程式依收盤價換算）
+            "requested_amount": float(r.get("requested_amount") or 0),    # LLM 想投入的金額（買進）
+            "requested_sell_pct": float(r.get("requested_sell_pct") or 0),  # LLM 想賣出的持股比例
+            "clamped": str(r.get("clamped")).lower() == "true",  # LLM 想投入金額 > 現金餘額（梭哈，屬正常）
+            "close_price": float(r["price"]),            # 當日收盤價（成交價）
+            "cash_after": float(r["cash_after"]),        # 當日餘額
+            "shares_after": int(r["shares_after"]),
+            "portfolio_value": float(r["portfolio_value"]),
+            "reason": r.get("reason", ""),               # 決策原因說明
+        }
+        for r in rows
+    ]
+
+    return {
+        "symbol": symbol,
+        "stock_name": STOCK_OPTIONS[symbol],
+        "start": start,
+        "end": end,
+        "n_trading_days": len(days),
+        "metrics": metrics,       # config / performance / baseline_buy_and_hold，見 simulate_trading.py
+        "days": days,
     }
 
 

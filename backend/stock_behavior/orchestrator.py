@@ -103,7 +103,7 @@ TEXT_BRIEF_DISCLAIMER_TEXT = (
 )
 TEXT_BRIEF_UNAVAILABLE_MESSAGE = "模型輸出無法解析，本次無法提供簡報。"
 TEXT_BRIEF_COMPLIANCE_UNAVAILABLE_MESSAGE = "簡報內容未通過合規檢查，本次無法提供。"
-TEXT_BRIEF_CACHE_MISS_LIMITATION = "這檔還沒有產生過 AI 分析，排程更新後才會出現；要現在跑請按「重新分析」。"
+TEXT_BRIEF_CACHE_MISS_LIMITATION = "這檔還沒有產生過 AI 分析，排程更新後才會出現。"
 TEXT_BRIEF_ITEM_SECTIONS = (
     "key_days",
     "current_status",

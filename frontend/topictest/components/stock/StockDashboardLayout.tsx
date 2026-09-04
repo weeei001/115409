@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type { UseStockDashboardResult } from '../../lib/hooks/useStockDashboard';
 import { getStockDisplayName } from '../../lib/utils/symbolNames';
 import { AnimatedSection } from '../AnimatedSection';
@@ -11,6 +11,7 @@ import { InstitutionalTabs } from './InstitutionalTabs';
 import { IndicatorChartsPanel } from './IndicatorChartsPanel';
 import { StockNewsPanel } from './StockNewsPanel';
 import { StockTextBriefPanel } from './textBrief/StockTextBriefPanel';
+import { AIBriefSummaryCard } from './textBrief/AIBriefSummaryCard';
 import { StockHeroSection } from './StockHeroSection';
 import { StockKpiStrip } from './StockKpiStrip';
 import { DetailDrawer } from './DetailDrawer';
@@ -18,7 +19,6 @@ import { MiniPriceCard } from './bento/MiniPriceCard';
 import { TodayInstitutionalCard } from './bento/TodayInstitutionalCard';
 import { IndicatorSignalsCard } from './bento/IndicatorSignalsCard';
 import { TopNewsCard } from './bento/TopNewsCard';
-import { RiskHintNotice } from './RiskHintNotice';
 import { useStockTextBrief } from '../../lib/hooks/useStockTextBrief';
 import { useTechnicalSignals } from '../../lib/hooks/useTechnicalSignals';
 
@@ -73,12 +73,18 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
   const signals = useTechnicalSignals(priceChart);
 
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
+  // 從摘要卡的來源標籤點進來時，完整分析要先亮那一筆證據
+  const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null);
   const close = () => setDrawer(null);
+  const openAI = (evidenceId?: string) => {
+    setFocusEvidenceId(evidenceId ?? null);
+    setDrawer('ai');
+  };
 
   // 基準日確定、報價也回來了才發動；同一組 symbol＋基準日只會打一次
   useEffect(() => {
     if (!symbol.trim() || dashboard.loading || !endDate || !latest) return;
-    void textBrief.run(false);
+    void textBrief.run();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 僅在代號／基準日／就緒狀態變更時自動分析
   }, [symbol, endDate, dashboard.loading, latest]);
 
@@ -94,15 +100,18 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
           institutionalLatest={institutionalLatest}
           indicatorLatest={indicatorLatest}
           priceChart={priceChart}
-          endDate={endDate}
-          brief={textBrief}
-          signals={signals}
-          onOpenAI={() => setDrawer('ai')}
         />
       </AnimatedSection>
 
       <AnimatedSection preset="fadeUp" delay={0.06}>
-        <RiskHintNotice brief={textBrief} onOpenDetail={() => setDrawer('ai')} />
+        <AIBriefSummaryCard
+          symbol={symbol}
+          brief={textBrief}
+          endDate={endDate}
+          latestTradeDate={latest.date}
+          maStructureLabel={signals.maStructureLabel}
+          onOpenDetail={openAI}
+        />
       </AnimatedSection>
 
       <Hairline />
@@ -278,24 +287,15 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
             ) : null}
           </div>
         }
-        headerActions={
-          <button
-            type="button"
-            onClick={() => void textBrief.run(true)}
-            disabled={textBrief.loading}
-            className="inline-flex items-center gap-1.5 rounded-full border border-brand/40 bg-gradient-to-r from-brand/10 to-brand/5 dark:from-brand/20 dark:to-brand/10 px-3 py-1.5 text-xs font-semibold text-brand transition-[opacity,background-color] hover:bg-brand/15 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-            aria-label="重新分析"
-          >
-            {textBrief.loading ? (
-              <Loader2 size={14} className="animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw size={14} aria-hidden />
-            )}
-            <span className="hidden sm:inline">{textBrief.loading ? '分析中…' : '重新分析'}</span>
-          </button>
-        }
       >
-        {drawer === 'ai' ? <StockTextBriefPanel symbol={symbol} brief={textBrief} /> : null}
+        {drawer === 'ai' ? (
+          <StockTextBriefPanel
+            symbol={symbol}
+            brief={textBrief}
+            initialEvidenceId={focusEvidenceId}
+            latestTradeDate={latest.date}
+          />
+        ) : null}
       </DetailDrawer>
 
       <DetailDrawer

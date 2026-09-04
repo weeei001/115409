@@ -1,0 +1,74 @@
+{
+  "config": {
+    "stock": "2330",
+    "period": "week",
+    "start": "2024-01-01",
+    "end": "2024-12-31",
+    "horizon": 20,
+    "neutral_band": 3.0,
+    "provider": "nim",
+    "model": "meta/llama-3.3-70b-instruct",
+    "seed": 42,
+    "git_sha": "220c258d98b64231ebb9db2bafcf747dd043107b"
+  },
+  "arms": {
+    "A": {
+      "n": 33,
+      "hit_rate": 0.5758,
+      "hits": 19,
+      "mae": 7.9424
+    },
+    "B": {
+      "n": 33,
+      "hit_rate": 0.5758,
+      "hits": 19,
+      "mae": 8.1036
+    }
+  },
+  "baselines": {
+    "always_up": {
+      "n": 33,
+      "hit_rate": 0.6667
+    },
+    "always_down": {
+      "n": 33,
+      "hit_rate": 0.1515
+    },
+    "random_seed42": {
+      "n": 33,
+      "hit_rate": 0.3636,
+      "expected_hit_rate_note": "理論期望值視 up/down/flat 類別分佈而定，此為單次模擬結果"
+    }
+  },
+  "mcnemar_sign_test": {
+    "b_wins": 1,
+    "a_wins": 1,
+    "p_value": 1.0,
+    "note": "雙尾符號檢定；p<0.05 表示 A/B 命中差異在配對錨點上顯著"
+  },
+  "band_sensitivity": {
+    "band_2.0": {
+      "A": 0.5152,
+      "B": 0.5152
+    },
+    "band_3.0": {
+      "A": 0.5758,
+      "B": 0.5758
+    },
+    "band_4.0": {
+      "A": 0.4545,
+      "B": 0.4545
+    }
+  },
+  "coverage": {
+    "n_decision_points": 52,
+    "n_valid_as_of": 33,
+    "n_llm_failed_as_of": 19,
+    "n_digests_used_distribution": {
+      "1": 1,
+      "2": 1,
+      "3": 1,
+      "4": 49
+    }
+  }
+}

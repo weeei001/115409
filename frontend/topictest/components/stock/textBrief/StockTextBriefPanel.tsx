@@ -1,362 +1,195 @@
-import React from 'react';
-import {
-  AlertTriangle,
-  Eye,
-  FileText,
-  Loader2,
-  RefreshCw,
-  Sparkles,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react';
-import type {
-  Claim,
-  DailyEvidenceValue,
-  Direction,
-  EvidenceItem,
-  ForwardViews,
-  KeyDay,
-  Risk,
-  TextBriefResponse,
-  WatchPoint,
-} from '../../../lib/types/textBrief';
-import {
-  CONF,
-  FIELD,
-  FORWARD_VIEWS,
-  GROUP,
-  STANCE,
-  STANCE_TONE,
-  STATUS,
-  type BriefTone,
-} from '../../../lib/utils/textBriefLabels';
-import { forwardViewKey } from '../../../lib/utils/textBriefClaims';
+import React, { useMemo, useRef, useState } from 'react';
+import { AlertTriangle, FileSearch, Loader2, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
 import type { UseStockTextBriefResult } from '../../../lib/hooks/useStockTextBrief';
-import { BriefHighlightProvider, ClaimRow, useBriefHighlight } from './BriefHighlight';
+import { buildEvidenceIndex } from '../../../lib/utils/textBriefEvidence';
+import { CONF, CONF_HINT, STANCE, STANCE_TONE, STATUS, type BriefTone } from '../../../lib/utils/textBriefLabels';
+import { BriefHighlightProvider, useBriefHighlight } from './BriefHighlight';
+import { SectionCard, StanceIcon, Tag } from './BriefAtoms';
+import { KeyPointsTab, ScenarioTab } from './BriefSections';
+import { EvidenceCatalog, EvidenceRail, EvidenceSheet } from './EvidencePanel';
 
 interface Props {
   symbol: string;
   brief: UseStockTextBriefResult;
+  /** 從摘要卡的來源標籤點進來時要先亮的證據 */
+  initialEvidenceId?: string | null;
+  /** 儀表板最新交易日，用來判斷分析是不是過期了 */
+  latestTradeDate?: string | null;
 }
 
-/* ── 小元件 ───────────────────────────────────────── */
+type TabKey = 'points' | 'scenario' | 'sources';
 
-const TONE_CLASS: Record<BriefTone, string> = {
-  ok: 'border-up/25 bg-up-muted text-up-emphasis',
-  bad: 'border-down/25 bg-down-muted text-down-emphasis',
-  warn: 'ui-alert-warning',
-  info: 'border-brand/30 bg-brand/10 text-brand',
-  plain:
-    'border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]',
-};
+const TABS: [TabKey, string][] = [
+  ['points', '重點'],
+  ['scenario', '情境與風險'],
+  ['sources', '證據來源'],
+];
 
-const Tag: React.FC<{ tone?: BriefTone; children: React.ReactNode }> = ({
-  tone = 'plain',
-  children,
-}) => (
-  <span
-    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${TONE_CLASS[tone]}`}
-  >
-    {children}
-  </span>
-);
-
-const Section: React.FC<{
-  title: string;
-  hint?: string;
-  icon?: React.ReactNode;
+const Notice: React.FC<{
+  tone: 'warn' | 'error' | 'info';
   children: React.ReactNode;
-}> = ({ title, hint, icon, children }) => (
-  <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5 shadow-[var(--shadow-card)]">
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-      <h3 className="inline-flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
-        {icon}
-        {title}
-      </h3>
-      {hint ? <span className="text-xs text-[var(--color-text-muted)]">{hint}</span> : null}
-    </div>
-    <div className="mt-3">{children}</div>
-  </section>
+  action?: React.ReactNode;
+}> = ({ tone, children, action }) => (
+  <div
+    role={tone === 'error' ? 'alert' : 'status'}
+    className={`flex flex-wrap items-start justify-between gap-2 rounded-xl border px-3 py-2 text-sm leading-6 ${
+      tone === 'error'
+        ? 'border-up/25 bg-up-muted text-up-emphasis'
+        : tone === 'warn'
+          ? 'ui-alert-warning'
+          : 'border-brand/30 bg-brand/5 text-[var(--color-text-secondary)]'
+    }`}
+  >
+    <span className="flex min-w-0 items-start gap-2">
+      <AlertTriangle size={15} aria-hidden className="mt-1 shrink-0" />
+      <span className="min-w-0">{children}</span>
+    </span>
+    {action}
+  </div>
 );
 
-const Empty: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
-  <p className="text-sm text-[var(--color-text-muted)]">{children ?? '（無）'}</p>
+/** 只重讀一次排程產好的分析，不會觸發 LLM 重跑 */
+const RetryButton: React.FC<{ onClick: () => void; label?: string; busy?: boolean }> = ({
+  onClick,
+  label = '重試',
+  busy,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={busy}
+    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition-colors hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+  >
+    {busy ? (
+      <Loader2 size={13} aria-hidden className="animate-spin" />
+    ) : (
+      <RefreshCw size={13} aria-hidden />
+    )}
+    {busy ? '載入中…' : label}
+  </button>
 );
 
-const DIRECTION_DOT: Record<Direction, string> = {
-  positive: 'bg-up',
-  negative: 'bg-down',
-  mixed: 'bg-[var(--color-warning-icon)]',
-  neutral: 'bg-[var(--color-text-muted)]/50',
-  not_applicable: 'bg-[var(--color-text-muted)]/50',
-};
+/** 引用檢核：目錄查不到、或日期晚於基準日的引用要講出來，不能默默吃掉 */
+const BriefAudit: React.FC = () => {
+  const { claims, evidence } = useBriefHighlight();
+  const broken = useMemo(() => {
+    const missing = new Set<string>();
+    for (const ref of claims.values()) {
+      for (const id of ref.evidenceIds) {
+        if (!evidence.resolve(id)) missing.add(id);
+      }
+    }
+    return [...missing];
+  }, [claims, evidence]);
 
-/* ── 各段內容 ─────────────────────────────────────── */
-
-const ClaimList: React.FC<{ items?: Claim[] }> = ({ items }) => {
-  if (!items?.length) return <Empty />;
-  return (
-    <div className="space-y-1">
-      {items.map((it) => (
-        <ClaimRow key={it.id} claimKey={it.id} ids={it.evidence_ids}>
-          <p className="text-sm leading-7 text-[var(--color-text-primary)]">
-            <span
-              aria-hidden
-              className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${
-                DIRECTION_DOT[it.direction ?? 'neutral']
-              }`}
-            />
-            {it.text}
-          </p>
-        </ClaimRow>
-      ))}
-    </div>
-  );
-};
-
-/** 漲跌幅由後端依 `ref` 回填，不是模型寫的，所以直接照數字上色 */
-function moveClass(move?: number | null): string {
-  if (move == null) return 'text-[var(--color-text-muted)]';
-  if (move > 0) return 'text-up';
-  if (move < 0) return 'text-down';
-  return 'text-[var(--color-text-muted)]';
-}
-
-const KeyDays: React.FC<{ items?: KeyDay[] }> = ({ items }) => {
-  if (!items?.length) return <Empty />;
-  return (
-    <div className="space-y-1">
-      {items.map((it) => (
-        <ClaimRow key={it.id} claimKey={it.id} ids={it.evidence_ids}>
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-mono text-xs tabular-nums text-[var(--color-text-secondary)]">
-              {it.date}
-            </span>
-            <span className={`text-sm font-bold tabular-nums ${moveClass(it.move_pct)}`}>
-              {it.move_pct == null
-                ? '—'
-                : `${it.move_pct > 0 ? '+' : ''}${it.move_pct.toFixed(2)}%`}
-            </span>
-            {it.volume_ratio == null ? null : (
-              <span className="text-xs tabular-nums text-[var(--color-text-muted)]">
-                量 {it.volume_ratio.toFixed(2)}×
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-sm leading-7 text-[var(--color-text-primary)]">{it.what}</p>
-        </ClaimRow>
-      ))}
-    </div>
-  );
-};
-
-const RiskList: React.FC<{ items?: Risk[] }> = ({ items }) => {
-  if (!items?.length) return <Empty />;
-  return (
-    <div className="space-y-1">
-      {items.map((it) => (
-        <ClaimRow key={it.id} claimKey={it.id} ids={it.evidence_ids}>
-          <span className="block text-xs font-bold text-[var(--color-text-muted)]">
-            {it.risk_type}
-          </span>
-          <p className="mt-1 text-sm leading-7 text-[var(--color-text-primary)]">
-            {it.description}
-          </p>
-          <p className="mt-1 text-xs leading-6 text-[var(--color-text-secondary)]">
-            什麼情況會發生：{it.trigger}
-          </p>
-        </ClaimRow>
-      ))}
-    </div>
-  );
-};
-
-const WatchList: React.FC<{ items?: WatchPoint[] }> = ({ items }) => {
-  if (!items?.length) return <Empty />;
-  return (
-    <div className="space-y-1">
-      {items.map((it) => (
-        <ClaimRow key={it.id} claimKey={it.id} ids={it.evidence_ids}>
-          <span className="block text-xs font-bold text-[var(--color-text-muted)]">
-            {it.what_to_watch}　·　{it.when}
-          </span>
-          <p className="mt-1 text-sm leading-7 text-[var(--color-text-primary)]">
-            {it.why_it_matters}
-          </p>
-        </ClaimRow>
-      ))}
-    </div>
-  );
-};
-
-const ForwardViewCards: React.FC<{ views?: ForwardViews }> = ({ views }) => {
-  const shown = FORWARD_VIEWS.filter(([key]) => views?.[key]);
-  if (!shown.length) return <Empty />;
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {shown.map(([key, label]) => {
-        const v = views![key]!;
-        return (
-          <div
-            key={key}
-            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-3"
-          >
-            <div className="text-xs font-semibold text-[var(--color-text-muted)]">{label}</div>
-            <div className="mt-2">
-              <Tag tone={STANCE_TONE[v.stance] ?? 'plain'}>{STANCE[v.stance] ?? v.stance}</Tag>
-            </div>
-            <ClaimRow claimKey={forwardViewKey(key)} ids={v.evidence_ids} className="mt-2 -mx-1">
-              <p className="text-sm leading-7 text-[var(--color-text-primary)]">{v.reason}</p>
-            </ClaimRow>
-            <p className="mt-2 text-xs leading-6 text-[var(--color-text-secondary)]">
-              什麼情況就不成立：{v.invalidation}
-            </p>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-/** 一筆證據要顯示成什麼字；交易日是物件，其餘是純量加註記 */
-function evidenceValue(item: EvidenceItem): string {
-  const v = item.value;
-  if (v && typeof v === 'object') {
-    const d = v as DailyEvidenceValue;
-    const bits: string[] = [];
-    if (d.close != null) bits.push(`收 ${d.close}`);
-    if (d.chg_pct != null) bits.push(`${d.chg_pct > 0 ? '+' : ''}${d.chg_pct}%`);
-    if (d.vol_lots != null) bits.push(`${Number(d.vol_lots).toLocaleString()} 張`);
-    if (d.vol_vs_ma5_pct != null)
-      bits.push(`量能 ${d.vol_vs_ma5_pct > 0 ? '+' : ''}${d.vol_vs_ma5_pct}%`);
-    if (d.foreign_net_lots != null)
-      bits.push(`外資 ${Number(d.foreign_net_lots).toLocaleString()} 張`);
-    return bits.join('　');
-  }
-  const extra: string[] = [];
-  if (item.period) extra.push(item.period);
-  if (item.yoy_pct != null) extra.push(`年增 ${item.yoy_pct}%`);
-  if (item.mom_pct != null) extra.push(`月增 ${item.mom_pct}%`);
-  if (item.qoq_pct != null) extra.push(`季增 ${item.qoq_pct}%`);
-  if (item.pct_rank_1y != null) extra.push(`近一年第 ${item.pct_rank_1y} 百分位`);
-  const base = item.field === 'news' ? String(item.title ?? v ?? '') : String(v ?? '');
-  return base + (extra.length ? `（${extra.join('、')}）` : '');
-}
-
-const EvidenceCatalog: React.FC<{ catalog?: EvidenceItem[] }> = ({ catalog }) => {
-  const { isEvidenceOn, toggleEvidence, bindEvidence, hasFocus } = useBriefHighlight();
-  if (!catalog?.length) return <Empty>（這次沒有用到任何原始資料）</Empty>;
-  return (
-    <div className="space-y-4">
-      {GROUP.map(([label, test]) => {
-        const rows = catalog.filter((i) => test(i.id));
-        if (!rows.length) return null;
-        return (
-          <div key={label}>
-            <div className="text-xs font-bold text-[var(--color-text-muted)]">{label}</div>
-            <div className="mt-1.5 space-y-1">
-              {rows.map((item) => {
-                const on = isEvidenceOn(item.id);
-                return (
-                  <div
-                    key={item.id}
-                    ref={bindEvidence(item.id)}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={on}
-                    onClick={() => toggleEvidence(item.id)}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Enter' && e.key !== ' ') return;
-                      e.preventDefault();
-                      toggleEvidence(item.id);
-                    }}
-                    className={`rounded-lg border px-2.5 py-2 text-sm cursor-pointer transition-[background-color,border-color,opacity] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
-                      on
-                        ? 'border-brand/40 bg-brand/10'
-                        : `border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50 ${
-                            hasFocus ? 'opacity-55' : ''
-                          }`
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-mono text-[11px] text-brand">{item.id}</span>
-                      <span className="text-xs text-[var(--color-text-muted)]">
-                        {FIELD[item.field] ?? item.field}
-                        {item.date ? ` · ${item.date}` : ''}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 leading-6 text-[var(--color-text-primary)] break-words">
-                      {evidenceValue(item)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-/* ── 主面板 ───────────────────────────────────────── */
-
-const StanceIcon: React.FC<{ tone: BriefTone }> = ({ tone }) => {
-  if (tone === 'ok') return <TrendingUp size={14} aria-hidden />;
-  if (tone === 'bad') return <TrendingDown size={14} aria-hidden />;
-  return <Sparkles size={14} aria-hidden />;
-};
-
-export const StockTextBriefPanel: React.FC<Props> = ({ symbol, brief }) => {
-  const { loading, error, data, seconds, run } = brief;
-
-  if (loading) {
+  if (!broken.length && !evidence.futureDatedIds.length) {
     return (
-      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-10 flex flex-col items-center justify-center gap-4 text-center">
-        <Loader2 size={40} className="text-brand animate-spin" aria-hidden />
-        <div>
-          <p className="text-base font-semibold">正在分析 {symbol}</p>
-          <p className="mt-1 text-sm text-[var(--color-text-muted)] max-w-md">
-            整合價量、籌碼、技術面與新聞後交由 AI 撰寫，第一次大約需要 90 秒；已等待{' '}
-            <span className="tabular-nums font-semibold">{seconds}</span> 秒。
-          </p>
-        </div>
-      </div>
+      <p className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+        <ShieldCheck size={13} aria-hidden />
+        所有引用都對得上證據目錄（{evidence.total} 筆），日期都不晚於分析基準日。
+      </p>
     );
   }
+  return (
+    <Notice tone="warn">
+      {broken.length ? <>有 {broken.length} 筆引用在證據目錄裡找不到（{broken.join('、')}），已不顯示為可點擊來源。</> : null}
+      {evidence.futureDatedIds.length ? (
+        <>
+          {broken.length ? '　' : null}
+          有 {evidence.futureDatedIds.length} 筆證據日期晚於分析基準日，已停用。
+        </>
+      ) : null}
+    </Notice>
+  );
+};
 
-  if (error) {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="bg-up-muted border border-up/20 rounded-2xl p-4 text-sm text-up-emphasis flex items-start gap-2">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
-          <span>{error}</span>
+const Skeleton: React.FC<{ symbol: string; seconds: number }> = ({ symbol, seconds }) => (
+  <div className="flex flex-col gap-4" aria-busy="true" aria-live="polite">
+    <p className="inline-flex items-center gap-2 text-sm font-medium text-brand">
+      <Loader2 size={15} className="animate-spin shrink-0" aria-hidden />
+      正在分析 {symbol}
+      {seconds > 0 ? <span className="tabular-nums text-[var(--color-text-muted)]">{seconds} 秒</span> : null}
+    </p>
+    <p className="text-xs text-[var(--color-text-muted)]">
+      整合價量、籌碼、技術面與新聞後交由 AI 撰寫，第一次大約需要 90 秒。
+    </p>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12" aria-hidden>
+      <div className="space-y-3 lg:col-span-7">
+        {[0, 1, 2].map((row) => (
+          <div
+            key={row}
+            className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4"
+          >
+            <div className="h-3.5 w-24 animate-pulse rounded-full bg-[var(--color-bg-elevated)]" />
+            <div className="mt-3 space-y-2">
+              <div className="h-3.5 w-full animate-pulse rounded-full bg-[var(--color-bg-elevated)]" />
+              <div className="h-3.5 w-4/5 animate-pulse rounded-full bg-[var(--color-bg-elevated)]" />
+              <div className="h-3.5 w-3/5 animate-pulse rounded-full bg-[var(--color-bg-elevated)]" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="hidden lg:col-span-5 lg:block">
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4">
+          <div className="h-3.5 w-20 animate-pulse rounded-full bg-[var(--color-bg-elevated)]" />
+          <div className="mt-3 space-y-2">
+            {[0, 1, 2, 3, 4].map((row) => (
+              <div
+                key={row}
+                className="h-10 animate-pulse rounded-lg bg-[var(--color-bg-elevated)]"
+              />
+            ))}
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void run(true)}
-          className="self-start inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg cursor-pointer"
-          style={{ background: 'var(--brand-gradient)' }}
-        >
-          <RefreshCw size={14} aria-hidden />
-          重新分析
-        </button>
+      </div>
+    </div>
+  </div>
+);
+
+/**
+ * 完整分析。桌機雙欄（左：分析內容、右：證據詳情且 sticky），
+ * 手機單欄＋底部證據抽屜；三個分頁：重點／情境與風險／證據來源。
+ */
+export const StockTextBriefPanel: React.FC<Props> = ({
+  symbol,
+  brief,
+  initialEvidenceId,
+  latestTradeDate,
+}) => {
+  const { loading, refreshing, error, data, seconds, run } = brief;
+  const [tab, setTab] = useState<TabKey>('points');
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const evidence = useMemo(
+    () => buildEvidenceIndex(data?.evidence_catalog, data?.as_of_date),
+    [data]
+  );
+
+  if (loading) return <Skeleton symbol={symbol} seconds={seconds} />;
+
+  if (error && !data) {
+    return (
+      <div className="flex flex-col gap-3">
+        <Notice tone="error">{error}</Notice>
+        <RetryButton onClick={() => void run()} />
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-10 flex flex-col items-center gap-4 text-center">
-        <p className="text-sm text-[var(--color-text-muted)]">尚未產生分析。</p>
+      <div className="flex flex-col items-center gap-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-10 text-center">
+        <p className="text-sm text-[var(--color-text-muted)]">
+          這檔股票還沒有產生 AI 分析，排程更新後才會出現。
+        </p>
         <button
           type="button"
-          onClick={() => void run(false)}
+          onClick={() => void run()}
           className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg cursor-pointer"
           style={{ background: 'var(--brand-gradient)' }}
         >
           <Sparkles size={14} aria-hidden />
-          開始分析
+          重新載入
         </button>
       </div>
     );
@@ -367,30 +200,53 @@ export const StockTextBriefPanel: React.FC<Props> = ({ symbol, brief }) => {
 
   if (!b) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="ui-alert-warning rounded-2xl border p-4 text-sm flex items-start gap-2">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning-icon" aria-hidden />
-          <span>這次沒有產出分析：AI 寫出來的內容沒通過系統檢查，已經被擋下來（{statusNote}）。</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => void run(true)}
-          className="self-start inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg cursor-pointer"
-          style={{ background: 'var(--brand-gradient)' }}
-        >
-          <RefreshCw size={14} aria-hidden />
-          重新分析
-        </button>
+      <div className="flex flex-col gap-3">
+        <Notice tone="warn">
+          這次沒有產出分析：AI 寫出來的內容沒通過系統檢查，已經被擋下來（{statusNote}）。
+        </Notice>
+        {data.limitations?.length ? (
+          <ul className="list-disc space-y-1 pl-5 text-sm leading-7 text-[var(--color-text-secondary)]">
+            {data.limitations.map((text, index) => (
+              <li key={index}>{text}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     );
   }
 
   const stanceTone: BriefTone = STANCE_TONE[b.overall_stance ?? ''] ?? 'plain';
+  const stale = Boolean(latestTradeDate && data.as_of_date && data.as_of_date < latestTradeDate);
+
+  const onTabKeyDown = (event: React.KeyboardEvent, index: number) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const next = (index + (event.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length;
+    setTab(TABS[next][0]);
+    tabRefs.current[next]?.focus();
+  };
 
   return (
-    <BriefHighlightProvider brief={b}>
-      <div className="flex flex-col gap-4">
-        {/* [0] 結論：現在是什麼狀態 */}
+    <BriefHighlightProvider brief={b} evidence={evidence} initialEvidenceId={initialEvidenceId}>
+      <div className="flex min-w-0 flex-col gap-4">
+        {refreshing ? (
+          <Notice tone="info">
+            正在更新分析，下面仍是上一次的結果（{data.as_of_date}），新的載入完成才會換掉。
+          </Notice>
+        ) : null}
+        {error && data ? (
+          <Notice tone="warn" action={<RetryButton onClick={() => void run()} busy={refreshing} />}>
+            更新失敗，顯示的是上一次成功的結果：{error}
+          </Notice>
+        ) : null}
+        {stale && !refreshing ? (
+          <Notice tone="warn">
+            這份分析的基準日是 {data.as_of_date}，比最新交易日 {latestTradeDate} 早，內容可能已經過期；
+            排程更新後會自動換成最新的一份。
+          </Notice>
+        ) : null}
+
+        {/* 整體結論 */}
         <section
           aria-label="整體結論"
           className="relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5 shadow-[var(--shadow-card)]"
@@ -401,7 +257,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({ symbol, brief }) => {
             style={{ background: 'var(--brand-gradient)' }}
           />
           <div className="pl-2 sm:pl-3">
-            <p className="text-base sm:text-lg font-bold leading-8 text-[var(--color-text-primary)]">
+            <p className="text-base font-bold leading-8 text-[var(--color-text-primary)] sm:text-lg">
               {b.headline}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -409,102 +265,83 @@ export const StockTextBriefPanel: React.FC<Props> = ({ symbol, brief }) => {
                 <StanceIcon tone={stanceTone} />
                 整體 {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
               </Tag>
-              <Tag>資料充分度 {CONF[b.confidence ?? ''] ?? b.confidence}</Tag>
+              <Tag title={CONF_HINT}>分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}</Tag>
             </div>
             {b.confidence_reason ? (
               <p className="mt-3 text-sm leading-7 text-[var(--color-text-secondary)]">
                 {b.confidence_reason}
               </p>
             ) : null}
+            <div className="mt-3">
+              <BriefAudit />
+            </div>
           </div>
         </section>
 
-        <p className="text-xs text-[var(--color-text-muted)]">
-          點任一句結論，右側會亮出它根據的原始資料；點原始資料，則反查有哪些結論用到它（Esc 取消）。
-        </p>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-          <div className="lg:col-span-7 flex flex-col gap-4">
-            <Section title="現在是什麼狀態" icon={<Sparkles size={15} className="text-brand" aria-hidden />}>
-              <ClaimList items={b.current_status} />
-            </Section>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Section title="正面因素">
-                <ClaimList items={b.positive_factors} />
-              </Section>
-              <Section title="負面因素">
-                <ClaimList items={b.negative_factors} />
-              </Section>
-            </div>
-
-            {b.source_divergences?.length ? (
-              <Section title="不同資料互相矛盾的地方">
-                <ClaimList items={b.source_divergences} />
-              </Section>
-            ) : null}
-
-            <Section title="關鍵交易日" hint="漲跌幅與量能倍數由後端回填，不是 AI 寫的">
-              <KeyDays items={b.key_days} />
-            </Section>
-
-            <Section
-              title="需要留意的風險"
-              icon={<AlertTriangle size={15} className="text-warning-icon" aria-hidden />}
+        {/* 分頁 */}
+        <div
+          role="tablist"
+          aria-label="分析內容分頁"
+          className="flex min-w-0 gap-1 overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-1"
+        >
+          {TABS.map(([key, label], index) => (
+            <button
+              key={key}
+              ref={(node) => {
+                tabRefs.current[index] = node;
+              }}
+              type="button"
+              role="tab"
+              id={`brief-tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls={`brief-panel-${key}`}
+              tabIndex={tab === key ? 0 : -1}
+              onClick={() => setTab(key)}
+              onKeyDown={(event) => onTabKeyDown(event, index)}
+              className={`min-h-[40px] flex-1 whitespace-nowrap rounded-lg px-3 text-sm font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
+                tab === key
+                  ? 'bg-[var(--color-bg-card)] text-brand shadow-[var(--shadow-card)]'
+                  : 'text-[var(--color-text-secondary)] hover:text-brand'
+              }`}
             >
-              <RiskList items={b.risks} />
-            </Section>
-
-            <Section title="接下來觀察什麼" icon={<Eye size={15} className="text-brand" aria-hidden />}>
-              <WatchList items={b.watch_points} />
-            </Section>
-
-            <Section title="未來看法" hint="只講方向與什麼情況下不成立，不給價格">
-              <ForwardViewCards views={b.forward_views} />
-            </Section>
-
-            {b.limitations?.length ? (
-              <Section title="這份分析看不到的部分">
-                <ul className="list-disc space-y-1 pl-5 text-sm leading-7 text-[var(--color-text-secondary)]">
-                  {b.limitations.map((t, i) => (
-                    <li key={i}>{t}</li>
-                  ))}
-                </ul>
-              </Section>
-            ) : null}
-          </div>
-
-          {/* [1] 為什麼：所有結論引用的原始資料 */}
-          <div className="lg:col-span-5 lg:sticky lg:top-0">
-            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5 shadow-[var(--shadow-card)]">
-              <h3 className="inline-flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
-                <FileText size={15} className="text-brand" aria-hidden />
-                用到的原始資料
-              </h3>
-              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                AI 只看得到這些數字與新聞，看不到的都寫在「這份分析看不到的部分」。
-              </p>
-              <div className="mt-3 lg:max-h-[calc(100dvh-18rem)] lg:overflow-y-auto lg:pr-1">
-                <EvidenceCatalog catalog={data.evidence_catalog} />
-              </div>
-            </div>
-          </div>
+              {label}
+            </button>
+          ))}
         </div>
 
-        {data.limitations?.length ? (
-          <Section title="這次執行的限制">
-            <ul className="list-disc space-y-1 pl-5 text-sm leading-7 text-[var(--color-text-secondary)]">
-              {data.limitations.map((t, i) => (
-                <li key={i}>{t}</li>
-              ))}
-            </ul>
-          </Section>
-        ) : null}
+        {/* 右欄要 sticky，所以格線不能用 items-start——欄位高度必須撐滿整列才有滑動空間 */}
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-12">
+          <div
+            role="tabpanel"
+            id={`brief-panel-${tab}`}
+            aria-labelledby={`brief-tab-${tab}`}
+            tabIndex={0}
+            className="min-w-0 lg:col-span-7"
+          >
+            {tab === 'points' ? <KeyPointsTab brief={b} /> : null}
+            {tab === 'scenario' ? <ScenarioTab brief={b} /> : null}
+            {tab === 'sources' ? (
+              <SectionCard
+                title="這次用到的原始資料"
+                icon={<FileSearch size={15} className="text-brand" aria-hidden />}
+                hint="AI 只看得到這些數字與新聞。點任一筆可以反查有哪些結論用到它。"
+              >
+                <EvidenceCatalog limitations={data.limitations} />
+              </SectionCard>
+            ) : null}
+          </div>
+
+          <div className="min-w-0 lg:col-span-5">
+            <EvidenceRail limitations={data.limitations} showCatalog={tab !== 'sources'} />
+          </div>
+        </div>
 
         <p className="text-xs leading-6 text-[var(--color-text-muted)]">
           {data.disclaimer?.text ??
             '本區內容由系統依據公開資料與模型整理產生，僅供研究與參考，不代表保證獲利。投資前請自行評估風險。'}
         </p>
+
+        <EvidenceSheet />
       </div>
     </BriefHighlightProvider>
   );

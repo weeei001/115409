@@ -289,3 +289,40 @@ def test_same_day_news_with_subsecond_timestamp_is_kept():
         datetime(2026, 7, 13, 23, 59, 59, 500000), date(2026, 7, 13)
     )
     assert not _is_on_or_before_as_of(datetime(2026, 7, 14, 0, 0, 0), date(2026, 7, 13))
+
+
+def test_news_source_metadata_reaches_the_catalog_but_not_the_llm_payload():
+    """出處 metadata 只走資料擷取階段：catalog 帶得到，payload 看不到。
+
+    前端顯示的原始網址與發布媒體必須是擷取來的，模型看不到就寫不出假網址。
+    """
+    items = build_news_items(
+        [
+            {
+                "title": "法說會",
+                "summary": "毛利率展望",
+                "timestamp": "2026-07-17T09:00:00",
+                "url": "https://news.cnyes.com/news/id/1234567",
+                "publisher": "鉅亨網",
+                "kind": "guidance",
+            },
+            {
+                "title": "沒有出處的那則",
+                "summary": "系統彙整",
+                "timestamp": "2026-07-16T09:00:00",
+            },
+        ],
+        summary_chars=None,
+    )
+    bundle = EvidenceBundle(symbol="2330", as_of_date=date(2026, 7, 17), news=items)
+
+    catalog = {row["id"]: row for row in bundle.catalog()}
+    assert catalog["nw_01"]["url"] == "https://news.cnyes.com/news/id/1234567"
+    assert catalog["nw_01"]["publisher"] == "鉅亨網"
+    # 帶不到出處的那則不會補一個假的，欄位直接不存在
+    assert "url" not in catalog["nw_02"]
+    assert "publisher" not in catalog["nw_02"]
+
+    payload_news = bundle.as_payload_sections()["news"]
+    assert all("url" not in row and "publisher" not in row for row in payload_news)
+    assert [row["id"] for row in payload_news] == ["nw_01", "nw_02"]

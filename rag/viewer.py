@@ -175,7 +175,7 @@ with tab1:
         collection_name = "news_chunks"
         if not os.path.exists(qdrant_path):
             return None, None, None
-        embeddings = NVIDIAEmbeddings(model="nvidia/nv-embedqa-e5-v5")
+        embeddings = NVIDIAEmbeddings(model=os.environ.get("EMBED_MODEL", "nvidia/nemotron-3-embed-1b"))
         client = QdrantClient(path=qdrant_path)
         return embeddings, client, collection_name
 
@@ -185,7 +185,7 @@ with tab1:
     @st.cache_resource
     def get_intent_classifier():
         # 使用 NVIDIA 免費提供的 Llama 3 大腦來判斷
-        llm = ChatNVIDIA(model="meta/llama3-70b-instruct", temperature=0)
+        llm = ChatNVIDIA(model=os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813"), temperature=0)
         prompt = PromptTemplate.from_template(
             "你是一個嚴格的意圖分類器。使用者會輸入一句話。\n"
             "如果這句話跟『台股、財經、股票、營收、財報、伺服器、AI發展、總體經濟、或者具體公司(如鴻海,台積電,聯發科等)』有關，請只回答 'YES'。\n"
@@ -361,7 +361,7 @@ with tab1:
                 try:
                     with st.spinner("🤖 AI 財經分析師正在思考中，請稍候..."):
                         completion = openai_client.chat.completions.create(
-                            model="meta/llama-3.3-70b-instruct",
+                            model=os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813"),
                             messages=[{"role": "user", "content": prompt_str}],
                             temperature=0.6,
                             top_p=0.7,
