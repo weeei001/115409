@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowLeft, FileText, Info, X } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { ArrowLeft, X } from 'lucide-react';
 import { ExpandableRegion } from '../../ExpandableRegion';
 import type { ResolvedEvidence } from '../../../lib/utils/textBriefEvidence';
 import { useBriefHighlight } from './BriefHighlight';
@@ -10,7 +10,7 @@ import { EvidenceDetail } from './EvidenceDetail';
 const GROUP_PREVIEW = 3;
 
 const EvidenceRow: React.FC<{ item: ResolvedEvidence }> = ({ item }) => {
-  const { isEvidenceOn, toggleEvidence, bindEvidence, hasFocus } = useBriefHighlight();
+  const { isEvidenceOn, toggleEvidence, bindEvidence } = useBriefHighlight();
   const on = isEvidenceOn(item.id);
   return (
     <div
@@ -25,12 +25,10 @@ const EvidenceRow: React.FC<{ item: ResolvedEvidence }> = ({ item }) => {
         e.preventDefault();
         toggleEvidence(item.id);
       }}
-      className={`rounded-lg border border-l-4 px-2.5 py-2 text-sm cursor-pointer transition-[background-color,border-color,opacity] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
+      className={`border-b border-l-2 px-3 py-3 text-sm cursor-pointer transition-[background-color,border-color,opacity] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
         on
-          ? 'border-brand/40 border-l-brand bg-brand/10'
-          : `border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50 ${
-              hasFocus ? 'opacity-55' : ''
-            }`
+          ? 'border-[var(--color-border)] border-l-brand bg-[var(--color-bg-elevated)]'
+          : `border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50`
       }`}
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -127,12 +125,12 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
         <button
           type="button"
           onClick={clear}
-          className="mb-3 inline-flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-xs font-semibold text-[var(--color-text-secondary)] transition-colors hover:border-brand/40 hover:text-brand cursor-pointer"
+          className="mb-4 inline-flex items-center gap-1 py-1 text-xs font-semibold text-[var(--color-text-secondary)] transition-colors hover:border-brand/40 hover:text-brand cursor-pointer"
         >
           <ArrowLeft size={12} aria-hidden />
           回到來源清單
         </button>
-        <EvidenceDetail item={item} usedBy={claimsUsing(item.id)} onSelectClaim={toggleClaim} />
+        <EvidenceDetail item={item} selectedClaim={focus.claimKey ? claims.get(focus.claimKey) : undefined} usedBy={claimsUsing(item.id)} onSelectClaim={toggleClaim} />
       </div>
     );
   }
@@ -149,7 +147,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
           {ref?.text}
         </p>
         <p className="mt-3 text-xs font-bold text-[var(--color-text-muted)]">
-          這句話的依據（{usable.length}）
+          這句話的引用依據（{usable.length}）
         </p>
         <div className="mt-1.5 space-y-1">
           {usable.map((id) => {
@@ -158,7 +156,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
               <button
                 key={id}
                 type="button"
-                onClick={() => selectEvidence(id)}
+                onClick={() => selectEvidence(id, focus.key)}
                 className="w-full rounded-lg border border-[var(--color-border)] px-2.5 py-2 text-left transition-colors hover:border-brand/40 hover:bg-brand/5 cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
               >
                 <span className="flex flex-wrap items-baseline gap-x-2">
@@ -191,8 +189,8 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
   return (
     <div>
       <p className="inline-flex items-start gap-1.5 text-xs leading-6 text-[var(--color-text-muted)]">
-        <Info size={13} aria-hidden className="mt-1 shrink-0" />
-        點任一句結論，這裡會列出它的依據；點來源標籤或下面的項目，會反查有哪些結論用到它（Esc 取消）。
+
+        選取結論或來源，在這裡核對資料。
       </p>
       {compactCatalog ? (
         <div className="mt-3">
@@ -209,9 +207,9 @@ export const EvidenceRail: React.FC<{ limitations?: string[]; showCatalog?: bool
   showCatalog = true,
 }) => (
   <div className="hidden lg:block lg:sticky lg:top-0">
-    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 shadow-[var(--shadow-card)]">
+    <div className="rounded-lg bg-[var(--color-bg-elevated)]/50 p-5">
       <h3 className="inline-flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
-        <FileText size={15} className="text-brand" aria-hidden />
+
         證據詳情
       </h3>
       <div
@@ -228,17 +226,48 @@ export const EvidenceRail: React.FC<{ limitations?: string[]; showCatalog?: bool
 /** 手機底部抽屜：只有選了東西才出現，內容與桌機右欄相同 */
 export const EvidenceSheet: React.FC = () => {
   const { hasFocus, clear } = useBriefHighlight();
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!hasFocus) return;
+    const sheet = sheetRef.current;
+    if (!sheet || !window.matchMedia('(max-width: 1023px)').matches) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const parentDialog = sheet.parentElement?.closest('[role="dialog"]');
+    const timer = window.setTimeout(() => sheet.querySelector<HTMLButtonElement>('button')?.focus(), 75);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !sheet.getClientRects().length) return;
+      const controls = [...sheet.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]')]
+        .filter(node => node.getClientRects().length);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (!first) return;
+      event.stopPropagation();
+      if (!sheet.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last)) {
+        event.preventDefault(); first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('keydown', onKey, true);
+      if (previous?.isConnected && parentDialog?.contains(previous)) previous.focus();
+      else parentDialog?.querySelector<HTMLButtonElement>('button')?.focus();
+    };
+  }, [hasFocus]);
   if (!hasFocus) return null;
 
   return (
     <div
+      ref={sheetRef}
       role="dialog"
+      aria-modal="true"
       aria-label="證據詳情"
       className="fixed inset-x-0 bottom-0 z-[70] max-h-[78dvh] overflow-y-auto rounded-t-2xl border-t border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-[var(--shadow-elevated)] lg:hidden"
     >
       <div className="sticky top-0 -mx-4 mb-2 flex items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 pb-2">
         <h3 className="inline-flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
-          <FileText size={15} className="text-brand" aria-hidden />
+
           證據詳情
         </h3>
         <button

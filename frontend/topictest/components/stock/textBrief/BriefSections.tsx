@@ -162,7 +162,7 @@ const ForwardViewCards: React.FC<{ views?: ForwardViews }> = ({ views }) => {
         return (
           <div
             key={key}
-            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/40 p-3"
+            className="border-l border-[var(--color-border)] pl-3"
           >
             <div className="text-xs font-semibold text-[var(--color-text-muted)]">{label}</div>
             <div className="mt-2">

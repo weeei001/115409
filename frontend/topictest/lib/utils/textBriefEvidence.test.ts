@@ -170,7 +170,7 @@ const AS_OF = '2026-09-03';
   );
   assert.deepEqual(
     claimsUsingEvidence(claims, 'd_40').map((ref) => ref.key),
-    ['cs_01', 'neg_01', 'fv:short_1_5']
+    ['cs_01', 'neg_01', 'iv:short_1_5', 'fv:short_1_5']
   );
   assert.deepEqual(claimsUsingEvidence(claims, 'nope_01'), []);
   assert.equal(claims.get('neg_01')?.claimType, 'inference');

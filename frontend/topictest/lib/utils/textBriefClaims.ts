@@ -71,6 +71,8 @@ export function buildClaimIndex(brief: Brief | null | undefined): Map<string, Cl
   FORWARD_VIEWS.forEach(([key, label]) => {
     const view = brief.forward_views?.[key];
     if (!view) return;
+    if (view.invalidation) add({ key: `iv:${key}`, section: `${label}・重新評估條件`,
+      text: view.invalidation, claimType: 'inference', evidenceIds: view.evidence_ids ?? [] });
     add({
       key: forwardViewKey(key),
       section: label,

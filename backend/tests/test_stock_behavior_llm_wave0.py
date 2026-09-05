@@ -2,7 +2,11 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
+from schemas.stock_behavior import StockBehaviorTextBrief
 from stock_behavior import llm
+from stock_behavior.few_shot_examples import FEW_SHOT_EXAMPLES
 from stock_behavior.llm import (
     StockBehaviorLlmService,
     _load_json_object,
@@ -10,6 +14,35 @@ from stock_behavior.llm import (
 )
 from stock_behavior.orchestrator import build_llm_runtime_config, compute_config_hash
 from stock_behavior.utils import detect_simplified_chinese
+
+
+@pytest.mark.parametrize("example", FEW_SHOT_EXAMPLES, ids=lambda e: e["scenario"])
+def test_few_shot_answers_match_schema_and_their_own_evidence(example):
+    """實際注入的示範必須可解析，引用及關鍵日只能來自同一份輸入。"""
+    payload = example["input_payload"]
+    answer = StockBehaviorTextBrief.model_validate(example["output_brief"])
+    ids = {
+        item["id"]
+        for section in ("daily_timeline", "chip_summary", "long_term_anchor", "fundamental", "news")
+        for item in payload.get(section, [])
+    }
+    timeline = {item["id"]: item for item in payload["daily_timeline"]}
+
+    def check_refs(value):
+        if isinstance(value, dict):
+            assert set(value.get("evidence_ids", [])) <= ids
+            for child in value.values():
+                check_refs(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_refs(child)
+
+    check_refs(answer.model_dump())
+    for day in answer.key_days:
+        assert day.ref in day.evidence_ids
+        assert day.date == timeline[day.ref]["date"]
+        assert day.date <= payload["task"]["as_of_date"]
+    assert all(item.claim_type == "conflict" for item in answer.source_divergences)
 
 
 def _settings(**overrides):

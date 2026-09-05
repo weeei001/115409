@@ -27,6 +27,7 @@ def get_cached_llm_response(
     as_of_date: date | None,
     kind: str,
     config_hash: str,
+    max_as_of_date: date | None = None,
 ) -> LlmResponse | None:
     """同一檔、同一組設定的最近一次成功回覆，供快取重播。
 
@@ -40,4 +41,6 @@ def get_cached_llm_response(
     )
     if as_of_date is not None:
         query = query.filter(LlmResponse.as_of_date == as_of_date)
+    if max_as_of_date is not None:
+        query = query.filter(LlmResponse.as_of_date <= max_as_of_date)
     return query.order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc()).first()

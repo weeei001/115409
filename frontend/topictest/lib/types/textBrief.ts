@@ -129,6 +129,10 @@ export interface EvidenceItem {
   publisher?: string | null;
   /** 後端目前不回；保留給未來由擷取階段標註來源型別用 */
   source_type?: string | null;
+  published_at?: string | null;
+  collected_at?: string | null;
+  publication_basis?: string | null;
+  calculation?: { formula: string; inputs: { date: string; value: number }[]; unit: string };
 }
 
 export interface Disclaimer {
@@ -147,6 +151,11 @@ export interface TextBriefResponse {
   disclaimer?: Disclaimer;
   limitations?: string[];
   cached?: boolean;
+  analysis_mode?: 'current_analysis' | 'historical_reanalysis' | null;
+  snapshot_id?: number | null;
+  generated_at?: string | null;
+  analysis_revision?: string | null;
+  config_hash?: string | null;
 }
 
 export interface TextBriefRequest {

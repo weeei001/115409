@@ -189,6 +189,11 @@ def test_chip_summary_accumulates_the_last_ten_trading_days():
     items, missing = build_chip_summary(timeline=timeline)
 
     assert missing == []
+    calculation = items[0].pop("calculation")
+    assert calculation["unit"] == "張"
+    assert len(calculation["inputs"]) == 10
+    assert sum(entry["value"] for entry in calculation["inputs"]) == items[0]["value"]
+    assert [entry["date"] for entry in calculation["inputs"]] == [row["date"] for row in timeline]
     assert items == [
         {
             "id": "ch_01",
@@ -319,10 +324,14 @@ def test_news_source_metadata_reaches_the_catalog_but_not_the_llm_payload():
     catalog = {row["id"]: row for row in bundle.catalog()}
     assert catalog["nw_01"]["url"] == "https://news.cnyes.com/news/id/1234567"
     assert catalog["nw_01"]["publisher"] == "鉅亨網"
+    assert catalog["nw_01"]["published_at"] == "2026-07-17T09:00:00"
+    assert catalog["nw_01"]["collected_at"] == bundle.collected_at
+    assert bundle.catalog()[0]["collected_at"] == bundle.collected_at
     # 帶不到出處的那則不會補一個假的，欄位直接不存在
     assert "url" not in catalog["nw_02"]
     assert "publisher" not in catalog["nw_02"]
 
     payload_news = bundle.as_payload_sections()["news"]
     assert all("url" not in row and "publisher" not in row for row in payload_news)
+    assert all("published_at" not in row and "collected_at" not in row for row in payload_news)
     assert [row["id"] for row in payload_news] == ["nw_01", "nw_02"]
