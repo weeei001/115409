@@ -75,8 +75,10 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   // 從摘要卡的來源標籤點進來時，完整分析要先亮那一筆證據
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null);
+  const [focusClaimKey, setFocusClaimKey] = useState<string | null>(null);
   const close = () => setDrawer(null);
-  const openAI = (evidenceId?: string) => {
+  const openAI = (evidenceId?: string, claimKey?: string) => {
+    setFocusClaimKey(claimKey ?? null);
     setFocusEvidenceId(evidenceId ?? null);
     setDrawer('ai');
   };
@@ -270,29 +272,15 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
         open={drawer === 'ai'}
         onClose={close}
         title="AI 投資分析"
-        subtitle={
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="truncate">這支股票現在是什麼狀態，以及為什麼</span>
-            {textBrief.data?.as_of_date ? (
-              <span className="inline-flex items-center gap-1 text-[var(--color-text-secondary)]">
-                <span className="text-[var(--color-text-muted)]">分析到</span>
-                <span className="tabular-nums">{textBrief.data.as_of_date}</span>
-              </span>
-            ) : null}
-            {textBrief.data?.generated_by ? (
-              <span className="inline-flex items-center gap-1 text-[var(--color-text-secondary)]">
-                <span className="text-[var(--color-text-muted)]">模型</span>
-                <span>{textBrief.data.generated_by}</span>
-              </span>
-            ) : null}
-          </div>
-        }
+        subtitle="判斷、引用依據與分析限制"
       >
         {drawer === 'ai' ? (
           <StockTextBriefPanel
+            key={`${symbol}:${textBrief.data?.snapshot_id ?? textBrief.data?.as_of_date ?? endDate}`}
             symbol={symbol}
             brief={textBrief}
             initialEvidenceId={focusEvidenceId}
+            initialClaimKey={focusClaimKey}
             latestTradeDate={latest.date}
           />
         ) : null}

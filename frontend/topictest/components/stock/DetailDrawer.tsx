@@ -69,8 +69,12 @@ export const DetailDrawer: React.FC<Props> = ({
 
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
     const t = window.setTimeout(() => closeBtnRef.current?.focus(), 50);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      if (previous?.isConnected) previous.focus();
+    };
   }, [open]);
 
   useEffect(() => {
