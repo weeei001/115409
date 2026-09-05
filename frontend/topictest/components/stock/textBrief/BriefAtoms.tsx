@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, FileWarning, Minus, Plus, Sparkles, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertTriangle, FileWarning, Minus, Plus, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Direction } from '../../../lib/types/textBrief';
 import { claimTypeMeta, type BriefTone } from '../../../lib/utils/textBriefLabels';
 import type { EvidenceIndex, ResolvedEvidence } from '../../../lib/utils/textBriefEvidence';
@@ -27,7 +27,7 @@ export const Tag: React.FC<{
 }> = ({ tone = 'plain', title, className, children }) => (
   <span
     title={title}
-    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${TONE_CLASS[tone]} ${className ?? ''}`}
+    className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-semibold ${TONE_CLASS[tone]} ${className ?? ''}`}
   >
     {children}
   </span>
@@ -36,7 +36,7 @@ export const Tag: React.FC<{
 export function StanceIcon({ tone, size = 14 }: { tone: BriefTone; size?: number }) {
   if (tone === 'ok') return <TrendingUp size={size} aria-hidden className="shrink-0" />;
   if (tone === 'bad') return <TrendingDown size={size} aria-hidden className="shrink-0" />;
-  return <Sparkles size={size} aria-hidden className="shrink-0" />;
+  return <Minus size={size} aria-hidden className="shrink-0" />;
 }
 
 /** 結論性質標籤；observation 不加標籤（它本來就該有證據） */
@@ -60,7 +60,7 @@ export const DirectionMark: React.FC<{ direction?: Direction; label?: string }> 
 }) => {
   const positive = direction === 'positive';
   const negative = direction === 'negative';
-  const Icon = positive ? Plus : negative ? Minus : Sparkles;
+  const Icon = positive ? Plus : Minus;
   const cls = positive ? 'text-up' : negative ? 'text-down' : 'text-[var(--color-text-muted)]';
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${cls}`}>
@@ -76,11 +76,10 @@ export const SectionCard: React.FC<{
   icon?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ title, hint, icon, actions, children }) => (
-  <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5 shadow-[var(--shadow-card)]">
+}> = ({ title, hint, actions, children }) => (
+  <section className="border-t border-[var(--color-border)] py-5">
     <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
       <h3 className="inline-flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
-        {icon}
         {title}
       </h3>
       {actions}
@@ -148,7 +147,7 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
   if (!list.length && !warnWhenEmpty) return null;
 
   return (
-    <div className={`flex flex-wrap items-center gap-1.5 ${className ?? ''}`}>
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-0 ${className ?? ''}`}>
       {usable.map((id) => {
         const item = index.resolve(id)!;
         const active = activeId === id;
@@ -163,10 +162,10 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
             aria-pressed={active}
             aria-label={`查看來源：${item.label}`}
             title={`原始代號 ${id}`}
-            className={`inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] leading-5 transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
+            className={`inline-flex max-w-full items-center gap-1 px-0.5 py-1 text-xs leading-5 underline underline-offset-4 decoration-[var(--color-border)] transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
               active
-                ? 'border-brand bg-brand/15 font-bold text-brand underline decoration-2 underline-offset-2'
-                : 'border-[var(--color-border)] bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:border-brand/40 hover:text-brand'
+                ? 'font-semibold text-[var(--color-text-primary)] decoration-2'
+                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:decoration-current'
             }`}
           >
             <span className="truncate">{item.label}</span>

@@ -227,6 +227,11 @@ class StockBehaviorTextBriefResponse(BaseModel):
     disclaimer: TextBriefDisclaimer
     limitations: list[str] = Field(default_factory=list)
     cached: bool = False
+    analysis_mode: Literal["current_analysis", "historical_reanalysis"] | None = None
+    snapshot_id: int | None = None
+    generated_at: str | None = None
+    analysis_revision: str | None = None
+    config_hash: str | None = None
 
 
 class RawTextBriefClaim(BaseModel):

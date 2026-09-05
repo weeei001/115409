@@ -10,7 +10,7 @@ LLM 讀了也無法引用（會被 evidence 過濾器刪掉），此處以「每
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable, Sequence
 
@@ -136,7 +136,7 @@ def _revenue_is_published(row_date: date, as_of: date) -> bool:
 
 
 # 只給前端顯示出處用、不進 LLM payload 的新聞欄位
-_NEWS_META_KEYS = frozenset({"url", "publisher"})
+_NEWS_META_KEYS = frozenset({"url", "publisher", "published_at", "publication_basis"})
 
 
 class _IdGen:
@@ -160,6 +160,7 @@ class EvidenceBundle:
     news: list[dict[str, Any]] = field(default_factory=list)
     missing_fields: list[str] = field(default_factory=list)
     rag_fallback_mode: bool = False
+    collected_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def as_payload_sections(self) -> dict[str, Any]:
         return {
@@ -209,9 +210,15 @@ class EvidenceBundle:
             )
         catalog.extend(self.chip_summary)
         catalog.extend(self.long_term_anchor)
-        catalog.extend(self.fundamental)
+        catalog.extend({**item, "publication_basis": (
+            "依財報期間與固定公告延遲推定可用日，未取得實際公告時間"
+            if item.get("field") in {"eps", "gross_margin_pct", "operating_margin_pct"}
+            else "依月營收公告期限推定可用日，未取得實際公告時間"
+            if item.get("field") in {"revenue_monthly", "revenue_yoy_positive_streak"}
+            else "市場資料日期；未保存精確發布與修訂時間"
+        )} for item in self.fundamental)
         catalog.extend(self.news)
-        return catalog
+        return [{**item, "collected_at": self.collected_at} for item in catalog]
 
     def timeline_by_id(self) -> dict[str, dict[str, Any]]:
         return {row["id"]: row for row in self.daily_timeline}
@@ -350,6 +357,11 @@ def build_chip_summary(
             "field": "foreign_net_10d_lots",
             "date": str(recent[-1].get("date")),
             "value": int(sum(values)),
+            "calculation": {
+                "formula": "近十個交易日外資買賣超加總後取整數",
+                "unit": "張",
+                "inputs": [{"date": str(row["date"]), "value": value} for row, value in zip(recent, values)],
+            },
         }
     ], []
 
@@ -665,6 +677,8 @@ def build_news_items(
             "id": ids.next(),
             "field": "news",
             "date": timestamp.split("T", 1)[0] if timestamp else None,
+            "published_at": timestamp if "T" in timestamp else None,
+            "publication_basis": "上游提供的新聞發布時間；未保存取得與修訂時間",
             "kind": kind if kind in {"general", "guidance", "market"} else "general",
             "title": title,
             "value": summary or title,

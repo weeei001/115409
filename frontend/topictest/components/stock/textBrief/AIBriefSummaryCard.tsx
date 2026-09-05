@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AlertTriangle, ArrowRight, BrainCircuit, Loader2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { UseStockTextBriefResult } from '../../../lib/hooks/useStockTextBrief';
 import type { Claim } from '../../../lib/types/textBrief';
 import { buildEvidenceIndex } from '../../../lib/utils/textBriefEvidence';
@@ -12,7 +12,7 @@ import {
   STANCE_TONE,
   type BriefTone,
 } from '../../../lib/utils/textBriefLabels';
-import { ClaimTypeBadge, DirectionMark, EvidenceTagList, StanceIcon, Tag } from './BriefAtoms';
+import { ClaimTypeBadge, EvidenceTagList, StanceIcon, Tag } from './BriefAtoms';
 
 interface Props {
   symbol: string;
@@ -24,7 +24,7 @@ interface Props {
   /** 證據目錄沒有均線數字時，技術動能面向的備援（本站價量計算） */
   maStructureLabel?: string;
   /** 開啟完整分析；帶 evidenceId 時先亮那一筆證據 */
-  onOpenDetail: (evidenceId?: string) => void;
+  onOpenDetail: (evidenceId?: string, claimKey?: string) => void;
 }
 
 /** 最多顯示幾項正面／風險 */
@@ -47,13 +47,8 @@ function topClaims(items?: Claim[]): Claim[] {
 const CardFrame: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <section
     aria-label="AI 投資分析摘要"
-    className="relative overflow-hidden rounded-2xl border border-brand/25 bg-[var(--color-bg-card)] p-4 shadow-[var(--shadow-card)] sm:p-5"
+    className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5 shadow-[var(--shadow-card)] sm:p-7"
   >
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-x-0 top-0 h-px"
-      style={{ background: 'var(--brand-gradient)' }}
-    />
     {children}
   </section>
 );
@@ -64,7 +59,7 @@ const CardHeader: React.FC<{
 }> = ({ asOfDate, right }) => (
   <div className="flex flex-wrap items-center justify-between gap-2">
     <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-      <BrainCircuit size={14} className="text-brand" aria-hidden />
+      <Sparkles size={13} aria-hidden className="text-brand" />
       AI 投資分析
     </span>
     <span className="flex items-center gap-2">
@@ -101,7 +96,7 @@ const RetryButton: React.FC<{ onClick: () => void; busy?: boolean }> = ({ onClic
 
 const FacetCell: React.FC<{ facet: Facet }> = ({ facet }) => (
   <div
-    className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 px-2.5 py-2"
+    className="rounded-lg bg-[var(--color-bg-elevated)] px-3 py-2"
     title={facet.rule}
   >
     <p className="text-[10px] leading-tight text-[var(--color-text-muted)]">{facet.label}</p>
@@ -215,29 +210,31 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   const stanceTone: BriefTone = STANCE_TONE[b.overall_stance ?? ''] ?? 'plain';
   const positives = topClaims(b.positive_factors);
   const negatives = topClaims(b.negative_factors);
-  const watch = (b.watch_points ?? []).slice(0, 2);
+  const divergence = topClaims(b.source_divergences?.filter(item => !item.claim_type || item.claim_type === 'conflict')).slice(0, 1);
+  const shortView = b.forward_views?.short_1_5;
   const stale = Boolean(latestTradeDate && data.as_of_date && data.as_of_date < latestTradeDate);
 
   const factorBlock = (
     title: string,
     items: Claim[],
-    fallback: string
+    fallback: string,
+    accentClass = 'text-[var(--color-text-muted)]'
   ) => (
     <div className="min-w-0">
-      <p className="text-xs font-bold text-[var(--color-text-muted)]">{title}</p>
+      <p className={`text-xs font-bold ${accentClass}`}>{title}</p>
       {items.length ? (
         <ul className="mt-1.5 space-y-2">
           {items.map((item) => (
             <li key={item.id} className="min-w-0">
               <p className="flex flex-wrap items-start gap-x-1.5 gap-y-1 text-sm leading-6 text-[var(--color-text-primary)]">
-                <DirectionMark direction={item.direction} />
+
                 <span className="min-w-0">{item.text}</span>
                 <ClaimTypeBadge claimType={item.claim_type} />
               </p>
               <EvidenceTagList
                 ids={item.evidence_ids}
                 index={evidence}
-                onSelect={(id) => onOpenDetail(id)}
+                onSelect={(id) => onOpenDetail(id, item.id)}
                 warnWhenEmpty={item.claim_type === 'observation'}
                 className="mt-1"
               />
@@ -280,7 +277,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
         </span>
       </div>
 
-      <p className="mt-2 line-clamp-2 text-base font-bold leading-7 text-[var(--color-text-primary)]">
+      <p className="mt-3 border-l-2 border-brand/50 pl-3 font-display text-xl font-semibold leading-8 tracking-tight text-[var(--color-text-primary)]">
         {b.headline}
       </p>
 
@@ -293,7 +290,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
           return (
             <div
               key={key}
-              className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 px-2.5 py-2"
+              className="flex items-center justify-between gap-2 rounded-lg bg-[var(--color-bg-elevated)] px-3 py-2"
             >
               <span className="text-xs text-[var(--color-text-muted)]">{label}</span>
               <span className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--color-text-primary)]">
@@ -308,21 +305,20 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
       <Divider />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {factorBlock('正面', positives, '這次沒有列出正面因素。')}
-        {factorBlock('風險', negatives, '這次沒有列出風險因素。')}
+        {factorBlock('正面', positives, '這次沒有列出正面因素。', 'text-up-emphasis')}
+        {factorBlock('風險', negatives, '這次沒有列出風險因素。', 'text-down-emphasis')}
       </div>
 
-      {watch.length ? (
-        <>
-          <Divider />
-          <div className="min-w-0">
-            <p className="text-xs font-bold text-[var(--color-text-muted)]">主要觀察</p>
-            <p className="mt-1 text-sm leading-6 text-[var(--color-text-primary)]">
-              {watch.map((item) => item.what_to_watch).join('、')}
-            </p>
-          </div>
-        </>
-      ) : null}
+      <Divider />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {factorBlock('主要分歧', divergence, '本次未提供主要分歧，並不代表沒有矛盾。')}
+        <div>
+          <p className="text-xs font-bold text-[var(--color-text-muted)]">重新評估條件 · 短線 1–5 日</p>
+          <p className="mt-1.5 text-sm leading-6">{shortView?.invalidation || '本次未提供短線失效條件。'}</p>
+          {shortView?.invalidation ? <EvidenceTagList ids={shortView.evidence_ids} index={evidence}
+            onSelect={(id) => onOpenDetail(id, 'iv:short_1_5')} warnWhenEmpty className="mt-1" /> : null}
+        </div>
+      </div>
 
       <Divider />
 
@@ -341,7 +337,8 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
         <button
           type="button"
           onClick={() => onOpenDetail()}
-          className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-brand/30 bg-[var(--color-bg-elevated)] px-4 text-sm font-semibold text-brand transition-colors hover:bg-brand/10 cursor-pointer"
+          className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-white shadow-[var(--shadow-card)] transition-opacity hover:opacity-90 cursor-pointer"
+          style={{ background: 'var(--brand-gradient)' }}
         >
           查看完整分析
           <ArrowRight size={14} aria-hidden />

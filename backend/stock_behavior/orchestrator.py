@@ -771,6 +771,7 @@ class StockBehaviorOrchestrator:
         symbol: str,
         as_of_date: date | None,
         config_hash: str,
+        max_as_of_date: date | None = None,
     ) -> StockBehaviorTextBriefResponse | None:
         row = get_cached_llm_response(
             self._db,
@@ -778,16 +779,12 @@ class StockBehaviorOrchestrator:
             as_of_date=as_of_date,
             kind=LLM_RESPONSE_KIND_TEXT_BRIEF,
             config_hash=config_hash,
+            **({"max_as_of_date": max_as_of_date} if max_as_of_date else {}),
         )
         if row is None or not row.response_json:
             return None
-        try:
-            stored = json.loads(row.response_json)
-            response = StockBehaviorTextBriefResponse.model_validate(stored)
-        except (ValueError, ValidationError):
-            return None
-        response.cached = True
-        return response
+        from stock_behavior.history import saved_brief
+        return saved_brief(row)
 
     async def generate_text_brief(
         self,
@@ -830,6 +827,7 @@ class StockBehaviorOrchestrator:
                 symbol=symbol,
                 as_of_date=None,
                 config_hash=config_hash,
+                max_as_of_date=as_of_date,
             )
             log_event(
                 "text_brief.cache_only",
@@ -1034,13 +1032,18 @@ class StockBehaviorOrchestrator:
             limitations=limitations,
         )
 
+        response.analysis_mode = (
+            "historical_reanalysis" if as_of_date < date.today()
+            else "current_analysis" if as_of_date == date.today() else None
+        )
+
         normalized_payload = (
             brief.model_dump(mode="json")
             if brief is not None
             else blocked_payload or {"limitations": limitations}
         )
         try:
-            create_llm_response(
+            saved_row = create_llm_response(
                 self._db,
                 symbol=symbol,
                 as_of_date=as_of_date,
@@ -1067,6 +1070,10 @@ class StockBehaviorOrchestrator:
                 ),
                 latency_ms=latency_ms,
             )
+            response.snapshot_id = getattr(saved_row, "id", None)
+            response.generated_at = saved_row.created_at.isoformat() if getattr(saved_row, "created_at", None) else None
+            response.analysis_revision = str(config["revision"])
+            response.config_hash = config_hash
             log_event(
                 "text_brief.llm_response_saved",
                 symbol=symbol,

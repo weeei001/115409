@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FileSearch, Loader2, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle,  Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { UseStockTextBriefResult } from '../../../lib/hooks/useStockTextBrief';
 import { buildEvidenceIndex } from '../../../lib/utils/textBriefEvidence';
 import { CONF, CONF_HINT, STANCE, STANCE_TONE, STATUS, type BriefTone } from '../../../lib/utils/textBriefLabels';
@@ -13,6 +13,7 @@ interface Props {
   brief: UseStockTextBriefResult;
   /** 從摘要卡的來源標籤點進來時要先亮的證據 */
   initialEvidenceId?: string | null;
+  initialClaimKey?: string | null;
   /** 儀表板最新交易日，用來判斷分析是不是過期了 */
   latestTradeDate?: string | null;
 }
@@ -84,14 +85,19 @@ const BriefAudit: React.FC = () => {
 
   if (!broken.length && !evidence.futureDatedIds.length) {
     return (
-      <p className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-        <ShieldCheck size={13} aria-hidden />
-        所有引用都對得上證據目錄（{evidence.total} 筆），日期都不晚於分析基準日。
-      </p>
+      <details className="border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-text-muted)]">
+        <summary className="cursor-pointer">引用檢核與分析限制</summary>
+        <p className="mt-2 leading-6">
+        引用可在證據目錄找到（{evidence.total} 筆），未發現晚於基準日的已知日期。
+        {evidence.undatedIds.length ? `另有 ${evidence.undatedIds.length} 筆缺少日期。` : ""}
+        引用檢核不代表內容已證實。
+        </p>
+      </details>
     );
   }
   return (
     <Notice tone="warn">
+      {evidence.undatedIds.length ? `另有 ${evidence.undatedIds.length} 筆缺少日期，無法完成時間核對。` : ""}
       {broken.length ? <>有 {broken.length} 筆引用在證據目錄裡找不到（{broken.join('、')}），已不顯示為可點擊來源。</> : null}
       {evidence.futureDatedIds.length ? (
         <>
@@ -154,6 +160,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
   symbol,
   brief,
   initialEvidenceId,
+  initialClaimKey,
   latestTradeDate,
 }) => {
   const { loading, refreshing, error, data, seconds, run } = brief;
@@ -227,7 +234,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
   };
 
   return (
-    <BriefHighlightProvider brief={b} evidence={evidence} initialEvidenceId={initialEvidenceId}>
+    <BriefHighlightProvider brief={b} evidence={evidence} initialEvidenceId={initialEvidenceId} initialClaimKey={initialClaimKey}>
       <div className="flex min-w-0 flex-col gap-4">
         {refreshing ? (
           <Notice tone="info">
@@ -249,15 +256,10 @@ export const StockTextBriefPanel: React.FC<Props> = ({
         {/* 整體結論 */}
         <section
           aria-label="整體結論"
-          className="relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-5 shadow-[var(--shadow-card)]"
+          className="py-4 sm:py-6"
         >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 w-1"
-            style={{ background: 'var(--brand-gradient)' }}
-          />
-          <div className="pl-2 sm:pl-3">
-            <p className="text-base font-bold leading-8 text-[var(--color-text-primary)] sm:text-lg">
+          <div>
+            <p className="max-w-3xl border-l-2 border-brand/50 pl-3 font-display text-xl font-semibold leading-relaxed tracking-tight text-[var(--color-text-primary)] sm:text-2xl">
               {b.headline}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -272,9 +274,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
                 {b.confidence_reason}
               </p>
             ) : null}
-            <div className="mt-3">
-              <BriefAudit />
-            </div>
+
           </div>
         </section>
 
@@ -282,7 +282,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
         <div
           role="tablist"
           aria-label="分析內容分頁"
-          className="flex min-w-0 gap-1 overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 p-1"
+          className="flex min-w-0 gap-6 overflow-x-auto border-b border-[var(--color-border)]"
         >
           {TABS.map(([key, label], index) => (
             <button
@@ -298,10 +298,10 @@ export const StockTextBriefPanel: React.FC<Props> = ({
               tabIndex={tab === key ? 0 : -1}
               onClick={() => setTab(key)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
-              className={`min-h-[40px] flex-1 whitespace-nowrap rounded-lg px-3 text-sm font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
+              className={`min-h-[44px] whitespace-nowrap border-b-2 px-1 text-sm font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
                 tab === key
-                  ? 'bg-[var(--color-bg-card)] text-brand shadow-[var(--shadow-card)]'
-                  : 'text-[var(--color-text-secondary)] hover:text-brand'
+                  ? 'border-[var(--color-text-primary)] text-[var(--color-text-primary)]'
+                  : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
               }`}
             >
               {label}
@@ -322,9 +322,8 @@ export const StockTextBriefPanel: React.FC<Props> = ({
             {tab === 'scenario' ? <ScenarioTab brief={b} /> : null}
             {tab === 'sources' ? (
               <SectionCard
-                title="這次用到的原始資料"
-                icon={<FileSearch size={15} className="text-brand" aria-hidden />}
-                hint="AI 只看得到這些數字與新聞。點任一筆可以反查有哪些結論用到它。"
+                title="引用資料"
+                hint="選取資料，查看數值與引用它的結論。"
               >
                 <EvidenceCatalog limitations={data.limitations} />
               </SectionCard>
@@ -332,10 +331,11 @@ export const StockTextBriefPanel: React.FC<Props> = ({
           </div>
 
           <div className="min-w-0 lg:col-span-5">
-            <EvidenceRail limitations={data.limitations} showCatalog={tab !== 'sources'} />
+            <EvidenceRail limitations={data.limitations} showCatalog={false} />
           </div>
         </div>
 
+        <BriefAudit />
         <p className="text-xs leading-6 text-[var(--color-text-muted)]">
           {data.disclaimer?.text ??
             '本區內容由系統依據公開資料與模型整理產生，僅供研究與參考，不代表保證獲利。投資前請自行評估風險。'}
