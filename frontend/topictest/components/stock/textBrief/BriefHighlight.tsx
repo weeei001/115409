@@ -22,7 +22,7 @@ import { EvidenceTagList } from './BriefAtoms';
  * highlight 狀態只是「結論 → 證據」對照表加上目前焦點的純函式結果。
  */
 
-export type Focus = { kind: 'claim'; key: string } | { kind: 'evidence'; id: string } | null;
+export type Focus = { kind: 'claim'; key: string } | { kind: 'evidence'; id: string; claimKey?: string } | null;
 
 interface HighlightValue {
   evidence: EvidenceIndex;
@@ -33,7 +33,7 @@ interface HighlightValue {
   toggleClaim(key: string): void;
   toggleEvidence(id: string): void;
   /** 直接切到某筆證據（列表點選用，不做 toggle） */
-  selectEvidence(id: string): void;
+  selectEvidence(id: string, claimKey?: string): void;
   clear(): void;
   bindClaim(key: string): (node: HTMLElement | null) => void;
   bindEvidence(id: string): (node: HTMLElement | null) => void;
@@ -56,29 +56,36 @@ export const BriefHighlightProvider: React.FC<{
   evidence: EvidenceIndex;
   /** 從摘要卡點來源標籤進來時，先亮那一筆 */
   initialEvidenceId?: string | null;
+  initialClaimKey?: string | null;
   children: ReactNode;
-}> = ({ brief, evidence, initialEvidenceId, children }) => {
+}> = ({ brief, evidence, initialEvidenceId, initialClaimKey, children }) => {
   const claims = useMemo(() => buildClaimIndex(brief), [brief]);
   // 摘要卡帶進來的證據要在第一次 render 就亮著，不要先閃一下沒選中的樣子
   const [focus, setFocus] = useState<Focus>(() =>
     initialEvidenceId && evidence.usable(initialEvidenceId)
-      ? { kind: 'evidence', id: initialEvidenceId }
+      ? { kind: 'evidence', id: initialEvidenceId, claimKey: initialClaimKey ?? undefined }
       : null
   );
   const nodes = useRef(new Map<string, HTMLElement>());
 
   // 換一份分析就把 highlight 收乾淨
-  useEffect(() => setFocus(null), [claims]);
+  const previousClaims = useRef(claims);
+  useEffect(() => {
+    if (previousClaims.current === claims) return;
+    previousClaims.current = claims;
+    setFocus(null);
+  }, [claims]);
 
   // 之後 id 再變動（同一個抽屜再從摘要卡點別筆）也要跟著切
-  const lastInitial = useRef(initialEvidenceId);
+  const initialKey = `${initialEvidenceId ?? ''}:${initialClaimKey ?? ''}`;
+  const lastInitial = useRef(initialKey);
   useEffect(() => {
-    if (initialEvidenceId === lastInitial.current) return;
-    lastInitial.current = initialEvidenceId;
+    if (initialKey === lastInitial.current) return;
+    lastInitial.current = initialKey;
     if (initialEvidenceId && evidence.usable(initialEvidenceId)) {
-      setFocus({ kind: 'evidence', id: initialEvidenceId });
+      setFocus({ kind: 'evidence', id: initialEvidenceId, claimKey: initialClaimKey ?? undefined });
     }
-  }, [initialEvidenceId, evidence]);
+  }, [initialEvidenceId, initialClaimKey, initialKey, evidence]);
 
   useEffect(() => {
     if (!focus) return;
@@ -104,6 +111,13 @@ export const BriefHighlightProvider: React.FC<{
         }
       }
       return;
+    }
+    if (focus.claimKey) {
+      const selectedNode = nodes.current.get(`claim:${focus.claimKey}`);
+      if (selectedNode) {
+        selectedNode.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
     }
     for (const ref of claims.values()) {
       if (!ref.evidenceIds.includes(focus.id)) continue;
@@ -144,7 +158,7 @@ export const BriefHighlightProvider: React.FC<{
       toggleClaim: (key) => setFocus(isClaimOn(key) ? null : { kind: 'claim', key }),
       toggleEvidence: (id) =>
         setFocus(focus?.kind === 'evidence' && focus.id === id ? null : { kind: 'evidence', id }),
-      selectEvidence: (id) => setFocus({ kind: 'evidence', id }),
+      selectEvidence: (id, claimKey) => setFocus({ kind: 'evidence', id, claimKey }),
       clear: () => setFocus(null),
       bindClaim: bind('claim'),
       bindEvidence: bind('ev'),
@@ -169,7 +183,7 @@ export const ClaimRow: React.FC<{
   className?: string;
   children: ReactNode;
 }> = ({ claimKey, ids, warnWhenEmpty, className, children }) => {
-  const { isClaimOn, toggleClaim, bindClaim, hasFocus, evidence, activeEvidenceId, selectEvidence } =
+  const { isClaimOn, toggleClaim, bindClaim, evidence, activeEvidenceId, selectEvidence } =
     useBriefHighlight();
   const on = isClaimOn(claimKey);
   return (
@@ -180,16 +194,14 @@ export const ClaimRow: React.FC<{
       aria-pressed={on}
       onClick={() => toggleClaim(claimKey)}
       onKeyDown={(e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
         e.preventDefault();
         toggleClaim(claimKey);
       }}
-      className={`rounded-xl border border-l-4 px-3 py-2.5 cursor-pointer transition-[background-color,border-color,opacity] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
+      className={`border-l-2 px-3 py-3 cursor-pointer transition-[background-color,border-color,opacity] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${
         on
-          ? 'border-brand/40 border-l-brand bg-brand/10'
-          : `border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50 ${
-              hasFocus ? 'opacity-55' : ''
-            }`
+          ? 'border-l-brand bg-[var(--color-bg-elevated)]/60'
+          : `border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]/50`
       } ${className ?? ''}`}
     >
       {children}
@@ -197,7 +209,7 @@ export const ClaimRow: React.FC<{
         ids={ids}
         index={evidence}
         activeId={activeEvidenceId}
-        onSelect={selectEvidence}
+        onSelect={(id) => selectEvidence(id, claimKey)}
         warnWhenEmpty={warnWhenEmpty}
         className="mt-2"
       />

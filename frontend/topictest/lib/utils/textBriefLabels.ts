@@ -34,7 +34,7 @@ export const STANCE_TONE: Record<string, BriefTone> = {
  */
 export const CONF: Record<string, string> = { low: '低', medium: '中', high: '高' };
 
-export const CONF_HINT = 'AI 對這份判斷的信心程度，不代表資料完整度。';
+export const CONF_HINT = 'AI 對這份判斷的信心程度，不代表資料完整度、事實已證實或預測準確率。';
 
 /** 只在「沒有產出簡報」時用來補一句原因；verified 一定帶簡報，不會走到這裡。 */
 export const STATUS: Record<string, [BriefTone, string]> = {

@@ -28,7 +28,7 @@ export const EVIDENCE_CATEGORY: Record<EvidenceCategory, EvidenceCategoryMeta> =
     origin: '集中市場每日收盤、成交量、三大法人買賣超與評價指標。',
   },
   guidance: {
-    label: '公司公告或法說',
+    label: '法說／財測媒體轉述',
     origin: '媒體轉述的公司財測或法說內容，屬於未來展望，不是已實現的財務結果。',
   },
   news: {
@@ -62,6 +62,10 @@ export interface ResolvedEvidence {
   category: EvidenceCategory;
   /** 這個數字是由原始資料再算一次得到的，不是機構直接發布的值 */
   computed: boolean;
+  calculation?: EvidenceItem["calculation"];
+  publishedAt?: string | null;
+  collectedAt?: string | null;
+  publicationBasis?: string | null;
   /** 日期或財務期間，原樣顯示 */
   dateText: string | null;
   publisher: string | null;
@@ -258,6 +262,10 @@ export function resolveEvidenceItem(item: EvidenceItem, asOfDate?: string | null
     group: meta.group,
     category,
     computed: meta.computed,
+    calculation: item.calculation,
+    publishedAt: item.published_at,
+    collectedAt: item.collected_at,
+    publicationBasis: item.publication_basis,
     dateText,
     publisher,
     summary,
@@ -283,6 +291,7 @@ export interface EvidenceIndex {
   total: number;
   /** 日期晚於基準日的證據 id；這些不當成可用來源 */
   futureDatedIds: string[];
+  undatedIds: string[];
   /** 存在且日期合理，才可以顯示成可點擊的來源 */
   usable(id: string): boolean;
   resolve(id: string): ResolvedEvidence | null;
@@ -317,6 +326,7 @@ export function buildEvidenceIndex(
     groups,
     total: byId.size,
     futureDatedIds,
+    undatedIds: (catalog ?? []).filter((item) => !item.date).map((item) => item.id),
     usable: (id) => {
       const found = byId.get(id);
       return Boolean(found && !found.futureDated);
