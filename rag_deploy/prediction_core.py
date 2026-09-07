@@ -6,6 +6,8 @@
 共用同一套迴歸計算、prompt 組裝、LLM 呼叫邏輯，只有資料來源不同。
 """
 
+from __future__ import annotations
+
 import json
 import math
 import re
@@ -101,9 +103,11 @@ def build_prediction_prompt(stock_id: str, stock_name: str, price_trend_desc: st
 }}"""
 
 
-async def call_llm_for_prediction(openai_client, prompt: str, model_name: str) -> dict:
+async def call_llm_for_prediction(openai_client, prompt: str, model_name: str,
+                                  extra_body: dict | None = None) -> dict:
     """呼叫 LLM 取得預測 JSON，含 fenced-block fallback 與失敗預設值。
-    回傳 {direction, change_pct_total, confidence, summary}。"""
+    回傳 {direction, change_pct_total, confidence, summary}。
+    extra_body：自架 Gemma 需帶 {"chat_template_kwargs": {"enable_thinking": False}}。"""
     import asyncio
 
     result = {
@@ -120,8 +124,10 @@ async def call_llm_for_prediction(openai_client, prompt: str, model_name: str) -
             temperature=0.3,
             max_tokens=300,
             stream=False,
+            extra_body=extra_body or {},
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r"<think>.*?</think>\s*", "",
+                     (resp.choices[0].message.content or "").strip(), flags=re.DOTALL).strip()
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m:
             parsed = json.loads(m.group())
@@ -141,6 +147,7 @@ async def generate_prediction(
     news_titles: list,
     strategy: "StrategyConfig",
     openai_client,
+    extra_body: dict | None = None,
 ) -> dict:
     """單一進入點：給定價格歷史 + 新聞標題 + 策略設定，回傳結構化預測結果。
     live 端點與回測腳本都應呼叫這個，而非各自重算迴歸/組 prompt。"""
@@ -154,7 +161,7 @@ async def generate_prediction(
     )
 
     prompt = build_prediction_prompt(stock_id, stock_name, price_trend_desc, news_titles, strategy)
-    llm_result = await call_llm_for_prediction(openai_client, prompt, strategy.model_name)
+    llm_result = await call_llm_for_prediction(openai_client, prompt, strategy.model_name, extra_body)
 
     return {
         "prompt_used": prompt,

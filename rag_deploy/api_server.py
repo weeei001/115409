@@ -52,6 +52,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── LLM 供應商設定 ──────────────────────────────────
+# 2026-08~09：NVIDIA NIM 上所有 meta/llama chat 模型陸續 EOL（410 Gone）。
+# 分析/意圖/預測 LLM 改打自架 H200（OpenAI 相容端點，見 rag_deploy/.env 的 H200_*）。
+# embedding 仍走 NIM（nvidia/nemotron-3-embed-1b，H200 端無對等 1024/2048 維模型）。
+LLM_BASE_URL = os.environ.get("H200_BASE_URL", "").strip() or "https://integrate.api.nvidia.com/v1"
+LLM_API_KEY = os.environ.get("H200_API_KEY", "").strip() or os.environ.get("NVIDIA_API_KEY", "")
+LLM_MODEL = os.environ.get("H200_MODEL", "").strip() or "google/gemma-4-31b-it"
+# 自架 Gemma 需關 thinking，否則回應夾帶 <think> 污染 JSON（NIM 版不需要，給空 dict）
+LLM_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}} if os.environ.get("H200_BASE_URL", "").strip() else {}
+
 # ── 共用常數 ─────────────────────────────────────────
 STOCK_OPTIONS = {
     "2330": "台積電",
@@ -170,11 +180,13 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
     )
     try:
         resp = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3, max_tokens=256, stream=False,
+            extra_body=LLM_EXTRA_BODY,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
+        raw = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()
         raw = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
         actions = json.loads(raw)
         if isinstance(actions, list):
@@ -263,7 +275,7 @@ async def lifespan(app: FastAPI):
     """啟動時載入 Qdrant、Embedding、LLM 等重量級元件"""
     global qdrant_client, embeddings, openai_client, async_openai_client, intent_classifier
 
-    from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings, ChatNVIDIA
+    from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
     from langchain_core.prompts import PromptTemplate
     from langchain_core.output_parsers import StrOutputParser
     from qdrant_client import QdrantClient
@@ -283,17 +295,20 @@ async def lifespan(app: FastAPI):
         embeddings = NVIDIAEmbeddings(model="nvidia/nemotron-3-embed-1b")
 
     openai_client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        http_client=httpx.Client(timeout=30.0),
+        base_url=LLM_BASE_URL,
+        api_key=LLM_API_KEY,
+        http_client=httpx.Client(timeout=60.0),
     )
     async_openai_client = AsyncOpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.environ.get("NVIDIA_API_KEY", ""),
-        http_client=httpx.AsyncClient(timeout=30.0),
+        base_url=LLM_BASE_URL,
+        api_key=LLM_API_KEY,
+        http_client=httpx.AsyncClient(timeout=60.0),
     )
 
-    llm = ChatNVIDIA(model="meta/llama-3.1-8b-instruct", temperature=0)
+    # 意圖分類器：改用 OpenAI 相容 client（ChatNVIDIA 綁 NIM，其 chat 模型已全 EOL）
+    from langchain_openai import ChatOpenAI
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0, base_url=LLM_BASE_URL, api_key=LLM_API_KEY,
+                     timeout=60.0, extra_body=LLM_EXTRA_BODY or None)
     prompt = PromptTemplate.from_template(
         "你是一個財經意圖分析器。當前時間: {current_time}\n"
         "使用者輸入一句話，你必須分析三件事並回傳 JSON：\n\n"
@@ -610,10 +625,10 @@ async def _stream_ask(req):
         await asyncio.sleep(0)
         start = time.time()
         stream_resp = await async_openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt_str}],
             temperature=0.6, top_p=0.7, max_tokens=4096,
-            stream=True,
+            stream=True, extra_body=LLM_EXTRA_BODY,
         )
         full_text = ""
         async for chunk in stream_resp:
@@ -1002,10 +1017,10 @@ async def ask(req: AskRequest):
     start = time.time()
     try:
         completion = openai_client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt_str}],
             temperature=0.6, top_p=0.7, max_tokens=4096,
-            stream=False,
+            stream=False, extra_body=LLM_EXTRA_BODY,
         )
         full_content = completion.choices[0].message.content
         tokens_input = completion.usage.prompt_tokens
@@ -1885,7 +1900,8 @@ async def get_trend_predict(
     # ── 5. LLM 預測（透過共用預測核心，與回測腳本共用同一套邏輯） ──
     from prediction_core import StrategyConfig, generate_prediction
     stock_name = STOCK_OPTIONS.get(stock_id, stock_id)
-    live_strategy = StrategyConfig(name="live_default", news_window_days=30, news_limit=20)
+    live_strategy = StrategyConfig(name="live_default", news_window_days=30, news_limit=20,
+                                   model_name=LLM_MODEL)
     prediction = await generate_prediction(
         stock_id=stock_id,
         stock_name=stock_name,
@@ -1893,6 +1909,7 @@ async def get_trend_predict(
         news_titles=recent_news_titles,
         strategy=live_strategy,
         openai_client=openai_client,
+        extra_body=LLM_EXTRA_BODY,
     )
     ai_direction = prediction["direction"]
     ai_change_pct = prediction["change_pct_total"]
@@ -2100,12 +2117,14 @@ async def trend_predict_stream(
             try:
                 resp = await asyncio.to_thread(
                     openai_client.chat.completions.create,
-                    model="meta/llama-3.3-70b-instruct",
+                    model=LLM_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     max_tokens=120,
+                    extra_body=LLM_EXTRA_BODY,
                 )
-                raw = resp.choices[0].message.content.strip()
+                raw = re.sub(r"<think>.*?</think>\s*", "",
+                             (resp.choices[0].message.content or "").strip(), flags=re.DOTALL).strip()
                 import re as _re
                 m = _re.search(r'\{.*\}', raw, _re.DOTALL)
                 if m:
