@@ -217,8 +217,9 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 
 - **Qdrant 鎖定**：`qdrant_db/` 同時只能一個 QdrantClient，執行 `build_vector_db.py` 前必須先停止 Streamlit
 - **重新建庫**：`rm -rf qdrant_db/` 再執行 `build_vector_db.py`
-- **NVIDIA NIM 限制**：免費方案 40 rpm。`stream=True` 部分模型會 `incomplete chunked read`，一律用 `stream=False`
+- **NVIDIA NIM 限制**：免費方案 40 rpm。`stream=True` 部分模型會 `incomplete chunked read`，一律用 `stream=False`。**NIM 上 `meta/llama` chat 模型 2026-08~09 已全部 EOL（410）**，chat 一律走自架 H200 Gemma4-31B（見「LLM 供應商變更」）；NIM 只留 embedding。
 - **DeepSeek R1**：`deepseek-r1-distill-qwen-7b/14b` 在 NVIDIA NIM 有 GPU 500 錯誤；`deepseek-r1` 已下架（410），勿使用
+- **`simulate_trading.py` 的 digest 快照繞過**：`fetch_pit_articles()`（Qdrant 語意 PIT 檢索）曾因 e5-v5 embedding 下架而打不通，改吃「最新一週 digest 快照的 news_json」（週頻、同一自然週內每日相同）。**2026-09-07 embedding 已換 nemotron-3-embed-1b、Qdrant 已全量重建，`fetch_pit_articles()` 應可恢復**，但 `simulate_trading.py` 尚未改回（`/api/simulate_trading_stream` 用快照仍可運作）。`backtest_digest_eval` / `methodology_trainer` / `backtest_learned_prompt` 都已直接用 `fetch_pit_articles`。
 - **stock_id 品質**：`OtherNewWeb/` 來源的股票代號由 regex 從標題/標籤提取，有時會落入 `tw_stock`，影響 filter 精準度
 - **無效 chunk**：部分 chunk 為廣告導流文字（如「點我訂購」），已在 `clean_text()` 部分處理但未完全清除
 - **排程器健康檢查**：若懷疑排程沒在跑，先看 `backend/crawler/.last_run` 心跳檔的時間戳，再用 `launchctl list | grep com.rag.scheduler` 確認 process 存在（注意：目前程式碼中實際上找不到寫入 `.last_run` 的邏輯，此心跳機制可能已失效，判斷排程存活仍應優先看 `scheduler.err.log` 的時間戳）
