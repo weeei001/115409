@@ -95,6 +95,24 @@ def test_validate_prompt_template_rejects_bad(bad):
         mt.validate_prompt_template(bad)
 
 
+def test_sanitize_template_converts_latex_and_strips_backslashes():
+    dirty = ("截至 {as_of}，{name}（{stock_id}）未來 {horizon}。\n"
+             "強趨勢：斜率 > 0 $\\rightarrow$ 動能延續；乖離率 $\\le$ 10% $\\to$ 溫和漲。\n"
+             "{context_block}\n殘留 \\x 反斜線\n"
+             '只輸出 JSON：{"market_regime": "...", "technical_reasoning": "...", '
+             '"news_reasoning": "...", "change_pct": 數字}')
+    clean = mt.sanitize_template(dirty)
+    assert "\\" not in clean
+    assert "→" in clean and "≤" in clean
+    mt.validate_prompt_template(clean)  # 清理後應通過
+
+
+def test_validate_prompt_template_rejects_raw_backslash():
+    # \q 不是合法 JSON 跳脫、也不是 sanitize 認得的 LaTeX → validate 應擋下
+    with pytest.raises(ValueError, match="裸反斜線"):
+        mt.validate_prompt_template(_GOOD_TEMPLATE + "\n路徑 C:\\qux 未清")
+
+
 def test_validate_methodology():
     good = {"summary": "s", "regime_rules": ["r"], "rules": [{"id": "R1"}], "anti_patterns": ["a"]}
     mt.validate_methodology(good)

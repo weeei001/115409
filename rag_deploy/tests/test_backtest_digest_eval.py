@@ -75,6 +75,21 @@ def test_parse_prediction_json_rejects_bad_payloads(raw):
         bde.parse_prediction_json(raw)
 
 
+def test_parse_prediction_json_tolerates_latex_backslash_in_reasoning():
+    # 模型把方法論裡的 $\rightarrow$ 帶進理由欄 → 裸 \r 會炸 json.loads，需容錯
+    raw = ('{"market_regime": "強趨勢", "technical_reasoning": "斜率>0 $\\rightarrow$ 動能延續", '
+           '"news_reasoning": "營收創高 $\\le$ 乖離 10%", "change_pct": 4.2}')
+    parsed = bde.parse_prediction_json(raw)
+    assert parsed["change_pct"] == 4.2
+
+
+def test_parse_prediction_json_regex_fallback_when_json_unrecoverable():
+    # 有 {...} blob 但結構壞掉（缺逗號），兩段 loads 都失敗 → regex 撈 change_pct
+    raw = '{"market_regime": "x" "technical_reasoning": "y", "change_pct": -1.8}'
+    parsed = bde.parse_prediction_json(raw)
+    assert parsed["change_pct"] == -1.8 and parsed["_parse"] == "regex_fallback"
+
+
 class _FakeClient:
     """回傳固定內容的假 OpenAI client；記錄送出的 prompt 供斷言。"""
     def __init__(self, content):

@@ -250,14 +250,42 @@ def build_prediction_prompt(stock_id: str, as_of: str, horizon: int, context_blo
     )
 
 
+# JSON 字串裡合法的跳脫字元；其餘 \x 都是模型誤用（常見：LLM 把方法論裡的
+# $\rightarrow$ / $\le$ 這類 LaTeX 帶進理由欄），要在 json.loads 前修掉裸反斜線。
+_BAD_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+
+def _extract_change_pct(raw: str) -> float | None:
+    """最後手段：直接從文字裡撈 "change_pct": <數字>。"""
+    m = re.search(r'"change_pct"\s*:\s*(-?\d+(?:\.\d+)?)', raw)
+    return float(m.group(1)) if m else None
+
+
 def parse_prediction_json(raw: str) -> dict:
     """從 LLM 回應抽出預測 JSON：去 <think>、取第一個 {...}、驗證 change_pct 可轉 float。
-    回傳 parsed dict（change_pct 已轉 float）。任何一步失敗都拋例外，由呼叫端決定重試。"""
+    回傳 parsed dict（change_pct 已轉 float）。任何一步失敗都拋例外，由呼叫端決定重試。
+
+    對 JSON 內裸反斜線（模型把 LaTeX 帶進理由欄）做兩段容錯：先原樣 loads，
+    失敗則把非法 \\x 轉成 \\\\x 再 loads，再失敗才回退純 regex 撈 change_pct。
+    """
     raw = re.sub(r"<think>.*?</think>\s*", "", (raw or "").strip(), flags=re.DOTALL)
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if not m:
         raise ValueError(f"no JSON in response: {raw[:200]}")
-    parsed = json.loads(m.group())
+    blob = m.group()
+    parsed = None
+    for candidate in (blob, _BAD_ESCAPE_RE.sub(r"\\\\", blob)):
+        try:
+            parsed = json.loads(candidate)
+            break
+        except json.JSONDecodeError:
+            continue
+    if parsed is None:
+        cp = _extract_change_pct(blob)
+        if cp is None:
+            raise ValueError(f"unparseable JSON: {blob[:200]}")
+        return {"change_pct": cp, "market_regime": "", "technical_reasoning": "",
+                "news_reasoning": "", "_parse": "regex_fallback"}
     if "change_pct" not in parsed or parsed["change_pct"] is None:
         raise ValueError(f"missing change_pct: {str(parsed)[:200]}")
     parsed["change_pct"] = float(parsed["change_pct"])

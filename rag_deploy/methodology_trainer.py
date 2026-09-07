@@ -291,13 +291,29 @@ def scan_for_leakage(text: str, train_end: str) -> list[str]:
     return sorted(set(hits))
 
 
+_LATEX_RE = re.compile(r"\$?\\(rightarrow|le|ge|to|Rightarrow|approx|times|leq|geq)\$?")
+_LATEX_MAP = {"rightarrow": "→", "Rightarrow": "→", "to": "→", "le": "≤", "leq": "≤",
+              "ge": "≥", "geq": "≥", "approx": "≈", "times": "×"}
+
+
+def sanitize_template(template: str) -> str:
+    """把 LLM 愛用的 LaTeX（$\\rightarrow$ / $\\le$ …）換成 unicode，
+    再清掉殘留的裸反斜線——這些反斜線之後會讓模型把它們帶進回應 JSON、炸 json.loads。"""
+    t = _LATEX_RE.sub(lambda m: _LATEX_MAP.get(m.group(1), "→"), template)
+    t = re.sub(r'\\(?!["\\/bfnrtu])', "", t)  # 剩下的裸反斜線直接刪
+    return t
+
+
 def validate_prompt_template(template: str) -> None:
-    """佔位符齊全 + 套上假值後能經 parse_prediction_json round-trip。失敗拋 ValueError。"""
+    """佔位符齊全 + 套上假值後能經 parse_prediction_json round-trip。失敗拋 ValueError。
+    呼叫前應先過 sanitize_template。"""
     if not isinstance(template, str) or not template.strip():
         raise ValueError("prompt_template 不是非空字串")
     missing = [p for p in PROMPT_REQUIRED_PLACEHOLDERS if "{" + p + "}" not in template]
     if missing:
         raise ValueError(f"prompt_template 缺少佔位符：{missing}")
+    if re.search(r'\\(?!["\\/bfnrtu])', template):
+        raise ValueError("prompt_template 仍含裸反斜線（sanitize_template 未處理乾淨）")
     rendered = build_prediction_prompt("2330", "2024-06-07", 20, "（測試 context）", template=template)
     if "{context_block}" in rendered or "（測試 context）" not in rendered:
         raise ValueError("prompt_template 的 {context_block} 未被正確替換")
@@ -340,7 +356,7 @@ def call_induction_llm(client, model_name: str, provider: str, prompt: str,
                 raise ValueError(f"回應中找不到 JSON：{raw[:200]}")
             parsed = json.loads(m.group())
             methodology = parsed["methodology"]
-            template = parsed["prompt_template"]
+            template = sanitize_template(parsed["prompt_template"])
             validate_methodology(methodology)
             validate_prompt_template(template)
             return {"methodology": methodology, "prompt_template": template}
