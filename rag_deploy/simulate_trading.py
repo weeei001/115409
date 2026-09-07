@@ -344,7 +344,8 @@ def make_nim_client():
     if not api_key:
         return None, None
     client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key, timeout=60.0)
-    return client, "meta/llama-3.3-70b-instruct"
+    # 2026-09：meta/llama chat 模型在 NIM 全 EOL，改用還在架上的 gemma-4-31b-it
+    return client, os.environ.get("NIM_MODEL", "google/gemma-4-31b-it")
 
 
 # ---------------- 單次逐日模擬：generator，逐日 yield，供 CLI 或 API(SSE) 消費 ----------------
