@@ -174,23 +174,33 @@ _MAGNITUDE_BUCKETS = (
 )
 
 
-def predict_change_pct(client, model_name: str, stock_id: str, as_of: str, horizon: int,
-                        context_block: str, provider: str) -> float | None:
-    """呼叫 LLM 預測未來 horizon 交易日的總漲跌幅（%）。失敗重試 1 次，仍失敗回 None。
+def build_context_from_pit(analyst_items: list[dict], news_items: list[dict],
+                           technical: dict, as_of: str) -> str:
+    """等價於 context_A，但直接吃 digest_core.fetch_pit_articles 的輸出（不經 analysis_digests 表）。
+    分析師層與一般新聞合併成一份完整內文清單，讓訓練/驗證兩階段共用同一個 context 組法。"""
+    news_block = _news_full_text_block(list(analyst_items) + list(news_items), as_of)
+    return f"## 近期價格趨勢\n{price_trend_desc(technical)}\n\n## 近期新聞（完整內文）\n{news_block}"
 
-    Prompt 設計依 2026-08 對照公開研究（FinGPT/FinCoT）診斷出的三項修正，v2 之後再依技術分析
-    業界文獻（ADX 趨勢強度分層、RSI 超買訊號約7成延續3成反轉的實證、momentum-vs-mean-reversion
-    的適用場域區分）修正過度武斷的均值回歸假設：
-    1. CoT：要求先分別輸出技術面、新聞面的推理文字，再給結論，避免模型跳過推理直接猜安全值。
-    2. 市場狀態優先：先判斷「強趨勢」或「盤整」，再決定套用動能延續還是均值回歸邏輯——
-       不預設連續同向就該反轉（v1修正版曾犯這個錯，實測讓B組在2024多頭年系統性誤判偏空/持平，
-       71.4%的疊加樣本被判flat，遠高於實際flat佔比28.8%）。強趨勢中的「超買」較常是趨勢確認
-       訊號而非反轉訊號，但仍承認約3成機率會反轉，不下武斷結論。
-    3. 離散區間錨點：在推理階段提供區間刻度輔助定位幅度，降低模型收斂到單一「安全值」的傾向；
-       最終輸出仍是連續數字，不改變下游 schema。
-    """
-    name = STOCK_NAMES.get(stock_id, stock_id)
-    prompt = f"""你是台股分析師。根據以下截至 {as_of} 的資訊，預測 {name}（{stock_id}）未來 {horizon} 個交易日的「總漲跌幅」。
+
+# ---- 預測 prompt：template 化，讓「學到的 prompt」能替換現行 prompt，但輸出契約不變 ----
+DEFAULT_PROMPT_VERSION = "A_v2"
+PROMPT_PLACEHOLDERS = ("as_of", "name", "stock_id", "horizon", "context_block", "magnitude_buckets")
+PROMPT_REQUIRED_PLACEHOLDERS = ("as_of", "name", "stock_id", "horizon", "context_block")
+PROMPT_OUTPUT_KEYS = ("market_regime", "technical_reasoning", "news_reasoning", "change_pct")
+
+# 現行（A_v2）prompt。設計依 2026-08 對照公開研究（FinGPT/FinCoT）診斷出的三項修正，v2 之後再依技術分析
+# 業界文獻（ADX 趨勢強度分層、RSI 超買訊號約7成延續3成反轉的實證、momentum-vs-mean-reversion
+# 的適用場域區分）修正過度武斷的均值回歸假設：
+# 1. CoT：要求先分別輸出技術面、新聞面的推理文字，再給結論，避免模型跳過推理直接猜安全值。
+# 2. 市場狀態優先：先判斷「強趨勢」或「盤整」，再決定套用動能延續還是均值回歸邏輯——
+#    不預設連續同向就該反轉（v1修正版曾犯這個錯，實測讓B組在2024多頭年系統性誤判偏空/持平，
+#    71.4%的疊加樣本被判flat，遠高於實際flat佔比28.8%）。強趨勢中的「超買」較常是趨勢確認
+#    訊號而非反轉訊號，但仍承認約3成機率會反轉，不下武斷結論。
+# 3. 離散區間錨點：在推理階段提供區間刻度輔助定位幅度，降低模型收斂到單一「安全值」的傾向；
+#    最終輸出仍是連續數字，不改變下游 schema。
+# 注意：這是「純字串 template」而非 f-string，大括號不需跳脫；只有 PROMPT_PLACEHOLDERS 列出的
+# 佔位符會被 _format_safe 替換，其餘大括號（含結尾的 JSON 範例）原樣保留。
+DEFAULT_PROMPT_TEMPLATE = """你是台股分析師。根據以下截至 {as_of} 的資訊，預測 {name}（{stock_id}）未來 {horizon} 個交易日的「總漲跌幅」。
 只能用下方資訊，不得引入 {as_of} 之後才知道的事。
 
 {context_block}
@@ -213,10 +223,56 @@ def predict_change_pct(client, model_name: str, stock_id: str, as_of: str, horiz
 還是多為周邊消息（人事、廠房進度、政治發言等）；新聞面的訊號強度是強、中、弱。
 
 步驟4（綜合結論）：綜合步驟1-3，給出最終方向與幅度。可參考以下區間刻度輔助定位幅度
-（僅供你推理時參考，不必在輸出中提及）：{_MAGNITUDE_BUCKETS}
+（僅供你推理時參考，不必在輸出中提及）：{magnitude_buckets}
 
 請只輸出 JSON，不要其他文字：
-{{"market_regime": "步驟1判斷：強趨勢或盤整，1句", "technical_reasoning": "步驟2的推理，1-2句", "news_reasoning": "步驟3的推理，1-2句", "change_pct": 預估總漲跌幅數字（例如 2.5 代表漲 2.5%，-1.8 代表跌 1.8%）}}"""
+{"market_regime": "步驟1判斷：強趨勢或盤整，1句", "technical_reasoning": "步驟2的推理，1-2句", "news_reasoning": "步驟3的推理，1-2句", "change_pct": 預估總漲跌幅數字（例如 2.5 代表漲 2.5%，-1.8 代表跌 1.8%）}"""
+
+
+_PLACEHOLDER_RE = re.compile(r"\{(" + "|".join(PROMPT_PLACEHOLDERS) + r")\}")
+
+
+def _format_safe(template: str, **fields) -> str:
+    """只替換 PROMPT_PLACEHOLDERS 內的佔位符，其他大括號原樣保留。
+    不用 str.format：LLM 產出的 template 常含 JSON 範例的零散大括號，str.format 會直接炸。"""
+    return _PLACEHOLDER_RE.sub(lambda m: str(fields[m.group(1)]), template)
+
+
+def build_prediction_prompt(stock_id: str, as_of: str, horizon: int, context_block: str,
+                            template: str | None = None) -> str:
+    """組出預測 prompt。template=None 時用現行 DEFAULT_PROMPT_TEMPLATE（輸出與舊版 f-string 完全相同）。"""
+    name = STOCK_NAMES.get(stock_id, stock_id)
+    return _format_safe(
+        template if template is not None else DEFAULT_PROMPT_TEMPLATE,
+        as_of=as_of, name=name, stock_id=stock_id, horizon=horizon,
+        context_block=context_block, magnitude_buckets=_MAGNITUDE_BUCKETS,
+    )
+
+
+def parse_prediction_json(raw: str) -> dict:
+    """從 LLM 回應抽出預測 JSON：去 <think>、取第一個 {...}、驗證 change_pct 可轉 float。
+    回傳 parsed dict（change_pct 已轉 float）。任何一步失敗都拋例外，由呼叫端決定重試。"""
+    raw = re.sub(r"<think>.*?</think>\s*", "", (raw or "").strip(), flags=re.DOTALL)
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not m:
+        raise ValueError(f"no JSON in response: {raw[:200]}")
+    parsed = json.loads(m.group())
+    if "change_pct" not in parsed or parsed["change_pct"] is None:
+        raise ValueError(f"missing change_pct: {str(parsed)[:200]}")
+    parsed["change_pct"] = float(parsed["change_pct"])
+    return parsed
+
+
+def predict_change_pct(client, model_name: str, stock_id: str, as_of: str, horizon: int,
+                        context_block: str, provider: str,
+                        prompt_template: str | None = None) -> float | None:
+    """呼叫 LLM 預測未來 horizon 交易日的總漲跌幅（%）。失敗重試 1 次，仍失敗回 None。
+
+    prompt_template=None 時沿用現行 A_v2 prompt（DEFAULT_PROMPT_TEMPLATE）；
+    傳入學到的 template 時，只要它保留 PROMPT_OUTPUT_KEYS 的 JSON 輸出契約，
+    這裡的解析與下游 classify()/decisions.csv 完全不用改。
+    """
+    prompt = build_prediction_prompt(stock_id, as_of, horizon, context_block, prompt_template)
 
     def _call():
         kwargs = dict(
@@ -227,17 +283,12 @@ def predict_change_pct(client, model_name: str, stock_id: str, as_of: str, horiz
         if provider == "h200":
             kwargs["extra_body"] = DIGEST_EXTRA_BODY
         resp = client.chat.completions.create(**kwargs)
-        raw = (resp.choices[0].message.content or "").strip()
-        raw = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL)
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not m:
-            raise ValueError(f"no JSON in response: {raw[:200]}")
-        parsed = json.loads(m.group())
+        parsed = parse_prediction_json(resp.choices[0].message.content)
         if os.environ.get("DEBUG_COT"):
             print(f"      [CoT] 市場狀態：{parsed.get('market_regime', '')}")
             print(f"      [CoT] 技術面：{parsed.get('technical_reasoning', '')}")
             print(f"      [CoT] 新聞面：{parsed.get('news_reasoning', '')}")
-        return float(parsed.get("change_pct"))
+        return parsed["change_pct"]
 
     for attempt in range(2):
         try:
@@ -306,6 +357,125 @@ def _mcnemar_p(b_wins: int, a_wins: int) -> float:
     k = min(a_wins, b_wins)
     p = sum(comb(n, i) * (0.5 ** n) for i in range(0, k + 1)) * 2
     return min(1.0, round(p, 4))
+
+
+def default_band_grid(band: float) -> tuple[float, ...]:
+    """中性帶敏感度用的帶寬格點：以主帶寬為中心，h20（±3%）用 1.5/2/3/4，h5（±1%）用 0.5/1/1.5。"""
+    if band >= 2.0:
+        return (1.5, 2.0, 3.0, 4.0)
+    return (0.5, 1.0, 1.5)
+
+
+def compute_metrics(decisions: list[dict], arm_names: tuple[str, str] = ("A", "B"),
+                    band: float = 3.0, seed: int = 42, config: dict | None = None,
+                    n_decision_points: int | None = None,
+                    band_grid: tuple[float, ...] | None = None) -> dict:
+    """由 decisions 列（同 decisions.csv schema）算出 metrics.json 的內容。
+
+    arm_names=(基準臂, 對照臂)：基準臂通常是現行 prompt A，對照臂是 B（疊加摘要）或 L（學到的 prompt）。
+    只統計「兩臂皆有效」的 as_of（成對排除，維持配對比較公平）。
+
+    verdict 區塊實作已拍板的「雙條件方向制」：對照臂要同時滿足
+      cond1：命中率 − always_up > 0（有比無腦猜漲好）
+      cond2：McNemar 成對比較中 對照臂勝次數 ≥ 1.5 × 基準臂勝次數（比現行 prompt 好，不是運氣）
+    不要求 p<0.05（52 樣本幾乎達不到），p 值照報。
+    """
+    base_arm, cmp_arm = arm_names
+    valid_pairs = [d for d in decisions if d["arm"] == base_arm and d["skipped_reason"] is None]
+    valid_as_of = {d["as_of"] for d in valid_pairs}
+    by_arm = {}
+    for arm in arm_names:
+        rows = [d for d in decisions if d["arm"] == arm and d["as_of"] in valid_as_of]
+        n = len(rows)
+        hits = sum(1 for r in rows if r["hit"])
+        mae = sum(r["abs_err"] for r in rows) / n if n else None
+        by_arm[arm] = {"n": n, "hit_rate": round(hits / n, 4) if n else None,
+                       "hits": hits, "mae": round(mae, 4) if mae is not None else None}
+
+    # 基準線：always_up / always_down / random（seed）
+    actuals = [d["actual_dir"] for d in decisions if d["arm"] == base_arm and d["as_of"] in valid_as_of]
+    n_valid = len(actuals)
+    always_up_hits = sum(1 for a in actuals if a == "up")
+    always_down_hits = sum(1 for a in actuals if a == "down")
+    rng = random.Random(seed)
+    dirs = ["up", "down", "flat"]
+    random_preds = [rng.choice(dirs) for _ in range(n_valid)]
+    random_hits = sum(1 for p, a in zip(random_preds, actuals) if p == a)
+    always_up_rate = round(always_up_hits / n_valid, 4) if n_valid else None
+    baselines = {
+        "always_up": {"n": n_valid, "hit_rate": always_up_rate},
+        "always_down": {"n": n_valid, "hit_rate": round(always_down_hits / n_valid, 4) if n_valid else None},
+        f"random_seed{seed}": {"n": n_valid, "hit_rate": round(random_hits / n_valid, 4) if n_valid else None,
+                               "expected_hit_rate_note": "理論期望值視 up/down/flat 類別分佈而定，此為單次模擬結果"},
+    }
+
+    # McNemar / 符號檢定：對照臂對基準臂的配對比較（只用兩臂皆有效的 as_of）
+    cmp_wins = base_wins = 0
+    for ao in valid_as_of:
+        base_row = next(d for d in decisions if d["arm"] == base_arm and d["as_of"] == ao)
+        cmp_row = next(d for d in decisions if d["arm"] == cmp_arm and d["as_of"] == ao)
+        if base_row["hit"] and not cmp_row["hit"]:
+            base_wins += 1
+        elif cmp_row["hit"] and not base_row["hit"]:
+            cmp_wins += 1
+    mcnemar_p = _mcnemar_p(cmp_wins, base_wins)
+
+    # 中性帶敏感度：重新用不同 band 分類（不重打 LLM，用快取的 predicted_pct）
+    band_sensitivity = {}
+    for alt_band in (band_grid or default_band_grid(band)):
+        alt_by_arm = {}
+        for arm in arm_names:
+            rows = [d for d in decisions if d["arm"] == arm and d["as_of"] in valid_as_of and d["skipped_reason"] is None]
+            hits = sum(1 for r in rows if classify(r["predicted_pct"], alt_band) == classify(r["actual_pct"], alt_band))
+            alt_by_arm[arm] = round(hits / len(rows), 4) if rows else None
+        band_sensitivity[f"band_{alt_band}"] = alt_by_arm
+
+    n_digests_dist = {}
+    for d in decisions:
+        if d["arm"] == base_arm:
+            n_digests_dist[d["n_digests_used"]] = n_digests_dist.get(d["n_digests_used"], 0) + 1
+    n_llm_failed = len({d["as_of"] for d in decisions if d["skipped_reason"] == "llm_failed"})
+
+    # 相對 always_up 的差距 + 雙條件 verdict
+    relative = {}
+    for arm in arm_names:
+        hr = by_arm[arm]["hit_rate"]
+        relative[arm] = round(hr - always_up_rate, 4) if (hr is not None and always_up_rate is not None) else None
+    cond1 = relative[cmp_arm] is not None and relative[cmp_arm] > 0
+    cond2 = cmp_wins >= 1.5 * base_wins and cmp_wins > 0
+    verdict = {
+        "cmp_arm": cmp_arm, "base_arm": base_arm,
+        "cond1_beats_always_up": cond1,
+        "cond2_wins_ratio": cond2,
+        "passed": bool(cond1 and cond2),
+        "note": (f"cond1：{cmp_arm} 命中率 − always_up > 0；cond2：{cmp_arm} 勝 ≥ 1.5×{base_arm} 勝。"
+                 "不要求 p<0.05（樣本數不足以達到），p 值僅供參考。"),
+    }
+
+    metrics = {
+        "config": dict(config or {}, neutral_band=band, seed=seed),
+        "arms": by_arm,
+        "baselines": baselines,
+        "relative_to_always_up": relative,
+        "mcnemar_sign_test": {"b_wins": cmp_wins, "a_wins": base_wins, "p_value": mcnemar_p,
+                              "cmp_arm": cmp_arm, "base_arm": base_arm,
+                              "note": f"雙尾符號檢定；b_wins={cmp_arm} 勝、a_wins={base_arm} 勝；p<0.05 表示配對命中差異顯著"},
+        "verdict": verdict,
+        "band_sensitivity": band_sensitivity,
+        "coverage": {
+            "n_decision_points": n_decision_points if n_decision_points is not None else len({d["as_of"] for d in decisions}),
+            "n_valid_as_of": n_valid,
+            "n_llm_failed_as_of": n_llm_failed,
+            "n_digests_used_distribution": n_digests_dist,
+        },
+    }
+    try:
+        import subprocess
+        sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent).decode().strip()
+        metrics["config"]["git_sha"] = sha
+    except Exception:
+        pass
+    return metrics
 
 
 def main():
@@ -427,100 +597,23 @@ def main():
         w.writeheader()
         w.writerows(decisions)
 
-    # ---- 計算 metrics ----
-    valid_pairs = [d for d in decisions if d["arm"] == "A" and d["skipped_reason"] is None]
-    valid_as_of = {d["as_of"] for d in valid_pairs}
-    by_arm = {"A": {}, "B": {}}
-    for arm in ("A", "B"):
-        rows = [d for d in decisions if d["arm"] == arm and d["as_of"] in valid_as_of]
-        n = len(rows)
-        hits = sum(1 for r in rows if r["hit"])
-        mae = sum(r["abs_err"] for r in rows) / n if n else None
-        by_arm[arm] = {"n": n, "hit_rate": round(hits / n, 4) if n else None,
-                        "hits": hits, "mae": round(mae, 4) if mae is not None else None}
-
-    # 基準線：always_up / always_down / random（seed）
-    actuals = [d["actual_dir"] for d in decisions if d["arm"] == "A" and d["as_of"] in valid_as_of]
-    n_valid = len(actuals)
-    always_up_hits = sum(1 for a in actuals if a == "up")
-    always_down_hits = sum(1 for a in actuals if a == "down")
-    rng = random.Random(args.seed)
-    dirs = ["up", "down", "flat"]
-    random_preds = [rng.choice(dirs) for _ in range(n_valid)]
-    random_hits = sum(1 for p, a in zip(random_preds, actuals) if p == a)
-    baselines = {
-        "always_up": {"n": n_valid, "hit_rate": round(always_up_hits / n_valid, 4) if n_valid else None},
-        "always_down": {"n": n_valid, "hit_rate": round(always_down_hits / n_valid, 4) if n_valid else None},
-        "random_seed42": {"n": n_valid, "hit_rate": round(random_hits / n_valid, 4) if n_valid else None,
-                           "expected_hit_rate_note": "理論期望值視 up/down/flat 類別分佈而定，此為單次模擬結果"},
-    }
-
-    # McNemar / 符號檢定：B 對 A 的配對比較（只用兩臂皆有效的 as_of）
-    b_wins = a_wins = 0
-    for ao in valid_as_of:
-        a_row = next(d for d in decisions if d["arm"] == "A" and d["as_of"] == ao)
-        b_row = next(d for d in decisions if d["arm"] == "B" and d["as_of"] == ao)
-        if a_row["hit"] and not b_row["hit"]:
-            a_wins += 1
-        elif b_row["hit"] and not a_row["hit"]:
-            b_wins += 1
-    mcnemar_p = _mcnemar_p(b_wins, a_wins)
-
-    # 中性帶敏感度：重新用不同 band 分類（不重打 LLM，用快取的 predicted_pct）
-    band_sensitivity = {}
-    for alt_band in (2.0, 3.0, 4.0):
-        alt_by_arm = {}
-        for arm in ("A", "B"):
-            rows = [d for d in decisions if d["arm"] == arm and d["as_of"] in valid_as_of and d["skipped_reason"] is None]
-            hits = 0
-            for r in rows:
-                cpred = classify(r["predicted_pct"], alt_band)
-                cact = classify(r["actual_pct"], alt_band)
-                if cpred == cact:
-                    hits += 1
-            alt_by_arm[arm] = round(hits / len(rows), 4) if rows else None
-        band_sensitivity[f"band_{alt_band}"] = alt_by_arm
-
-    n_digests_dist = {}
-    for d in decisions:
-        if d["arm"] == "A":
-            n_digests_dist[d["n_digests_used"]] = n_digests_dist.get(d["n_digests_used"], 0) + 1
-    n_llm_failed = len({d["as_of"] for d in decisions if d["skipped_reason"] == "llm_failed"})
-
-    metrics = {
-        "config": {
-            "stock": args.stock, "period": args.period, "start": args.start, "end": args.end,
-            "horizon": args.horizon, "neutral_band": band, "provider": args.provider,
-            "model": model_name, "seed": args.seed,
-        },
-        "arms": by_arm,
-        "baselines": baselines,
-        "mcnemar_sign_test": {"b_wins": b_wins, "a_wins": a_wins, "p_value": mcnemar_p,
-                               "note": "雙尾符號檢定；p<0.05 表示 A/B 命中差異在配對錨點上顯著"},
-        "band_sensitivity": band_sensitivity,
-        "coverage": {
-            "n_decision_points": len(recs),
-            "n_valid_as_of": n_valid,
-            "n_llm_failed_as_of": n_llm_failed,
-            "n_digests_used_distribution": n_digests_dist,
-        },
-    }
-    try:
-        import subprocess
-        sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent).decode().strip()
-        metrics["config"]["git_sha"] = sha
-    except Exception:
-        pass
-
+    # ---- 計算 metrics（與 backtest_learned_prompt.py 共用同一套統計）----
+    metrics = compute_metrics(
+        decisions, arm_names=("A", "B"), band=band, seed=args.seed,
+        config={"stock": args.stock, "period": args.period, "start": args.start, "end": args.end,
+                "horizon": args.horizon, "provider": args.provider, "model": model_name},
+        n_decision_points=len(recs),
+    )
     metrics_path = out_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2))
 
+    by_arm, baselines, mc = metrics["arms"], metrics["baselines"], metrics["mcnemar_sign_test"]
     print("\n" + "=" * 60)
-    print(f"有效決策點：{n_valid}｜LLM 呼叫次數（本次新打）：{llm_calls}")
+    print(f"有效決策點：{metrics['coverage']['n_valid_as_of']}｜LLM 呼叫次數（本次新打）：{llm_calls}")
     print(f"A（完整新聞）    方向命中率：{by_arm['A']['hit_rate']}｜MAE：{by_arm['A']['mae']}")
     print(f"B（新聞+疊加摘要）方向命中率：{by_arm['B']['hit_rate']}｜MAE：{by_arm['B']['mae']}")
     print(f"always_up 基準線：{baselines['always_up']['hit_rate']}")
-    print(f"McNemar 符號檢定：B勝{b_wins} / A勝{a_wins}，p={mcnemar_p}")
+    print(f"McNemar 符號檢定：B勝{mc['b_wins']} / A勝{mc['a_wins']}，p={mc['p_value']}")
     print(f"\n輸出：{out_dir}")
 
 
