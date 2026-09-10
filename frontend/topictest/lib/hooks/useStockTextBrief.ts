@@ -53,7 +53,7 @@ export function useStockTextBrief({ symbol, asOfDate }: Params) {
 
   const run = useCallback(async () => {
     const trimmed = symbol.trim().toUpperCase();
-    if (!trimmed) return;
+    if (!trimmed || !/^\d{4,6}$/.test(trimmed)) return;
 
     const key = `${trimmed}:${asOfDate ?? ''}`;
     // 同一組條件只打一次；失敗後 lastKey 不會留下，所以重試按鈕還是打得出去
