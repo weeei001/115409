@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
 from crud import news_article as crud_news
-from schemas.news_article import PaginatedNewsResponse
+from schemas.news_article import News, PaginatedNewsResponse
 
 
 router = APIRouter(prefix="/news", tags=["新聞查詢"])
@@ -82,9 +82,41 @@ def list_news(
         sort_order=sort_order,
     )
 
+    # 附加當前有效的情緒分析結果（0 次 LLM 調用，不變更分頁 total 與順序）
+    crud_news.attach_sentiments_to_news(db, items, stock=stock)
+
     return PaginatedNewsResponse(
         page=page,
         page_size=page_size,
         total=total,
         items=items,
     )
+
+
+@router.get(
+    "/{article_id}",
+    response_model=News,
+    summary="取得單篇新聞詳細內容與情緒分析",
+    description="""
+依據 `article_id` 取得單篇新聞之完整標題、發布時間、內文、原始網址與 AI 情緒分析（標籤、理由、原文依據）。
+支援以 `stock` 參數指定目標股票篩選。
+""",
+    responses={
+        200: {"description": "成功返回新聞內容與情緒分析"},
+        404: {"description": "找不到該新聞文章"},
+    },
+)
+def get_single_news(
+    article_id: str,
+    stock: Optional[str] = Query(None, max_length=20, description="指定目標股票代號篩選（如 2408）"),
+    db: Session = Depends(get_db),
+):
+    news = crud_news.get_by_article_id(db, article_id)
+    if not news:
+        raise HTTPException(status_code=404, detail="找不到指定的新聞文章")
+
+    items = [news]
+    crud_news.attach_sentiments_to_news(db, items, stock=stock)
+    return items[0]
+
+

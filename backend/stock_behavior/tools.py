@@ -222,7 +222,9 @@ def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         title = str(raw_item.get("title") or "").strip()
         if not title:
             continue
-        source_id = str(raw_item.get("id") or "").strip()
+        source_id = str(raw_item.get("article_id") or raw_item.get("id") or "").strip()
+        raw_article_id = raw_item.get("article_id")
+        article_id = str(raw_article_id).strip() if raw_article_id else None
         summary = str(raw_item.get("summary") or raw_item.get("content") or "").strip()
         url_value = raw_item.get("url")
         publisher_value = raw_item.get("publisher")
@@ -233,6 +235,7 @@ def _parse_news_source_items(data: dict[str, Any]) -> list[dict[str, Any]]:
         parsed_items.append(
             {
                 "id": source_id,
+                "article_id": article_id,
                 "title": title,
                 "summary": summary,
                 "timestamp": ts,

@@ -657,6 +657,7 @@ def build_news_items(
     news_sources: Sequence[dict[str, Any]],
     *,
     summary_chars: int | None,
+    db: Session | None = None,
 ) -> list[dict[str, Any]]:
     ids = _IdGen("nw")
     items: list[dict[str, Any]] = []
@@ -673,9 +674,28 @@ def build_news_items(
         kind = source.get("kind")
         url = source.get("url")
         publisher = source.get("publisher")
+        raw_article_id = source.get("article_id") or source.get("id")
+        article_id = str(raw_article_id).strip() if raw_article_id else None
+
+        # 若目前沒有合法長度的 article_id，嘗試由 DB 反查
+        if (not article_id or len(article_id) < 16) and db:
+            try:
+                from models.news_article import NewsArticle
+                if url and isinstance(url, str) and url.strip():
+                    row = db.query(NewsArticle.article_id).filter(NewsArticle.url == url.strip()).first()
+                    if row:
+                        article_id = row[0]
+                if not article_id and title:
+                    row = db.query(NewsArticle.article_id).filter(NewsArticle.title == title).first()
+                    if row:
+                        article_id = row[0]
+            except Exception:
+                pass
+
         item = {
             "id": ids.next(),
             "field": "news",
+            "article_id": article_id if article_id and len(article_id) >= 16 else None,
             "date": timestamp.split("T", 1)[0] if timestamp else None,
             "published_at": timestamp if "T" in timestamp else None,
             "publication_basis": "上游提供的新聞發布時間；未保存取得與修訂時間",
@@ -721,7 +741,7 @@ def build_evidence_bundle(
     price_rows, chip_rows, technical_rows = collect_market_rows(
         db, symbol=symbol, as_of_date=as_of_date
     )
-    news = build_news_items(news_sources, summary_chars=news_summary_chars)
+    news = build_news_items(news_sources, summary_chars=news_summary_chars, db=db)
     timeline, timeline_missing = build_daily_timeline(
         price_rows=price_rows,
         chip_rows=chip_rows,

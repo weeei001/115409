@@ -1,5 +1,5 @@
 import React from 'react';
-import { Newspaper, RefreshCw } from 'lucide-react';
+import { Newspaper, RefreshCw, Info } from 'lucide-react';
 import { useNewsList } from '../../lib/hooks/useNewsList';
 import { useHydrated } from '../../lib/useHydrated';
 import { NewsCard } from '../NewsCard';
@@ -20,7 +20,7 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
 
   return (
     <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3 mb-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
           <Newspaper size={18} className="text-brand" aria-hidden />
           <h2 className="text-lg font-bold tracking-tight">相關新聞</h2>
@@ -51,6 +51,11 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
         </div>
       </div>
 
+      <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)] bg-[var(--color-bg-elevated)]/60 px-3 py-1.5 rounded-lg mb-4">
+        <Info size={12} className="text-brand shrink-0" aria-hidden />
+        <span>情緒反映新聞訊息，不代表股價預測。</span>
+      </div>
+
       {!hydrated || newsList.loading ? (
         <NewsListSkeleton count={4} />
       ) : newsList.error ? (
@@ -63,9 +68,11 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
                 key={n.article_id}
                 news={n}
                 index={i}
+                targetStock={symbol}
               />
             ))}
           </div>
+
           {totalPages > 1 ? (
             <div className="mt-4 flex items-center justify-between border-t border-[var(--color-border)] pt-3">
               <span className="text-xs text-[var(--color-text-muted)] tabular-nums">

@@ -1,7 +1,20 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class SentimentEvidenceItem(BaseModel):
+    field: Literal["title", "content"] = Field(..., description="引用來源欄位（title 或 content）")
+    quote: str = Field(..., max_length=80, description="原文子字串引用")
+
+
+class SentimentResponse(BaseModel):
+    target_stock_id: str = Field(..., description="目標股票代號")
+    label: str = Field(..., description="情緒標籤（positive / negative / neutral / mixed / insufficient）")
+    reason: str = Field(..., description="簡短理由（1~80 字元）")
+    evidence: List[SentimentEvidenceItem] = Field(default_factory=list, description="原文引用列表")
+    analyzed_at: Optional[datetime] = Field(None, description="分析時間")
 
 
 class NewsBase(BaseModel):
@@ -20,6 +33,10 @@ class NewsBase(BaseModel):
 
 class News(NewsBase):
     created_at: Optional[datetime] = Field(None, description="建立時間")
+    sentiments: List[SentimentResponse] = Field(
+        default_factory=list, description="該新聞針對目標股票之情緒分析結果（status=success 且 hash 符合）"
+    )
+
 
     model_config = ConfigDict(
         from_attributes=True,
