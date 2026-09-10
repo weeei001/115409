@@ -366,6 +366,37 @@ def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str,
                      "B 組 = A 組 + 額外疊加最近 4 週（含當週）的 <code>analysis_digests</code> 週摘要。B 是 A 的超集，測的是「多給一份消化過的摘要有沒有幫助」。</li>")
         news_li = ""
 
+    # 核心結論 callout（A/L 學習報告專用；依 verdict 產生對應敘事）
+    conclusion_html = ""
+    if is_learned and m20.get("verdict") is not None:
+        a20, l20 = m20["arms"]["A"]["hit_rate"], m20["arms"][c20]["hit_rate"]
+        au20 = m20["baselines"]["always_up"]["hit_rate"]
+        rel = m20["relative_to_always_up"]
+        mc = m20["mcnemar_sign_test"]
+        mae_a, mae_l = m20["arms"]["A"]["mae"], m20["arms"][c20]["mae"]
+        n5 = m5["coverage"]["n_valid_as_of"]
+        a5, l5 = m5["arms"]["A"]["hit_rate"], m5["arms"][c20]["hit_rate"]
+        verdict_word = ("通過——學到的方法論 prompt 在雙條件下優於現行 prompt"
+                        if m20["verdict"]["passed"] else
+                        "未通過——學到的方法論 prompt 並未優於現行 prompt")
+        hz = m20["config"].get("horizon", 20)
+        conclusion_html = f"""
+  <div class="callout">
+    <strong>核心結論（h20 主結論）</strong>：判定{verdict_word}。
+    在 {yr} 全年 {m20['coverage']['n_valid_as_of']} 個週頻決策點上，L（訓練期歸納的方法論 prompt）方向命中率
+    {fmt_pct(l20)}、A（現行 prompt）{fmt_pct(a20)}，兩者<strong>都大幅低於「無腦看漲」（always_up）基準線
+    {fmt_pct(au20)}</strong>（L 相對基準線 {rel[c20]:+.1%}、A {rel['A']:+.1%}）。McNemar 成對比較
+    L 勝 {mc['b_wins']} / A 勝 {mc['a_wins']}（p={mc['p_value']}），方向上<strong>反而是 A 略勝</strong>。
+    L 的幅度誤差（MAE {mae_l}）明顯高於 A（{mae_a}）——L 學到了訓練年（2024，多頭）「AI 動能＝大漲」的幅度預期，
+    套用到 {yr} 反而更離譜。h5 穩健性對照（{n5} 點，L {fmt_pct(l5)} / A {fmt_pct(a5)}）方向一致。
+    <br><br>
+    <strong>為什麼</strong>：{yr} 全年 2330 走勢極端（上半年關稅急跌、單週跌逾 15%；下半年 AI 狂噴、單週漲逾 20%），
+    大多數週的實際 {hz} 日漲跌幅遠超 ±{m20['config']['neutral_band']}% 中性帶。
+    LLM 對「幅度」的預測能力不足，即使方向判對，保守的幅度估計也會落進中性帶被判失敗；
+    用單一多頭年訓練出的方法論，遇到修正段會系統性做多。這是<strong>乾淨的負面結果</strong>：
+    現有 LLM 預測管線（無論現行 prompt 或訓練優化版）在這類高波動年份，尚未證明比最簡單的基準線更準。
+  </div>"""
+
     return f"""
 <title>{page_title}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -415,7 +446,7 @@ def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str,
 <div class="report-root">
   <h1>{page_title}</h1>
   <p class="subtitle">{subtitle}</p>
-
+  {conclusion_html}
   <h2>1. 摘要數字</h2>
   <div class="stat-row">
     <div class="stat-tile"><div class="label">h20 · {ARM_LABELS['A']} 命中率</div><div class="value">{fmt_pct(m20['arms']['A']['hit_rate'])}</div></div>

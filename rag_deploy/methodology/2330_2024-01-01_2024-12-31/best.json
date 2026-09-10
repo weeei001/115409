@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "prompt": "prompt_v3.txt",
+  "methodology": "methodology_v3.json",
+  "heldout_h20": 0.6522,
+  "heldout_h5": 0.625,
+  "train_end": "2024-12-31",
+  "stock": "2330"
+}

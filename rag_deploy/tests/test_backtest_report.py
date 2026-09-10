@@ -31,8 +31,8 @@ def _decisions(cmp_arm, n=6):
 
 def _metrics(cmp_arm, with_verdict):
     m = {
-        "config": {"stock": "2330", "start": "2025-01-01", "horizon": 20},
-        "arms": {"A": {"n": 6, "hit_rate": 0.5, "hits": 3, "mae": 0.0},
+        "config": {"stock": "2330", "start": "2025-01-01", "horizon": 20, "neutral_band": 3.0},
+        "arms": {"A": {"n": 6, "hit_rate": 0.5, "hits": 3, "mae": 2.0},
                  cmp_arm: {"n": 6, "hit_rate": 0.0, "hits": 0, "mae": 4.0}},
         "baselines": {"always_up": {"n": 6, "hit_rate": 0.5},
                       "always_down": {"n": 6, "hit_rate": 0.5}},
@@ -88,6 +88,8 @@ def test_build_report_learned_al_with_methodology():
     assert "雙條件方向制判定" in html
     assert "v1（best）" in html
     assert "digest 疊加" not in html
+    assert "核心結論（h20 主結論）" in html  # conclusion callout
+    assert "未通過" in html  # verdict passed=False → 敘事
 
 
 def test_verdict_block_renders_conditions():
