@@ -142,3 +142,57 @@ def get_count(
         query = query.filter(conditions)
 
     return query.count()
+
+
+def attach_sentiments_to_news(
+    db: Session,
+    items: List[NewsArticle],
+    stock: Optional[str] = None,
+    config_hash: Optional[str] = None,
+) -> None:
+    """
+    為當頁新聞批次附加有效的情緒分析結果（status='success' 且 hash 符合）。
+    若有指定 stock，僅回傳該目標股票的情緒；若無指定，回傳該篇新聞的所有成功結果。
+    完全不影響分頁總數與排序。
+    """
+    if not items:
+        return
+
+    article_ids = [item.article_id for item in items if item.article_id]
+    if not article_ids:
+        return
+
+    from collections import defaultdict
+    import json
+    from models.news_sentiment import NewsSentiment
+    from news_sentiment.cleaner import get_active_config_hash
+
+    active_config = config_hash or get_active_config_hash()
+    query = db.query(NewsSentiment).filter(
+        NewsSentiment.article_id.in_(article_ids),
+        NewsSentiment.status == "success",
+        NewsSentiment.config_hash == active_config,
+    )
+    if stock:
+        query = query.filter(NewsSentiment.target_stock_id == stock)
+
+    sentiments = query.all()
+    by_article = defaultdict(list)
+    for s in sentiments:
+        ev_list = []
+        if s.evidence:
+            try:
+                ev_list = json.loads(s.evidence)
+            except Exception:
+                ev_list = []
+        by_article[s.article_id].append({
+            "target_stock_id": s.target_stock_id,
+            "label": s.label or "",
+            "reason": s.reason or "",
+            "evidence": ev_list,
+            "analyzed_at": s.analyzed_at,
+        })
+
+    for item in items:
+        setattr(item, "sentiments", by_article.get(item.article_id, []))
+

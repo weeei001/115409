@@ -16,10 +16,12 @@ from .finmind_extra import (
 from .user import User
 from .password_reset_token import PasswordResetToken
 from .llm_response import LlmResponse
+from .news_sentiment import NewsSentiment
 
 __all__ = [
     "DailyPrice",
     "NewsArticle",
+    "NewsSentiment",
     "TechnicalIndicator",
     "SimulatedOrder",
     "InstitutionalTrade",
@@ -35,3 +37,4 @@ __all__ = [
     "PasswordResetToken",
     "LlmResponse",
 ]
+

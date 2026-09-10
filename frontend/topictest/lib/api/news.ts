@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { PaginatedNewsResponse } from '../types';
+import type { News, PaginatedNewsResponse } from '../types';
 import { dedupeFetch } from '../utils/inFlight';
 
 export interface FetchNewsParams {
@@ -27,3 +27,15 @@ export async function fetchNews(params?: FetchNewsParams): Promise<PaginatedNews
     return data;
   });
 }
+
+/** openapi: GET /news/{article_id} */
+export async function fetchNewsDetail(articleId: string, stock?: string): Promise<News> {
+  const key = `GET /news/${articleId} ${stock ?? ''}`;
+  return dedupeFetch(key, async () => {
+    const { data } = await apiClient.get<News>(`/news/${encodeURIComponent(articleId)}`, {
+      params: stock ? { stock } : undefined,
+    });
+    return data;
+  });
+}
+

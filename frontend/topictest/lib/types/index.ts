@@ -267,6 +267,21 @@ export interface TechnicalIndicatorListApiResponse {
 
 // ── News API Response Types ──
 
+export interface SentimentEvidence {
+  field: 'title' | 'content';
+  quote: string;
+}
+
+export type SentimentLabel = 'positive' | 'negative' | 'neutral' | 'mixed' | 'insufficient';
+
+export interface NewsSentiment {
+  target_stock_id: string;
+  label: SentimentLabel | string;
+  reason: string;
+  evidence: SentimentEvidence[];
+  analyzed_at?: string | null;
+}
+
 export interface News {
   article_id: string;
   source: string | null;
@@ -278,7 +293,9 @@ export interface News {
   url: string | null;
   tags: string | null;
   created_at: string | null;
+  sentiments?: NewsSentiment[];
 }
+
 
 export interface PaginatedNewsResponse {
   page: number;
