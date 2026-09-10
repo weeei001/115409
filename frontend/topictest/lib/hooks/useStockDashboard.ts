@@ -42,6 +42,7 @@ import type { PriceChartData } from '../types/priceChart';
 
 const HISTORY_PAGE_SIZE = 30;
 const DEFAULT_MA_PERIODS = '5,10,20,60';
+export const isStockSymbol = (sym: string): boolean => /^\d{4,6}$/.test(sym.trim());
 
 export interface UseStockDashboardResult {
   symbol: string;
@@ -116,7 +117,12 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
   const rangeFallbackRef = useRef(getDefaultDateRange());
 
   useLayoutEffect(() => {
-    if (!symbol) return;
+    if (!symbol || !isStockSymbol(symbol)) {
+      setChartRangeReady(false);
+      setLoading(false);
+      setError(symbol ? '請輸入有效的股票代號' : null);
+      return;
+    }
     const d = getDefaultDateRange();
     rangeFallbackRef.current = d;
     setChartRangeReady(false);
@@ -146,6 +152,7 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
   }, [symbol]);
 
   const loadChipsFallback = useCallback(async (sym: string, sd: string, ed: string) => {
+    if (!sym || !isStockSymbol(sym)) return;
     const [instResult, techResult, chipsVolResult] = await Promise.allSettled([
       fetchInstitutionalTrades(sym, sd, ed),
       fetchTechnicalIndicators(sym, sd, ed),
@@ -189,6 +196,7 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
 
   const loadChips = useCallback(
     async (sym: string, sd: string, ed: string) => {
+      if (!sym || !isStockSymbol(sym)) return;
       const id = ++chipsReqIdRef.current;
       setChipsError(null);
       setChipsLoading(true);
@@ -238,6 +246,7 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
 
   const loadChartData = useCallback(
     async (sym: string, sd: string, ed: string, ma: string) => {
+      if (!sym || !isStockSymbol(sym)) return;
       const id = ++chartReqIdRef.current;
       setChartError(null);
       setChartLoading(true);
@@ -294,6 +303,7 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
   );
 
   const loadHistory = useCallback(async (sym: string, page: number) => {
+    if (!sym || !isStockSymbol(sym)) return;
     const id = ++historyReqIdRef.current;
     setHistoryError(null);
     try {
@@ -316,9 +326,9 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
     if (!routerReady) return;
 
     const sym = symbol.trim();
-    if (!sym) {
+    if (!sym || !isStockSymbol(sym)) {
       setLoading(false);
-      setError('請輸入有效的股票代號');
+      setError(sym ? '請輸入有效的股票代號' : '');
       setLatest(null);
       setChartRangeReady(false);
       return;
@@ -379,17 +389,17 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
   }, [symbol, routerReady]);
 
   useEffect(() => {
-    if (!symbol || loading || !chartRangeReady) return;
+    if (!symbol || !isStockSymbol(symbol) || loading || !chartRangeReady) return;
     void loadChartData(symbol, startDate, endDate, maPeriods);
   }, [symbol, loading, chartRangeReady, startDate, endDate, maPeriods, showPriceChange, loadChartData]);
 
   useEffect(() => {
-    if (!symbol || loading || !chartRangeReady) return;
+    if (!symbol || !isStockSymbol(symbol) || loading || !chartRangeReady) return;
     void loadChips(symbol, startDate, endDate);
   }, [symbol, loading, chartRangeReady, startDate, endDate, loadChips]);
 
   useEffect(() => {
-    if (!symbol || loading) return;
+    if (!symbol || !isStockSymbol(symbol) || loading) return;
     void loadHistory(symbol, historyPage);
   }, [historyPage, symbol, loading, loadHistory]);
 
@@ -401,12 +411,12 @@ export function useStockDashboard(symbol: string, routerReady: boolean): UseStoc
   );
 
   const reloadCharts = useCallback(() => {
-    if (!symbol || loading || !chartRangeReady) return;
+    if (!symbol || !isStockSymbol(symbol) || loading || !chartRangeReady) return;
     void loadChartData(symbol, startDate, endDate, maPeriods);
   }, [symbol, loading, chartRangeReady, startDate, endDate, maPeriods, loadChartData]);
 
   const reloadChips = useCallback(() => {
-    if (!symbol || loading || !chartRangeReady) return;
+    if (!symbol || !isStockSymbol(symbol) || loading || !chartRangeReady) return;
     void loadChips(symbol, startDate, endDate);
   }, [symbol, loading, chartRangeReady, startDate, endDate, loadChips]);
 
