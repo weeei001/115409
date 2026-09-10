@@ -152,10 +152,19 @@ def main():
                         counters["fail"] += len(docs)
                     print(f"[錯誤] {sid} 批次失敗（已重試 {MAX_RETRY} 次）: {err_short}", flush=True)
 
-    workers = MAX_WORKERS if qdrant_host else 1
-    print(f"開始向量化：{len(all_batch_tasks)} 個批次，{workers} 條執行緒", flush=True)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        list(executor.map(process_batch, all_batch_tasks))
+    if qdrant_host:
+        print(f"開始向量化：{len(all_batch_tasks)} 個批次，{MAX_WORKERS} 條執行緒", flush=True)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            list(executor.map(process_batch, all_batch_tasks))
+    else:
+        # local SQLite-backed QdrantClient 不支援跨執行緒操作，即使
+        # ThreadPoolExecutor(max_workers=1) 也會在另一顆 worker 執行緒執行，
+        # 觸發 "SQLite objects created in a thread can only be used in that
+        # same thread"。因此 path 模式必須在建立 client 的主執行緒依序呼叫，
+        # 完全不經過 ThreadPoolExecutor。
+        print(f"開始向量化：{len(all_batch_tasks)} 個批次，主執行緒依序處理（local Qdrant）", flush=True)
+        for task in all_batch_tasks:
+            process_batch(task)
 
     print(f"完成！成功向量化 {counters['done']} 筆，失敗 {counters['fail']} 筆（待處理共 {todo_all} 筆）。")
 
