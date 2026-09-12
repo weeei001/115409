@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -17,17 +18,17 @@ def news_index_fingerprint(index_version="news-v2", model="nvidia/nemotron-3-emb
 
 
 class Settings(BaseSettings):
-    DATABASE_HOST: str = "localhost"
-    DATABASE_USER: str = "root"
-    DATABASE_PASSWORD: str = ""
-    DATABASE_NAME: str = "topic_stock"
-    DATABASE_PORT: int = 3306
+    DATABASE_HOST: str = Field("localhost", validation_alias=AliasChoices("DATABASE_HOST", "MYSQL_HOST"))
+    DATABASE_USER: str = Field("root", validation_alias=AliasChoices("DATABASE_USER", "MYSQL_USER"))
+    DATABASE_PASSWORD: str = Field("", validation_alias=AliasChoices("DATABASE_PASSWORD", "MYSQL_PASSWORD"))
+    DATABASE_NAME: str = Field("topic_stock", validation_alias=AliasChoices("DATABASE_NAME", "MYSQL_DATABASE"))
+    DATABASE_PORT: int = Field(3306, validation_alias=AliasChoices("DATABASE_PORT", "MYSQL_PORT"))
 
     # Ambient proxy variables are opt-in; use OUTBOUND_HTTP_PROXY for an explicit proxy.
     OUTBOUND_HTTP_TRUST_ENV: bool = False
     OUTBOUND_HTTP_PROXY: str = ""
 
-    LLM_API_KEY: str = ""
+    LLM_API_KEY: str = Field("", validation_alias=AliasChoices("LLM_API_KEY", "NVIDIA_API_KEY"))
     LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_MODEL: str = ""
     LLM_TEMPERATURE: float = 0.2
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = "news_chunks"
     QDRANT_TIMEOUT_SECONDS: float = 10
     EMBED_API_URL: str = "https://integrate.api.nvidia.com/v1/embeddings"
-    EMBED_API_KEY: str = ""
+    EMBED_API_KEY: str = Field("", validation_alias=AliasChoices("EMBED_API_KEY", "NVIDIA_API_KEY"))
     EMBED_MODEL: str = "nvidia/nemotron-3-embed-1b"
     EMBED_TIMEOUT_SECONDS: float = 60
     EMBED_TRUNCATE: Literal["NONE", "START", "END"] = "NONE"
