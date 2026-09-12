@@ -1,0 +1,71 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import Settings, get_settings
+from app.core.errors import install_error_handlers
+from app.core.http import make_http_client
+from app.db.session import make_engine, make_session_factory
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        engine = make_engine(settings)
+        app.state.session_factory = make_session_factory(engine)
+        try:
+            async with make_http_client(settings) as http:
+                app.state.http = http
+                yield
+        finally:
+            engine.dispose()
+
+    app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
+    app.state.settings = settings
+    install_error_handlers(app)
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+        allow_methods=["*"], allow_headers=["*"],
+    )
+
+    from app.features.auth.router import router as auth_router
+    from app.features.market.router import router as market_router
+    from app.features.news.router import router as news_router
+    from app.features.orders.router import router as orders_router
+    from app.features.analysis.router import router as analysis_router
+    from app.features.chat.router import router as chat_router
+    from app.features.retrieval.router import router as retrieval_router
+    from app.features.simulation.router import router as simulation_router
+
+    app.include_router(market_router)
+    app.include_router(news_router)
+    app.include_router(auth_router)
+    app.include_router(orders_router)
+    app.include_router(analysis_router)
+    app.include_router(chat_router)
+    app.include_router(retrieval_router)
+    app.include_router(simulation_router)
+
+    @app.get("/", tags=["系統"])
+    def read_root():
+        return {"message": "歡迎使用 FastAPI + MySQL 後端應用",
+                "version": settings.APP_VERSION, "docs": "/docs"}
+
+    @app.get("/health", tags=["系統"])
+    def health_check():
+        return {"status": "healthy"}
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run("app.main:app", host=settings.APP_HOST, port=settings.APP_PORT, reload=settings.APP_RELOAD)
