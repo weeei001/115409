@@ -751,7 +751,14 @@ async def ask(req: AskRequest):
         s = normalize_time(t)
         if not s:
             return 0.0
-        return datetime.fromisoformat(s).timestamp()
+        try:
+            return datetime.fromisoformat(s).timestamp()
+        except ValueError:
+            # LLM 有時回傳不存在的日期（如 2026-09-31），退回當日 00:00
+            try:
+                return datetime.fromisoformat(s[:8] + "01").timestamp()
+            except ValueError:
+                return 0.0
 
     def is_in_time_range(pub_time: str) -> bool:
         """判斷新聞是否在使用者關注的時間範圍內"""
