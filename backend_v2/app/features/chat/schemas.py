@@ -1,0 +1,147 @@
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=6000)
+
+
+class AskRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=6000)
+    stock_id: str | None = Field(default=None, pattern=r"^[0-9]{4,6}$")
+    stream: bool = False
+    user_token: str | None = None
+    answer_detail: Literal["plain", "standard", "technical"] = "plain"
+    history: list[ChatTurn] = Field(default_factory=list, max_length=8)
+
+    @field_validator("query")
+    @classmethod
+    def nonblank_query(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Query must not be blank")
+        return value.strip()
+
+
+class Intent(BaseModel):
+    is_finance: bool = True
+    stocks: list[str] = Field(default_factory=list)
+    time_from: str | None = None
+    time_to: str | None = None
+    data_needs: list[Literal["news", "market", "knowledge", "help"]] = Field(default_factory=lambda: ["news"])
+    suggested_questions: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
+    standalone_query: str | None = Field(default=None, max_length=6000)
+    display_focus: list[Literal["price", "technical", "institutional", "fundamental", "comparison", "news"]] = Field(default_factory=list)
+
+
+class SourceChunk(BaseModel):
+    title: str
+    source: str
+    source_name: str
+    pub_time: str
+    url: str
+    stock_id: str
+    content: str
+    score: float
+    citation_id: str = ""
+    category: str = "news"
+    article_id: str | None = None
+    chunk_id: str | None = None
+    chunk_index: int | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    content_hash: str | None = None
+    revision: str | None = None
+    index_version: str | None = None
+    embedding_model: str | None = None
+    stock_ids: list[str] = Field(default_factory=list)
+    in_time_range: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def null_strings(cls, data):
+        if not isinstance(data, dict):
+            return data
+        return {key: "" if value is None and key in cls.model_fields
+                and cls.model_fields[key].annotation is str else value
+                for key, value in data.items()}
+
+
+class ChatAction(BaseModel):
+    type: Literal["navigate"] = "navigate"
+    label: str
+    path: str = Field(pattern=r"^(?:/|/ai|/compare|/order|/stock/[0-9]{4,6})$")
+
+
+class ChatFollowUp(BaseModel):
+    type: Literal["follow_up"] = "follow_up"
+    label: str = Field(min_length=1, max_length=200)
+    query: str = Field(min_length=1, max_length=6000)
+
+
+class DashboardBlock(BaseModel):
+    title: str
+    description: str = ""
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class DashboardMetric(BaseModel):
+    label: str
+    value: float | None
+    unit: str = ""
+    date: str | None = None
+
+
+class DashboardMetrics(DashboardBlock):
+    kind: Literal["metrics"] = "metrics"
+    items: list[DashboardMetric]
+
+
+class DashboardSeries(BaseModel):
+    name: str
+    values: list[float | None]
+
+
+class DashboardChart(DashboardBlock):
+    kind: Literal["chart"] = "chart"
+    dates: list[str]
+    series: list[DashboardSeries]
+    unit: str = ""
+
+
+class DashboardTable(DashboardBlock):
+    kind: Literal["table"] = "table"
+    columns: list[str]
+    rows: list[list[str]]
+
+
+class DashboardNewsItem(BaseModel):
+    title: str
+    publisher: str
+    published_at: str
+    url: str
+    source_id: str
+
+
+class DashboardNews(DashboardBlock):
+    kind: Literal["news"] = "news"
+    items: list[DashboardNewsItem]
+
+
+class ChatDashboard(BaseModel):
+    title: str
+    blocks: list[Annotated[DashboardMetrics | DashboardChart | DashboardTable | DashboardNews,
+                           Field(discriminator="kind")]]
+
+
+class AskResponse(BaseModel):
+    answer: str
+    detected_stocks: list[str]
+    time_range: dict | None
+    sources: list[SourceChunk]
+    tokens: dict
+    duration_ms: int
+    current_time: str
+    actions: list[ChatAction | ChatFollowUp] = Field(default_factory=list)
+    dashboard: ChatDashboard | None = None
