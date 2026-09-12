@@ -1,5 +1,7 @@
 import json
+import asyncio
 from datetime import date
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -7,6 +9,8 @@ from sqlalchemy.orm import Session
 from crud.llm_response import create_llm_response
 from models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from stock_behavior.history import saved_brief
+from stock_behavior.orchestrator import StockBehaviorOrchestrator
+from schemas.stock_behavior import StockBehaviorTextBriefRequest
 
 
 def test_saved_brief_reads_public_fields_and_never_exposes_blocked_output():
@@ -44,3 +48,26 @@ def test_saved_brief_reads_public_fields_and_never_exposes_blocked_output():
         # 損毀或跟資料列對不起來的快照不能當成有效分析回傳
         assert saved_brief(save(response_json="broken json")) is None
         assert saved_brief(save(symbol="2317")) is None
+
+        # Read-only loading uses the newest valid snapshot across configurations.
+        save(day="2026-09-10", config_hash="current")
+        latest = save(day="2026-09-11", config_hash="previous")
+        save(day="2026-09-11", response_json="broken json")
+        save(day="2026-09-12", is_fallback=True)
+        save(day="2026-09-12", kind="other")
+        save(day="2026-09-13")
+        orchestrator = object.__new__(StockBehaviorOrchestrator)
+        orchestrator._db = db
+        orchestrator._settings = SimpleNamespace(ADVISOR_LLM_MODEL="test")
+        orchestrator._llm = SimpleNamespace(model_name="test")
+        orchestrator._text_brief_config = lambda model: {"revision": "new"}
+        result = asyncio.run(orchestrator.generate_text_brief(
+            StockBehaviorTextBriefRequest(symbol="2330", as_of_date=date(2026, 9, 12), cache_only=True)
+        ))
+        assert result.snapshot_id == latest.id
+        assert result.as_of_date == "2026-09-11" and result.cached
+        assert result.config_hash == "previous"
+        missing = asyncio.run(orchestrator.generate_text_brief(
+            StockBehaviorTextBriefRequest(symbol="2330", as_of_date=date(2026, 9, 1), cache_only=True)
+        ))
+        assert missing.status == "unavailable" and missing.brief is None

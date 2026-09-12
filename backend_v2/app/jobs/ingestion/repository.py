@@ -11,7 +11,7 @@ from .chunking import DEFAULT_INDEX_VERSION
 
 chunk_metadata = MetaData()
 news_chunks = Table(
-    "news_chunks_v2", chunk_metadata,
+    "news_chunks", chunk_metadata,
     Column("chunk_id", String(80), primary_key=True),
     Column("article_id", String(64), nullable=False),
     Column("stock_id", String(20)),

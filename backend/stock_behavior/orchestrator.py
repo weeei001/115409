@@ -809,26 +809,10 @@ class StockBehaviorOrchestrator:
             config_hash=config_hash[:12],
         )
 
-        if not req.force_refresh:
-            cached = self._load_cached_text_brief(
-                symbol=symbol,
-                as_of_date=as_of_date,
-                config_hash=config_hash,
-            )
-            if cached is not None:
-                log_event(
-                    "text_brief.cache_hit", symbol=symbol, as_of=as_of_date_text
-                )
-                return cached
-
         # 只讀快取（個股頁自動載入）：當日還沒產出就退回最近一次，產生交給排程。
         if req.cache_only and not req.force_refresh:
-            cached = self._load_cached_text_brief(
-                symbol=symbol,
-                as_of_date=None,
-                config_hash=config_hash,
-                max_as_of_date=as_of_date,
-            )
+            from stock_behavior.history import latest_saved_brief
+            cached = latest_saved_brief(self._db, symbol=symbol, as_of_date=as_of_date)
             log_event(
                 "text_brief.cache_only",
                 symbol=symbol,
@@ -841,6 +825,18 @@ class StockBehaviorOrchestrator:
                 as_of_date_text=as_of_date_text,
                 model_name=model_name,
             )
+
+        if not req.force_refresh:
+            cached = self._load_cached_text_brief(
+                symbol=symbol,
+                as_of_date=as_of_date,
+                config_hash=config_hash,
+            )
+            if cached is not None:
+                log_event(
+                    "text_brief.cache_hit", symbol=symbol, as_of=as_of_date_text
+                )
+                return cached
 
         news_sources, rag_fallback_mode = await self._fetch_text_brief_news(
             symbol=symbol,
