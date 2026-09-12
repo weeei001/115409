@@ -1,20 +1,59 @@
-import { RAG_BASE } from '../apiBase';
+import { API_BASE } from '../apiBase';
 import { getToken } from '../auth/storage';
 import { getRagApiTimeoutMs } from '../ragTimeout';
+import { isChatAction } from '../nav';
+import type { ChatAction } from '../types';
+import { parseChatDashboard, type ChatDashboard } from '../types/chatDashboard';
 import { ApiRequestError } from './client';
 
-const RAG_ASK_URL = `${RAG_BASE}/api/ask`;
+const ASK_URL = `${API_BASE}/api/ask`;
+
+export type AnswerDetail = 'plain' | 'standard' | 'technical';
+
+export interface RagHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 export interface RagAskParams {
   query: string;
   stock_id?: string | null;
+  answer_detail?: AnswerDetail;
+  history?: RagHistoryMessage[];
+}
+
+function cleanHistoryMessage(message: RagHistoryMessage): RagHistoryMessage {
+  const content = message.role === 'assistant'
+    ? message.content
+      .replace(/【(?:引用|新聞|資料)來源】[\s\S]*?(?=【[^】]+】|$)/g, '')
+      .replace(/\[S\d+\]/g, '')
+    : message.content;
+  return { role: message.role, content: content.trim().slice(0, 6000) };
+}
+
+export function appendCompletedChatTurn(
+  history: RagHistoryMessage[],
+  query: string,
+  answer: string
+): RagHistoryMessage[] {
+  const turn = [
+    cleanHistoryMessage({ role: 'user', content: query }),
+    cleanHistoryMessage({ role: 'assistant', content: answer }),
+  ];
+  return turn.every((message) => message.content) ? [...history, ...turn].slice(-8) : history;
+}
+
+export interface RagAskDone {
+  actions: ChatAction[];
+  dashboard?: ChatDashboard;
 }
 
 export interface RagAskStreamHandlers {
   onText: (chunk: string) => void;
   /** 後端 `type: "status"`（搜尋中、思考中等） */
   onStatus?: (status: string) => void;
-  onDone?: () => void;
+  onDone?: (result: RagAskDone) => void;
+  onDashboard?: (result: RagAskDone) => void;
 }
 
 /** SSE data 行 JSON（由後端 /api/ask stream=true） */
@@ -23,6 +62,9 @@ interface StreamDataLine {
   content?: string;
   text?: string;
   message?: string;
+  actions?: unknown;
+  answer?: string;
+  dashboard?: unknown;
 }
 
 /** 支援 `data: {...}`、`data:{...}`、或整行裸 JSON */
@@ -67,10 +109,11 @@ function tryExtractAnswerFromJsonRoot(data: Record<string, unknown>): string | n
 export interface RagAskStreamResult {
   /** 曾收到至少一段 `type=text` 串流片段 */
   hadStreamText: boolean;
+  completed: boolean;
 }
 
 /**
- * 財經新聞 RAG：POST /api/ask，`stream: true`，解析 SSE `data:` 行或裸 JSON 行；若無事件則嘗試整段 JSON。
+ * System assistant: POST /api/ask with SSE, with a JSON response fallback.
  */
 export async function ragAskStream(
   params: RagAskParams,
@@ -92,12 +135,14 @@ export async function ragAskStream(
   const body = JSON.stringify({
     query: params.query,
     stock_id: params.stock_id ?? null,
+    answer_detail: params.answer_detail ?? 'plain',
+    history: (params.history ?? []).slice(-8).map(cleanHistoryMessage).filter((message) => message.content),
     stream: true,
     user_token: typeof window !== 'undefined' ? getToken() : null,
   });
 
   try {
-    const res = await fetch(RAG_ASK_URL, {
+    const res = await fetch(ASK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -142,11 +187,32 @@ export async function ragAskStream(
     let carry = '';
     let fullRaw = '';
     let hadStreamText = false;
+    let completed = false;
+
+    const finish = (data: StreamDataLine) => {
+      if (!hadStreamText && typeof data.answer === 'string' && data.answer.trim()) {
+        hadStreamText = true;
+        handlers.onText(data.answer);
+      }
+      completed = true;
+      handlers.onDone?.({
+        actions: Array.isArray(data.actions) ? data.actions.filter(isChatAction) : [],
+        dashboard: parseChatDashboard(data.dashboard),
+      });
+    };
 
     const processLine = (line: string): 'done' | 'continue' => {
       const data = parseSseOrJsonLine(line);
       if (!data || typeof data.type !== 'string') return 'continue';
       const typ = data.type;
+      if (typ === 'dashboard') {
+        const dashboard = parseChatDashboard(data.dashboard);
+        if (dashboard) handlers.onDashboard?.({
+          dashboard,
+          actions: Array.isArray(data.actions) ? data.actions.filter(isChatAction) : [],
+        });
+        return 'continue';
+      }
       if (typ === 'status') {
         const raw = data as StreamDataLine & Record<string, unknown>;
         const st =
@@ -170,7 +236,7 @@ export async function ragAskStream(
         return 'continue';
       }
       if (typ === 'done') {
-        handlers.onDone?.();
+        finish(data);
         return 'done';
       }
       if (typ === 'error') {
@@ -196,7 +262,7 @@ export async function ragAskStream(
         if (!line.trim()) continue;
         switch (processLine(line)) {
           case 'done':
-            return { hadStreamText };
+            return { hadStreamText, completed };
           default:
             break;
         }
@@ -208,20 +274,7 @@ export async function ragAskStream(
       if (line.trim()) {
         switch (processLine(line)) {
           case 'done':
-            return { hadStreamText };
-          default:
-            break;
-        }
-      }
-    }
-
-    if (!hadStreamText && fullRaw.trim()) {
-      for (const rawLine of fullRaw.split(/\r?\n/)) {
-        const line = rawLine.replace(/\r$/, '');
-        if (!line.trim()) continue;
-        switch (processLine(line)) {
-          case 'done':
-            return { hadStreamText };
+            return { hadStreamText, completed };
           default:
             break;
         }
@@ -249,8 +302,8 @@ export async function ragAskStream(
                   : null;
             if (st !== null) handlers.onStatus?.(st);
           } else if (inner.type === 'done') {
-            handlers.onDone?.();
-            return { hadStreamText };
+            finish(inner);
+            return { hadStreamText, completed };
           } else if (inner.type === 'error') {
             const msg =
               typeof inner.message === 'string' && inner.message.trim()
@@ -263,6 +316,8 @@ export async function ragAskStream(
           if (ans) {
             hadStreamText = true;
             handlers.onText(ans);
+            finish({ type: 'done', actions: obj.actions, dashboard: obj.dashboard });
+            return { hadStreamText, completed };
           }
         }
       } catch {
@@ -270,8 +325,7 @@ export async function ragAskStream(
       }
     }
 
-    handlers.onDone?.();
-    return { hadStreamText };
+    return { hadStreamText, completed };
   } catch (err) {
     if (err instanceof ApiRequestError) throw err;
     if (err instanceof Error && err.name === 'AbortError') {

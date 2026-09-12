@@ -1,4 +1,10 @@
+import type { ChatDashboard } from './chatDashboard';
+
 /** 個股 AI 分析的型別在 ./textBrief（schema `text-first-v2`） */
+
+export type ChatAction =
+  | { type: 'navigate'; label: string; path: string }
+  | { type: 'follow_up'; label: string; query: string };
 
 export interface ChatMessage {
   id: string;
@@ -7,6 +13,8 @@ export interface ChatMessage {
   timestamp: string;
   /** RAG 串流：後端 `type: "status"` 的即時狀態列（思考／搜尋中等） */
   streamStatus?: string;
+  actions?: ChatAction[];
+  dashboard?: ChatDashboard;
 }
 
 // ── Auth (JWT) ──

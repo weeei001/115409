@@ -129,29 +129,32 @@ function SourcesSection({ body }: { body: string }) {
 
   return (
     <ul className="space-y-2">
-      {sources.map((source, i) => (
+      {sources.map((source, i) => {
+        const SourceRow = source.url ? 'a' : 'div';
+        return (
         <li key={`${source.url}-${i}`}>
-          <a
-            href={source.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 px-3 py-2.5 transition-colors hover:border-[var(--color-border-hover)] hover:bg-[var(--color-bg-elevated)]"
+          <SourceRow
+            href={source.url || undefined}
+            target={source.url ? '_blank' : undefined}
+            rel={source.url ? 'noopener noreferrer' : undefined}
+            className={`flex gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 px-3 py-2.5 ${source.url ? 'group transition-colors hover:border-[var(--color-border-hover)] hover:bg-[var(--color-bg-elevated)]' : ''}`}
           >
             <span className="mt-0.5 shrink-0 text-[10px] font-bold tabular-nums text-brand">
-              {source.index ? `#${source.index}` : '•'}
+              {source.index ? `[${source.index}]` : '•'}
             </span>
             <span className="min-w-0 flex-1">
               <span className="line-clamp-2 text-sm font-medium leading-snug text-[var(--color-text-primary)] group-hover:text-brand">
                 {source.title}
               </span>
-              <span className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
+              {source.url && <span className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
                 <ExternalLink size={11} aria-hidden />
                 <span className="truncate">{tryHostname(source.url)}</span>
-              </span>
+              </span>}
             </span>
-          </a>
+          </SourceRow>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

@@ -4,15 +4,17 @@ import { Bot } from 'lucide-react';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { SubpageHeader } from '../components/SubpageHeader';
-import { ragAskStream } from '../lib/api/ragAsk';
+import { appendCompletedChatTurn, ragAskStream, type RagHistoryMessage } from '../lib/api/ragAsk';
 import { ApiRequestError } from '../lib/api/client';
-import type { ChatMessage } from '../lib/types';
+import type { ChatAction, ChatMessage } from '../lib/types';
+import type { ChatDashboard } from '../lib/types/chatDashboard';
 
 const AI_EXAMPLE_QUESTIONS = [
-  '近期台股與權值股有什麼財經新聞重點？',
-  '通膨與利率變化對股市有什麼影響？',
-  '如何解讀成交量與價格走勢的關係？',
-  '外資買超或賣超通常代表什麼意義？',
+  '整理台積電的走勢、法人與營收重點',
+  '比較台積電、聯發科與鴻海的報酬和風險',
+  '用 KD 和量價分析台積電目前的走勢',
+  '最近有哪些影響台股的新聞？',
+  '這個系統可以幫我做什麼？',
 ];
 
 function generateId(): string {
@@ -24,6 +26,7 @@ export default function AiPage() {
   const [loading, setLoading] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const completedHistory = useRef<RagHistoryMessage[]>([]);
 
   useEffect(() => {
     return () => {
@@ -36,6 +39,7 @@ export default function AiPage() {
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
+      const history = completedHistory.current;
 
       const userMsg: ChatMessage = {
         id: generateId(),
@@ -60,10 +64,14 @@ export default function AiPage() {
         setMessages((prev) => [...prev, assistantMsg]);
         setStreamingMessageId(assistantId);
 
+        let answer = '';
+        let actions: ChatAction[] = [];
+        let dashboard: ChatDashboard | undefined;
+        let completed = false;
+        let flushFrame: number | null = null;
         try {
           let pendingText = '';
           let pendingStatus: string | undefined;
-          let flushFrame: number | null = null;
 
           const flushPending = () => {
             flushFrame = null;
@@ -92,8 +100,8 @@ export default function AiPage() {
             flushFrame = window.requestAnimationFrame(flushPending);
           };
 
-          await ragAskStream(
-            { query: text },
+          const result = await ragAskStream(
+            { query: text, history },
             {
               onStatus: (status) => {
                 if (ctrl.signal.aborted) return;
@@ -102,18 +110,34 @@ export default function AiPage() {
               },
               onText: (chunk) => {
                 if (ctrl.signal.aborted) return;
+                answer += chunk;
                 pendingText += chunk;
                 scheduleFlush();
+              },
+              onDone: (result) => {
+                if (ctrl.signal.aborted) return;
+                actions = result.actions;
+                dashboard = result.dashboard ?? dashboard;
+              },
+              onDashboard: (result) => {
+                if (ctrl.signal.aborted) return;
+                dashboard = result.dashboard;
+                actions = result.actions;
+                setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+                  ...m, dashboard, actions,
+                } : m));
               },
             },
             { signal: ctrl.signal }
           );
+          completed = result.completed;
 
           if (flushFrame !== null) {
             window.cancelAnimationFrame(flushFrame);
             flushPending();
           }
         } finally {
+          if (flushFrame !== null) window.cancelAnimationFrame(flushFrame);
           // 總是清掉自己的 streaming flag；若使用者已送出下一條，streamingMessageId 會被新 cycle 設成新 id，
           // 此處只清「等於自己」的情境，避免覆蓋新訊息狀態。
           setStreamingMessageId((prev) => (prev === assistantId ? null : prev));
@@ -121,19 +145,14 @@ export default function AiPage() {
 
         if (ctrl.signal.aborted) return;
 
-        setMessages((prev) => {
-          const last = prev.find((m) => m.id === assistantId);
-          if (last && !last.content.trim()) {
-            return prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: '（無回覆內容）', streamStatus: undefined }
-                : m
-            );
-          }
-          return prev.map((m) =>
-            m.id === assistantId ? { ...m, streamStatus: undefined } : m
-          );
-        });
+        if (completed) completedHistory.current = appendCompletedChatTurn(history, text, answer);
+        setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+          ...m,
+          content: answer.trim() ? answer : '（無回覆內容）',
+          streamStatus: undefined,
+          actions,
+          dashboard,
+        } : m));
       } catch (err) {
         if (ctrl.signal.aborted) return;
 
@@ -150,7 +169,7 @@ export default function AiPage() {
               m.id === streamingAssistantId
                 ? {
                     ...m,
-                    content: `抱歉，無法取得回覆：${message}`,
+                    content: m.dashboard ? `資料已顯示，文字解讀暫時無法取得：${message}` : `抱歉，無法取得回覆：${message}`,
                     streamStatus: undefined,
                   }
                 : m
@@ -179,17 +198,17 @@ export default function AiPage() {
         <title>股海明燈｜AI 對話</title>
         <meta
           name="description"
-          content="與財經新聞 RAG 對話取得參考資訊（未設定 RAG 時為本機模擬回覆；不構成投資建議）。"
+          content="在 AI 對話中掌握個股分析、多股比較、技術指標、新聞與系統功能，直接點選建議問題繼續探索。"
         />
       </Head>
       <SubpageHeader
         icon={Bot}
         title="AI 對話"
-        subtitle="參考資訊對話（不構成投資建議）"
+        subtitle="個股、多股比較、技術指標與新聞重點（不構成投資建議）"
       />
 
       <main className="flex min-h-0 flex-1 flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-6">
-        <div className="flex min-h-0 flex-1 flex-col w-full max-w-4xl mx-auto">
+        <div className="flex min-h-0 flex-1 flex-col w-full max-w-6xl mx-auto">
           <div
             className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bento-cell border-b-0 shadow-[var(--shadow-elevated)]
                        max-h-[calc(100dvh-8rem)] sm:max-h-[calc(100dvh-10rem)]"
