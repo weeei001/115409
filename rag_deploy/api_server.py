@@ -498,15 +498,20 @@ async def _stream_ask(req):
             from datetime import datetime as _dt, timezone as _tz
             if not pub_time: return 0.5
             try:
+                tz8 = _tz(timedelta(hours=8))
                 pub = _dt.fromisoformat(normalize_time(pub_time))
                 if pub.tzinfo is None:
-                    pub = pub.replace(tzinfo=_tz(timedelta(hours=8)))
+                    pub = pub.replace(tzinfo=tz8)
                 if not time_from:
-                    now = _dt.now(tz=_tz(timedelta(hours=8)))
+                    now = _dt.now(tz=tz8)
                     days_old = (now - pub).days
                     return max(0.1, 1.0 - (days_old // 30) * 0.15)
                 t_from = _dt.fromisoformat(normalize_time(time_from))
+                if t_from.tzinfo is None:
+                    t_from = t_from.replace(tzinfo=tz8)
                 t_to = _dt.fromisoformat(normalize_time(time_to)) if time_to else pub
+                if t_to.tzinfo is None:
+                    t_to = t_to.replace(tzinfo=tz8)
                 if t_from <= pub <= t_to: return 1.0
                 diff = min(abs((pub - t_from).days), abs((pub - t_to).days))
                 return max(0.1, 1.0 - diff / 365)
@@ -783,18 +788,23 @@ async def ask(req: AskRequest):
         if not pub_time:
             return 0.5
         try:
+            tz8 = timezone(timedelta(hours=8))
             pub = _dt.fromisoformat(normalize_time(pub_time))
             if pub.tzinfo is None:
-                pub = pub.replace(tzinfo=timezone(timedelta(hours=8)))
+                pub = pub.replace(tzinfo=tz8)
 
             if not time_from:
                 # 無指定時間：以今天為基準，越新越好
-                now = _dt.now(tz=timezone(timedelta(hours=8)))
+                now = _dt.now(tz=tz8)
                 days_old = (now - pub).days
                 return max(0.1, 1.0 - (days_old // 30) * 0.15)
 
             t_from = _dt.fromisoformat(normalize_time(time_from))
+            if t_from.tzinfo is None:
+                t_from = t_from.replace(tzinfo=tz8)
             t_to = _dt.fromisoformat(normalize_time(time_to)) if time_to else pub
+            if t_to.tzinfo is None:
+                t_to = t_to.replace(tzinfo=tz8)
             if t_from <= pub <= t_to:
                 return 1.0
             days_off = min(abs((pub - t_from).days), abs((pub - t_to).days))
