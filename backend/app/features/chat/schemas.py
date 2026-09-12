@@ -122,6 +122,7 @@ class DashboardNewsItem(BaseModel):
     published_at: str
     url: str
     source_id: str
+    article_id: str | None = Field(default=None, max_length=64)
 
 
 class DashboardNews(DashboardBlock):

@@ -119,21 +119,23 @@ async function check() {
   await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), /Retrieval failed/);
 
   const mixedSources = '- [S1] Market snapshot\n- [S2] News: https://example.com/news\n' +
-    '- [S3] Untrusted source: javascript:alert(1)';
+    '- [S3] Untrusted source: javascript:alert(1)\n- [S4] Internal news: /news/article-1';
   assert.deepEqual(parseSourceItems(mixedSources), [
     { index: 'S1', title: 'Market snapshot', url: '' },
     { index: 'S2', title: 'News', url: 'https://example.com/news' },
     { index: 'S3', title: 'Untrusted source: javascript:alert(1)', url: '' },
+    { index: 'S4', title: 'Internal news', url: '/news/article-1' },
   ]);
   const markup = renderToStaticMarkup(createElement(RagStructuredReply, {
     content: `Readable answer[S1][S2]\n\n【引用來源】\n${mixedSources}`,
   }));
   assert.match(markup, /Readable answer\[S1\]\[S2\]/);
-  assert.equal((markup.match(/<li>/g) ?? []).length, 3);
-  for (const id of ['S1', 'S2', 'S3']) assert.ok(markup.includes(`[${id}]`));
+  assert.equal((markup.match(/<li>/g) ?? []).length, 4);
+  for (const id of ['S1', 'S2', 'S3', 'S4']) assert.ok(markup.includes(`[${id}]`));
   assert.match(markup, /Market snapshot/);
-  assert.equal((markup.match(/<a /g) ?? []).length, 1);
+  assert.equal((markup.match(/<a /g) ?? []).length, 2);
   assert.match(markup, /href="https:\/\/example.com\/news"/);
+  assert.match(markup, /href="\/news\/article-1"/);
   assert.doesNotMatch(markup, /href="javascript:/);
 
   const dashboard: ChatDashboard = {

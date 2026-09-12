@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import Link from 'next/link';
 import type { EChartsOption } from 'echarts';
 import { getChartPalette, MA_LINE_COLORS } from '../lib/chartTheme';
 import { useTheme } from '../lib/ThemeContext';
@@ -117,10 +118,17 @@ function BlockContent({ block }: { block: ChatDashboardBlock }) {
         <ul className="divide-y divide-[var(--color-border)]">
           {block.items.map((item, index) => {
             const url = safeDashboardUrl(item.url);
+            const newsPath = item.article_id?.trim()
+              ? `/news/${encodeURIComponent(item.article_id)}`
+              : '';
             return (
               <li key={`${item.source_id}-${index}`} className="space-y-2 py-3 first:pt-0 last:pb-0">
                 <p className="break-words text-sm font-medium leading-relaxed">
-                  {url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-brand underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">{item.title}</a> : item.title}
+                  {newsPath ? (
+                    <Link href={newsPath} className="text-brand underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">{item.title}</Link>
+                  ) : url ? (
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="text-brand underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">{item.title}</a>
+                  ) : item.title}
                 </p>
                 <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--color-text-muted)]">
                   {item.publisher && <span>{item.publisher}</span>}

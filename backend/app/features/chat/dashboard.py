@@ -186,7 +186,8 @@ def _news(sources):
             title = "【區間外背景】" + title
             background = True
         items.append({"title": title, "publisher": _text(source.source_name) or "來源未標示",
-                      "published_at": published_at, "url": url, "source_id": source.citation_id})
+                      "published_at": published_at, "url": url, "source_id": source.citation_id,
+                      "article_id": source.article_id})
         used_sources.append(source)
         if len(items) == 12:
             break

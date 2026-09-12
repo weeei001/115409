@@ -24,7 +24,7 @@ export interface DashboardTable extends DashboardBlock {
 
 export interface DashboardNews extends DashboardBlock {
   kind: 'news';
-  items: Array<{ title: string; publisher: string; published_at: string; url: string; source_id: string }>;
+  items: Array<{ title: string; publisher: string; published_at: string; url: string; source_id: string; article_id?: string | null }>;
 }
 
 export type ChatDashboardBlock = DashboardMetrics | DashboardChart | DashboardTable | DashboardNews;
@@ -42,6 +42,8 @@ const number = (value: unknown): value is number | null =>
 const strings = (value: unknown, limit: number): value is string[] =>
   Array.isArray(value) && value.length <= limit && value.every(text);
 const sourceId = (value: unknown): value is string => typeof value === 'string' && /^S[1-9][0-9]*$/.test(value);
+const articleId = (value: unknown): value is string | null | undefined =>
+  value === null || value === undefined || (typeof value === 'string' && value.length <= 64);
 
 export function safeDashboardUrl(value: string): string {
   try {
@@ -73,7 +75,7 @@ function isBlock(value: unknown): value is ChatDashboardBlock {
     case 'news':
       return Array.isArray(value.items) && value.items.length <= 12 && value.items.every((item) =>
         record(item) && text(item.title) && text(item.publisher) && text(item.published_at) &&
-        text(item.url) && sourceId(item.source_id));
+        text(item.url) && sourceId(item.source_id) && articleId(item.article_id));
     default:
       return false;
   }
