@@ -111,3 +111,4 @@ backend/finmind_output
 /deploy/
 
 /artifacts/
+backend/.state
