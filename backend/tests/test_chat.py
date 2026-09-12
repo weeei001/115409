@@ -350,6 +350,18 @@ def test_insufficient_evidence_can_abstain_without_inventing_citations(chat, str
     assert data["answer"] == llm.answer
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_forward_outlook_with_evidence_returns_conditional_assessment(chat, stream):
+    client, _, llm, _ = chat
+    llm.answer = chat_module.INSUFFICIENT_EVIDENCE_ANSWER + "[S1]"
+    response = client.post("/api/ask", json={"query": "台積電下周會漲嗎", "stream": stream})
+    data = events(response)[-1] if stream else response.json()
+    assert response.status_code == 200
+    assert "目前不能把" in data["answer"]
+    assert "條件式推論" in data["answer"]
+    assert data["answer"] != llm.answer
+
+
 def test_multiple_citations_list_only_used_sources_once_in_citation_order(chat):
     client, _, llm, retrieval = chat
     retrieval.hits[1]["payload"].update(title="Other report", source="cnyes", page_content="Other news.",
@@ -359,6 +371,15 @@ def test_multiple_citations_list_only_used_sources_once_in_citation_order(chat):
     assert response.status_code == 200
     assert response.json()["answer"].endswith("【引用來源】\n- [S2] Other report：http://news.test/other\n"
                                               "- [S1] 營收報告：https://news.test/report")
+
+
+def test_news_citations_prefer_internal_news_detail(chat):
+    client, _, llm, retrieval = chat
+    retrieval.hits[0]["payload"]["article_id"] = "article/one"
+    llm.answer = "台積電營收增加。[S1]"
+    response = client.post("/api/ask", json={"query": "台積電最近營收"})
+    assert response.status_code == 200
+    assert "/news/article%2Fone" in response.json()["answer"]
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "//made-up.test", "https://[invalid",

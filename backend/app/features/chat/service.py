@@ -8,7 +8,7 @@ import re
 from contextlib import aclosing
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -26,7 +26,82 @@ from .stock_context import collect_stock_sources
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
                       INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER,
                       NO_NEWS_MESSAGE, TIME_FALLBACK_WARNING)
-from .schemas import AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk
+from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, DashboardMetrics,
+                      DashboardTable, Intent, SourceChunk)
+
+
+def _is_forward_outlook(query: str) -> bool:
+    has_future = re.search(r"下[週周]|明天|明日|未來|未来|後市|接下來|後續", query)
+    has_direction = re.search(r"漲|跌|上漲|下跌|走勢|行情|表現|看多|看空", query)
+    asks_direction = re.search(r"會不會|是否|能否|可能", query) and has_direction
+    return bool((has_future and has_direction) or asks_direction)
+
+
+def _is_insufficient_only(raw_text: str) -> bool:
+    without_citations = re.sub(r"\s*\[S[1-9][0-9]*\]", "", raw_text).strip()
+    return without_citations == INSUFFICIENT_EVIDENCE_ANSWER
+
+
+def _directional_evidence_available(response: AskResponse) -> bool:
+    return any(source.category in {"market_technical", "institutional", "fundamental", "comparison", "news"}
+               and source.content.strip() for source in response.sources)
+
+
+def _citation_suffix(ids: list[str]) -> str:
+    unique = list(dict.fromkeys(value for value in ids if value))
+    return "".join(f"[{value}]" for value in unique)
+
+
+def _forward_outlook_fallback(response: AskResponse) -> str:
+    """Give a cited, conditional answer if the model abstains despite usable evidence."""
+    dashboard = response.dashboard
+    metrics = next((block for block in (dashboard.blocks if dashboard else [])
+                    if isinstance(block, DashboardMetrics) and "價量" in block.title), None)
+    price_items = {item.label: item for item in metrics.items} if metrics else {}
+    price_ids = metrics.source_ids if metrics else []
+    close = price_items.get("收盤價")
+    change = price_items.get("漲跌幅")
+    date = (close.date if close else None) or (change.date if change else None)
+    name = STOCK_OPTIONS.get(response.detected_stocks[0], response.detected_stocks[0]) \
+        if response.detected_stocks else "這檔股票"
+
+    institutional = next((block for block in (dashboard.blocks if dashboard else [])
+                          if isinstance(block, DashboardTable) and block.title == "法人買賣超"), None)
+    foreign = None
+    institutional_ids = institutional.source_ids if institutional else []
+    if institutional and institutional.rows and len(institutional.rows[0]) > 2:
+        try:
+            foreign = float(institutional.rows[0][2].replace(",", ""))
+        except (AttributeError, ValueError):
+            pass
+
+    if isinstance(change.value if change else None, (int, float)) and foreign is not None:
+        if change.value > 0 and foreign > 0:
+            stance = "短線偏多"
+        elif change.value < 0 and foreign < 0:
+            stance = "短線偏空"
+        else:
+            stance = "震盪／訊號分歧"
+    else:
+        stance = "方向不明"
+
+    details = []
+    if close and isinstance(close.value, (int, float)):
+        details.append(f"最新收盤 {close.value:g} 元")
+    if change and isinstance(change.value, (int, float)):
+        details.append(f"最新一日漲跌幅 {change.value:g}%")
+    dated = f"（資料日期 {date}）" if date else ""
+    price_sentence = (f"目前不能把{name}下週一定會漲當成確定結果；就現有資料，最新觀察為"
+                      f"{'、'.join(details) if details else '近期價量資料'}{dated}，這是已發生的行情，不是下週預測。"
+                      f"{_citation_suffix(price_ids or [source.citation_id for source in response.sources[:1]])}")
+
+    signal_parts = [f"若只看目前可取得的價量與法人訊號，初步判讀為「{stance}」"]
+    if foreign is not None:
+        signal_parts.append(f"最新外資買賣超為 {foreign:g} 股")
+    signal_sentence = "；".join(signal_parts) + "。這是條件式推論，不代表保證；下週仍要觀察收盤、成交量與法人方向是否延續。"
+    signal_sentence += _citation_suffix(price_ids + institutional_ids or
+                                        [source.citation_id for source in response.sources[:1]])
+    return f"{price_sentence}\n\n{signal_sentence}"
 
 
 def taipei_now() -> datetime:
@@ -141,13 +216,16 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
         source = available[citation]
         title = re.sub(r"https?://\S+", "", " ".join(source.title.split()), flags=re.IGNORECASE)
         reference = f"- {citation} {title or source.source_name or source.citation_id}"
-        try:
-            url = urlsplit(source.url)
-            if (url.scheme in {"http", "https"} and url.hostname and not url.username and not url.password
-                    and not re.search(r"[\s<>]", source.url)):
-                reference += f"：{source.url}"
-        except ValueError:
-            pass
+        if source.article_id:
+            reference += f"：/news/{quote(source.article_id, safe='')}"
+        else:
+            try:
+                url = urlsplit(source.url)
+                if (url.scheme in {"http", "https"} and url.hostname and not url.username and not url.password
+                        and not re.search(r"[\s<>]", source.url)):
+                    reference += f"：{source.url}"
+            except ValueError:
+                pass
         references.append(reference)
     if warning:
         answer += "\n\n【資料限制】\n" + warning.strip()
@@ -217,6 +295,9 @@ class ChatService:
             return response, "", ""
 
         query = (intent.standalone_query or request.query).strip() if history else request.query
+        forward_outlook = _is_forward_outlook(query)
+        if forward_outlook:
+            needs.update({"market", "news"})
         symbols = list(dict.fromkeys(symbol for symbol in intent.stocks if symbol in STOCK_OPTIONS))
         if request.stock_id:
             if request.stock_id not in STOCK_OPTIONS:
@@ -314,7 +395,9 @@ class ChatService:
                                  f"類別：{item.category} | 股票：{item.stock_id}\n"
                                  f"來源：{item.source_name} | 時間：{item.pub_time or '參考定義／無發布時間'}\n"
                                  f"內容：{item.content}\n連結：{item.url}")
-        response.dashboard = build_dashboard(response.sources, symbols, query, intent.display_focus)
+        response.dashboard = build_dashboard(
+            response.sources, symbols, query, [] if forward_outlook else intent.display_focus
+        )
         time_focus = ""
         if response.time_range:
             time_focus = f"Requested time range: {json.dumps(response.time_range, ensure_ascii=False)}"
@@ -322,6 +405,10 @@ class ChatService:
             time_focus += ("\nMarket data are dated daily observations, not live prices. Compare using the supplied "
                            "common window; without an explicit range the price comparison uses the last 30 calendar "
                            "days. Individual technical timelines contain at most 40 observations. State actual dates.")
+        if forward_outlook:
+            time_focus += ("\nThis is a future direction question. Give a conditional directional assessment from the "
+                           "latest supplied evidence; do not answer only with the insufficient-evidence sentence "
+                           "when relevant evidence exists, and do not present the assessment as certain.")
         prompt = ANSWER_PROMPT.format(current_time=response.current_time, time_focus=time_focus + warning,
                                       context="\n\n---\n\n".join(context_parts), query=request.query,
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
@@ -329,6 +416,9 @@ class ChatService:
 
     async def _validate_response(self, raw_text, metadata, response, request, prompt, warning):
         try:
+            if (_is_forward_outlook(request.query) and _directional_evidence_available(response)
+                    and _is_insufficient_only(raw_text)):
+                raise CitationValidationError("未提供未來方向的條件式判讀。")
             response.answer = _checked_answer(raw_text, metadata, response.sources, warning)
         except CitationValidationError:
             # Retry once from the same evidence; never publish or attach citations to rejected prose.
@@ -337,12 +427,27 @@ class ChatService:
                     "\nThe previous attempt failed citation validation. Write a fresh concise answer from "
                     "the supplied evidence. Use no headings, links or reference list. Every paragraph "
                     "and bullet, including uncertainty and limitations, must end with a supporting "
-                    "[S1] style citation from the supplied sources. Use [S1][S2] for multiple sources. "
-                    "If the evidence cannot answer the question, use the exact insufficient-evidence reply."
+                     "[S1] style citation from the supplied sources. Use [S1][S2] for multiple sources. "
+                     "If the evidence cannot answer the question, use the exact insufficient-evidence reply. "
+                     "For a future direction question with relevant evidence, give a conditional direction "
+                     "(偏多、偏空、震盪 or 方向不明) and do not answer only with insufficient evidence."
                 ),
                 prompt=prompt,
             )
-            response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning)
+            try:
+                if (_is_forward_outlook(request.query) and _directional_evidence_available(response)
+                        and _is_insufficient_only(result.raw_text)):
+                    raise CitationValidationError("模型仍未提供未來方向的條件式判讀。")
+                response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning)
+            except CitationValidationError:
+                if not (_is_forward_outlook(request.query) and _directional_evidence_available(response)):
+                    raise
+                response.answer = _checked_answer(
+                    _forward_outlook_fallback(response),
+                    {"finish_reason": "stop"},
+                    response.sources,
+                    warning,
+                )
             metadata = {key: (metadata.get(key) or 0) + (result.metadata.get(key) or 0)
                         if metadata.get(key) is not None or result.metadata.get(key) is not None else None
                         for key in ("prompt_tokens", "completion_tokens", "thinking_tokens")}

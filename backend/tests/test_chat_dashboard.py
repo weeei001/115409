@@ -157,6 +157,7 @@ def test_news_deduplicates_articles_and_urls_and_filters_unsafe_links():
     expected_ids = ["S1", *(f"S{index + 5}" for index in range(len(unsafe))), "S14", "S4"]
     assert block.source_ids == expected_ids
     assert [item.source_id for item in block.items] == expected_ids
+    assert block.items[0].article_id == "a"
     assert block.items[-1].title == "【區間外背景】背景消息"
     assert all(item.url == "" for item in block.items[1:-1])
     assert block.items[-2].title == "純文字新聞" and block.items[-2].published_at == "2026-09-11 10:00:00"

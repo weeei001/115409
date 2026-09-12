@@ -16,6 +16,8 @@ export interface RagSourceItem {
 }
 
 const SECTION_HEADER_RE = /【([^】]+)】/g;
+const SOURCE_URL_RE = /(https?:\/\/\S+|\/news\/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+)/;
+const SAFE_INTERNAL_NEWS_PATH_RE = /^\/news\/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+$/;
 
 /** 是否為 RAG 結構化回覆（含【】區塊標題） */
 export function isStructuredRagReply(text: string): boolean {
@@ -70,13 +72,17 @@ export function parseSourceItems(body: string): RagSourceItem[] {
   const items: RagSourceItem[] = [];
 
   for (const line of lines) {
-    const urlMatch = line.match(/(https?:\/\/\S+)/);
+    const urlMatch = line.match(SOURCE_URL_RE);
     let url = urlMatch?.[1].replace(/[.,;)\]]+$/, '') ?? '';
-    try {
-      const parsed = new URL(url);
-      if (!parsed.hostname || parsed.username || parsed.password || /[\s<>]/.test(url)) url = '';
-    } catch {
-      url = '';
+    if (url.startsWith('/news/')) {
+      if (!SAFE_INTERNAL_NEWS_PATH_RE.test(url)) url = '';
+    } else {
+      try {
+        const parsed = new URL(url);
+        if (!parsed.hostname || parsed.username || parsed.password || /[\s<>]/.test(url)) url = '';
+      } catch {
+        url = '';
+      }
     }
     const rest = (url ? line.replace(url, '') : line).replace(/^-\s*/, '').trim();
     const indexMatch = rest.match(/^\[(S[1-9][0-9]*)\]|片段\s*(\d+)/i);

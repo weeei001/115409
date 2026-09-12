@@ -131,12 +131,13 @@ function SourcesSection({ body }: { body: string }) {
     <ul className="space-y-2">
       {sources.map((source, i) => {
         const SourceRow = source.url ? 'a' : 'div';
+        const external = /^https?:\/\//.test(source.url);
         return (
         <li key={`${source.url}-${i}`}>
           <SourceRow
             href={source.url || undefined}
-            target={source.url ? '_blank' : undefined}
-            rel={source.url ? 'noopener noreferrer' : undefined}
+            target={external ? '_blank' : undefined}
+            rel={external ? 'noopener noreferrer' : undefined}
             className={`flex gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/60 px-3 py-2.5 ${source.url ? 'group transition-colors hover:border-[var(--color-border-hover)] hover:bg-[var(--color-bg-elevated)]' : ''}`}
           >
             <span className="mt-0.5 shrink-0 text-[10px] font-bold tabular-nums text-brand">
@@ -148,7 +149,7 @@ function SourcesSection({ body }: { body: string }) {
               </span>
               {source.url && <span className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-text-muted)]">
                 <ExternalLink size={11} aria-hidden />
-                <span className="truncate">{tryHostname(source.url)}</span>
+                <span className="truncate">{external ? tryHostname(source.url) : '查看新聞證據'}</span>
               </span>}
             </span>
           </SourceRow>
