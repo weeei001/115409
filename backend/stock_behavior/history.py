@@ -2,11 +2,27 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
-from models.llm_response import LlmResponse
+from models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from schemas.stock_behavior import StockBehaviorTextBriefResponse
+
+
+def latest_saved_brief(db: Session, *, symbol: str, as_of_date: date) -> StockBehaviorTextBriefResponse | None:
+    rows = db.query(LlmResponse).filter(
+        LlmResponse.symbol == symbol,
+        LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF,
+        LlmResponse.as_of_date <= as_of_date,
+        LlmResponse.is_fallback.is_(False),
+    ).order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc()).yield_per(20)
+    for row in rows:
+        response = saved_brief(row)
+        if response is not None:
+            return response
+    return None
 
 
 def saved_brief(row: LlmResponse) -> StockBehaviorTextBriefResponse | None:

@@ -80,7 +80,7 @@ def test_revision_includes_metadata_model_and_configuration():
     ]:
         assert changed[0]["revision"] != original[0]["revision"]
         assert changed[0]["chunk_id"] != original[0]["chunk_id"]
-    assert list(repository.chunk_metadata.tables) == ["news_chunks_v2"]
+    assert list(repository.chunk_metadata.tables) == ["news_chunks"]
 
 
 def test_chunking_replaces_changed_revision_and_resumes(ingestion_db):
