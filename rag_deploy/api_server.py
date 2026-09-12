@@ -1672,51 +1672,51 @@ async def list_news(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    """瀏覽原始新聞列表（從 crawler CSV 讀取）"""
-    import pandas as pd
-    import glob as glob_mod
-    from pathlib import Path
+    """瀏覽原始新聞列表（讀 MySQL news_articles 表）"""
+    # pub_time 是 varchar 的 ISO 字串（格式一致），字典序即時間序，可直接 ORDER BY
+    where = ["stock_id = %s"]
+    params: list = [stock_id]
+    if keyword:
+        where.append("(title LIKE %s OR content LIKE %s)")
+        kw = f"%{keyword}%"
+        params += [kw, kw]
+    where_sql = " AND ".join(where)
 
-    # 嘗試找清洗後 → 原始
-    for suffix in ["_news_cleaned.csv", "_news.csv"]:
-        fpath = os.path.join("crawler", f"{stock_id}{suffix}")
-        if os.path.exists(fpath):
-            break
-    else:
+    try:
+        conn = _mysql_conn()
+    except Exception as e:
+        raise HTTPException(503, f"資料庫連線失敗：{e}")
+
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT COUNT(*) AS c FROM news_articles WHERE {where_sql}", params)
+                total = cur.fetchone()["c"]
+
+                cur.execute(
+                    f"SELECT title, pub_time, url, source, "
+                    f"LEFT(content, 300) AS content_preview "
+                    f"FROM news_articles WHERE {where_sql} "
+                    f"ORDER BY pub_time DESC LIMIT %s OFFSET %s",
+                    params + [page_size, (page - 1) * page_size],
+                )
+                rows = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(500, f"查詢新聞失敗：{e}")
+
+    if total == 0 and page == 1 and not keyword:
         raise HTTPException(404, f"找不到股票 {stock_id} 的新聞資料")
 
-    df = pd.read_csv(fpath)
-
-    # 統一欄位名稱
-    col_title = "標題" if "標題" in df.columns else "title"
-    col_content = "內文" if "內文" in df.columns else "content"
-    col_time = "發布時間" if "發布時間" in df.columns else "pub_time"
-    col_url = "網址" if "網址" in df.columns else "url"
-
-    if keyword:
-        mask = (
-            df[col_title].astype(str).str.contains(keyword, case=False, na=False) |
-            df[col_content].astype(str).str.contains(keyword, case=False, na=False)
-        )
-        df = df[mask]
-
-    # 排序
-    if col_time in df.columns:
-        df[col_time] = pd.to_datetime(df[col_time], errors="coerce")
-        df = df.sort_values(col_time, ascending=False)
-
-    total = len(df)
-    start = (page - 1) * page_size
-    page_df = df.iloc[start:start + page_size]
-
-    records = []
-    for _, row in page_df.iterrows():
-        records.append({
-            "title": str(row.get(col_title, "")),
-            "pub_time": str(row.get(col_time, "")),
-            "url": str(row.get(col_url, "")),
-            "content_preview": str(row.get(col_content, ""))[:300],
-        })
+    records = [
+        {
+            "title": r["title"] or "",
+            "pub_time": r["pub_time"] or "",
+            "url": r["url"] or "",
+            "source": get_source_name(r["source"] or ""),
+            "content_preview": r["content_preview"] or "",
+        }
+        for r in rows
+    ]
 
     return {
         "stock_id": stock_id,
