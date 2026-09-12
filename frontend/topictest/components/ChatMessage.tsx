@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { motion } from 'motion/react';
 import { Bot, User, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatMessage as ChatMessageType } from '../lib/types';
 import { RagStructuredReply } from './RagStructuredReply';
+import { ChatDashboard } from './ChatDashboard';
 import { isStructuredRagReply } from '../lib/utils/parseRagStructuredReply';
+import { isChatNavigationAction, isChatFollowUpAction } from '../lib/nav';
 
 interface Props {
   message: ChatMessageType;
@@ -13,6 +16,8 @@ interface Props {
   simulateTyping?: boolean;
   /** RAG 串流中：直接顯示 content 並顯示游標（不依賴假打字 interval） */
   streamActive?: boolean;
+  onFollowUp?: (query: string) => void;
+  followUpDisabled?: boolean;
 }
 
 const TYPING_SPEED_MS = 12;
@@ -55,6 +60,8 @@ export const ChatMessage: React.FC<Props> = ({
   reducedMotion,
   simulateTyping = false,
   streamActive = false,
+  onFollowUp,
+  followUpDisabled = false,
 }) => {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
@@ -68,6 +75,9 @@ export const ChatMessage: React.FC<Props> = ({
     !isUser &&
     (streamActive || (useFakeTyping && !done));
   const useStructuredReply = !isUser && isStructuredRagReply(bodyText);
+  const actions = !isUser && (!streamActive || message.dashboard) ? (message.actions ?? []).filter(isChatNavigationAction) : [];
+
+  const followUps = !isUser && !streamActive && onFollowUp ? (message.actions ?? []).filter(isChatFollowUpAction) : [];
 
   const handleCopy = useCallback(async () => {
     if (isUser) return;
@@ -87,7 +97,7 @@ export const ChatMessage: React.FC<Props> = ({
 
   return (
     <motion.div
-      className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
+      className={`flex min-w-0 gap-2 sm:gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
       {...motionProps}
     >
       <div
@@ -106,8 +116,8 @@ export const ChatMessage: React.FC<Props> = ({
       </div>
 
       <div
-        className={`flex-1 rounded-2xl px-4 py-3 border border-[var(--color-border)] ${
-          useStructuredReply
+        className={`min-w-0 flex-1 rounded-2xl px-3 py-3 sm:px-4 border border-[var(--color-border)] ${
+          message.dashboard ? 'w-full max-w-full' : useStructuredReply
             ? 'max-w-[min(96vw,92%)] sm:max-w-[88%]'
             : 'max-w-[min(92vw,85%)] sm:max-w-[75%]'
         } ${
@@ -116,8 +126,10 @@ export const ChatMessage: React.FC<Props> = ({
             : 'bg-[var(--color-bg-card)] shadow-[var(--shadow-card)]'
         }`}
       >
-        <div className="flex items-start justify-between gap-2">
+        {!isUser && message.dashboard && <ChatDashboard dashboard={message.dashboard} />}
+        <div className={`flex items-start justify-between gap-2 ${message.dashboard ? 'mt-5 border-t border-[var(--color-border)] pt-4' : ''}`}>
           <div className="text-sm text-left leading-relaxed flex-1 min-w-0">
+            {!isUser && message.dashboard && <h4 className="mb-2 text-sm font-semibold">AI 解讀</h4>}
             {!isUser && message.streamStatus && (
               <p
                 className="text-xs text-[var(--color-text-muted)] mb-2 whitespace-pre-wrap"
@@ -155,6 +167,34 @@ export const ChatMessage: React.FC<Props> = ({
             </button>
           )}
         </div>
+        {followUps.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="建議追問">
+            {followUps.map((action, index) => (
+              <button
+                key={`${action.query}-${index}`}
+                type="button"
+                disabled={followUpDisabled}
+                onClick={() => onFollowUp?.(action.query)}
+                className="min-h-[44px] rounded-xl border border-[var(--color-border)] px-3 py-2 text-left text-sm text-brand hover:border-brand/40 hover:bg-brand/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {actions.length > 0 && (
+          <nav className="mt-4 flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-3" aria-label="相關功能">
+            {actions.map((action, index) => (
+              <Link
+                key={`${action.path}-${index}`}
+                href={action.path}
+                className="inline-flex min-h-[44px] items-center rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm text-brand transition-colors hover:border-brand/40 hover:bg-brand/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                {action.label}
+              </Link>
+            ))}
+          </nav>
+        )}
       </div>
     </motion.div>
   );

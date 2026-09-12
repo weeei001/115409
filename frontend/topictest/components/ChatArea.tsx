@@ -48,16 +48,18 @@ export const ChatArea: React.FC<Props> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const reduceMotion = usePrefersReducedMotionClient();
   const scrollKey = messages.map((m) => `${m.id}:${m.content.length}`).join('|');
+  const readingDashboard = !!messages[messages.length - 1]?.dashboard;
 
   useEffect(() => {
-    if (messages.length === 0 && !loading) return;
+    // Keep the current chart/table in view while the model adds its explanation below.
+    if (readingDashboard || (messages.length === 0 && !loading)) return;
     const el = scrollContainerRef.current;
     if (!el) return;
     const scrollToBottom = () => {
       el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
     };
     requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
-  }, [scrollKey, loading, reduceMotion, messages.length]);
+  }, [scrollKey, loading, reduceMotion, messages.length, readingDashboard]);
 
   return (
     <div
@@ -75,8 +77,8 @@ export const ChatArea: React.FC<Props> = ({
                style={{ background: 'linear-gradient(135deg, rgba(212,165,116,0.15), rgba(232,201,160,0.15))' }}>
             <Bot size={28} className="text-brand" />
           </div>
-          <p className="text-[var(--color-text-secondary)] text-sm mb-1">歡迎使用 AI 投資顧問</p>
-          <p className="text-[var(--color-text-muted)] text-xs mb-6">輸入您的問題，或點選下方範例快速開始</p>
+          <p className="text-[var(--color-text-secondary)] text-sm mb-1">說出想了解的事，整理成你的分析畫面</p>
+          <p className="text-[var(--color-text-muted)] text-xs mb-6">個股走勢、比較表、指標與新聞，連同解讀直接顯示在對話中</p>
           {exampleQuestions.length > 0 && onExampleSelect && (
             <div className="flex flex-wrap justify-center gap-2 max-w-lg px-2" role="group" aria-label="範例問題">
               {exampleQuestions.map((q, idx) => (
@@ -103,6 +105,8 @@ export const ChatArea: React.FC<Props> = ({
           message={msg}
           reducedMotion={!!reduceMotion}
           simulateTyping={simulateTyping}
+          onFollowUp={onExampleSelect}
+          followUpDisabled={loading}
           streamActive={msg.role === 'assistant' && msg.id === streamingMessageId}
         />
       ))}
@@ -125,7 +129,7 @@ export const ChatArea: React.FC<Props> = ({
           </div>
           <div className="flex-1 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[var(--shadow-card)] px-4 py-3">
             <p className="text-xs text-[var(--color-text-muted)] mb-2">
-              {loadingMode === 'rag' ? '正在查詢財經新聞知識庫…' : '正在產生模擬回覆…'}
+              {loadingMode === 'rag' ? '正在查詢與整理系統資料…' : '正在產生模擬回覆…'}
             </p>
             <ThinkingDots />
           </div>

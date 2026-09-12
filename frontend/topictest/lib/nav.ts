@@ -1,4 +1,5 @@
 import { getStockDisplayName } from './utils/symbolNames';
+import type { ChatAction } from './types';
 
 /** 主選單／頁尾共用導覽（路徑與標籤唯一來源） */
 export const PRIMARY_NAV = [
@@ -7,6 +8,27 @@ export const PRIMARY_NAV = [
   { path: '/order', label: '模擬下單' },
   { path: '/compare', label: '多股比較' },
 ] as const;
+
+export function isChatNavigationAction(value: unknown): value is Extract<ChatAction, { type: 'navigate' }> {
+  if (!value || typeof value !== 'object') return false;
+  const action = value as Partial<ChatAction>;
+  return action.type === 'navigate' &&
+    typeof action.label === 'string' && action.label.trim().length > 0 &&
+    typeof action.path === 'string' &&
+    (PRIMARY_NAV.some((item) => item.path === action.path) || /^\/stock\/\d{4,6}$/.test(action.path));
+}
+
+export function isChatFollowUpAction(value: unknown): value is Extract<ChatAction, { type: 'follow_up' }> {
+  if (!value || typeof value !== 'object') return false;
+  const action = value as Partial<Extract<ChatAction, { type: 'follow_up' }>>;
+  return action.type === 'follow_up' &&
+    typeof action.label === 'string' && action.label.trim().length > 0 && action.label.length <= 200 &&
+    typeof action.query === 'string' && action.query.trim().length > 0 && action.query.length <= 6000;
+}
+
+export function isChatAction(value: unknown): value is ChatAction {
+  return isChatNavigationAction(value) || isChatFollowUpAction(value);
+}
 
 /** 頁尾連結（與主選單一致，避免遺漏項目） */
 export const FOOTER_NAV = PRIMARY_NAV;

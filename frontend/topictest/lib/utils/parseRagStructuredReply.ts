@@ -32,7 +32,8 @@ export function parseRagStructuredReply(text: string): RagStructuredReply | null
   const headers = [...trimmed.matchAll(SECTION_HEADER_RE)];
   if (headers.length === 0) return null;
 
-  const sections: RagReplySection[] = [];
+  const introduction = trimmed.slice(0, headers[0].index ?? 0).trim();
+  const sections: RagReplySection[] = introduction ? [{ title: '重點', body: introduction }] : [];
 
   for (let i = 0; i < headers.length; i++) {
     const title = headers[i][1].trim();
@@ -70,19 +71,24 @@ export function parseSourceItems(body: string): RagSourceItem[] {
 
   for (const line of lines) {
     const urlMatch = line.match(/(https?:\/\/\S+)/);
-    if (!urlMatch) continue;
-
-    const url = urlMatch[1].replace(/[.,;)\]]+$/, '');
-    let rest = line.replace(url, '').replace(/^-\s*/, '').trim();
-
-    const indexMatch = rest.match(/片段\s*(\d+)/i);
+    let url = urlMatch?.[1].replace(/[.,;)\]]+$/, '') ?? '';
+    try {
+      const parsed = new URL(url);
+      if (!parsed.hostname || parsed.username || parsed.password || /[\s<>]/.test(url)) url = '';
+    } catch {
+      url = '';
+    }
+    const rest = (url ? line.replace(url, '') : line).replace(/^-\s*/, '').trim();
+    const indexMatch = rest.match(/^\[(S[1-9][0-9]*)\]|片段\s*(\d+)/i);
+    if (!url && !indexMatch) continue;
     const titleFromLabel = rest.match(/標題[：:]\s*(.+?)(?:\s*-\s*)?$/i);
-    const title = titleFromLabel
+    const title = (titleFromLabel
       ? titleFromLabel[1].trim()
-      : rest.replace(/片段\s*\d+\s*[：:]\s*/i, '').replace(/\s*-\s*$/, '').trim() || url;
+      : rest.replace(/^\[S[1-9][0-9]*\]\s*/i, '').replace(/片段\s*\d+\s*[：:]\s*/i, ''))
+      .replace(/[：:]?\s*-?\s*$/, '').trim() || url || rest;
 
     items.push({
-      index: indexMatch?.[1],
+      index: indexMatch?.[1]?.toUpperCase() ?? indexMatch?.[2],
       title,
       url,
     });
