@@ -65,7 +65,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
         → qa_logger.py → MySQL topic_stock.qa_logs
 ```
 
-**注意**：`viewer.py` Tab2 與 `api_server.py` 的 `/api/news` 目前仍直接讀 `crawler/*.csv`，尚未改接 `news_articles` 表（見下方「新聞儲存」）。
+**注意**：`viewer.py` Tab2 目前仍直接讀 `crawler/*.csv`，尚未改接 `news_articles` 表（見下方「新聞儲存」）。`api_server.py` 的 `/api/news` 已於 2026-09-12 改讀 MySQL。
 
 ## API 服務（rag_deploy/）
 
@@ -77,7 +77,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 | GET | `/api/stocks` | 股票清單 |
 | GET | `/api/history` | 歷史 QA 紀錄 |
 | GET | `/api/history/{id}` | 單筆 QA 詳情 |
-| GET | `/api/news` | 瀏覽新聞列表 |
+| GET | `/api/news` | 瀏覽新聞列表（讀 MySQL `news_articles`，支援 `keyword` 搜尋與分頁）|
 | GET | `/api/health` | 健康檢查 |
 | GET | `/api/trend_predict` | 股價走勢 AI 預測（迴歸線 + 新聞情緒，未來 20 交易日） |
 | GET | `/api/trend_predict_stream` | 同上，SSE 逐週推送版本 |
@@ -141,7 +141,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 **已遷移**：舊 `news_db_filtered/`（10,913 篇文章、11,461 個 chunk）已透過 `migrate_news_to_mysql.py` 一次性匯入，資料未遺漏。
 
 **尚未涵蓋的範圍**（本次改動刻意只涵蓋 `rag/` pipeline 與排程實際用到的腳本）：
-- `viewer.py` Tab2、`api_server.py` 的 `/api/news` 仍讀 `crawler/*.csv`，未改接 `news_articles` 表
+- `viewer.py` Tab2 仍讀 `crawler/*.csv`，未改接 `news_articles` 表（`api_server.py` 的 `/api/news` 已於 2026-09-12 改讀 MySQL，見「API 服務」一節）
 - `evaluate_news_quality.py` 仍讀舊檔案系統路徑
 - 舊 `news_storage.py`（檔案系統版）與 `news_db_filtered/` 目錄未刪除，僅停用寫入路徑，供備查/回滾
 
