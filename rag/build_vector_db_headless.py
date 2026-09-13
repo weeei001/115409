@@ -45,13 +45,16 @@ def main():
         client = QdrantClient(path=persist_directory)
 
     if qdrant_host or os.path.exists(persist_directory):
+        # 遠端模式下 collection 可能尚未建立（例如重建向量庫時），scroll 會拋 404；
+        # 視為「尚無已存在 chunk」，由後續 process_batch 首次 upsert 時建立 collection。
         try:
             results = client.scroll(collection_name=collection_name, limit=200_000, with_payload=True)
-            for point in results[0]:
-                if "chunk_id" in point.payload:
-                    existing_ids.add(point.payload["chunk_id"])
         except Exception as e:
-            print(f"（collection 尚不存在或讀取失敗，視為全新建置: {e}）")
+            print(f"collection {collection_name} 尚不存在或無法讀取（{str(e)[:80]}），視為從頭建立")
+            results = ([], None)
+        for point in results[0]:
+            if "chunk_id" in point.payload:
+                existing_ids.add(point.payload["chunk_id"])
     print(f"Qdrant 已存在 chunk 數：{len(existing_ids)}")
 
     chunks_by_stock = iter_chunks_grouped_by_stock()

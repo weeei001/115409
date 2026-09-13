@@ -1,0 +1,88 @@
+{
+  "config": {
+    "stock": "2330",
+    "period": "week",
+    "start": "2025-01-01",
+    "end": "2025-12-31",
+    "horizon": 5,
+    "provider": "h200",
+    "model": "Gemma4-31B",
+    "methodology_dir": "/Users/bob/Projects/rag/rag_deploy/methodology/2330_2024-01-01_2024-12-31",
+    "prompt_version": 3,
+    "train_end": "2024-12-31",
+    "neutral_band": 1.0,
+    "seed": 42,
+    "git_sha": "2df54c5a252804ee83d4fd93297b8196cf8cdbfb"
+  },
+  "arms": {
+    "A": {
+      "n": 52,
+      "hit_rate": 0.4423,
+      "hits": 23,
+      "mae": 3.4571
+    },
+    "L": {
+      "n": 52,
+      "hit_rate": 0.4231,
+      "hits": 22,
+      "mae": 6.131
+    }
+  },
+  "baselines": {
+    "always_up": {
+      "n": 52,
+      "hit_rate": 0.5192
+    },
+    "always_down": {
+      "n": 52,
+      "hit_rate": 0.3077
+    },
+    "random_seed42": {
+      "n": 52,
+      "hit_rate": 0.2885,
+      "expected_hit_rate_note": "理論期望值視 up/down/flat 類別分佈而定，此為單次模擬結果"
+    }
+  },
+  "relative_to_always_up": {
+    "A": -0.0769,
+    "L": -0.0961
+  },
+  "mcnemar_sign_test": {
+    "b_wins": 5,
+    "a_wins": 6,
+    "p_value": 1.0,
+    "cmp_arm": "L",
+    "base_arm": "A",
+    "note": "雙尾符號檢定；b_wins=L 勝、a_wins=A 勝；p<0.05 表示配對命中差異顯著"
+  },
+  "verdict": {
+    "cmp_arm": "L",
+    "base_arm": "A",
+    "cond1_beats_always_up": false,
+    "cond2_wins_ratio": false,
+    "passed": false,
+    "note": "cond1：L 命中率 − always_up > 0；cond2：L 勝 ≥ 1.5×A 勝。不要求 p<0.05（樣本數不足以達到），p 值僅供參考。"
+  },
+  "band_sensitivity": {
+    "band_0.5": {
+      "A": 0.5,
+      "L": 0.4423
+    },
+    "band_1.0": {
+      "A": 0.4423,
+      "L": 0.4231
+    },
+    "band_1.5": {
+      "A": 0.3462,
+      "L": 0.4038
+    }
+  },
+  "coverage": {
+    "n_decision_points": 52,
+    "n_valid_as_of": 52,
+    "n_llm_failed_as_of": 0,
+    "n_digests_used_distribution": {
+      "0": 52
+    }
+  }
+}

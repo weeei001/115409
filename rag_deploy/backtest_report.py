@@ -1,14 +1,23 @@
 """
 歷史回測成果報告產生器
 ======================
-讀 backtest_digest_eval.py 產出的 decisions.csv + metrics.json（h20 主結論、h5 穩健性對照），
-產一份自包含 HTML 報告（inline CSS + inline SVG 圖表，零外部資源），可直接發佈為 Artifact。
+讀 backtest_digest_eval.py（A/B 對照）或 backtest_learned_prompt.py（A/L 對照）產出的
+decisions.csv + metrics.json（h20 主結論、h5 穩健性對照），產一份自包含 HTML 報告
+（inline CSS + inline SVG 圖表，零外部資源），可直接發佈為 Artifact。
 
 用法：
+    # digest A/B 對照
     python backtest_report.py \
         --h20-dir backtest_results/2330_week_2024-01-01_2024-12-31_h20 \
         --h5-dir backtest_results/2330_week_2024-01-01_2024-12-31_h5 \
         --out backtest_report.html
+
+    # 學到的 prompt A/L 對照（加 methodology 章節）
+    python backtest_report.py \
+        --h20-dir backtest_results/2330_learned_2025-01-01_2025-12-31_h20 \
+        --h5-dir backtest_results/2330_learned_2025-01-01_2025-12-31_h5 \
+        --methodology-dir methodology/2330_2024-01-01_2024-12-31 \
+        --out learned_report.html
 """
 
 from __future__ import annotations
@@ -17,6 +26,17 @@ import argparse
 import csv
 import json
 from pathlib import Path
+
+# 對照臂標籤：B=digest 疊加、L=學到的方法論 prompt
+ARM_LABELS = {"A": "A 現行 prompt", "B": "B 疊加摘要", "L": "L 學習方法論"}
+
+
+def cmp_arm_of(metrics: dict) -> str:
+    """metrics.arms 裡除了 A 以外的那個對照臂（B 或 L）。"""
+    for a in ("L", "B"):
+        if a in metrics.get("arms", {}):
+            return a
+    return "B"
 
 
 def load_run(run_dir: Path) -> dict:
@@ -44,13 +64,13 @@ def svg_open(width: int, height: int) -> str:
     return f'<svg viewBox="0 0 {width} {height}" width="100%" style="max-width:{width}px" role="img">'
 
 
-def cumulative_hit_rate_chart(decisions: list[dict], width=640, height=280) -> str:
-    """A/B 累積命中率折線（依 as_of 時間順序）。"""
+def cumulative_hit_rate_chart(decisions: list[dict], cmp_arm: str = "B", width=640, height=280) -> str:
+    """A / 對照臂 累積命中率折線（依 as_of 時間順序）。"""
     pad_l, pad_r, pad_t, pad_b = 44, 16, 16, 32
     plot_w, plot_h = width - pad_l - pad_r, height - pad_t - pad_b
 
-    by_arm = {"A": [], "B": []}
-    for arm in ("A", "B"):
+    by_arm = {"A": [], cmp_arm: []}
+    for arm in ("A", cmp_arm):
         rows = [d for d in decisions if d["arm"] == arm and d["skipped_reason"] == ""]
         rows.sort(key=lambda r: r["as_of"])
         cum_hits, series = 0, []
@@ -60,7 +80,7 @@ def cumulative_hit_rate_chart(decisions: list[dict], width=640, height=280) -> s
             series.append(cum_hits / i)
         by_arm[arm] = series
 
-    n = max(len(by_arm["A"]), len(by_arm["B"]), 1)
+    n = max(len(by_arm["A"]), len(by_arm[cmp_arm]), 1)
     def x(i): return pad_l + (i / max(n - 1, 1)) * plot_w
     def y(v): return pad_t + (1 - v) * plot_h
 
@@ -71,7 +91,8 @@ def cumulative_hit_rate_chart(decisions: list[dict], width=640, height=280) -> s
         parts.append(f'<line x1="{pad_l}" y1="{gy:.1f}" x2="{width-pad_r}" y2="{gy:.1f}" stroke="{GRID}" stroke-width="1"/>')
         parts.append(f'<text x="{pad_l-8}" y="{gy+4:.1f}" text-anchor="end" font-size="11" fill="{INK_MUTED}">{int(frac*100)}%</text>')
 
-    for arm, color, label in (("A", COL_BLUE, "A 完整新聞"), ("B", COL_ORANGE, "B 疊加摘要")):
+    a_label, c_label = ARM_LABELS["A"], ARM_LABELS.get(cmp_arm, cmp_arm)
+    for arm, color in (("A", COL_BLUE), (cmp_arm, COL_ORANGE)):
         series = by_arm[arm]
         if not series:
             continue
@@ -79,10 +100,9 @@ def cumulative_hit_rate_chart(decisions: list[dict], width=640, height=280) -> s
         parts.append(f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>')
 
     parts.append(f'<text x="{pad_l}" y="14" font-size="12" fill="{INK_SECONDARY}">累積方向命中率（依決策時間順序）</text>')
-    # legend
     ly = height - 8
-    parts.append(f'<circle cx="{pad_l+4}" cy="{ly-4}" r="4" fill="{COL_BLUE}"/><text x="{pad_l+14}" y="{ly}" font-size="11" fill="{INK_SECONDARY}">A 完整新聞</text>')
-    parts.append(f'<circle cx="{pad_l+110}" cy="{ly-4}" r="4" fill="{COL_ORANGE}"/><text x="{pad_l+120}" y="{ly}" font-size="11" fill="{INK_SECONDARY}">B 疊加摘要</text>')
+    parts.append(f'<circle cx="{pad_l+4}" cy="{ly-4}" r="4" fill="{COL_BLUE}"/><text x="{pad_l+14}" y="{ly}" font-size="11" fill="{INK_SECONDARY}">{a_label}</text>')
+    parts.append(f'<circle cx="{pad_l+130}" cy="{ly-4}" r="4" fill="{COL_ORANGE}"/><text x="{pad_l+140}" y="{ly}" font-size="11" fill="{INK_SECONDARY}">{c_label}</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -123,16 +143,17 @@ def predicted_vs_actual_scatter(decisions: list[dict], arm: str, color: str, wid
 
 
 def hit_rate_bar_chart(h20_metrics: dict, h5_metrics: dict, width=460, height=280) -> str:
-    """h20/h5 × A/B/always_up 命中率長條比較。"""
+    """h20/h5 × A/對照臂/always_up 命中率長條比較。"""
     pad_l, pad_r, pad_t, pad_b = 44, 16, 16, 44
     plot_w, plot_h = width - pad_l - pad_r, height - pad_t - pad_b
 
+    c20, c5 = cmp_arm_of(h20_metrics), cmp_arm_of(h5_metrics)
     groups = [
         ("h20 · A", h20_metrics["arms"]["A"]["hit_rate"], COL_BLUE),
-        ("h20 · B", h20_metrics["arms"]["B"]["hit_rate"], COL_ORANGE),
+        (f"h20 · {c20}", h20_metrics["arms"][c20]["hit_rate"], COL_ORANGE),
         ("h20 · 基準", h20_metrics["baselines"]["always_up"]["hit_rate"], COL_GRAY),
         ("h5 · A", h5_metrics["arms"]["A"]["hit_rate"], COL_BLUE),
-        ("h5 · B", h5_metrics["arms"]["B"]["hit_rate"], COL_ORANGE),
+        (f"h5 · {c5}", h5_metrics["arms"][c5]["hit_rate"], COL_ORANGE),
         ("h5 · 基準", h5_metrics["baselines"]["always_up"]["hit_rate"], COL_GRAY),
     ]
     bar_w = plot_w / len(groups) * 0.6
@@ -168,32 +189,101 @@ def fmt_pct(v) -> str:
 
 def coverage_table(metrics: dict) -> str:
     cov = metrics["coverage"]
+    cmp_arm = cmp_arm_of(metrics)
     dist = cov["n_digests_used_distribution"]
     dist_str = "、".join(f"{k}份×{v}筆" for k, v in sorted(dist.items()))
+    dist_row = (f"<tr><td>{ARM_LABELS.get(cmp_arm, cmp_arm)} 疊加週摘要份數分佈</td><td>{dist_str}</td></tr>"
+                if cmp_arm == "B" else "")
+    denom = cov["n_decision_points"] or 1
     return f"""
     <table class="tbl">
       <tr><td>決策點總數</td><td>{cov['n_decision_points']}</td></tr>
       <tr><td>有效樣本（兩臂皆成功）</td><td>{cov['n_valid_as_of']}</td></tr>
       <tr><td>因 LLM 失敗排除</td><td>{cov['n_llm_failed_as_of']}</td></tr>
-      <tr><td>涵蓋率</td><td>{cov['n_valid_as_of']/cov['n_decision_points']*100:.1f}%</td></tr>
-      <tr><td>B 組疊加週摘要份數分佈</td><td>{dist_str}</td></tr>
+      <tr><td>涵蓋率</td><td>{cov['n_valid_as_of']/denom*100:.1f}%</td></tr>
+      {dist_row}
     </table>"""
 
 
 def band_sensitivity_table(metrics: dict) -> str:
     bs = metrics["band_sensitivity"]
+    cmp_arm = cmp_arm_of(metrics)
     rows = "".join(
-        f"<tr><td>±{k.split('_')[1]}%</td><td>{fmt_pct(v['A'])}</td><td>{fmt_pct(v['B'])}</td></tr>"
+        f"<tr><td>±{k.split('_')[1]}%</td><td>{fmt_pct(v['A'])}</td><td>{fmt_pct(v.get(cmp_arm))}</td></tr>"
         for k, v in bs.items()
     )
     return f"""
     <table class="tbl">
-      <tr><th>中性帶</th><th>A 命中率</th><th>B 命中率</th></tr>
+      <tr><th>中性帶</th><th>{ARM_LABELS['A']} 命中率</th><th>{ARM_LABELS.get(cmp_arm, cmp_arm)} 命中率</th></tr>
       {rows}
     </table>"""
 
 
-def decisions_table(decisions: list[dict], limit=None) -> str:
+def verdict_block(metrics: dict) -> str:
+    """h20 主結論的雙條件方向制判定（僅 A/L 對照的 metrics 有 verdict/relative_to_always_up）。"""
+    v = metrics.get("verdict")
+    if not v:
+        return ""
+    rel = metrics.get("relative_to_always_up", {})
+    cmp_arm = v["cmp_arm"]
+    mc = metrics["mcnemar_sign_test"]
+    icon = lambda ok: "✅" if ok else "❌"
+    passed_txt = {True: "有效", False: "不確定 / 無效"}[v["passed"]]
+    return f"""
+    <table class="tbl">
+      <tr><th>判定條件</th><th>結果</th></tr>
+      <tr><td>cond1：{cmp_arm} 命中率 − always_up &gt; 0</td>
+          <td>{icon(v['cond1_beats_always_up'])} {cmp_arm} 相對 always_up {rel.get(cmp_arm, 0):+.3f}</td></tr>
+      <tr><td>cond2：{cmp_arm} 勝次數 ≥ 1.5 × A 勝次數</td>
+          <td>{icon(v['cond2_wins_ratio'])} {cmp_arm} 勝 {mc['b_wins']} / A 勝 {mc['a_wins']}（p={mc['p_value']}）</td></tr>
+      <tr><td><strong>綜合判定（h20）</strong></td><td><strong>{icon(v['passed'])} {passed_txt}</strong></td></tr>
+    </table>
+    <p class="skip">p 值僅供參考，不作為門檻（樣本數不足以達到 p&lt;0.05）。</p>"""
+
+
+def methodology_section(methodology: dict, train_log: dict) -> str:
+    """規則表 + 每 round held-out 命中率（來自 methodology_trainer 的產出）。"""
+    m = methodology
+    rule_rows = "".join(
+        f"<tr><td>{r.get('id','')}</td><td>{r.get('signal','')}</td><td>{r.get('condition','')}</td>"
+        f"<td>{r.get('expected_effect','')}</td><td>{r.get('confidence','')}</td>"
+        f"<td>{'、'.join(r.get('evidence_case_ids', []))}</td></tr>"
+        for r in m.get("rules", [])
+    )
+    regime = "".join(f"<li>{x}</li>" for x in m.get("regime_rules", []))
+    anti = "".join(f"<li>{x}</li>" for x in m.get("anti_patterns", []))
+    rounds = train_log.get("rounds", [])
+    best_k = train_log.get("best")
+    round_rows = "".join(
+        f"<tr><td>v{r['k']}{'（best）' if r['k']==best_k else ''}</td>"
+        f"<td>{fmt_pct(r['heldout_h20'])}（n={r.get('heldout_n_h20','?')}）</td>"
+        f"<td>{fmt_pct(r['heldout_h5'])}</td>"
+        f"<td>{fmt_pct(r.get('always_up_h20_heldout'))}</td>"
+        f"<td>{fmt_pct(r['batch1_h20'])}</td><td>{r.get('n_misses_h20','?')}</td></tr>"
+        for r in rounds
+    )
+    cfg = train_log.get("config", {})
+    return f"""
+    <p><strong>方法論核心</strong>：{m.get('summary', '（無）')}</p>
+    <h4>市場狀態判準（regime rules）</h4><ul>{regime or '<li>（無）</li>'}</ul>
+    <h4>預測規則</h4>
+    <table class="tbl">
+      <tr><th>id</th><th>訊號</th><th>條件</th><th>預期效果</th><th>信心</th><th>證據案例</th></tr>
+      {rule_rows or '<tr><td colspan="6" class="skip">（無規則）</td></tr>'}
+    </table>
+    <h4>反例（anti-patterns）</h4><ul>{anti or '<li>（無）</li>'}</ul>
+    <h4>訓練過程：每輪 held-out 命中率</h4>
+    <p class="skip">訓練期 {cfg.get('train_start','?')}~{cfg.get('train_end','?')}，
+      {cfg.get('n_cases','?')} 個案例（歸納 {cfg.get('n_batch1','?')} / held-out {cfg.get('n_batch2','?')}），
+      模型 {cfg.get('model','?')}。held-out 已參與修正迴圈，best 選擇略偏樂觀；2025 才是乾淨測試。</p>
+    <table class="tbl">
+      <tr><th>版本</th><th>held-out h20</th><th>held-out h5</th><th>held-out always_up</th>
+          <th>batch_1 h20（過擬合檢查）</th><th>餵入 miss 數</th></tr>
+      {round_rows}
+    </table>"""
+
+
+def decisions_table(decisions: list[dict], cmp_arm: str = "B", limit=None) -> str:
     rows_html = []
     by_as_of: dict[str, dict] = {}
     for d in decisions:
@@ -202,7 +292,7 @@ def decisions_table(decisions: list[dict], limit=None) -> str:
     if limit:
         items = items[:limit]
     for as_of, arms in items:
-        a, b = arms.get("A"), arms.get("B")
+        a, b = arms.get("A"), arms.get(cmp_arm)
         def cell(r):
             if r is None:
                 return "<td>—</td><td>—</td>"
@@ -215,22 +305,38 @@ def decisions_table(decisions: list[dict], limit=None) -> str:
         rows_html.append(
             f"<tr><td>{as_of}</td><td>{actual_str}</td>{cell(a)}{cell(b)}</tr>"
         )
+    cl = ARM_LABELS.get(cmp_arm, cmp_arm)
     return f"""
     <table class="tbl decisions">
-      <tr><th>as_of</th><th>實際</th><th>A 預測</th><th>命中</th><th>B 預測</th><th>命中</th></tr>
+      <tr><th>as_of</th><th>實際</th><th>{ARM_LABELS['A']} 預測</th><th>命中</th><th>{cl} 預測</th><th>命中</th></tr>
       {''.join(rows_html)}
     </table>"""
 
 
-def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str) -> str:
+def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str,
+                 methodology: dict | None = None, train_log: dict | None = None) -> str:
     m20, m5 = h20["metrics"], h5["metrics"]
     d20, d5 = h20["decisions"], h5["decisions"]
+    c20, c5 = cmp_arm_of(m20), cmp_arm_of(m5)
+    is_learned = c20 == "L"
+    cmp_label = ARM_LABELS.get(c20, c20)
 
-    chart_cum20 = cumulative_hit_rate_chart(d20)
-    chart_cum5 = cumulative_hit_rate_chart(d5)
+    chart_cum20 = cumulative_hit_rate_chart(d20, c20)
+    chart_cum5 = cumulative_hit_rate_chart(d5, c5)
     chart_scatter_a20 = predicted_vs_actual_scatter(d20, "A", COL_BLUE)
-    chart_scatter_b20 = predicted_vs_actual_scatter(d20, "B", COL_ORANGE)
+    chart_scatter_b20 = predicted_vs_actual_scatter(d20, c20, COL_ORANGE)
     chart_bar = hit_rate_bar_chart(m20, m5)
+
+    methodology_html = ""
+    if is_learned and methodology is not None and train_log is not None:
+        methodology_html = f"""
+  <h2>2b. 學到的預測方法論</h2>
+  <div class="card">{methodology_section(methodology, train_log)}</div>"""
+    verdict_html = ""
+    if m20.get("verdict"):
+        verdict_html = f"""
+  <h3>雙條件方向制判定（h20 主結論）</h3>
+  <div class="card">{verdict_block(m20)}</div>"""
 
     import re
     def md_to_html(md: str) -> str:
@@ -244,8 +350,55 @@ def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str) -> str
                           for line in html.split("\n"))
         return html
 
+    stock = m20.get("config", {}).get("stock", "2330")
+    yr = f"{m20.get('config', {}).get('start', '?')[:4]}"
+    if is_learned:
+        page_title = f"{stock} 學到的預測方法論回測報告"
+        subtitle = f"訓練期歸納的方法論 prompt（L）vs 現行 prompt（A）：{yr} 全年週頻 A/L 對照"
+        design_li = (f"<li><strong>對照設計</strong>：A 組 = 現行 CoT prompt（<code>backtest_digest_eval.DEFAULT_PROMPT_TEMPLATE</code>）；"
+                     f"L 組 = 訓練期讓 LLM 從歷史案例歸納出的方法論 prompt。兩組用<strong>同一批 Qdrant 語意檢索的新聞、同一個模型</strong>，"
+                     f"唯一差別是 prompt。訓練期與測試期<strong>嚴格時間切分</strong>，訓練不碰測試期任何資料。</li>")
+        news_li = "<li><strong>新聞來源</strong>：Qdrant 語意 point-in-time 檢索（<code>fetch_pit_articles</code>），前 14 天窗口，非 analysis_digests 快照。</li>"
+    else:
+        page_title = f"{stock} 回測成果報告：digest 疊加是否提升 AI 預測命中率"
+        subtitle = f"digest 疊加是否提升方向命中率？{yr} 全年週頻 A/B 對照實驗"
+        design_li = ("<li><strong>對照設計</strong>：A 組 = 該決策點（as_of）digest 紀錄裡 <code>news_json</code> 的完整新聞內文（不截斷）＋技術面；"
+                     "B 組 = A 組 + 額外疊加最近 4 週（含當週）的 <code>analysis_digests</code> 週摘要。B 是 A 的超集，測的是「多給一份消化過的摘要有沒有幫助」。</li>")
+        news_li = ""
+
+    # 核心結論 callout（A/L 學習報告專用；依 verdict 產生對應敘事）
+    conclusion_html = ""
+    if is_learned and m20.get("verdict") is not None:
+        a20, l20 = m20["arms"]["A"]["hit_rate"], m20["arms"][c20]["hit_rate"]
+        au20 = m20["baselines"]["always_up"]["hit_rate"]
+        rel = m20["relative_to_always_up"]
+        mc = m20["mcnemar_sign_test"]
+        mae_a, mae_l = m20["arms"]["A"]["mae"], m20["arms"][c20]["mae"]
+        n5 = m5["coverage"]["n_valid_as_of"]
+        a5, l5 = m5["arms"]["A"]["hit_rate"], m5["arms"][c20]["hit_rate"]
+        verdict_word = ("通過——學到的方法論 prompt 在雙條件下優於現行 prompt"
+                        if m20["verdict"]["passed"] else
+                        "未通過——學到的方法論 prompt 並未優於現行 prompt")
+        hz = m20["config"].get("horizon", 20)
+        conclusion_html = f"""
+  <div class="callout">
+    <strong>核心結論（h20 主結論）</strong>：判定{verdict_word}。
+    在 {yr} 全年 {m20['coverage']['n_valid_as_of']} 個週頻決策點上，L（訓練期歸納的方法論 prompt）方向命中率
+    {fmt_pct(l20)}、A（現行 prompt）{fmt_pct(a20)}，兩者<strong>都大幅低於「無腦看漲」（always_up）基準線
+    {fmt_pct(au20)}</strong>（L 相對基準線 {rel[c20]:+.1%}、A {rel['A']:+.1%}）。McNemar 成對比較
+    L 勝 {mc['b_wins']} / A 勝 {mc['a_wins']}（p={mc['p_value']}），方向上<strong>反而是 A 略勝</strong>。
+    L 的幅度誤差（MAE {mae_l}）明顯高於 A（{mae_a}）——L 學到了訓練年（2024，多頭）「AI 動能＝大漲」的幅度預期，
+    套用到 {yr} 反而更離譜。h5 穩健性對照（{n5} 點，L {fmt_pct(l5)} / A {fmt_pct(a5)}）方向一致。
+    <br><br>
+    <strong>為什麼</strong>：{yr} 全年 2330 走勢極端（上半年關稅急跌、單週跌逾 15%；下半年 AI 狂噴、單週漲逾 20%），
+    大多數週的實際 {hz} 日漲跌幅遠超 ±{m20['config']['neutral_band']}% 中性帶。
+    LLM 對「幅度」的預測能力不足，即使方向判對，保守的幅度估計也會落進中性帶被判失敗；
+    用單一多頭年訓練出的方法論，遇到修正段會系統性做多。這是<strong>乾淨的負面結果</strong>：
+    現有 LLM 預測管線（無論現行 prompt 或訓練優化版）在這類高波動年份，尚未證明比最簡單的基準線更準。
+  </div>"""
+
     return f"""
-<title>2330 回測成果報告：digest 疊加是否提升 AI 預測命中率</title>
+<title>{page_title}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {{ color-scheme: light; }}
@@ -291,53 +444,37 @@ def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str) -> str
 </style>
 
 <div class="report-root">
-  <h1>台積電（2330）AI 預測成果回測報告</h1>
-  <p class="subtitle">digest 疊加是否提升方向命中率？2024 全年週頻 A/B 對照實驗</p>
-
-  <div class="callout">
-    <strong>核心結論</strong>：無論 horizon=20 交易日（主結論）或 horizon=5 交易日（穩健性對照），
-    「新聞＋疊加近4週分析摘要」（B 組）都<strong>沒有</strong>展現出優於「純完整新聞」（A 組）的方向命中率，
-    兩組差異在統計上皆不顯著（McNemar p=1.0 / p=0.625）。更重要的是，A、B 兩組的命中率<strong>都輸給
-    「無腦看漲」（always_up）基準線</strong>——這符合 2024 年台積電大多頭格局的背景，但也代表現有 LLM
-    預測管線目前尚未證明比最簡單的基準線更準。樣本數（33～52 個週頻決策點、單一股票、單一年度）不足以
-    支持強論斷，詳見下方「方法論與限制」。
-  </div>
-
+  <h1>{page_title}</h1>
+  <p class="subtitle">{subtitle}</p>
+  {conclusion_html}
   <h2>1. 摘要數字</h2>
   <div class="stat-row">
-    <div class="stat-tile"><div class="label">h20 · A 命中率</div><div class="value">{fmt_pct(m20['arms']['A']['hit_rate'])}</div></div>
-    <div class="stat-tile"><div class="label">h20 · B 命中率</div><div class="value">{fmt_pct(m20['arms']['B']['hit_rate'])}</div></div>
+    <div class="stat-tile"><div class="label">h20 · {ARM_LABELS['A']} 命中率</div><div class="value">{fmt_pct(m20['arms']['A']['hit_rate'])}</div></div>
+    <div class="stat-tile"><div class="label">h20 · {cmp_label} 命中率</div><div class="value">{fmt_pct(m20['arms'][c20]['hit_rate'])}</div></div>
     <div class="stat-tile"><div class="label">h20 · always_up 基準</div><div class="value">{fmt_pct(m20['baselines']['always_up']['hit_rate'])}</div></div>
     <div class="stat-tile"><div class="label">h20 · McNemar p</div><div class="value">{m20['mcnemar_sign_test']['p_value']}</div></div>
   </div>
   <div class="stat-row">
-    <div class="stat-tile"><div class="label">h5 · A 命中率</div><div class="value">{fmt_pct(m5['arms']['A']['hit_rate'])}</div></div>
-    <div class="stat-tile"><div class="label">h5 · B 命中率</div><div class="value">{fmt_pct(m5['arms']['B']['hit_rate'])}</div></div>
+    <div class="stat-tile"><div class="label">h5 · {ARM_LABELS['A']} 命中率</div><div class="value">{fmt_pct(m5['arms']['A']['hit_rate'])}</div></div>
+    <div class="stat-tile"><div class="label">h5 · {ARM_LABELS.get(c5, c5)} 命中率</div><div class="value">{fmt_pct(m5['arms'][c5]['hit_rate'])}</div></div>
     <div class="stat-tile"><div class="label">h5 · always_up 基準</div><div class="value">{fmt_pct(m5['baselines']['always_up']['hit_rate'])}</div></div>
     <div class="stat-tile"><div class="label">h5 · McNemar p</div><div class="value">{m5['mcnemar_sign_test']['p_value']}</div></div>
   </div>
 
   <div class="card">{chart_bar}</div>
-
+  {verdict_html}
   <h2>2. 方法論</h2>
   <ul>
-    <li><strong>對照設計</strong>：A 組 = 該決策點（as_of）digest 紀錄裡 <code>news_json</code> 的完整新聞內文（不截斷）＋技術面；
-      B 組 = A 組 + 額外疊加最近 4 週（含當週）的 <code>analysis_digests</code> 週摘要。B 是 A 的超集，測的是「多給一份消化過的摘要有沒有幫助」。</li>
-    <li><strong>Point-in-time 防洩漏</strong>：組 context 時只用 pub_time ≤ as_of 的新聞、as_of_date ≤ as_of 的歷史摘要；實際漲跌只用 as_of 之後的收盤價。</li>
+    {design_li}
+    {news_li}
+    <li><strong>Point-in-time 防洩漏</strong>：組 context 時只用 pub_time ≤ as_of 的新聞；實際漲跌只用 as_of 之後的收盤價。</li>
+    <li><strong>命中定義</strong>：三分類 up/flat/down，h20 中性帶 ±3%、h5 ±1%；下方附帶寬敏感度（h20：±1.5/2/3/4%）。</li>
     <li><strong>horizon</strong>：主結論 h20（20 個交易日，對齊線上 <code>/api/trend_predict</code>），另跑 h5（5 個交易日）當穩健性對照。</li>
-    <li><strong>中性帶</strong>：h20 用 ±3%、h5 用 ±1%（跨度不同，容忍帶隨之調整），下方附帶寬敏感度分析。</li>
-    <li><strong>基準線</strong>：always_up / always_down / random（seed=42）。</li>
-    <li><strong>統計檢定</strong>：McNemar 符號檢定（雙尾），比較 A/B 在同一批錨點上的配對命中差異。</li>
-    <li><strong>失敗處理</strong>：LLM 呼叫失敗重試 1 次，仍失敗則該 (as_of, arm) 標記排除，且 A/B 成對排除以維持配對比較的公平性（不會有「A 成功、B 失敗」污染統計的情況）。</li>
+    <li><strong>基準線</strong>：always_up / always_down / random（seed=42）。多頭年 always_up 會很強，敘事以「相對 always_up」為主軸。</li>
+    <li><strong>統計檢定</strong>：McNemar 符號檢定（雙尾），比較兩臂在同一批錨點上的配對命中差異。</li>
+    <li><strong>失敗處理</strong>：LLM 呼叫失敗重試 1 次，仍失敗則該 as_of 兩臂成對排除，維持配對比較公平。</li>
   </ul>
-
-  <h3>模型與 provider 差異（重要限制）</h3>
-  <p>h20 主結論使用 <code>meta/llama-3.3-70b-instruct</code>（NIM，對齊線上服務），但 NIM 免費方案在本次執行遇到
-    大量逾時與 <code>503 worker local total request limit</code>，涵蓋率僅 <strong>{m20['coverage']['n_valid_as_of']}/{m20['coverage']['n_decision_points']}
-    （{m20['coverage']['n_valid_as_of']/m20['coverage']['n_decision_points']*100:.0f}%）</strong>。h5 對照跑改用自架 H200（<code>Gemma4-31B</code>）
-    後零失敗，涵蓋率 100%。<strong>兩者使用不同模型，數字不可直接比較絕對值</strong>，但兩者在「B 沒有優於 A、兩組皆輸給 always_up 基準線」
-    這個方向性結論上是一致的，可互相佐證結論的穩健性。</p>
-
+  {methodology_html}
   <h2>3. h20（主結論，horizon=20 交易日）</h2>
   <div class="card">{chart_cum20}</div>
   <div class="grid2">
@@ -370,10 +507,13 @@ def build_report(h20: dict, h5: dict, inventory_md: str, changes_md: str) -> str
 
   <h2>8. 誠實的 caveat</h2>
   <ul>
-    <li>單一股票（2330）、單一年度（2024，台積電大多頭年），結論不能外推到其他股票或空頭年份。</li>
-    <li>週頻錨點 × 20 日預測窗口 → 相鄰決策點的答案窗口高度重疊，樣本<strong>不獨立</strong>，不能宣稱「{m20['coverage']['n_valid_as_of']} 個獨立樣本」。</li>
-    <li>h20 因 NIM 限流損失 37% 樣本，實際統計檢定力比理論上的 52 個錨點更弱。</li>
-    <li>分析師層（moneydj/CMoney）資料目前為空，B 組的「疊加摘要」只包含新聞消化，未包含分析師觀點——若日後補齊分析師層，結論可能改變。</li>
+    <li>單一股票（{stock}）、單一年度（{yr}），結論不能外推到其他股票或空頭年份。</li>
+    <li>週頻錨點 × {m20.get('config', {}).get('horizon', 20)} 日預測窗口 → 相鄰決策點的答案窗口高度重疊，樣本<strong>不獨立</strong>，不能宣稱「{m20['coverage']['n_valid_as_of']} 個獨立樣本」。</li>
+    <li>約 {m20['coverage']['n_valid_as_of']} 個有效樣本，McNemar 需 10+ 不一致對才有檢定力；<strong>p&gt;0.05 是預期結果</strong>，即使效果真實存在。判定改看「相對 always_up」與「勝負比例方向」。</li>
+    {"<li>訓練期 held-out 已參與修正迴圈，"
+     "「best」選擇略偏樂觀；<strong>2025 測試期才是唯一乾淨的驗證</strong>。方法論規則可能過擬合 " + yr + " 的行情特性。</li>"
+     if is_learned else
+     "<li>分析師層（moneydj/CMoney）資料目前為空，對照臂只包含新聞消化，未包含分析師觀點。</li>"}
   </ul>
 </div>
 """
@@ -386,6 +526,8 @@ def main():
     ap.add_argument("--out", default="backtest_report.html")
     ap.add_argument("--inventory-md", default=None, help="AI QA 功能盤點 markdown 檔路徑")
     ap.add_argument("--changes-md", default=None, help="近期團隊變更 markdown 檔路徑")
+    ap.add_argument("--methodology-dir", default=None,
+                    help="methodology_trainer 的輸出目錄（A/L 對照報告才需要，加 methodology 章節）")
     args = ap.parse_args()
 
     h20 = load_run(Path(args.h20_dir))
@@ -394,7 +536,14 @@ def main():
     inventory_md = Path(args.inventory_md).read_text() if args.inventory_md else DEFAULT_INVENTORY_MD
     changes_md = Path(args.changes_md).read_text() if args.changes_md else DEFAULT_CHANGES_MD
 
-    html = build_report(h20, h5, inventory_md, changes_md)
+    methodology = train_log = None
+    if args.methodology_dir:
+        md = Path(args.methodology_dir)
+        best = json.loads((md / "best.json").read_text())
+        methodology = json.loads((md / best["methodology"]).read_text())
+        train_log = json.loads((md / "train_log.json").read_text())
+
+    html = build_report(h20, h5, inventory_md, changes_md, methodology, train_log)
     Path(args.out).write_text(html, encoding="utf-8")
     print(f"報告已產生：{args.out}")
 

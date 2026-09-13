@@ -52,6 +52,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── LLM 供應商設定 ──────────────────────────────────
+# 2026-08~09：NVIDIA NIM 上所有 meta/llama chat 模型陸續 EOL（410 Gone）。
+# 分析/意圖/預測 LLM 改打自架 H200（OpenAI 相容端點，見 rag_deploy/.env 的 H200_*）。
+# embedding 仍走 NIM（nvidia/nemotron-3-embed-1b，H200 端無對等 1024/2048 維模型）。
+LLM_BASE_URL = os.environ.get("H200_BASE_URL", "").strip() or "https://integrate.api.nvidia.com/v1"
+LLM_API_KEY = os.environ.get("H200_API_KEY", "").strip() or os.environ.get("NVIDIA_API_KEY", "")
+LLM_MODEL = os.environ.get("H200_MODEL", "").strip() or "google/gemma-4-31b-it"
+# 自架 Gemma 需關 thinking，否則回應夾帶 <think> 污染 JSON（NIM 版不需要，給空 dict）
+LLM_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}} if os.environ.get("H200_BASE_URL", "").strip() else {}
+
 # ── 共用常數 ─────────────────────────────────────────
 STOCK_OPTIONS = {
     "2330": "台積電",
@@ -183,11 +193,13 @@ async def _generate_actions(query: str, detected_stocks: list[str], answer: str)
     )
     try:
         resp = openai_client.chat.completions.create(
-            model=os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it"),
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            stream=False, **_llm_params(256, 0.3),
+            temperature=0.3, max_tokens=256, stream=False,
+            extra_body=LLM_EXTRA_BODY,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
+        raw = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()
         raw = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
         actions = json.loads(raw)
         if isinstance(actions, list):
@@ -276,7 +288,7 @@ async def lifespan(app: FastAPI):
     """啟動時載入 Qdrant、Embedding、LLM 等重量級元件"""
     global qdrant_client, embeddings, openai_client, async_openai_client, intent_classifier
 
-    from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings, ChatNVIDIA
+    from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
     from langchain_core.prompts import PromptTemplate
     from langchain_core.output_parsers import StrOutputParser
     from qdrant_client import QdrantClient
@@ -299,17 +311,20 @@ async def lifespan(app: FastAPI):
     llm_base_url = os.environ.get("RAG_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
     llm_api_key = (os.environ.get("RAG_LLM_API_KEY") or "").strip() or os.environ.get("NVIDIA_API_KEY", "")
     openai_client = OpenAI(
-        base_url=llm_base_url,
-        api_key=llm_api_key,
-        http_client=httpx.Client(timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180"))),
+        base_url=LLM_BASE_URL,
+        api_key=LLM_API_KEY,
+        http_client=httpx.Client(timeout=60.0),
     )
     async_openai_client = AsyncOpenAI(
-        base_url=llm_base_url,
-        api_key=llm_api_key,
-        http_client=httpx.AsyncClient(timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180"))),
+        base_url=LLM_BASE_URL,
+        api_key=LLM_API_KEY,
+        http_client=httpx.AsyncClient(timeout=60.0),
     )
 
-    llm = ChatNVIDIA(model=os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it"), temperature=0)
+    # 意圖分類器：改用 OpenAI 相容 client（ChatNVIDIA 綁 NIM，其 chat 模型已全 EOL）
+    from langchain_openai import ChatOpenAI
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0, base_url=LLM_BASE_URL, api_key=LLM_API_KEY,
+                     timeout=60.0, extra_body=LLM_EXTRA_BODY or None)
     prompt = PromptTemplate.from_template(
         "你是一個財經意圖分析器。當前時間: {current_time}\n"
         "使用者輸入一句話，你必須分析三件事並回傳 JSON：\n\n"
@@ -513,15 +528,20 @@ async def _stream_ask(req):
             from datetime import datetime as _dt, timezone as _tz
             if not pub_time: return 0.5
             try:
+                tz8 = _tz(timedelta(hours=8))
                 pub = _dt.fromisoformat(normalize_time(pub_time))
                 if pub.tzinfo is None:
-                    pub = pub.replace(tzinfo=_tz(timedelta(hours=8)))
+                    pub = pub.replace(tzinfo=tz8)
                 if not time_from:
-                    now = _dt.now(tz=_tz(timedelta(hours=8)))
+                    now = _dt.now(tz=tz8)
                     days_old = (now - pub).days
                     return max(0.1, 1.0 - (days_old // 30) * 0.15)
                 t_from = _dt.fromisoformat(normalize_time(time_from))
+                if t_from.tzinfo is None:
+                    t_from = t_from.replace(tzinfo=tz8)
                 t_to = _dt.fromisoformat(normalize_time(time_to)) if time_to else pub
+                if t_to.tzinfo is None:
+                    t_to = t_to.replace(tzinfo=tz8)
                 if t_from <= pub <= t_to: return 1.0
                 diff = min(abs((pub - t_from).days), abs((pub - t_to).days))
                 return max(0.1, 1.0 - diff / 365)
@@ -640,10 +660,10 @@ async def _stream_ask(req):
         await asyncio.sleep(0)
         start = time.time()
         stream_resp = await async_openai_client.chat.completions.create(
-            model=os.environ.get("RAG_ASK_MODEL", os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")),
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt_str}],
-            **_llm_params(4096, 0.6, 0.7),
-            stream=True,
+            temperature=0.6, top_p=0.7, max_tokens=4096,
+            stream=True, extra_body=LLM_EXTRA_BODY,
         )
         full_text = ""
         async for chunk in stream_resp:
@@ -766,7 +786,14 @@ async def ask(req: AskRequest):
         s = normalize_time(t)
         if not s:
             return 0.0
-        return datetime.fromisoformat(s).timestamp()
+        try:
+            return datetime.fromisoformat(s).timestamp()
+        except ValueError:
+            # LLM 有時回傳不存在的日期（如 2026-09-31），退回當日 00:00
+            try:
+                return datetime.fromisoformat(s[:8] + "01").timestamp()
+            except ValueError:
+                return 0.0
 
     def is_in_time_range(pub_time: str) -> bool:
         """判斷新聞是否在使用者關注的時間範圍內"""
@@ -791,18 +818,23 @@ async def ask(req: AskRequest):
         if not pub_time:
             return 0.5
         try:
+            tz8 = timezone(timedelta(hours=8))
             pub = _dt.fromisoformat(normalize_time(pub_time))
             if pub.tzinfo is None:
-                pub = pub.replace(tzinfo=timezone(timedelta(hours=8)))
+                pub = pub.replace(tzinfo=tz8)
 
             if not time_from:
                 # 無指定時間：以今天為基準，越新越好
-                now = _dt.now(tz=timezone(timedelta(hours=8)))
+                now = _dt.now(tz=tz8)
                 days_old = (now - pub).days
                 return max(0.1, 1.0 - (days_old // 30) * 0.15)
 
             t_from = _dt.fromisoformat(normalize_time(time_from))
+            if t_from.tzinfo is None:
+                t_from = t_from.replace(tzinfo=tz8)
             t_to = _dt.fromisoformat(normalize_time(time_to)) if time_to else pub
+            if t_to.tzinfo is None:
+                t_to = t_to.replace(tzinfo=tz8)
             if t_from <= pub <= t_to:
                 return 1.0
             days_off = min(abs((pub - t_from).days), abs((pub - t_to).days))
@@ -1032,10 +1064,10 @@ async def ask(req: AskRequest):
     start = time.time()
     try:
         completion = openai_client.chat.completions.create(
-            model=os.environ.get("RAG_ASK_MODEL", os.environ.get("RAG_INTENT_MODEL", "google/gemma-4-31b-it")),
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt_str}],
-            **_llm_params(4096, 0.6, 0.7),
-            stream=False,
+            temperature=0.6, top_p=0.7, max_tokens=4096,
+            stream=False, extra_body=LLM_EXTRA_BODY,
         )
         full_content = completion.choices[0].message.content
         tokens_input = completion.usage.prompt_tokens
@@ -1682,51 +1714,51 @@ async def list_news(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    """瀏覽原始新聞列表（從 crawler CSV 讀取）"""
-    import pandas as pd
-    import glob as glob_mod
-    from pathlib import Path
+    """瀏覽原始新聞列表（讀 MySQL news_articles 表）"""
+    # pub_time 是 varchar 的 ISO 字串（格式一致），字典序即時間序，可直接 ORDER BY
+    where = ["stock_id = %s"]
+    params: list = [stock_id]
+    if keyword:
+        where.append("(title LIKE %s OR content LIKE %s)")
+        kw = f"%{keyword}%"
+        params += [kw, kw]
+    where_sql = " AND ".join(where)
 
-    # 嘗試找清洗後 → 原始
-    for suffix in ["_news_cleaned.csv", "_news.csv"]:
-        fpath = os.path.join("crawler", f"{stock_id}{suffix}")
-        if os.path.exists(fpath):
-            break
-    else:
+    try:
+        conn = _mysql_conn()
+    except Exception as e:
+        raise HTTPException(503, f"資料庫連線失敗：{e}")
+
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT COUNT(*) AS c FROM news_articles WHERE {where_sql}", params)
+                total = cur.fetchone()["c"]
+
+                cur.execute(
+                    f"SELECT title, pub_time, url, source, "
+                    f"LEFT(content, 300) AS content_preview "
+                    f"FROM news_articles WHERE {where_sql} "
+                    f"ORDER BY pub_time DESC LIMIT %s OFFSET %s",
+                    params + [page_size, (page - 1) * page_size],
+                )
+                rows = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(500, f"查詢新聞失敗：{e}")
+
+    if total == 0 and page == 1 and not keyword:
         raise HTTPException(404, f"找不到股票 {stock_id} 的新聞資料")
 
-    df = pd.read_csv(fpath)
-
-    # 統一欄位名稱
-    col_title = "標題" if "標題" in df.columns else "title"
-    col_content = "內文" if "內文" in df.columns else "content"
-    col_time = "發布時間" if "發布時間" in df.columns else "pub_time"
-    col_url = "網址" if "網址" in df.columns else "url"
-
-    if keyword:
-        mask = (
-            df[col_title].astype(str).str.contains(keyword, case=False, na=False) |
-            df[col_content].astype(str).str.contains(keyword, case=False, na=False)
-        )
-        df = df[mask]
-
-    # 排序
-    if col_time in df.columns:
-        df[col_time] = pd.to_datetime(df[col_time], errors="coerce")
-        df = df.sort_values(col_time, ascending=False)
-
-    total = len(df)
-    start = (page - 1) * page_size
-    page_df = df.iloc[start:start + page_size]
-
-    records = []
-    for _, row in page_df.iterrows():
-        records.append({
-            "title": str(row.get(col_title, "")),
-            "pub_time": str(row.get(col_time, "")),
-            "url": str(row.get(col_url, "")),
-            "content_preview": str(row.get(col_content, ""))[:300],
-        })
+    records = [
+        {
+            "title": r["title"] or "",
+            "pub_time": r["pub_time"] or "",
+            "url": r["url"] or "",
+            "source": get_source_name(r["source"] or ""),
+            "content_preview": r["content_preview"] or "",
+        }
+        for r in rows
+    ]
 
     return {
         "stock_id": stock_id,
@@ -1927,7 +1959,8 @@ async def get_trend_predict(
     # ── 5. LLM 預測（透過共用預測核心，與回測腳本共用同一套邏輯） ──
     from prediction_core import StrategyConfig, generate_prediction
     stock_name = STOCK_OPTIONS.get(stock_id, stock_id)
-    live_strategy = StrategyConfig(name="live_default", news_window_days=30, news_limit=20)
+    live_strategy = StrategyConfig(name="live_default", news_window_days=30, news_limit=20,
+                                   model_name=LLM_MODEL)
     prediction = await generate_prediction(
         stock_id=stock_id,
         stock_name=stock_name,
@@ -1935,6 +1968,7 @@ async def get_trend_predict(
         news_titles=recent_news_titles,
         strategy=live_strategy,
         openai_client=openai_client,
+        extra_body=LLM_EXTRA_BODY,
     )
     ai_direction = prediction["direction"]
     ai_change_pct = prediction["change_pct_total"]
@@ -2142,11 +2176,14 @@ async def trend_predict_stream(
             try:
                 resp = await asyncio.to_thread(
                     openai_client.chat.completions.create,
-                    model=os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813"),
+                    model=LLM_MODEL,
                     messages=[{"role": "user", "content": prompt}],
-                    **_llm_params(120, 0.3),
+                    temperature=0.3,
+                    max_tokens=120,
+                    extra_body=LLM_EXTRA_BODY,
                 )
-                raw = resp.choices[0].message.content.strip()
+                raw = re.sub(r"<think>.*?</think>\s*", "",
+                             (resp.choices[0].message.content or "").strip(), flags=re.DOTALL).strip()
                 import re as _re
                 m = _re.search(r'\{.*\}', raw, _re.DOTALL)
                 if m:
