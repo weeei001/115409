@@ -132,7 +132,7 @@ async function check() {
   assert.match(markup, /Readable <strong>answer<\/strong>\[S1\]\[S2\]/);
   assert.match(markup, /<strong>營收創新高<\/strong>：受惠於 AI 需求/);
   assert.doesNotMatch(markup, /\*\*營收創新高\*\*/);
-  assert.equal((markup.match(/<li>/g) ?? []).length, 4);
+  assert.equal((markup.match(/<li(?:\s|>)/g) ?? []).length, 5);
   for (const id of ['S1', 'S2', 'S3', 'S4']) assert.ok(markup.includes(`[${id}]`));
   assert.match(markup, /Market snapshot/);
   assert.equal((markup.match(/<a /g) ?? []).length, 2);
@@ -143,8 +143,15 @@ async function check() {
   const defaultSectionMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
     content: '【重點】\n具體影響如下：\n\n*   **營收創新高**：受惠於 AI 需求 [S1]',
   }));
-  assert.match(defaultSectionMarkup, /<ul[^>]*><li><strong>營收創新高<\/strong>/);
+  assert.match(defaultSectionMarkup, /<ul[^>]*><li[^>]*>[\s\S]*?<strong>營收創新高<\/strong>/);
   assert.doesNotMatch(defaultSectionMarkup, /\*\s+\*\*營收創新高\*\*/);
+
+  const escapedMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
+    content: String.raw`【關鍵事件】
+\* \*\*營收創新高\*\*：受惠於 AI 需求`,
+  }));
+  assert.match(escapedMarkup, /<ul[^>]*><li[^>]*>[\s\S]*?<strong>營收創新高<\/strong>：受惠於 AI 需求/);
+  assert.doesNotMatch(escapedMarkup, /\\\*|\*\*營收創新高\*\*/);
 
   const dashboardSourceMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
     content: `Readable answer\n\n【引用來源】\n${mixedSources}`,

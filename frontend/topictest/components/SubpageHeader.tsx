@@ -54,7 +54,7 @@ export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
   };
 
   return (
-    <header ref={headerRef} className="sticky top-[var(--app-safe-area-top)] z-50 flex-shrink-0 m-0 pt-[var(--app-safe-area-top)] sm:mx-4 sm:mt-3">
+    <header ref={headerRef} className="sticky top-0 z-50 flex-shrink-0 m-0 bg-[var(--color-bg-card)] pt-[var(--app-safe-area-top)] sm:mx-4 sm:mt-3 sm:bg-transparent">
       <motion.div
         className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 rounded-none sm:rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] shadow-[var(--shadow-elevated)]"
         initial={reduceMotion ? false : { opacity: 0, y: -10 }}

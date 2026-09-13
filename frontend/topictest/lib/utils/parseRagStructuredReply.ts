@@ -18,6 +18,12 @@ export interface RagSourceItem {
 const SECTION_HEADER_RE = /【([^】]+)】/g;
 const SOURCE_URL_RE = /(https?:\/\/\S+|\/news\/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+)/;
 const SAFE_INTERNAL_NEWS_PATH_RE = /^\/news\/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+$/;
+const ESCAPED_MARKDOWN_RE = /\\([\\`*_\[\]{}()#+.!>|-])/g;
+
+/** LLM 偶爾會跳脫 Markdown 標記；先還原再交給輕量 renderer 處理。 */
+export function normalizeMarkdownEscapes(text: string): string {
+  return text.replace(ESCAPED_MARKDOWN_RE, '$1');
+}
 
 /** 是否為 RAG 結構化回覆（含【】區塊標題） */
 export function isStructuredRagReply(text: string): boolean {
@@ -56,7 +62,7 @@ export function detectSentiment(body: string): RagSentiment {
 }
 
 export function parseBulletList(body: string): string[] {
-  const items = body
+  const items = normalizeMarkdownEscapes(body)
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => /^[-*•·]\s/.test(line))

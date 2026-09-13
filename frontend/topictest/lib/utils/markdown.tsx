@@ -1,13 +1,15 @@
 import React from 'react';
+import { normalizeMarkdownEscapes } from './parseRagStructuredReply';
 
 const BOLD_RE = /(\*\*[^*\n]+?\*\*)/g;
 const LIST_ITEM_RE = /^\s*([-*•·]|\d+[.)])\s+/;
 
 /** Render the small Markdown subset used by AI answers without injecting HTML. */
 export function MarkdownText({ text }: { text: string }) {
+  const normalized = normalizeMarkdownEscapes(text);
   return (
     <>
-      {text.split(BOLD_RE).map((part, index) =>
+      {normalized.split(BOLD_RE).map((part, index) =>
         part.startsWith('**') && part.endsWith('**')
           ? <strong key={index}>{part.slice(2, -2)}</strong>
           : part
@@ -18,6 +20,7 @@ export function MarkdownText({ text }: { text: string }) {
 
 /** Render paragraphs and the unordered/ordered lists used by AI answers. */
 export function MarkdownBlock({ text }: { text: string }) {
+  const normalized = normalizeMarkdownEscapes(text);
   const blocks: Array<{ type: 'paragraph' | 'list'; ordered?: boolean; lines: string[] }> = [];
   let paragraph: string[] = [];
   let list: string[] = [];
@@ -32,7 +35,7 @@ export function MarkdownBlock({ text }: { text: string }) {
     list = [];
   };
 
-  for (const line of text.split('\n')) {
+  for (const line of normalized.split('\n')) {
     const match = line.match(LIST_ITEM_RE);
     if (match) {
       flushParagraph();
