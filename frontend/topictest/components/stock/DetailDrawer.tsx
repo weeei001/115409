@@ -126,7 +126,7 @@ export const DetailDrawer: React.FC<Props> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="absolute right-0 top-0 flex h-[100dvh] w-full sm:w-[min(1100px,90vw)] flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-card)]/95 backdrop-blur-2xl shadow-[var(--shadow-elevated)] transition-[transform,opacity]"
+        className="absolute right-0 top-0 flex h-[100dvh] w-full flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-card)]/95 pt-[var(--app-safe-area-top)] backdrop-blur-2xl shadow-[var(--shadow-elevated)] transition-[transform,opacity] sm:w-[min(1100px,90vw)]"
         style={{
           transform: panelTransform,
           opacity: panelOpacity,

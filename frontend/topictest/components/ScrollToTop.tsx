@@ -31,8 +31,8 @@ export const ScrollToTop: React.FC = () => {
           onClick={handleClick}
           aria-label="回到頁面頂部"
           className="fixed z-40 flex h-12 w-12 items-center justify-center rounded-full
-                     bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))]
-                     right-[calc(1.5rem+env(safe-area-inset-right,0px))]
+                     bottom-[calc(1.5rem+var(--app-safe-area-bottom))]
+                     right-[calc(1.5rem+var(--app-safe-area-right))]
                      text-white shadow-lg
                      hover:shadow-[0_0_24px_var(--glow-brand-strong)] hover:scale-110
                      focus-visible:outline focus-visible:outline-2

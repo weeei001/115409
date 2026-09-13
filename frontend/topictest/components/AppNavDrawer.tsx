@@ -164,7 +164,7 @@ export const AppNavDrawer: React.FC = () => {
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="absolute right-0 top-0 flex h-full w-full flex-col
-              pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pr-[env(safe-area-inset-right,0px)]
+              pt-[var(--app-safe-area-top)] pb-[var(--app-safe-area-bottom)] pr-[var(--app-safe-area-right)]
               shadow-[var(--shadow-elevated)]
               border-l border-[var(--color-border)]
               bg-[var(--color-bg-card)]/95 backdrop-blur-2xl

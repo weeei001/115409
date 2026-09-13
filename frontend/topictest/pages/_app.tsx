@@ -50,7 +50,7 @@ function AppChrome({
           <div className="absolute inset-0 bg-[var(--color-bg)]" />
         )}
       </div>
-      <div className="relative z-[2] flex min-h-[100dvh] w-full flex-col bg-transparent pb-[env(safe-area-inset-bottom)]">
+      <div className="relative z-[2] flex min-h-[100dvh] w-full flex-col bg-transparent pb-[var(--app-safe-area-bottom)]">
         {children}
       </div>
     </div>
