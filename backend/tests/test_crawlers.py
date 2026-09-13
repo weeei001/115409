@@ -23,6 +23,11 @@ def article_html(title="台積電與鴻海營運展望", **changes):
             '<div class="content"><p>{content}</p><p>點我下載APP</p><p>相關新聞 不應留下</p></div></body></html>').format(**fields)
 
 
+def cnyes_detail_html(body="完整新聞內文第一段。完整新聞內文第二段。"):
+    payload = json.dumps({"@type": "NewsArticle", "articleBody": body}, ensure_ascii=False)
+    return f'<html><script type="application/ld+json">{payload}</script></html>'
+
+
 def test_cnyes_news_identity_html_stock_tags_and_timestamp_aliases():
     item = crawlers.cnyes_item(cnyes_raw())
     assert item["article_id"] == crawlers.article_id("cnyes", "台積電營運展望", "2024-01-01T08:00:00+08:00")
@@ -35,6 +40,12 @@ def test_cnyes_news_identity_html_stock_tags_and_timestamp_aliases():
     assert fallback["pub_time"] == item["pub_time"] and fallback["content"] == "摘要"
     assert fallback["stock_id"] is None and fallback["tags"] == ""
     assert fallback["url"] == "https://news.cnyes.com/summary"
+
+
+def test_cnyes_article_body_reads_full_public_body_from_json_ld():
+    assert crawlers.cnyes_article_body(cnyes_detail_html()) == "完整新聞內文第一段。完整新聞內文第二段。"
+    assert crawlers.cnyes_article_url("12345") == "https://news.cnyes.com/news/id/12345"
+    assert crawlers.cnyes_article_url("invalid") is None
 
 
 def test_cnyes_html_cleaner_removes_footer_and_app_promos():
@@ -78,17 +89,18 @@ def test_month_ranges_have_no_gaps_or_overlap_at_taipei_leap_month_boundary():
     assert datetime.fromtimestamp(ranges[0][1], crawlers.TAIPEI).isoformat() == "2024-02-29T23:59:59+08:00"
 
 
-def test_store_news_deduplicates_without_overwriting_existing_data_or_running_ddl(db_session):
+def test_store_news_deduplicates_and_updates_longer_existing_content_without_ddl(db_session):
     item = crawlers.cnyes_item(cnyes_raw())
     sql = []
     listener = lambda conn, cursor, statement, parameters, context, executemany: sql.append(statement)
     event.listen(db_session.bind, "before_cursor_execute", listener)
     try:
-        assert crawlers.store_news(db_session, [item, item]) == (1, 1)
-        assert crawlers.store_news(db_session, [{**item, "content": "changed upstream content"}]) == (0, 1)
+        assert crawlers.store_news(db_session, [item, item]) == {"inserted": 1, "updated": 0, "skipped": 1}
+        full = {**item, "content": "changed upstream content with the complete article body"}
+        assert crawlers.store_news(db_session, [full]) == {"inserted": 0, "updated": 1, "skipped": 0}
     finally:
         event.remove(db_session.bind, "before_cursor_execute", listener)
-    assert db_session.get(NewsArticle, item["article_id"]).content == item["content"]
+    assert db_session.get(NewsArticle, item["article_id"]).content == full["content"]
     assert not any(statement.lstrip().upper().startswith(("CREATE", "ALTER", "DROP")) for statement in sql)
 
 
@@ -100,7 +112,7 @@ def test_failed_page_commit_rolls_back_and_session_remains_usable(db_session, mo
         crawlers.store_news(db_session, [item])
     assert db_session.get(NewsArticle, item["article_id"]) is None
     monkeypatch.setattr(db_session, "commit", commit)
-    assert crawlers.store_news(db_session, [item]) == (1, 0)
+    assert crawlers.store_news(db_session, [item]) == {"inserted": 1, "updated": 0, "skipped": 0}
 
 
 def test_cnyes_worker_fetches_and_writes_page_then_skips_existing(db_session):
@@ -110,9 +122,36 @@ def test_cnyes_worker_fetches_and_writes_page_then_skips_existing(db_session):
         return httpx.Response(200, json={"items": {"data": [cnyes_raw(), cnyes_raw()]}})
     with httpx.Client(transport=httpx.MockTransport(provider)) as http:
         arguments = (db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3))
-        assert crawlers.crawl_cnyes(*arguments) == {"inserted": 1, "skipped": 1, "failed": 0}
-        assert crawlers.crawl_cnyes(*arguments) == {"inserted": 0, "skipped": 2, "failed": 0}
+        assert crawlers.crawl_cnyes(*arguments) == {"inserted": 1, "updated": 0, "skipped": 1, "failed": 0}
+        assert crawlers.crawl_cnyes(*arguments) == {"inserted": 0, "updated": 0, "skipped": 2, "failed": 0}
     assert len(requested) == 2 and len(db_session.scalars(select(NewsArticle)).all()) == 1
+
+
+def test_cnyes_worker_replaces_list_excerpt_with_detail_body(db_session):
+    def provider(request):
+        if "newslist" in request.url.path:
+            return httpx.Response(200, json={"items": {"data": [cnyes_raw(content="列表摘要")]}})
+        return httpx.Response(200, text=cnyes_detail_html())
+
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3),
+                                      limit=1, fetch_details=True)
+    item = crawlers.cnyes_item(cnyes_raw())
+    assert result == {"inserted": 1, "updated": 0, "skipped": 0, "failed": 0}
+    assert db_session.get(NewsArticle, item["article_id"]).content == "完整新聞內文第一段。完整新聞內文第二段。"
+
+
+def test_refresh_cnyes_existing_updates_only_when_detail_is_longer(db_session):
+    item = crawlers.cnyes_item(cnyes_raw(content="列表摘要"))
+    crawlers.store_news(db_session, [item])
+
+    def provider(request):
+        return httpx.Response(200, text=cnyes_detail_html())
+
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.refresh_cnyes_existing(db_session.bind, http)
+    assert result == {"read": 1, "updated": 1, "skipped": 0, "failed": 0}
+    assert db_session.get(NewsArticle, item["article_id"]).content == "完整新聞內文第一段。完整新聞內文第二段。"
 
 
 @pytest.mark.parametrize("failure", ["timeout", "malformed", "invalid_articles", "repeated_page"])
@@ -180,8 +219,8 @@ def test_ltn_worker_avoids_fetching_existing_urls_and_records_bad_article(db_ses
         return httpx.Response(200, text=article_html() if request.url.path.endswith("good") else "invalid article")
     with httpx.Client(transport=httpx.MockTransport(provider)) as http:
         arguments = (db_session.bind, http, datetime(2024, 1, 1))
-        assert crawlers.crawl_ltn(*arguments) == {"inserted": 1, "skipped": 0, "failed": 1}
-        assert crawlers.crawl_ltn(*arguments) == {"inserted": 0, "skipped": 0, "failed": 1}
+        assert crawlers.crawl_ltn(*arguments) == {"inserted": 1, "updated": 0, "skipped": 0, "failed": 1}
+        assert crawlers.crawl_ltn(*arguments) == {"inserted": 0, "updated": 0, "skipped": 0, "failed": 1}
     assert requested.count("/article/good") == 1 and requested.count("/article/bad") == 2
     assert len(db_session.scalars(select(NewsArticle)).all()) == 1
 

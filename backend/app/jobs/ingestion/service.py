@@ -118,7 +118,8 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
                          start: date | None = None, end: date | None = None,
                          limit: int | None = None, page_size: int = 50,
                          dry_run: bool = False, create_collection: bool = False,
-                         retry_delay: float = 5, index_version: str = DEFAULT_INDEX_VERSION) -> IngestionReport:
+                         retry_delay: float = 5, index_version: str = DEFAULT_INDEX_VERSION,
+                         cleanup_stale: bool = True) -> IngestionReport:
     _validate_options(page_size, limit, start, end)
     if retry_delay < 0:
         raise ValueError("retry_delay must not be negative")
@@ -138,10 +139,11 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
             after=after, page_size=size, symbols=symbols, start=start, end=end, index_version=index_version)
         if not page:
             break
+        articles = []
         for article_id, grouped in groupby(page, key=lambda chunk: chunk["article_id"]):
             chunks = list(grouped)
-            after = article_id
             report.read += 1
+            after = article_id
             if parse_timestamp(chunks[0].get("pub_time")) is None:
                 report.fail(article_id, "invalid_pub_time", len(chunks))
                 continue
@@ -152,34 +154,53 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
                 report.fail(article_id, "empty_content", len(chunks))
                 continue
             report.planned += len(chunks)
-            if dry_run:
-                continue
-            ids = [chunk["chunk_id"] for chunk in chunks]
-            initial_existing = None
-            for attempt in range(3):
-                try:
-                    existing = await writer.existing_chunk_ids(ids)
-                    if initial_existing is None:
-                        initial_existing = existing
-                    pending = [chunk for chunk in chunks if chunk["chunk_id"] not in existing]
-                    for offset in range(0, len(pending), page_size):
-                        batch = pending[offset:offset + page_size]
-                        vectors = await writer.embed_documents([embedding_text(chunk) for chunk in batch])
+            articles.append((article_id, chunks))
+        if dry_run or not articles:
+            continue
+
+        initial_existing = {}
+        for attempt in range(3):
+            try:
+                all_ids = [chunk["chunk_id"] for _, chunks in articles for chunk in chunks]
+                existing_ids = await writer.existing_chunk_ids(all_ids)
+                states = []
+                for article_id, chunks in articles:
+                    ids = [chunk["chunk_id"] for chunk in chunks]
+                    existing = existing_ids.intersection(ids)
+                    initial_existing.setdefault(article_id, existing)
+                    states.append((article_id, chunks, ids, existing))
+                pending = [chunk for _, chunks, _, existing in states
+                           for chunk in chunks if chunk["chunk_id"] not in existing]
+                batches = [pending[offset:offset + page_size]
+                           for offset in range(0, len(pending), page_size)]
+                for offset in range(0, len(batches), 4):
+                    window = batches[offset:offset + 4]
+                    embeddings = await asyncio.gather(*(
+                        writer.embed_documents([embedding_text(chunk) for chunk in batch])
+                        for batch in window
+                    ))
+                    for batch, vectors in zip(window, embeddings):
                         await writer.upsert_chunks(batch, vectors)
-                    confirmed = await writer.existing_chunk_ids(ids)
-                    if not set(ids).issubset(confirmed):
+                confirmed_ids = await writer.existing_chunk_ids(all_ids)
+                for article_id, _, ids, _ in states:
+                    if not set(ids).issubset(confirmed_ids):
                         raise AppError("Article vector publication is incomplete", 503)
-                    await writer.delete_stale_article_chunks(article_id, index_version, ids)
-                    written = len(ids) - len(initial_existing)
-                    report.skipped += len(initial_existing)
+                if cleanup_stale:
+                    for article_id, _, ids, _ in states:
+                        await writer.delete_stale_article_chunks(article_id, index_version, ids)
+                for article_id, _, ids, _ in states:
+                    skipped = len(initial_existing[article_id])
+                    written = len(ids) - skipped
+                    report.skipped += skipped
                     report.written += written
                     report.chunks += written
-                    break
-                except Exception as exc:
-                    if attempt == 2:
-                        report.fail(article_id, failure_reason(exc), len(chunks))
-                    else:
-                        report.retries += 1
-                        await asyncio.sleep(retry_delay * (attempt + 1))
+                break
+            except Exception as exc:
+                if attempt == 2:
+                    article_id, chunks = articles[0]
+                    report.fail(article_id, failure_reason(exc), sum(len(items) for _, items in articles))
+                else:
+                    report.retries += 1
+                    await asyncio.sleep(retry_delay * (attempt + 1))
     return report
 

@@ -6,7 +6,7 @@ import sys
 
 COMMANDS = (
     "crawl-cnyes", "crawl-ltn", "finmind-fetch", "finmind-import", "sentiment-batch",
-    "chunk-news", "vectorize-news", "news-ingest", "scheduler", "legacy-scheduler",
+    "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute",
 )
 
@@ -46,6 +46,16 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job in {"chunk-news", "vectorize-news", "news-ingest"}:
         from app.jobs.ingestion.cli import main as ingest
         return ingest(job, argv)
+    if job == "migrate-news-schema":
+        from app.core.config import get_settings
+        from app.db.engine import make_engine
+        from app.jobs.ingestion.migrate import migrate_news_chunks
+        engine = make_engine(get_settings())
+        try:
+            print(migrate_news_chunks(engine))
+        finally:
+            engine.dispose()
+        return 0
     if job in {"scheduler", "legacy-scheduler"}:
         from app.jobs.scheduler import main as schedule
         return schedule(argv)
