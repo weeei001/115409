@@ -30,7 +30,7 @@ export const VolumeAnalysisPanel: React.FC<Props> = ({ data, loading }) => {
       collapseLabel="收合量能明細"
     >
       <TableScrollHint />
-      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
+      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] overscroll-x-contain">
         <table className="w-full text-sm min-w-[520px]">
           <thead>
             <tr className="bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)] text-xs">

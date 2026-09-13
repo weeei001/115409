@@ -48,7 +48,7 @@ function SparkBars({ gradientId, animate }: { gradientId: string; animate: boole
   );
 }
 
-export function SiteFooter() {
+export function SiteFooter({ className = '' }: { className?: string }) {
   const year = new Date().getFullYear();
   const lineRef = useRef<HTMLDivElement>(null);
   const barGradId = useId().replace(/:/g, '');
@@ -73,7 +73,7 @@ export function SiteFooter() {
 
   return (
     <footer
-      className="mt-auto relative overflow-hidden bg-[var(--color-bg-elevated)]"
+      className={`${className} mt-auto relative overflow-hidden bg-[var(--color-bg-elevated)]`}
       role="contentinfo"
     >
       <div

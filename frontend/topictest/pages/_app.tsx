@@ -34,14 +34,12 @@ function isAnalysisRoute(pathname: string, asPath: string): boolean {
 function AppChrome({
   children,
   showParticles,
-  fitViewport,
 }: {
   children: ReactNode;
   showParticles: boolean;
-  fitViewport?: boolean;
 }) {
   return (
-    <div className={`relative isolate w-full ${fitViewport ? 'h-[100dvh] overflow-hidden lg:h-auto lg:min-h-[100dvh] lg:overflow-visible' : 'min-h-[100dvh]'}`}>
+    <div className="relative isolate w-full min-h-[100dvh]">
       <div
         className="pointer-events-none fixed inset-0 z-[1] h-[100dvh] w-full min-h-[100dvh]"
         aria-hidden
@@ -52,7 +50,7 @@ function AppChrome({
           <div className="absolute inset-0 bg-[var(--color-bg)]" />
         )}
       </div>
-      <div className={`relative z-[2] flex w-full flex-col bg-transparent pb-[var(--app-safe-area-bottom)] ${fitViewport ? 'h-full min-h-0 overflow-hidden lg:h-auto lg:min-h-[100dvh] lg:overflow-visible' : 'min-h-[100dvh]'}`}>
+      <div className="relative z-[2] flex w-full flex-col bg-transparent pb-[var(--app-safe-area-bottom)] min-h-[100dvh]">
         {children}
       </div>
     </div>
@@ -83,7 +81,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta name="twitter:title" content={DEFAULT_TITLE} />
         <meta name="twitter:description" content={DEFAULT_DESCRIPTION} />
       </Head>
-      <AppChrome showParticles={!isAnalysisRoute(router.pathname, router.asPath)} fitViewport={router.pathname === '/ai'}>
+      <AppChrome showParticles={!isAnalysisRoute(router.pathname, router.asPath)}>
         <div
           id="main-content"
           className="flex min-h-0 flex-1 flex-col min-w-0 outline-none"
@@ -106,7 +104,7 @@ export default function App({ Component, pageProps }: AppProps) {
             </AnimatePresence>
           )}
         </div>
-        <SiteFooter />
+        <SiteFooter className={router.pathname === '/ai' ? 'hidden sm:block' : undefined} />
         <ScrollToTop />
       </AppChrome>
       <Toaster richColors position="top-center" closeButton />

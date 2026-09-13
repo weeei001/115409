@@ -82,14 +82,14 @@ export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
               </motion.div>
               <motion.div className="min-w-0 flex-1">
                 <h1
-                  className={`text-lg font-bold tracking-tight text-balance text-[var(--color-text-primary)] ${
-                    titleWrap ? 'break-all' : 'truncate'
+                  className={`text-lg font-bold tracking-tight text-[var(--color-text-primary)] ${
+                    titleWrap ? 'break-all text-balance' : 'truncate'
                   }`}
                 >
                   {title}
                 </h1>
                 {subtitle && (
-                  <p className="text-xs text-[var(--color-text-secondary)] text-pretty truncate">{subtitle}</p>
+                  <p className="text-xs text-[var(--color-text-secondary)] truncate" title={subtitle}>{subtitle}</p>
                 )}
               </motion.div>
             </motion.div>

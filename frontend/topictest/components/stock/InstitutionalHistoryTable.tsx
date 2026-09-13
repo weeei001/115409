@@ -66,7 +66,7 @@ export const InstitutionalHistoryTable: React.FC<Props> = ({ data, loading }) =>
         </div>
       )}
       <TableScrollHint />
-      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
+      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] overscroll-x-contain">
         {viewMode === 'net' ? (
           <table className="w-full text-sm min-w-[520px]">
             <thead>

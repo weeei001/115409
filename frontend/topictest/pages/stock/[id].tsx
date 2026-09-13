@@ -77,7 +77,7 @@ function StockDashboardView({ symbol }: { symbol: string }) {
           <button
             type="button"
             onClick={() => router.push('/')}
-            className="px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg transition-[opacity,box-shadow,transform] cursor-pointer"
+            className="min-h-11 px-5 py-2.5 rounded-xl text-[var(--color-on-brand)] font-semibold shadow-lg transition-[opacity,box-shadow,transform] cursor-pointer"
             style={{ background: 'var(--brand-gradient)' }}
           >
             返回首頁
@@ -108,7 +108,7 @@ function StockDashboardView({ symbol }: { symbol: string }) {
           <button
             type="button"
             onClick={() => router.push('/')}
-            className="px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg transition-[opacity,box-shadow,transform] cursor-pointer"
+            className="min-h-11 px-5 py-2.5 rounded-xl text-[var(--color-on-brand)] font-semibold shadow-lg transition-[opacity,box-shadow,transform] cursor-pointer"
             style={{ background: 'var(--brand-gradient)' }}
           >
             返回首頁
@@ -196,7 +196,7 @@ export default function StockDetail() {
           <button
             type="button"
             onClick={() => router.push('/')}
-            className="px-5 py-2.5 rounded-xl text-white font-semibold shadow-lg transition-[opacity,box-shadow,transform] cursor-pointer"
+            className="min-h-11 px-5 py-2.5 rounded-xl text-[var(--color-on-brand)] font-semibold shadow-lg transition-[opacity,box-shadow,transform] cursor-pointer"
             style={{ background: 'var(--brand-gradient)' }}
           >
             返回首頁

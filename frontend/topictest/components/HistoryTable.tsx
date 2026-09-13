@@ -57,7 +57,7 @@ export const HistoryTable: React.FC<Props> = ({ data, page, pageSize, onPageChan
           </nav>
         </div>
         <TableScrollHint />
-        <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] touch-pan-x overscroll-x-contain">
+        <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] overscroll-x-contain">
           <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)] text-xs">

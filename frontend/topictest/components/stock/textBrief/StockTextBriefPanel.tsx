@@ -192,7 +192,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
         <button
           type="button"
           onClick={() => void run()}
-          className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg cursor-pointer"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-[var(--color-on-brand)] shadow-lg cursor-pointer"
           style={{ background: 'var(--brand-gradient)' }}
         >
           <Sparkles size={14} aria-hidden />

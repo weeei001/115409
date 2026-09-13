@@ -64,7 +64,7 @@ function FilterActions({
           onApplied?.();
         }}
         disabled={disabled}
-        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white min-h-[36px]"
+        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[var(--color-on-brand)] min-h-11"
         style={{ background: 'var(--brand-gradient)' }}
       >
         套用篩選
@@ -76,7 +76,7 @@ function FilterActions({
           onApplied?.();
         }}
         disabled={disabled}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] min-h-[36px]"
+        className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] min-h-11"
       >
         清除時間條件
       </button>

@@ -112,7 +112,7 @@ export const ChatMessage: React.FC<Props> = ({
         {isUser ? (
           <User size={18} className="text-[var(--color-text-secondary)]" aria-hidden />
         ) : (
-          <Bot size={18} className="text-white" aria-hidden />
+          <Bot size={18} className="text-[var(--color-on-brand)]" aria-hidden />
         )}
       </div>
 
@@ -127,8 +127,8 @@ export const ChatMessage: React.FC<Props> = ({
             : 'bg-[var(--color-bg-card)] shadow-[var(--shadow-card)]'
         }`}
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="text-sm text-left leading-relaxed flex-1 min-w-0">
+        <div className="flex flex-col items-start justify-between gap-2 sm:flex-row">
+          <div className="w-full text-sm text-left leading-relaxed flex-1 min-w-0">
             {!isUser && message.dashboard && <h4 className="mb-2 text-sm font-semibold">AI 解讀</h4>}
             {!isUser && message.streamStatus && (
               <p
@@ -160,7 +160,7 @@ export const ChatMessage: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => void handleCopy()}
-              className="flex-shrink-0 p-1.5 rounded-lg text-[var(--color-text-muted)]
+              className="flex size-11 shrink-0 items-center justify-center self-end sm:self-start rounded-lg text-[var(--color-text-muted)]
                          hover:text-brand hover:bg-brand/5 transition-colors"
               aria-label={copied ? '已複製' : '複製回覆'}
             >

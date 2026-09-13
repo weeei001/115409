@@ -33,7 +33,7 @@ export const ScrollToTop: React.FC = () => {
           className="fixed z-40 flex h-12 w-12 items-center justify-center rounded-full
                      bottom-[calc(1.5rem+var(--app-safe-area-bottom))]
                      right-[calc(1.5rem+var(--app-safe-area-right))]
-                     text-white shadow-lg
+                     text-[var(--color-on-brand)] shadow-lg
                      hover:shadow-[0_0_24px_var(--glow-brand-strong)] hover:scale-110
                      focus-visible:outline focus-visible:outline-2
                      focus-visible:outline-offset-2 focus-visible:outline-brand

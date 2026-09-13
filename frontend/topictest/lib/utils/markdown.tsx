@@ -1,20 +1,40 @@
 import React from 'react';
 import { normalizeMarkdownEscapes } from './parseRagStructuredReply';
+import { safeDashboardUrl } from '../types/chatDashboard';
 
-const BOLD_RE = /(\*\*[^*\n]+?\*\*)/g;
+const INLINE_RE = /\[([^\]\n]+)\]\(((?:[^()\s<>]|\([^()\s<>]*\))+)\)|\*\*\*([^*\n]+?)\*\*\*|\*\*(?!\*)([^\n]+?)\*\*(?!\*)|\*(?!\*)((?:\*\*[^*\n]+?\*\*|[^*\n])+?)\*(?!\*)/g;
 const LIST_ITEM_RE = /^\s*([-*•·]|\d+[.)])\s+/;
+
+function renderInline(text: string, allowLinks = true): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(INLINE_RE)) {
+    const index = match.index;
+    nodes.push(text.slice(cursor, index));
+    if (match[1] !== undefined) {
+      const safeUrl = safeDashboardUrl(match[2]);
+      nodes.push(allowLinks && safeUrl
+        ? <a key={index} href={match[2]} className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">{renderInline(match[1], false)}</a>
+        : match[0]);
+    } else if (match[3] !== undefined) {
+      nodes.push(<strong key={index}><em>{match[3]}</em></strong>);
+    } else if (match[4] !== undefined) {
+      nodes.push(<strong key={index}>{renderInline(match[4], allowLinks)}</strong>);
+    } else {
+      nodes.push(<em key={index}>{renderInline(match[5], allowLinks)}</em>);
+    }
+    cursor = index + match[0].length;
+  }
+  nodes.push(text.slice(cursor));
+  return nodes;
+}
 
 /** Render the small Markdown subset used by AI answers without injecting HTML. */
 export function MarkdownText({ text }: { text: string }) {
-  const normalized = normalizeMarkdownEscapes(text);
   return (
-    <>
-      {normalized.split(BOLD_RE).map((part, index) =>
-        part.startsWith('**') && part.endsWith('**')
-          ? <strong key={index}>{part.slice(2, -2)}</strong>
-          : part
-      )}
-    </>
+    <span className="[overflow-wrap:anywhere] text-pretty">
+      {renderInline(normalizeMarkdownEscapes(text))}
+    </span>
   );
 }
 

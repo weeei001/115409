@@ -17,7 +17,7 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
   }, [value, onSend, disabled]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       handleSubmit();
     }
@@ -39,8 +39,8 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
         placeholder="輸入您的問題..."
         rows={1}
         disabled={disabled}
-        className="flex-1 min-h-[48px] max-h-32 px-4 py-3 rounded-xl border border-[var(--color-border)]
-                   bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-sm
+        className="flex-1 min-w-0 min-h-[48px] max-h-32 px-4 py-3 rounded-xl border border-[var(--color-border)]
+                   bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-base sm:text-sm
                    resize-none focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand
                    disabled:opacity-50 disabled:cursor-not-allowed"
       />
@@ -50,7 +50,7 @@ export const ChatInput: React.FC<Props> = ({ onSend, disabled }) => {
         disabled={!value.trim() || disabled}
         aria-label="送出訊息"
         className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center
-                   text-white shadow-lg transition-[opacity,box-shadow,transform]
+                   text-[var(--color-on-brand)] shadow-lg transition-[opacity,box-shadow,transform]
                    disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
         style={{ background: 'var(--brand-gradient)' }}
       >

@@ -78,13 +78,13 @@ export const DetailDrawer: React.FC<Props> = ({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (!open || !mounted || !rendered || !panelRef.current) return;
     const panel = panelRef.current;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
-      const focusables = panel.querySelectorAll<HTMLElement>(
+      const focusables = [...panel.querySelectorAll<HTMLElement>(
         'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
+      )].filter((element) => element.tabIndex >= 0 && element.getClientRects().length > 0);
       if (focusables.length === 0) return;
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
@@ -98,7 +98,7 @@ export const DetailDrawer: React.FC<Props> = ({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [open]);
+  }, [open, mounted, rendered]);
 
   if (!mounted || !rendered) return null;
 
@@ -155,13 +155,13 @@ export const DetailDrawer: React.FC<Props> = ({
               type="button"
               onClick={onClose}
               aria-label="關閉"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] transition-[color,background-color,transform] hover:bg-brand/10 hover:text-brand active:scale-90 cursor-pointer"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] transition-[color,background-color,transform] hover:bg-brand/10 hover:text-brand active:scale-90 cursor-pointer"
             >
               <X size={18} aria-hidden />
             </button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 py-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 pt-5 pb-[calc(1.25rem+var(--app-safe-area-bottom))]">{children}</div>
       </motion.div>
     </div>
   );

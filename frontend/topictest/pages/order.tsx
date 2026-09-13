@@ -691,8 +691,8 @@ export default function OrderPage() {
                 onClick={handleSubmit}
                 className={`shrink-0 self-end sm:self-auto px-8 py-3 rounded-xl font-semibold shadow-lg transition-[opacity,box-shadow,transform] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                   side === 'buy'
-                    ? 'bg-up hover:bg-up/90 text-white shadow-up/20'
-                    : 'bg-down hover:bg-down/90 text-white shadow-down/20'
+                    ? 'bg-up hover:bg-up/90 dark:hover:bg-up text-[var(--color-on-brand)] shadow-up/20'
+                    : 'bg-down hover:bg-down/90 dark:hover:bg-down text-[var(--color-on-brand)] shadow-down/20'
                 }`}
               >
                 {submitting ? <Loader2 size={18} className="animate-spin" /> : <ShoppingCart size={18} />}
@@ -723,7 +723,7 @@ export default function OrderPage() {
                   type="button"
                   onClick={() => setShowConfirm(false)}
                   aria-label="關閉確認對話框"
-                  className="text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] cursor-pointer"
                 >
                   <X size={20} aria-hidden />
                 </button>
@@ -773,7 +773,7 @@ export default function OrderPage() {
                   type="button"
                   onClick={() => setShowConfirm(false)}
                   disabled={submitting}
-                  className="py-2.5 rounded-xl border border-[var(--color-border)] text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-bg-elevated)] transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  className="min-h-11 py-2.5 rounded-xl border border-[var(--color-border)] text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-bg-elevated)] transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   取消
                 </button>
@@ -781,8 +781,8 @@ export default function OrderPage() {
                   type="button"
                   onClick={() => void confirmOrder()}
                   disabled={submitting}
-                  className={`py-2.5 rounded-xl text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-                    side === 'buy' ? 'bg-up hover:bg-up/90' : 'bg-down hover:bg-down/90'
+                  className={`min-h-11 py-2.5 rounded-xl text-sm font-semibold text-[var(--color-on-brand)] transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+                    side === 'buy' ? 'bg-up hover:bg-up/90 dark:hover:bg-up' : 'bg-down hover:bg-down/90 dark:hover:bg-down'
                   }`}
                 >
                   {submitting && <Loader2 size={16} className="animate-spin" />}

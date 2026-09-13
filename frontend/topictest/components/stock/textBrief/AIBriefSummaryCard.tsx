@@ -337,7 +337,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
         <button
           type="button"
           onClick={() => onOpenDetail()}
-          className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-white shadow-[var(--shadow-card)] transition-opacity hover:opacity-90 cursor-pointer"
+          className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-[var(--color-on-brand)] shadow-[var(--shadow-card)] transition-opacity hover:opacity-90 cursor-pointer"
           style={{ background: 'var(--brand-gradient)' }}
         >
           查看完整分析

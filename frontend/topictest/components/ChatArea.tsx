@@ -8,6 +8,15 @@ import type { ChatMessage as ChatMessageType } from '../lib/types';
 
 export type ChatLoadingMode = 'rag' | 'mock';
 
+function getScrollContainer(marker: HTMLElement | null): HTMLElement {
+  let element = marker?.parentElement;
+  while (element && element !== document.body) {
+    if (/auto|scroll/.test(getComputedStyle(element).overflowY)) return element;
+    element = element.parentElement;
+  }
+  return document.documentElement;
+}
+
 interface Props {
   messages: ChatMessageType[];
   loading?: boolean;
@@ -47,29 +56,60 @@ export const ChatArea: React.FC<Props> = ({
   onExampleSelect,
 }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
   const reduceMotion = usePrefersReducedMotionClient();
   const scrollKey = messages.map((m) => `${m.id}:${m.content.length}`).join('|');
+  const latestUserId = [...messages].reverse().find((message) => message.role === 'user')?.id;
   const activeDashboard = [...messages].reverse().find((message) => message.dashboard)?.dashboard;
   const hasDashboard = !!activeDashboard;
 
   useEffect(() => {
-    if (messages.length === 0 && !loading) return;
-    const scrollToBottom = () => {
-      chatEndRef.current?.scrollIntoView({ block: 'end', behavior: reduceMotion ? 'auto' : 'smooth' });
+    followRef.current = true;
+  }, [latestUserId]);
+
+  useEffect(() => {
+    const scrollPosition = () => {
+      const element = getScrollContainer(chatEndRef.current);
+      return { top: element.scrollTop, remaining: element.scrollHeight - element.clientHeight - element.scrollTop };
     };
-    requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
-  }, [scrollKey, loading, reduceMotion, messages.length]);
+    let previousTop = scrollPosition().top;
+    const onScroll = (event: Event) => {
+      // Ignore independent panels such as the analysis dashboard or a drawer.
+      if (event.target instanceof Element && !event.target.contains(chatEndRef.current)) return;
+      const { top, remaining } = scrollPosition();
+      if (top < previousTop - 1) followRef.current = false;
+      else if (remaining <= 80) followRef.current = true;
+      previousTop = top;
+    };
+    const onResize = () => { previousTop = scrollPosition().top; };
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [hasDashboard]);
+
+  useEffect(() => {
+    if (messages.length === 0 && !loading) return;
+    const frame = requestAnimationFrame(() => {
+      if (!followRef.current) return;
+      const element = getScrollContainer(chatEndRef.current);
+      element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [scrollKey, loading, messages.length]);
 
   return (
     <div
-      className={`min-h-0 flex-1 overflow-y-auto overscroll-y-contain lg:overflow-hidden ${hasDashboard ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.72fr)] lg:grid-rows-1' : 'lg:overflow-y-auto'}`}
+      className={`min-w-0 flex-none overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden ${hasDashboard ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.72fr)] lg:grid-rows-1' : 'lg:overflow-y-auto'}`}
     >
       <div
-        className={`min-h-full min-w-0 flex flex-col gap-4 px-4 py-6 ${hasDashboard ? 'lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain' : ''}`}
+        className={`min-w-0 flex flex-col gap-4 px-4 py-3 sm:py-6 ${hasDashboard ? 'lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain' : ''}`}
       >
         {messages.length === 0 && !loading && (
           <motion.div
-            className="flex-1 flex flex-col items-center justify-center text-center py-12"
+            className="flex-1 flex flex-col items-center justify-center text-center py-3 sm:py-12"
             initial={reduceMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5 }}
@@ -141,7 +181,7 @@ export const ChatArea: React.FC<Props> = ({
 
       {activeDashboard && (
         <aside
-          className="min-h-0 min-w-0 overflow-y-auto overscroll-y-contain border-t border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 py-4 sm:px-5 sm:py-5 lg:border-l lg:border-t-0"
+          className="min-w-0 border-t border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 py-4 sm:px-5 sm:py-5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain lg:border-l lg:border-t-0"
           aria-label="分析資料面板"
         >
           <ChatDashboard dashboard={activeDashboard} />

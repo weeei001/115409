@@ -219,7 +219,7 @@ export const AppNavDrawer: React.FC = () => {
                         )}
                         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors
                           ${active
-                            ? 'text-white shadow-sm'
+                            ? 'text-[var(--color-on-brand)] shadow-sm'
                             : 'bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)] group-hover:bg-brand/10 group-hover:text-brand'
                           }`}
                           style={active ? { background: 'var(--brand-gradient)' } : undefined}
@@ -245,7 +245,7 @@ export const AppNavDrawer: React.FC = () => {
                       variants={itemVariants}
                       className="flex items-center gap-3 rounded-2xl bg-[var(--color-bg-elevated)] px-4 py-4"
                     >
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow-lg ring-2 ring-[var(--color-bg-card)]"
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-bold text-[var(--color-on-brand)] shadow-lg ring-2 ring-[var(--color-bg-card)]"
                            style={{ background: 'var(--brand-gradient)' }} aria-hidden>
                         {avatarLetter(user)}
                       </div>
@@ -285,7 +285,7 @@ export const AppNavDrawer: React.FC = () => {
                   <motion.button
                     type="button" onClick={navigateLogin} variants={itemVariants} initial="hidden" animate="visible"
                     className="btn-shimmer-hover relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl
-                      px-4 py-3 min-h-12 text-sm font-semibold text-white
+                      px-4 py-3 min-h-12 text-sm font-semibold text-[var(--color-on-brand)]
                       shadow-lg transition-shadow hover:shadow-xl active:scale-[0.98]"
                     style={{ background: 'var(--brand-gradient)' }}
                   >

@@ -67,7 +67,7 @@ export const CompareMetricsTable: React.FC<Props> = ({ rows, symbolColors = {} }
           <h3 className="text-base font-bold text-[var(--color-text-primary)]">比較指標表</h3>
         </div>
         <TableScrollHint scrollRef={scrollRef} className="px-5" />
-        <div ref={scrollRef} className="overflow-x-auto touch-pan-x overscroll-x-contain">
+        <div ref={scrollRef} className="overflow-x-auto overscroll-x-contain">
           <table className="w-full text-sm">
             <thead className="bg-[var(--color-bg-elevated)]">
               <tr>

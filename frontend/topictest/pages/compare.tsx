@@ -525,7 +525,7 @@ export default function ComparePage() {
             type="button"
             onClick={handleCompare}
             disabled={chartLoading || metricsLoading || selected.length < 2}
-            className="w-full sm:w-auto sm:self-start px-8 py-3 rounded-2xl text-white text-[15px] font-semibold shadow-md shadow-brand/25
+            className="w-full sm:w-auto sm:self-start px-8 py-3 rounded-2xl text-[var(--color-on-brand)] text-[15px] font-semibold shadow-md shadow-brand/25
                        hover:shadow-lg hover:brightness-[1.02] transition-[box-shadow,filter,opacity] disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none"
             style={{ background: 'var(--brand-gradient)' }}
           >

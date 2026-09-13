@@ -193,7 +193,7 @@ export default function AiPage() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col text-[var(--color-text-primary)]">
+    <div className="flex min-h-[100dvh] flex-col text-[var(--color-text-primary)] lg:min-h-0 lg:flex-1">
       <Head>
         <title>股海明燈｜AI 對話</title>
         <meta
@@ -207,10 +207,10 @@ export default function AiPage() {
         subtitle="個股、多股比較、技術指標與新聞重點（不構成投資建議）"
       />
 
-      <main className="flex min-h-0 flex-1 flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-6">
-        <div className="flex min-h-0 flex-1 flex-col w-full max-w-6xl mx-auto">
+      <main className="flex w-full max-w-7xl mx-auto flex-col px-4 sm:px-6 lg:px-8 py-3 sm:py-6 lg:min-h-0 lg:flex-1">
+        <div className="flex w-full max-w-6xl mx-auto flex-col lg:min-h-0 lg:flex-1">
           <div
-            className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bento-cell border-b-0 shadow-[var(--shadow-elevated)] lg:max-h-[calc(100dvh-4rem)]"
+            className="flex w-full flex-col overflow-visible bento-cell border-b-0 shadow-[var(--shadow-elevated)] lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:max-h-[calc(100dvh-var(--app-header-height)-4rem-var(--app-safe-area-bottom))]"
           >
             <ChatArea
               messages={messages}
