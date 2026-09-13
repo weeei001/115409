@@ -59,8 +59,8 @@ export function parseBulletList(body: string): string[] {
   const items = body
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => /^[-•·]\s/.test(line))
-    .map((line) => line.replace(/^[-•·]\s+/, '').trim())
+    .filter((line) => /^[-*•·]\s/.test(line))
+    .map((line) => line.replace(/^[-*•·]\s+/, '').trim())
     .filter(Boolean);
 
   if (items.length > 0) return items;

@@ -51,11 +51,15 @@ def _repair_json_numeric_expressions(text: str) -> str:
 
     return JSON_NUMERIC_EXPR_RE.sub(replace, text)
 
-def _thinking_extra_body(model: str) -> dict[str, Any]:
+def _thinking_extra_body(model: str, enable_thinking: bool | None = None) -> dict[str, Any]:
+    if enable_thinking is False:
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    if enable_thinking is True:
+        return {"chat_template_kwargs": {"enable_thinking": True}}
     model = model.lower()
     if model.startswith(("deepseek-ai/", "moonshotai/")):
         return {"chat_template_kwargs": {"thinking": False}}
-    if model.startswith(("qwen/", "z-ai/", "nvidia/nemotron-3-")):
+    if model.startswith(("qwen/", "z-ai/", "nvidia/nemotron-3-", "google/gemma")):
         return {"chat_template_kwargs": {"enable_thinking": False}}
     return {}
 
@@ -169,7 +173,7 @@ class LlmClient:
             streaming=use_stream,
             stream_chunk_timeout=settings.LLM_STREAM_CHUNK_TIMEOUT_SECONDS or None,
             stream_usage=use_stream,
-            extra_body=_thinking_extra_body(self.model_name),
+            extra_body=_thinking_extra_body(self.model_name, settings.LLM_ENABLE_THINKING),
             http_socket_options=() if self.http is not None else None,
             http_async_client=self.http,
         )

@@ -15,7 +15,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.clients.llm import LlmClient
 from app.core.errors import AppError, NotFound, ServiceUnavailable
-from app.features.retrieval.common import STOCK_KEYWORDS, STOCK_OPTIONS, get_source_name, source_provenance
+from app.features.retrieval.common import (STOCK_KEYWORDS, STOCK_OPTIONS, get_source_name,
+                                            normalize_source_url, source_provenance)
 from app.features.retrieval.service import RetrievalService
 
 from .comparison_context import collect_comparison_source
@@ -206,8 +207,14 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
     prose = "\n".join("" if line.strip().lstrip("# ").strip("*_ ") in headings else line
                       for line in answer.splitlines())
     paragraphs = re.split(r"\n\s*\n|\n(?=\s*(?:[-*•·]|\d+[.)])\s)", prose)
-    for paragraph in paragraphs:
-        if (paragraph.strip() and paragraph.strip() not in {INSUFFICIENT_EVIDENCE_ANSWER, "非投資建議。"}
+    list_marker = re.compile(r"\s*(?:[-*•·]|\d+[.)])\s")
+    for index, paragraph in enumerate(paragraphs):
+        stripped = paragraph.strip()
+        next_paragraph = next((candidate.strip() for candidate in paragraphs[index + 1:] if candidate.strip()), "")
+        compact = stripped.strip("*_ ")
+        is_structural_list_intro = (compact.endswith(("：", ":")) and bool(list_marker.match(next_paragraph)))
+        if (stripped and stripped not in {INSUFFICIENT_EVIDENCE_ANSWER, "非投資建議。"}
+                and not is_structural_list_intro
                 and not re.search(citation_pattern, paragraph)):
             raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
 
@@ -246,12 +253,17 @@ def _conversation_history(request: AskRequest) -> list[dict[str, str]]:
 class ChatService:
     def __init__(self, *, http, settings, retrieval=None, intent_llm=None, llm=None, session_factory=None):
         self.retrieval = retrieval if retrieval is not None else RetrievalService(http, settings)
-        self.llm = llm if llm is not None else LlmClient(settings.model_copy(update={
-            "LLM_MODEL": settings.CHAT_LLM_MODEL.strip() or settings.LLM_MODEL,
-            "LLM_MAX_TOKENS": settings.CHAT_LLM_MAX_TOKENS,
-            "LLM_TIMEOUT_SECONDS": settings.CHAT_LLM_TIMEOUT_SECONDS,
-            "LLM_MAX_RETRIES": settings.CHAT_LLM_MAX_RETRIES,
-        }), http)
+        if llm is not None:
+            self.llm = llm
+        else:
+            stream_llm = settings.stream_llm_overrides
+            self.llm = LlmClient(settings.model_copy(update={
+                **stream_llm,
+                "LLM_MODEL": settings.CHAT_LLM_MODEL.strip() or stream_llm["LLM_MODEL"],
+                "LLM_MAX_TOKENS": settings.CHAT_LLM_MAX_TOKENS,
+                "LLM_TIMEOUT_SECONDS": settings.CHAT_LLM_TIMEOUT_SECONDS,
+                "LLM_MAX_RETRIES": settings.CHAT_LLM_MAX_RETRIES,
+            }), http)
         self.intent_llm = intent_llm if intent_llm is not None else self.llm
         self.session_factory = session_factory
 
@@ -346,7 +358,7 @@ class ChatService:
                     response.sources.append(SourceChunk(
                         title=payload.get("title", ""), source=source,
                         source_name=get_source_name(source), pub_time=payload.get("pub_time", ""),
-                        url=payload.get("url", ""), stock_id=payload.get("stock_id", ""),
+                        url=normalize_source_url(payload.get("url", "")), stock_id=payload.get("stock_id", ""),
                         content=payload.get("page_content", ""), score=round(hit.get("score") or 0, 4),
                         in_time_range=hit.get("_in_time_range", True), **source_provenance(payload)))
                 if found.time_from or found.time_to:

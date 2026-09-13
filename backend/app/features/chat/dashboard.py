@@ -8,6 +8,8 @@ from html import unescape
 from math import isfinite
 from urllib.parse import urlsplit
 
+from app.features.retrieval.common import normalize_source_url
+
 from .schemas import (
     ChatDashboard, DashboardChart, DashboardMetrics, DashboardNews, DashboardTable, SourceChunk,
 )
@@ -161,7 +163,7 @@ def _news(sources):
         title = _text(source.title)
         if not title and not _text(source.content):
             continue
-        url = source.url.strip()
+        url = normalize_source_url(source.url)
         try:
             parts = urlsplit(url)
             if (parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password

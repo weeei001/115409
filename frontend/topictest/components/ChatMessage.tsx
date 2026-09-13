@@ -5,7 +5,7 @@ import { Bot, User, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatMessage as ChatMessageType } from '../lib/types';
 import { RagStructuredReply } from './RagStructuredReply';
-import { ChatDashboard } from './ChatDashboard';
+import { MarkdownBlock } from '../lib/utils/markdown';
 import { isStructuredRagReply } from '../lib/utils/parseRagStructuredReply';
 import { isChatNavigationAction, isChatFollowUpAction } from '../lib/nav';
 
@@ -71,6 +71,7 @@ export const ChatMessage: React.FC<Props> = ({
   const { displayed, done } = useStreamingText(message.content, useFakeTyping);
 
   const bodyText = isUser ? message.content : streamActive ? message.content : displayed;
+  const hasNewsDashboard = message.dashboard?.blocks.some((block) => block.kind === 'news') ?? false;
   const showTypingCursor =
     !isUser &&
     (streamActive || (useFakeTyping && !done));
@@ -126,8 +127,7 @@ export const ChatMessage: React.FC<Props> = ({
             : 'bg-[var(--color-bg-card)] shadow-[var(--shadow-card)]'
         }`}
       >
-        {!isUser && message.dashboard && <ChatDashboard dashboard={message.dashboard} />}
-        <div className={`flex items-start justify-between gap-2 ${message.dashboard ? 'mt-5 border-t border-[var(--color-border)] pt-4' : ''}`}>
+        <div className="flex items-start justify-between gap-2">
           <div className="text-sm text-left leading-relaxed flex-1 min-w-0">
             {!isUser && message.dashboard && <h4 className="mb-2 text-sm font-semibold">AI 解讀</h4>}
             {!isUser && message.streamStatus && (
@@ -142,17 +142,18 @@ export const ChatMessage: React.FC<Props> = ({
               <RagStructuredReply
                 content={bodyText}
                 showCursor={showTypingCursor}
+                showSources={!hasNewsDashboard}
               />
             ) : (
-              <p className="whitespace-pre-wrap">
-                {bodyText}
+              <>
+                <MarkdownBlock text={bodyText} />
                 {showTypingCursor && (
                   <span
                     className="inline-block w-0.5 h-4 ml-0.5 bg-brand align-text-bottom"
                     style={{ animation: 'cursor-blink 1s step-end infinite' }}
                   />
                 )}
-              </p>
+              </>
             )}
           </div>
           {!isUser && done && message.content.trim().length > 0 && (

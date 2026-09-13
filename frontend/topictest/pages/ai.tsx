@@ -210,8 +210,7 @@ export default function AiPage() {
       <main className="flex min-h-0 flex-1 flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-6">
         <div className="flex min-h-0 flex-1 flex-col w-full max-w-6xl mx-auto">
           <div
-            className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bento-cell border-b-0 shadow-[var(--shadow-elevated)]
-                       max-h-[calc(100dvh-8rem)] sm:max-h-[calc(100dvh-10rem)]"
+            className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bento-cell border-b-0 shadow-[var(--shadow-elevated)] lg:max-h-[calc(100dvh-4rem)]"
           >
             <ChatArea
               messages={messages}

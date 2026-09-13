@@ -166,6 +166,12 @@ def test_news_deduplicates_articles_and_urls_and_filters_unsafe_links():
                               [], "新聞", ["news"]).blocks[0].items) == 12
 
 
+def test_news_normalizes_legacy_markdown_url():
+    result = build_dashboard([news("S1", "[https://news.example/article](https://news.example/article)")],
+                             ["2330"], "新聞", ["news"])
+    assert result.blocks[0].items[0].url == "https://news.example/article"
+
+
 def test_dashboard_limits_dates_and_symbols_and_skips_unsuitable_data():
     symbols = [str(2330 + index) for index in range(7)]
     rows = [[(date(2026, 7, 1) + timedelta(days=index)).isoformat(), 100 + index] for index in range(45)]

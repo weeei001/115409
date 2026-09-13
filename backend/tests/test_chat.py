@@ -91,7 +91,9 @@ def events(response):
 
 def test_json_answer_keeps_contract_sources_tokens_and_ignores_demo_token(chat):
     client, _, llm, retrieval = chat
-    response = client.post("/api/ask", json={"query": "台積電最近營收", "user_token": "private-main-backend-jwt"})
+    assert "user_token" not in AskRequest.model_fields
+    response = client.post("/api/ask", json={"query": "台積電最近營收"},
+                           headers={"Authorization": "Bearer private-main-backend-jwt"})
     assert response.status_code == 200
     data = response.json()
     assert set(data) == {"answer", "detected_stocks", "time_range", "sources", "tokens", "duration_ms", "current_time", "actions", "dashboard"}
@@ -115,7 +117,7 @@ def test_json_answer_keeps_contract_sources_tokens_and_ignores_demo_token(chat):
 def test_frontend_stream_consumes_text_and_receives_fallback_warning(chat):
     client, _, llm, retrieval = chat
     retrieval.fallback = True
-    result = events(client.post("/api/ask", json={"query": "台積電最近新聞", "stock_id": None, "stream": True, "user_token": None}))
+    result = events(client.post("/api/ask", json={"query": "台積電最近新聞", "stock_id": None, "stream": True}))
     rendered = "".join(event["content"] for event in result if event["type"] == "text")
     assert rendered.startswith(MODEL_ANSWER)
     assert "找不到符合指定時間範圍" in rendered
@@ -339,6 +341,28 @@ def test_reasonable_paragraphs_headings_and_limitations_keep_canonical_sources(c
     assert data["answer"].startswith(llm.answer)
     assert data["answer"].count("https://news.test/report") == 1
     assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_structural_list_intro_without_citation_is_allowed(chat, stream):
+    client, _, llm, _ = chat
+    llm.answer = "台積電整體狀況如下。[S1]\n\n以下為詳細重點整理：\n\n- 營收增加。[S1]"
+    response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
+    data = events(response)[-1] if stream else response.json()
+    assert data["answer"].startswith(llm.answer)
+    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_news_answer_with_unprefixed_list_intro_and_markdown_source_url(chat, stream):
+    client, _, llm, retrieval = chat
+    retrieval.hits[0]["payload"]["url"] = "[https://news.test/report](https://news.test/report)"
+    llm.answer = "AI需求對營收的影響可分為：\n\n- 推升先進製程需求。[S1]"
+    response = client.post("/api/ask", json={"query": "AI需求對台積電營收的具體影響是什麼？", "stream": stream})
+    data = events(response)[-1] if stream else response.json()
+    assert response.status_code == 200
+    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+    assert data["dashboard"]["blocks"][0]["items"][0]["url"] == "https://news.test/report"
 
 
 @pytest.mark.parametrize("stream", [False, True])
