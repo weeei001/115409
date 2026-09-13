@@ -12,7 +12,6 @@ class AskRequest(BaseModel):
     query: str = Field(min_length=1, max_length=6000)
     stock_id: str | None = Field(default=None, pattern=r"^[0-9]{4,6}$")
     stream: bool = False
-    user_token: str | None = None
     answer_detail: Literal["plain", "standard", "technical"] = "plain"
     history: list[ChatTurn] = Field(default_factory=list, max_length=8)
 

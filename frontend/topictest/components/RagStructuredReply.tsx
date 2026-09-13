@@ -18,10 +18,12 @@ import {
   type RagReplySection,
   type RagSentiment,
 } from '../lib/utils/parseRagStructuredReply';
+import { MarkdownBlock, MarkdownText } from '../lib/utils/markdown';
 
 interface Props {
   content: string;
   showCursor?: boolean;
+  showSources?: boolean;
 }
 
 const SENTIMENT_CONFIG: Record<
@@ -81,7 +83,7 @@ function SentimentSection({ body }: { body: string }) {
         <span>{config.label}</span>
       </div>
       <p className="mt-2.5 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-        {detail || body}
+        <MarkdownText text={detail || body} />
       </p>
     </>
   );
@@ -94,7 +96,7 @@ function EventsSection({ body }: { body: string }) {
       {items.map((item, i) => (
         <li key={`${i}-${item.slice(0, 24)}`} className="flex gap-2.5 text-sm leading-relaxed">
           <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden />
-          <span className="text-[var(--color-text-secondary)]">{item}</span>
+          <span className="text-[var(--color-text-secondary)]"><MarkdownText text={item} /></span>
         </li>
       ))}
     </ul>
@@ -104,7 +106,7 @@ function EventsSection({ body }: { body: string }) {
 function TipsSection({ body }: { body: string }) {
   return (
     <div className="ui-alert-warning rounded-xl px-3.5 py-3">
-      <p className="text-sm leading-relaxed">{body}</p>
+      <p className="text-sm leading-relaxed"><MarkdownText text={body} /></p>
     </div>
   );
 }
@@ -122,7 +124,7 @@ function SourcesSection({ body }: { body: string }) {
   if (sources.length === 0) {
     return (
       <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-secondary)]">
-        {body}
+        <MarkdownText text={body} />
       </p>
     );
   }
@@ -174,14 +176,10 @@ function SectionBody({ section }: { section: RagReplySection }) {
       return <SourcesSection body={section.body} />;
     case 'summary':
       return (
-        <p className="text-sm leading-relaxed text-[var(--color-text-primary)]">{section.body}</p>
+        <p className="text-sm leading-relaxed text-[var(--color-text-primary)]"><MarkdownText text={section.body} /></p>
       );
     default:
-      return (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-secondary)]">
-          {section.body}
-        </p>
-      );
+      return <div className="text-sm leading-relaxed text-[var(--color-text-secondary)]"><MarkdownBlock text={section.body} /></div>;
   }
 }
 
@@ -207,13 +205,16 @@ function ReplySection({ section, isFirst }: { section: RagReplySection; isFirst:
   );
 }
 
-export const RagStructuredReply: React.FC<Props> = ({ content, showCursor }) => {
+export const RagStructuredReply: React.FC<Props> = ({ content, showCursor, showSources = true }) => {
   const parsed = parseRagStructuredReply(content);
   if (!parsed) return null;
+  const sections = showSources
+    ? parsed.sections
+    : parsed.sections.filter((section) => sectionKind(section.title) !== 'sources');
 
   return (
     <div className="space-y-0">
-      {parsed.sections.map((section, i) => (
+      {sections.map((section, i) => (
         <ReplySection key={`${section.title}-${i}`} section={section} isFirst={i === 0} />
       ))}
       {showCursor ? (

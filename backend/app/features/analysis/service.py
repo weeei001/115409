@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 from datetime import date, datetime
 from functools import lru_cache
 from time import perf_counter
@@ -15,19 +16,22 @@ from sqlalchemy.orm import Session
 
 from app.clients.llm import LlmClient
 from app.features.retrieval.service import RetrievalService
-from app.features.retrieval.common import TAIPEI
+from app.features.retrieval.common import STOCK_OPTIONS, TAIPEI
 from app.core.errors import AppError
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from . import repository, validation as gate
 from .compliance import compliance_rules_signature
 from .evidence import FIELD_GLOSSARY, TIMELINE_TRADING_DAYS, build_evidence_bundle
 from .prompts import TEXT_BRIEF_SYSTEM_PROMPT, few_shot_examples, select_examples
+from .prediction import (StrategyConfig, WeeklyPredictionOutput,
+                         build_chart_payload, compute_weighted_regression,
+                         generate_prediction, weekly_prompt)
 from .schemas import (StockBehaviorRagRequest, StockBehaviorRagResponse, StockBehaviorTextBrief,
                       StockBehaviorTextBriefRequest, StockBehaviorTextBriefResponse, TextBriefDisclaimer,
                       TextBriefVerification)
 
 
-ALLOWED_SYMBOLS = frozenset({"2317", "2330", "2408", "2454", "2615", "2881"})
+ALLOWED_SYMBOLS = frozenset(STOCK_OPTIONS)
 SIMPLIFIED_CHINESE_CHARS = frozenset(
     "门为说经开关证买卖风险机会亿万点涨势后头复资达预测币价业东个产众优体债"
     "仅从仓传伤伦伪侧侦兑兰兴冲决况净击则刚创删别剂务动劳华协单卫压历县叶号叹"
@@ -111,6 +115,109 @@ class AnalysisService:
         sources = [{**item, "kind": "guidance" if item.get("kind") == "guidance" else "general"}
                    for item in result.news_sources]
         return StockBehaviorRagResponse(news_sources=sources, fallback_mode=result.fallback_mode)
+
+    async def _trend_context(self, stock_id: str):
+        symbol = _validate_symbol(stock_id)
+        self.llm.require_enabled()
+        settings = self.settings
+        loaded = await _db_work(
+            repository.trend_inputs, self.db, symbol=symbol,
+            history_days=settings.TREND_PREDICTION_HISTORY_DAYS,
+            news_window_days=settings.TREND_PREDICTION_NEWS_WINDOW_DAYS,
+            news_limit=settings.TREND_PREDICTION_NEWS_LIMIT,
+        )
+        if loaded is None:
+            raise AppError(f"找不到股票 {symbol} 的價格資料", status_code=404)
+        latest, rows, news_titles = loaded
+        records = []
+        for row in rows:
+            close = float(row.close) if row.close is not None else 0.0
+            if math.isfinite(close) and close > 0:
+                records.append({"date": row.date.isoformat(), "close": close})
+        records = records[-settings.TREND_PREDICTION_MAX_PRICE_POINTS:]
+        if len(records) < 2:
+            raise AppError(f"股票 {symbol} 的價格資料不足", status_code=404)
+        strategy = StrategyConfig(
+            name="live_default", news_window_days=settings.TREND_PREDICTION_NEWS_WINDOW_DAYS,
+            news_limit=settings.TREND_PREDICTION_NEWS_LIMIT,
+            horizon_days=settings.TREND_PREDICTION_HORIZON_DAYS,
+            regression_lambda=settings.TREND_PREDICTION_REGRESSION_LAMBDA,
+            momentum_lambda=settings.TREND_PREDICTION_MOMENTUM_LAMBDA,
+            mean_reversion_decay=settings.TREND_PREDICTION_DECAY,
+            trading_days_per_week=settings.TREND_PREDICTION_TRADING_DAYS_PER_WEEK,
+            model_name=self.llm.model_name,
+        )
+        return symbol, latest, records, news_titles, strategy
+
+    async def generate_trend_prediction(self, stock_id: str) -> dict:
+        symbol, _, records, news_titles, strategy = await self._trend_context(stock_id)
+        prediction = await generate_prediction(
+            symbol, STOCK_OPTIONS[symbol], records, news_titles, strategy, self.llm,
+        )
+        return {
+            "stock_id": symbol,
+            "stock_name": STOCK_OPTIONS[symbol],
+            **build_chart_payload(records, prediction, strategy),
+            "ai_direction": prediction["direction"],
+            "ai_change_pct": prediction["change_pct_total"],
+            "ai_confidence": prediction["confidence"],
+            "ai_summary": prediction["summary"],
+        }
+
+    async def get_analysis_digest(self, stock_id: str, as_of_date: date, period: str) -> dict:
+        symbol = _validate_symbol(stock_id)
+        digest = await _db_work(repository.analysis_digest, self.db, symbol=symbol,
+                                 as_of_date=as_of_date, period=period)
+        if digest is None:
+            raise AppError("查無指定時間點的個股分析快照", status_code=404)
+        return digest
+
+    async def stream_trend_prediction(self, stock_id: str):
+        try:
+            symbol, _, records, news_titles, strategy = await self._trend_context(stock_id)
+            closes = [record["close"] for record in records]
+            history = build_chart_payload(
+                records,
+                {"regression_history": compute_weighted_regression(closes, strategy.regression_lambda)[0],
+                 "change_pct_total": 0.0},
+                strategy,
+            )
+            trend = (f"最近 {len(closes)} 個交易日，收盤價從 {closes[0]} 到 {closes[-1]} 元"
+                     f"（{(closes[-1] - closes[0]) / closes[0] * 100:+.2f}%）。")
+            news_desc = "\n".join(f"- {title}" for title in news_titles) if news_titles else "（無近期新聞）"
+            yield {
+                "type": "init", "stock_id": symbol, "stock_name": STOCK_OPTIONS[symbol],
+                "last_price": closes[-1], **{key: history[key] for key in (
+                    "history_dates", "regression_history", "regression_upper",
+                    "regression_lower", "future_dates", "regression_future")},
+            }
+            nodes = []
+            trading_days_per_week = strategy.trading_days_per_week
+            weeks = math.ceil(strategy.horizon_days / trading_days_per_week)
+            for week in range(1, weeks + 1):
+                prompt = weekly_prompt(
+                    STOCK_OPTIONS[symbol], symbol, closes[-1], trend, news_desc, week,
+                    nodes, trading_days_per_week,
+                )
+                try:
+                    result = await self.llm.generate(system_prompt=prompt, payload={}, schema=WeeklyPredictionOutput)
+                    weekly = WeeklyPredictionOutput.model_validate(result.payload)
+                    pct, reason = weekly.pct, weekly.reason
+                except (AppError, ValidationError, TypeError, ValueError):
+                    pct, reason = 0.0, "預測服務暫時無法使用。"
+                base_price = nodes[-1]["price"] if nodes else closes[-1]
+                node = {"week": week, "day_idx": min(week * trading_days_per_week - 1, strategy.horizon_days - 1),
+                        "price": round(base_price * (1 + pct / 100), 2), "pct": pct, "reason": reason}
+                nodes.append(node)
+                yield {"type": "node", **node}
+            target_price = nodes[-1]["price"] if nodes else closes[-1]
+            total_pct = round((target_price - closes[-1]) / closes[-1] * 100, 2)
+            yield {"type": "done", "total_pct": total_pct,
+                   "direction": "up" if total_pct > 0 else "down",
+                   "target_price": target_price, "nodes": nodes}
+        except AppError as exc:
+            detail = exc.detail.get("message", "預測服務暫時無法使用") if isinstance(exc.detail, dict) else str(exc.detail)
+            yield {"type": "error", "message": detail}
 
     async def generate_text_brief(self, req: StockBehaviorTextBriefRequest, *,
                                  refresh_sources: bool = False) -> StockBehaviorTextBriefResponse:

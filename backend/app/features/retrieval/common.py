@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -27,6 +28,17 @@ SOURCE_NAME_MAP = {
     "cnyes": "鉅亨網", "ltn": "自由時報", "moneydj": "MoneyDJ",
     "udn": "聯合新聞網", "chinatimes": "中時新聞網", "yahoo": "Yahoo 財經",
 }
+
+_MARKDOWN_URL_RE = re.compile(r"^\[[^]\r\n]*\]\(\s*(https?://[^)\s]+)\s*\)$", re.IGNORECASE)
+
+
+def normalize_source_url(value: Any) -> str:
+    """Accept legacy Markdown links but keep the canonical source URL plain."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    match = _MARKDOWN_URL_RE.fullmatch(value)
+    return match.group(1) if match else value
 
 
 def get_source_name(source_raw: str) -> str:

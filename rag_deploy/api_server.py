@@ -393,7 +393,6 @@ class AskRequest(BaseModel):
     query: str = Field(..., description="使用者問題", examples=["台積電最近表現如何"])
     stock_id: str | None = Field(None, description="手動指定股票代號（如 2330），null 則自動偵測")
     stream: bool = Field(False, description="是否使用 SSE 串流回傳")
-    user_token: str | None = Field(None, description="使用者 token（登入後取得），用於帶入個人觀點")
 
 
 class SourceChunk(BaseModel):
@@ -458,7 +457,7 @@ def _sse(type: str, **kwargs) -> str:
     return f"data: {json.dumps({'type': type, **kwargs}, ensure_ascii=False)}\n\n"
 
 
-async def _stream_ask(req):
+async def _stream_ask(req, user_token: str | None):
     """串流模式：所有步驟在 generator 內執行，每步推送 status event"""
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue, Range, OrderBy
@@ -644,7 +643,7 @@ async def _stream_ask(req):
         elif time_to:
             time_focus = f"【分析截止時間】{time_to}（請站在此時間點的角度分析，不要參考之後的資訊）"
 
-        user_context_block, personal_view_section = _build_user_context_block(req.user_token, req.query)
+        user_context_block, personal_view_section = _build_user_context_block(user_token, req.query)
         prompt_str = ANALYSIS_PROMPT_TEMPLATE.format(context=context_str, query=req.query, current_time=current_time_str, time_focus=time_focus, user_context_block=user_context_block, personal_view_section=personal_view_section)
 
         sources = []
@@ -702,7 +701,7 @@ async def _stream_ask(req):
 
 
 @app.post("/api/ask")
-async def ask(req: AskRequest):
+async def ask(req: AskRequest, x_token: str | None = Header(None, alias="x-token")):
     """
     AI 問答主端點。
 
@@ -714,7 +713,7 @@ async def ask(req: AskRequest):
         raise HTTPException(503, "向量資料庫未就緒，請先執行 build_vector_db.py")
 
     if req.stream:
-        return StreamingResponse(_stream_ask(req), media_type="text/event-stream")
+        return StreamingResponse(_stream_ask(req, x_token), media_type="text/event-stream")
 
     # 1. AI 意圖分析（一次取得：是否財經、股票、時間範圍）
     current_time_str = datetime.now().strftime("%Y年%m月%d日 %H:%M")
@@ -1032,7 +1031,7 @@ async def ask(req: AskRequest):
     elif time_to:
         time_focus = f"【分析截止時間】{time_to}（請站在此時間點的角度分析，不要參考之後的資訊）"
 
-    user_context_block, personal_view_section = _build_user_context_block(req.user_token, req.query)
+    user_context_block, personal_view_section = _build_user_context_block(x_token, req.query)
     prompt_str = ANALYSIS_PROMPT_TEMPLATE.format(
         context=context_str,
         query=req.query,

@@ -127,9 +127,11 @@ async function check() {
     { index: 'S4', title: 'Internal news', url: '/news/article-1' },
   ]);
   const markup = renderToStaticMarkup(createElement(RagStructuredReply, {
-    content: `Readable answer[S1][S2]\n\n【引用來源】\n${mixedSources}`,
+    content: `Readable **answer**[S1][S2]\n\n【關鍵事件】\n*   **營收創新高**：受惠於 AI 需求 [S1]\n\n【引用來源】\n${mixedSources}`,
   }));
-  assert.match(markup, /Readable answer\[S1\]\[S2\]/);
+  assert.match(markup, /Readable <strong>answer<\/strong>\[S1\]\[S2\]/);
+  assert.match(markup, /<strong>營收創新高<\/strong>：受惠於 AI 需求/);
+  assert.doesNotMatch(markup, /\*\*營收創新高\*\*/);
   assert.equal((markup.match(/<li>/g) ?? []).length, 4);
   for (const id of ['S1', 'S2', 'S3', 'S4']) assert.ok(markup.includes(`[${id}]`));
   assert.match(markup, /Market snapshot/);
@@ -137,6 +139,19 @@ async function check() {
   assert.match(markup, /href="https:\/\/example.com\/news"/);
   assert.match(markup, /href="\/news\/article-1"/);
   assert.doesNotMatch(markup, /href="javascript:/);
+
+  const defaultSectionMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
+    content: '【重點】\n具體影響如下：\n\n*   **營收創新高**：受惠於 AI 需求 [S1]',
+  }));
+  assert.match(defaultSectionMarkup, /<ul[^>]*><li><strong>營收創新高<\/strong>/);
+  assert.doesNotMatch(defaultSectionMarkup, /\*\s+\*\*營收創新高\*\*/);
+
+  const dashboardSourceMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
+    content: `Readable answer\n\n【引用來源】\n${mixedSources}`,
+    showSources: false,
+  }));
+  assert.match(dashboardSourceMarkup, /Readable answer/);
+  assert.doesNotMatch(dashboardSourceMarkup, /引用來源|Market snapshot|News/);
 
   const dashboard: ChatDashboard = {
     title: 'Test stock data',

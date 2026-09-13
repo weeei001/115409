@@ -28,9 +28,21 @@ class Settings(BaseSettings):
     OUTBOUND_HTTP_TRUST_ENV: bool = False
     OUTBOUND_HTTP_PROXY: str = ""
 
-    LLM_API_KEY: str = Field("", validation_alias=AliasChoices("LLM_API_KEY", "NVIDIA_API_KEY"))
-    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    LLM_MODEL: str = ""
+    # LLM_* remains the internal analysis configuration. ANALYSIS_LLM_* is the
+    # deployment-facing name; the older aliases keep existing deployments working.
+    LLM_API_KEY: str = Field("", validation_alias=AliasChoices(
+        "ANALYSIS_LLM_API_KEY", "LLM_API_KEY", "H200_API_KEY", "RAG_LLM_API_KEY", "NVIDIA_API_KEY"))
+    LLM_BASE_URL: str = Field(
+        "https://integrate.api.nvidia.com/v1",
+        validation_alias=AliasChoices(
+            "ANALYSIS_LLM_BASE_URL", "LLM_BASE_URL", "H200_BASE_URL", "RAG_LLM_BASE_URL"),
+    )
+    LLM_MODEL: str = Field("", validation_alias=AliasChoices(
+        "ANALYSIS_LLM_MODEL", "LLM_MODEL", "H200_MODEL", "RAG_LLM_MODEL", "NIM_MODEL"))
+    STREAM_LLM_API_KEY: str = ""
+    STREAM_LLM_BASE_URL: str = ""
+    STREAM_LLM_MODEL: str = ""
+    LLM_ENABLE_THINKING: bool | None = None
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 8192
     LLM_RESPONSE_FORMAT: Literal["off", "json_object", "json_schema"] = "json_object"
@@ -71,10 +83,36 @@ class Settings(BaseSettings):
     NEWS_CHUNK_MAX_CHARS: int = 800
     NEWS_CHUNK_OVERLAP_CHARS: int = 120
 
+    # Bob's trend prediction keeps its algorithm, while deployment-specific limits
+    # live in the backend environment instead of the route implementation.
+    TREND_PREDICTION_HISTORY_DAYS: int = Field(60, ge=2)
+    TREND_PREDICTION_MAX_PRICE_POINTS: int = Field(30, ge=2)
+    TREND_PREDICTION_HORIZON_DAYS: int = Field(20, ge=1)
+    TREND_PREDICTION_NEWS_WINDOW_DAYS: int = Field(30, ge=1)
+    TREND_PREDICTION_NEWS_LIMIT: int = Field(20, ge=1)
+    TREND_PREDICTION_REGRESSION_LAMBDA: float = 0.1
+    TREND_PREDICTION_MOMENTUM_LAMBDA: float = 0.2
+    TREND_PREDICTION_DECAY: float = 0.18
+    TREND_PREDICTION_TRADING_DAYS_PER_WEEK: int = Field(5, ge=1)
+
     @property
     def news_index_fingerprint(self) -> str:
         return news_index_fingerprint(self.NEWS_INDEX_VERSION, self.EMBED_MODEL,
                                       self.NEWS_CHUNK_MAX_CHARS, self.NEWS_CHUNK_OVERLAP_CHARS)
+
+    @property
+    def stream_llm_overrides(self) -> dict[str, str]:
+        """Resolve the optional stream provider, falling back to analysis LLM."""
+        stream = {
+            "LLM_API_KEY": self.STREAM_LLM_API_KEY.strip(),
+            "LLM_BASE_URL": self.STREAM_LLM_BASE_URL.strip(),
+            "LLM_MODEL": self.STREAM_LLM_MODEL.strip(),
+        }
+        return stream if all(stream.values()) else {
+            "LLM_API_KEY": self.LLM_API_KEY,
+            "LLM_BASE_URL": self.LLM_BASE_URL,
+            "LLM_MODEL": self.LLM_MODEL,
+        }
 
     APP_NAME: str = "FastAPI MySQL Application"
     APP_VERSION: str = "1.0.0"
@@ -95,6 +133,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
     SMTP_USE_TLS: bool = True
+    CORS_ALLOW_ORIGINS: str = "*"
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / ".env",

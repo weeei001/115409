@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models.daily_price import DailyPrice
@@ -17,6 +17,7 @@ from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from app.db.models.news_article import NewsArticle
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.market.repository import financial_statements, symbol_range
+from app.features.news.repository import news_list
 from app.features.retrieval.common import parse_timestamp
 from .schemas import StockBehaviorTextBriefResponse
 from .evidence import (FINANCIAL_LOOKBACK_DAYS, LONG_TERM_LOOKBACK_DAYS,
@@ -35,6 +36,50 @@ def collect_rows(db: Session, *, symbol: str, as_of: date) -> dict[str, list[Any
         "income_rows": financial_statements(db, symbol, "income", as_of - timedelta(days=FINANCIAL_LOOKBACK_DAYS), as_of, None),
         "revenue_rows": symbol_range(db, MonthlyRevenue, symbol, as_of - timedelta(days=REVENUE_LOOKBACK_DAYS), as_of),
         "valuation_rows": symbol_range(db, StockValuation, symbol, as_of - timedelta(days=VALUATION_RANK_LOOKBACK_DAYS), as_of),
+    }
+
+
+def trend_inputs(db: Session, *, symbol: str, history_days: int,
+                 news_window_days: int, news_limit: int):
+    """Load Bob's live-prediction inputs from the backend-owned MySQL tables."""
+    latest = db.scalar(select(DailyPrice.date).where(DailyPrice.symbol == symbol)
+                       .order_by(DailyPrice.date.desc()).limit(1))
+    if latest is None:
+        return None
+    prices = symbol_range(db, DailyPrice, symbol, latest - timedelta(days=history_days), latest)
+    _, articles = news_list(
+        db, page=1, page_size=news_limit, stock=symbol,
+        start_time=datetime.combine(latest - timedelta(days=news_window_days), time.min),
+        end_time=datetime.combine(latest, time.max), sort_by="pub_time", sort_order="desc",
+    )
+    titles = [article.title.strip() for article in articles if article.title and article.title.strip()]
+    return latest, prices, titles
+
+
+def analysis_digest(db: Session, *, symbol: str, as_of_date: date, period: str):
+    row = db.execute(text(
+        "SELECT stock_id, as_of_date, period, analyst_json, news_json, "
+        "technical_json, digest_json FROM analysis_digests "
+        "WHERE stock_id=:symbol AND as_of_date=:as_of_date AND period=:period LIMIT 1"
+    ), {"symbol": symbol, "as_of_date": as_of_date, "period": period}).mappings().first()
+    if row is None:
+        return None
+
+    def load_json(value, default):
+        if value is None:
+            return default
+        parsed = json.loads(value) if isinstance(value, str) else value
+        return default if parsed is None else parsed
+
+    return {
+        "stock_id": row["stock_id"],
+        "as_of_date": row["as_of_date"].isoformat() if hasattr(row["as_of_date"], "isoformat") else str(row["as_of_date"]),
+        "period": row["period"],
+        "digest": load_json(row["digest_json"], {}),
+        "technical": load_json(row["technical_json"], {}),
+        "analyst_count": len(load_json(row["analyst_json"], [])),
+        "news_count": len(load_json(row["news_json"], [])),
+        "generated_by": "prebuilt",
     }
 
 

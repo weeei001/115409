@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     install_error_handlers(app)
     app.add_middleware(
-        CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+        CORSMiddleware, allow_origins=[origin.strip() for origin in settings.CORS_ALLOW_ORIGINS.split(",") if origin.strip()], allow_credentials=True,
         allow_methods=["*"], allow_headers=["*"],
     )
 
@@ -35,7 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.features.market.router import router as market_router
     from app.features.news.router import router as news_router
     from app.features.orders.router import router as orders_router
-    from app.features.analysis.router import router as analysis_router
+    from app.features.analysis.router import prediction_router, router as analysis_router
     from app.features.chat.router import router as chat_router
     from app.features.retrieval.router import router as retrieval_router
     from app.features.simulation.router import router as simulation_router
@@ -45,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(orders_router)
     app.include_router(analysis_router)
+    app.include_router(prediction_router)
     app.include_router(chat_router)
     app.include_router(retrieval_router)
     app.include_router(simulation_router)
