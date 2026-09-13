@@ -33,6 +33,8 @@ def main(mode: str, argv: list[str] | None = None) -> int:
     if mode != "chunk-news":
         parser.add_argument("--collection", help="Explicit target Qdrant collection")
         parser.add_argument("--create-collection", action="store_true", help="Create a missing collection; never replace one")
+        parser.add_argument("--skip-stale-cleanup", action="store_true",
+                            help="Skip old revision cleanup when building a fresh collection")
     args = parser.parse_args(argv)
     if args.start and args.end and args.start > args.end:
         parser.error("--start must be on or before --end")
@@ -75,7 +77,8 @@ def main(mode: str, argv: list[str] | None = None) -> int:
                     from app.clients.vector_writer import VectorWriter
                     async with httpx.AsyncClient() as http:
                         return await vectorize_news(session_factory, VectorWriter(http, settings),
-                                                     create_collection=args.create_collection, **options)
+                                                     create_collection=args.create_collection,
+                                                     cleanup_stale=not args.skip_stale_cleanup, **options)
                 reports.append(asyncio.run(vectorize()))
                 print(json.dumps(reports[-1].as_dict(), ensure_ascii=False))
     except Exception as exc:
