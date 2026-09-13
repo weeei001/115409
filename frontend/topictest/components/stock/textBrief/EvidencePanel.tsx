@@ -263,7 +263,7 @@ export const EvidenceSheet: React.FC = () => {
       role="dialog"
       aria-modal="true"
       aria-label="證據詳情"
-      className="fixed inset-x-0 bottom-0 z-[70] max-h-[78dvh] overflow-y-auto rounded-t-2xl border-t border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-[var(--shadow-elevated)] lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-[70] max-h-[78dvh] overflow-y-auto rounded-t-2xl border-t border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 pb-[calc(1rem+var(--app-safe-area-bottom))] pt-3 shadow-[var(--shadow-elevated)] lg:hidden"
     >
       <div className="sticky top-0 -mx-4 mb-2 flex items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-card)] px-4 pb-2">
         <h3 className="inline-flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
