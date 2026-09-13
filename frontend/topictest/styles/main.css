@@ -79,10 +79,10 @@
   --color-warning-icon: #b46a2a;
 
   --app-header-height: 5.5rem;
-  --app-safe-area-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
-  --app-safe-area-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
-  --app-safe-area-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
-  --app-safe-area-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  --app-safe-area-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-safe-area-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --app-safe-area-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-area-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
 }
 
 /* ── CSS Variables: Dark (Midnight Morandi) ── */
