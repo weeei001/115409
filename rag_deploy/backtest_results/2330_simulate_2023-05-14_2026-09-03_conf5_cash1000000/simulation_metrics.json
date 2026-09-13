@@ -1,0 +1,18 @@
+{
+  "n_trading_days": 806,
+  "initial_cash": 1000000.0,
+  "final_portfolio_value": 2869062.2,
+  "total_return_pct": 186.91,
+  "annualized_return_pct": 39.03,
+  "max_drawdown_pct": 18.92,
+  "trade_count": 254,
+  "win_count": 96,
+  "win_rate_pct": 37.8,
+  "realized_pnl": 1888393.94,
+  "baseline_buy_and_hold": {
+    "shares": 2127,
+    "final_value": 5083949.06,
+    "total_return_pct": 408.39
+  },
+  "note": "決策受使用者設定的風險偏好 confidence 影響，寫進 prompt 現場調整風格，非數學縮放。新聞面為最新一週 digest 快照的 news_json（e5-v5 embedding 下架的繞過方案，週頻，本自然週內每日相同）。前視偏誤（已知，未修正）：LLM 看到的收盤序列與成交價都用 as_of 當天收盤價。"
+}

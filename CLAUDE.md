@@ -56,16 +56,16 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
         → NVIDIA NVIDIAEmbeddings（nvidia/nemotron-3-embed-1b, 2048-dim；2026-09-02 起，見下方「Embedding 模型變更」）
         → qdrant_db/（Qdrant local，collection=news_chunks，斷點續傳：以 chunk_id 判斷是否已向量化）
     → viewer.py（Streamlit）/ api_server.py（FastAPI）
-        → AI Intent Classifier（meta/llama3-70b-instruct）
+        → AI Intent Classifier（自架 H200 Gemma4-31B via langchain_openai；2026-09-07 起，見下方「LLM 供應商變更」）
             → 回傳 JSON：{is_finance, stocks[], time_from, time_to}
             → fallback: regex 股票偵測 + extract_time_filter()
         → Qdrant query_points + stock_id Filter
         → 時間加權排序（範圍內 ★ 優先，指定時間之後的資料排除）
-        → 分析 LLM（meta/llama-3.3-70b-instruct via OpenAI SDK）
+        → 分析 LLM（自架 H200 Gemma4-31B via OpenAI SDK）
         → qa_logger.py → MySQL topic_stock.qa_logs
 ```
 
-**注意**：`viewer.py` Tab2 與 `api_server.py` 的 `/api/news` 目前仍直接讀 `crawler/*.csv`，尚未改接 `news_articles` 表（見下方「新聞儲存」）。
+**注意**：`viewer.py` Tab2 目前仍直接讀 `crawler/*.csv`，尚未改接 `news_articles` 表（見下方「新聞儲存」）。`api_server.py` 的 `/api/news` 已於 2026-09-12 改讀 MySQL。
 
 ## API 服務（rag_deploy/）
 
@@ -77,7 +77,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 | GET | `/api/stocks` | 股票清單 |
 | GET | `/api/history` | 歷史 QA 紀錄 |
 | GET | `/api/history/{id}` | 單筆 QA 詳情 |
-| GET | `/api/news` | 瀏覽新聞列表 |
+| GET | `/api/news` | 瀏覽新聞列表（讀 MySQL `news_articles`，支援 `keyword` 搜尋與分頁）|
 | GET | `/api/health` | 健康檢查 |
 | GET | `/api/trend_predict` | 股價走勢 AI 預測（迴歸線 + 新聞情緒，未來 20 交易日） |
 | GET | `/api/trend_predict_stream` | 同上，SSE 逐週推送版本 |
@@ -99,9 +99,9 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 
 | 參數 | 值 |
 |------|-----|
-| Embedding | `nvidia/nemotron-3-embed-1b`（2048 維，2026-09-02 起，見下方「Embedding 模型變更」）|
-| Intent Classifier | `meta/llama3-70b-instruct`（ChatNVIDIA / LangChain）|
-| 分析 LLM | `meta/llama-3.3-70b-instruct`（OpenAI SDK 呼叫 NVIDIA NIM）|
+| Embedding | `nvidia/nemotron-3-embed-1b`（2048 維，NVIDIA NIM，2026-09-02 起，見下方「Embedding 模型變更」）|
+| Intent Classifier | 自架 H200 `Gemma4-31B`（`langchain_openai.ChatOpenAI`，2026-09-07 起，見下方「LLM 供應商變更」）|
+| 分析 LLM | 自架 H200 `Gemma4-31B`（OpenAI SDK，`H200_BASE_URL`）|
 | Qdrant collection | `news_chunks`，路徑 `./qdrant_db/` |
 | Chunk 大小 | 400 字，overlap 50 |
 | RAG 檢索數量 | limit=10 |
@@ -141,7 +141,7 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 **已遷移**：舊 `news_db_filtered/`（10,913 篇文章、11,461 個 chunk）已透過 `migrate_news_to_mysql.py` 一次性匯入，資料未遺漏。
 
 **尚未涵蓋的範圍**（本次改動刻意只涵蓋 `rag/` pipeline 與排程實際用到的腳本）：
-- `viewer.py` Tab2、`api_server.py` 的 `/api/news` 仍讀 `crawler/*.csv`，未改接 `news_articles` 表
+- `viewer.py` Tab2 仍讀 `crawler/*.csv`，未改接 `news_articles` 表（`api_server.py` 的 `/api/news` 已於 2026-09-12 改讀 MySQL，見「API 服務」一節）
 - `evaluate_news_quality.py` 仍讀舊檔案系統路徑
 - 舊 `news_storage.py`（檔案系統版）與 `news_db_filtered/` 目錄未刪除，僅停用寫入路徑，供備查/回滾
 
@@ -196,16 +196,30 @@ crawler/*.csv + OtherNewWeb/**/*.txt/csv
 - 舊向量庫已備份為 `qdrant_db_old_e5v5/`（1024 維，未刪除，供備查/回滾），`qdrant_db/` 已重建為新 2048 維 collection。
 - 新增一次性腳本 `rag/build_vector_db_2025plus.py`：僅向量化 `pub_time >= 2025-01-01` 的 chunk（12,208 筆，已於當日跑完，0 失敗），用於應急恢復服務，避免等全量 14,000+ 筆跑完才能上線。
 
-**尚未完成**：
-- **2025 年以前的歷史 chunk（約 3,157 筆）尚未補向量化**，目前 `qdrant_db/` 檢索範圍僅 2025-01-01 起。需要補齊時執行 `cd rag && python build_vector_db_headless.py`（全量掃描，靠 `existing_ids` 斷點續傳，不會重複算 2025+ 已做過的部分）。
-- CLAUDE.md 各處「關鍵設定」「架構與資料流」已同步更新為新模型/新維度；`rag_deploy/simulate_trading.py` 內仍留有舊的「e5-v5 已下架」說明文字（`fetch_pit_articles()` 附近），待該功能重新啟用語意檢索時應一併更新措辭。
+**已完成（2026-09-07 補充）**：
+- **全量向量庫已重建**：`cd rag && QDRANT_HOST=127.0.0.1 /usr/bin/python3 build_vector_db_headless.py` 跑完，`news_chunks` collection **16,923 points / 2048 維 / green**，涵蓋全部歷史（2023 起），2330 有 5,316 chunks。之前只到 2025-01 的缺口已補齊。
+- headless builder（`rag/build_vector_db_headless.py`）已修：collection 不存在時 `scroll` 吞 404 當「從頭建立」。**必須用 `QDRANT_HOST=127.0.0.1` 走 Docker 容器**（`rag-qdrant-1` mount `./qdrant_db`、開 `127.0.0.1:6333`），不可 `QdrantClient(path=)`（容器持有目錄鎖，本地 SQLite 模式會衝突／靜默丟失）。**能跑 pipeline 的直譯器只有 `/usr/bin/python3`（3.9）**——python3.11 缺 `_tkinter`（headless 借 `build_vector_db._pub_time_to_ts` 會連帶 import tkinter）、homebrew python3.14／conda base 缺 `qdrant_client`。
+
+## LLM 供應商變更（2026-09-07）
+
+背景：2026-08~09 NVIDIA NIM 上**所有 `meta/llama` chat 模型陸續 EOL**（410 Gone，`llama-3.1-8b` / `llama-3.3-70b` / `llama-3.1-70b` / nemotron-super 等全部），線上 `/api/ask`、`/api/analyze`、`/api/trend_predict`、後續按鈕生成、逐週預測全部呼叫失敗。同時原 `NVIDIA_API_KEY` 也失效（embedding 403）——已換新 key（`rag_deploy/.env` 與根目錄 `.env` 均需同步；embedding `nvidia/nemotron-3-embed-1b` 用新 key 正常）。NIM 上唯一還活的 chat 是 `google/gemma-4-31b-it`。
+
+**已完成**：
+- `api_server.py` 新增 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_EXTRA_BODY` 常數，預設讀 `.env` 的 `H200_*`（自架 H200 Gemma4-31B，OpenAI 相容端點 `https://chatapi.ntubimdbirc.tw/v1`），無 H200 設定時 fallback 到 NIM `google/gemma-4-31b-it`。
+- 5 個 `chat.completions.create` 呼叫點 + 意圖分類器（`ChatNVIDIA`→`langchain_openai.ChatOpenAI`）全部改用 `LLM_MODEL` + `LLM_EXTRA_BODY`。**自架 Gemma 必須帶 `extra_body={"chat_template_kwargs":{"enable_thinking":False}}`**，否則回應夾 `<think>` 污染 JSON（NIM 版不需要）。所有解析點加 `<think>` 去除（防禦性）。
+- `prediction_core.generate_prediction` / `call_llm_for_prediction` 加 `extra_body` 參數，並加 `from __future__ import annotations`（`/usr/bin/python3` 3.9 不支援 `dict | None`）。
+- `backtest_digest_eval.py` / `simulate_trading.py` 的 `make_nim_client` fallback 模型同步改 `google/gemma-4-31b-it`（`--provider nim` 已幾乎廢棄，`--provider h200` 是主路徑）。
+- **`rag_deploy/Dockerfile` 修正**：`COPY` 補上 `prediction_core.py` / `digest_core.py` / `digest_store.py` / `simulate_trading.py` / `backtest_digest_eval.py`（`/api/trend_predict`、`/api/analysis_digest`、`/api/simulate_trading_stream` 執行期 import，之前只 COPY `api_server.py` + `qa_logger.py`）。`requirements.txt` 加 `langchain-openai`。
+- 容器已 `docker compose build --no-cache api_server` 重建 + `up -d`，並**重啟 `nginx` + `cloudflared`**（api_server 換 IP，nginx upstream 要重啟才連得到）。線上 6 個端點（`/api/health`、`/api/ask`、`/api/trend_predict`、`/api/trend_predict_stream`、`/api/analysis_digest`、`/api/simulate_trading_stream`）+ 對外 `ragggggggg.bobhsu.dpdns.org` 全部實測 200，Gemma 回應無 `<think>` 洩漏。
+- **容器版終於追上**：先前線上停在 commit `28a4c59`（2026-07-16）落後 2 個月，本次一併帶上 DB 改名 `topic_stock`、SSE 模擬下單、`/api/analysis_digest` 等。
 
 ## 常見問題與限制
 
 - **Qdrant 鎖定**：`qdrant_db/` 同時只能一個 QdrantClient，執行 `build_vector_db.py` 前必須先停止 Streamlit
 - **重新建庫**：`rm -rf qdrant_db/` 再執行 `build_vector_db.py`
-- **NVIDIA NIM 限制**：免費方案 40 rpm。`stream=True` 部分模型會 `incomplete chunked read`，一律用 `stream=False`
+- **NVIDIA NIM 限制**：免費方案 40 rpm。`stream=True` 部分模型會 `incomplete chunked read`，一律用 `stream=False`。**NIM 上 `meta/llama` chat 模型 2026-08~09 已全部 EOL（410）**，chat 一律走自架 H200 Gemma4-31B（見「LLM 供應商變更」）；NIM 只留 embedding。
 - **DeepSeek R1**：`deepseek-r1-distill-qwen-7b/14b` 在 NVIDIA NIM 有 GPU 500 錯誤；`deepseek-r1` 已下架（410），勿使用
+- **`simulate_trading.py` 的 digest 快照繞過**：`fetch_pit_articles()`（Qdrant 語意 PIT 檢索）曾因 e5-v5 embedding 下架而打不通，改吃「最新一週 digest 快照的 news_json」（週頻、同一自然週內每日相同）。**2026-09-07 embedding 已換 nemotron-3-embed-1b、Qdrant 已全量重建，`fetch_pit_articles()` 應可恢復**，但 `simulate_trading.py` 尚未改回（`/api/simulate_trading_stream` 用快照仍可運作）。`backtest_digest_eval` / `methodology_trainer` / `backtest_learned_prompt` 都已直接用 `fetch_pit_articles`。
 - **stock_id 品質**：`OtherNewWeb/` 來源的股票代號由 regex 從標題/標籤提取，有時會落入 `tw_stock`，影響 filter 精準度
 - **無效 chunk**：部分 chunk 為廣告導流文字（如「點我訂購」），已在 `clean_text()` 部分處理但未完全清除
 - **排程器健康檢查**：若懷疑排程沒在跑，先看 `backend/crawler/.last_run` 心跳檔的時間戳，再用 `launchctl list | grep com.rag.scheduler` 確認 process 存在（注意：目前程式碼中實際上找不到寫入 `.last_run` 的邏輯，此心跳機制可能已失效，判斷排程存活仍應優先看 `scheduler.err.log` 的時間戳）

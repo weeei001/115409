@@ -344,8 +344,9 @@ def make_nim_client():
     api_key = (os.environ.get("RAG_LLM_API_KEY") or "").strip() or os.environ.get("NVIDIA_API_KEY", "")
     if not api_key:
         return None, None
-    client = OpenAI(base_url=base_url, api_key=api_key, timeout=float(os.environ.get("RAG_LLM_TIMEOUT", "180")))
-    return client, os.environ.get("RAG_LLM_MODEL", "deepseek-ai/deepseek-v4-pro-0813")
+    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key, timeout=60.0)
+    # 2026-09：meta/llama chat 模型在 NIM 全 EOL，改用還在架上的 gemma-4-31b-it
+    return client, os.environ.get("NIM_MODEL", "google/gemma-4-31b-it")
 
 
 # ---------------- 單次逐日模擬：generator，逐日 yield，供 CLI 或 API(SSE) 消費 ----------------
