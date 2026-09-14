@@ -111,13 +111,19 @@ ANALYSIS_PROMPT_TEMPLATE = (
     "4. 回答時請明確說明你引用的新聞時間範圍（例如：「以下分析基於 2023 年 Q1 的新聞資料」）。\n"
     "5. 若引用資料的時間與使用者詢問的時間不符，請主動告知差異。\n"
     "6. 若有【使用者個人觀點】，請在分析中明確評估這些觀點是否獲得新聞支持，並說明支持或反駁的依據。\n\n"
+    "【輸出格式規定】（務必嚴格遵守，前端會解析此格式）\n"
+    "A. 直接從【綜合摘要】開始，不要有任何開場白、問候語或自我介紹。\n"
+    "B. 所有條列一律使用半形減號加一個空格「- 」開頭，禁止使用 *、•、數字編號。\n"
+    "C. 全文禁止使用 Markdown 語法，包含 **粗體**、##標題、--- 分隔線。\n"
+    "D. 只能使用下列指定的【】區塊標題，不要自創其他【】標題。\n"
+    "E. 引用的新聞時間範圍請寫在【綜合摘要】的第一行，不要另立區塊。\n\n"
     "請用繁體中文回答，並以以下格式輸出：\n"
-    "【綜合摘要】\n（2-3行簡要說明；若涉及多支股票，請分別說明再整體比較）\n\n"
+    "【綜合摘要】\n（第一行先說明引用的新聞時間範圍，接著 2-3行簡要說明；若涉及多支股票，請分別說明再整體比較）\n\n"
     "【市場情緒】\n（看漲 📈 / 看跌 📉 / 中性 ➡️，並說明原因；多股時請各自標示）\n\n"
-    "【關鍵事件】\n（條列式，3-5個重點；多股時請標明各事件屬於哪支股票）\n\n"
+    "【關鍵事件】\n（條列式，每行以「- 」開頭，3-5個重點；多股時請標明各事件屬於哪支股票）\n\n"
     "{personal_view_section}"
     "【投資提示】\n（基於新聞的客觀觀察，非投資建議）\n\n"
-    "【引用來源】\n（列出本次分析引用的新聞標題與連結，格式：- 標題：連結）\n"
+    "【引用來源】\n（列出本次分析引用的新聞標題與連結，每行格式固定為：- 標題：連結）\n"
 )
 
 
@@ -132,6 +138,54 @@ def _llm_params(max_tokens: int, temperature: float, top_p: float | None = None)
     if "generativelanguage.googleapis.com" in os.environ.get("RAG_LLM_BASE_URL", ""):
         p["reasoning_effort"] = "none"
     return p
+
+
+def _normalize_reply_format(text: str) -> str:
+    """
+    將 LLM 回覆正規化為前端 parseRagStructuredReply 能解析的格式。
+
+    prompt 已要求此格式，這裡是防禦性後處理（模型不保證每次遵守）：
+    - 條列符號 *、•、· 統一成 "- "
+    - 去除 **粗體** / ## 標題 / --- 分隔線等 Markdown
+    - 丟棄第一個【】區塊之前的開場白（前端會直接忽略該段）
+    """
+    if not text:
+        return text
+
+    # 丟棄第一個【】之前的開場白（保留有意義的時間範圍說明會由 prompt 併入綜合摘要）
+    first = text.find("【")
+    if first > 0:
+        text = text[first:]
+
+    lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        # 移除 Markdown 分隔線
+        if re.fullmatch(r"[-*_]{3,}", stripped):
+            continue
+        # 條列符號統一（* • · → -），保留原縮排
+        line = re.sub(r"^(\s*)[*•·]\s+", r"\1- ", line)
+        # 移除 ## 標題語法
+        line = re.sub(r"^(\s*)#{1,6}\s+", r"\1", line)
+        lines.append(line)
+    text = "\n".join(lines)
+
+    # 移除粗體/斜體星號（保留文字內容）
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"\1", text)
+
+    # 非指定區塊標題的【】（例如新聞標題內的【量大強漲股整理】）改為全形括號，
+    # 避免前端 parseRagStructuredReply 誤判成新區塊而把內容切斷
+    _allowed = {"綜合摘要", "市場情緒", "關鍵事件", "投資提示", "引用來源", "觀點驗證"}
+    text = re.sub(
+        r"【([^】]+)】",
+        lambda m: m.group(0) if m.group(1).strip() in _allowed else f"（{m.group(1)}）",
+        text,
+    )
+
+    # 收斂三行以上空白
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _build_user_context_block(user_token: str | None, query: str) -> tuple[str, str]:
@@ -680,6 +734,7 @@ async def _stream_ask(req, user_token: str | None):
         tokens_thinking = len(think_match.group(1)) // 4 if think_match else None
 
         clean_text = re.sub(r"<think>.*?</think>\s*", "", full_text, flags=re.DOTALL).strip()
+        clean_text = _normalize_reply_format(clean_text)
         if time_fallback:
             clean_text += "\n\n⚠️ 因資料庫中找不到符合指定時間範圍的資料，以上分析僅供參考。"
 
@@ -1076,6 +1131,7 @@ async def ask(req: AskRequest, x_token: str | None = Header(None, alias="x-token
         think_match = re.search(r"<think>(.*?)</think>", full_content, re.DOTALL)
         tokens_thinking = len(think_match.group(1)) // 4 if think_match else None
         answer = re.sub(r"<think>.*?</think>\s*", "", full_content, flags=re.DOTALL).strip()
+        answer = _normalize_reply_format(answer)
         if time_fallback:
             answer += "\n\n⚠️ 因資料庫中找不到符合指定時間範圍的資料，以上分析僅供參考。"
 

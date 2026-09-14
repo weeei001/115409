@@ -1,4 +1,3 @@
-import os
 """
 共用預測核心
 ============
@@ -11,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
