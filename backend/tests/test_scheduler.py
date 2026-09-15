@@ -15,15 +15,17 @@ def test_pipeline_uses_native_jobs_in_dependency_order(tmp_path):
     assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols="2330,2317", output=tmp_path,
         run=lambda command: commands.append(command) or 0) == 0
     assert [command[0] for command in commands] == [
-        "finmind-fetch", "finmind-import", "crawl-cnyes", "crawl-ltn", "news-ingest", "cache-warmup"]
+        "finmind-fetch", "finmind-import", "crawl-cnyes", "crawl-ltn", "news-ingest", "cache-warmup", "sentiment-batch"]
     assert commands[0] == ["finmind-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
     assert commands[1] == ["finmind-import", "--input-dir", str(tmp_path), "--symbols", "2330,2317"]
     assert commands[2] == ["crawl-cnyes", "--scheduled-once"]
     assert commands[3] == ["crawl-ltn", "--scheduled-once", "--lookback-days", "30"]
-    assert commands[-1] == ["cache-warmup", "--symbols", "2330,2317"]
+    assert commands[-2] == ["cache-warmup", "--symbols", "2330,2317"]
+    assert commands[-1] == ["sentiment-batch", "--incremental", "--stocks", "2330,2317", "--limit", "100",
+                            "--max-cost-usd", "0.5", "--execute"]
 
 
-def test_incremental_sentiment_requires_explicit_execution_and_carries_budget(tmp_path):
+def test_incremental_sentiment_execution_and_preview_carry_budget(tmp_path):
     for execute in (False, True):
         commands = []
         assert scheduler.run_pipeline("sentiment", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
@@ -33,7 +35,7 @@ def test_incremental_sentiment_requires_explicit_execution_and_carries_budget(tm
                              "--max-cost-usd", "0.2", *(["--execute"] if execute else [])]]
     commands = []
     scheduler.run_pipeline("rag", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
-        sentiment_execute=True, run=lambda command: commands.append(command) or 0)
+        run=lambda command: commands.append(command) or 0)
     assert [command[0] for command in commands] == ["news-ingest", "cache-warmup", "sentiment-batch"]
 
 
@@ -49,7 +51,7 @@ def test_warmup_and_sentiment_run_independently_after_ingestion(failures, expect
         called.append(command[0])
         return failures.get(command[0], 0)
     assert scheduler.run_pipeline("rag", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
-        sentiment_execute=True, run=run) == expected
+        run=run) == expected
     assert called == commands
 
 
@@ -200,7 +202,7 @@ def test_one_shot_cli_has_stop_handlers_and_restores_them(monkeypatch, tmp_path)
         assert callable(active.get(scheduler.signal.SIGINT))
         assert callable(active.get(scheduler.signal.SIGTERM))
         assert job == "rag" and kwargs == {"start": date(2026, 7, 1), "symbols": "2330,2317", "output": tmp_path,
-            "sentiment_execute": False, "sentiment_limit": 100, "sentiment_max_cost_usd": 0.5}
+            "sentiment_execute": True, "sentiment_limit": 100, "sentiment_max_cost_usd": 0.5}
         operations.append(("run", job))
         return 9
 
@@ -209,6 +211,42 @@ def test_one_shot_cli_has_stop_handlers_and_restores_them(monkeypatch, tmp_path)
     assert scheduler.main(["--job", "rag", "--start", "2026-07-01", "--symbols", " 2330,2317,2330 ", "--out", str(tmp_path)]) == 9
     assert active == {sig: f"previous-{sig}" for sig in (scheduler.signal.SIGINT, scheduler.signal.SIGTERM)}
     assert operations[0] == ("lock", "scheduler") and operations[-1] == ("unlock", "scheduler")
+
+
+@pytest.mark.parametrize("job", ["rag", "all", "sentiment"])
+@pytest.mark.parametrize("flags,execute", [([], True), (["--sentiment-execute"], True),
+                                         (["--no-sentiment-execute"], False)])
+def test_cli_sentiment_defaults_opt_out_and_compatible_flag(job, flags, execute, monkeypatch):
+    commands = []
+    _fake_lock(monkeypatch, [])
+    monkeypatch.setattr(scheduler, "run_worker", lambda command: commands.append(command) or 0)
+    assert scheduler.main(["--job", job, "--symbols", "2330", "--sentiment-limit", "25",
+                           "--sentiment-max-cost-usd", "0.2", *flags]) == 0
+    sentiment = [command for command in commands if command[0] == "sentiment-batch"]
+    assert sentiment == ([["sentiment-batch", "--incremental", "--stocks", "2330", "--limit", "25",
+                           "--max-cost-usd", "0.2", *(["--execute"] if execute else [])]]
+                         if job == "sentiment" or execute else [])
+
+
+@pytest.mark.parametrize("flags,execute", [([], True), (["--no-sentiment-execute"], False)])
+def test_regular_scheduler_followup_honors_sentiment_setting(flags, execute, monkeypatch):
+    commands = []
+    elapsed = [0]
+    _fake_lock(monkeypatch, [])
+    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: elapsed[0])
+    monkeypatch.setattr(scheduler, "run_worker", lambda command: commands.append(command) or 0)
+
+    def advance(seconds):
+        if elapsed[0] >= 2400:
+            raise KeyboardInterrupt
+        elapsed[0] += 600
+
+    monkeypatch.setattr(scheduler.clock, "sleep", advance)
+    assert scheduler.main(flags) == 0
+    assert [command[0] for command in commands] == [
+        "crawl-cnyes", "crawl-ltn", "news-ingest", "cache-warmup", *(["sentiment-batch"] if execute else [])]
+    if execute:
+        assert "--execute" in commands[-1]
 
 
 def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):

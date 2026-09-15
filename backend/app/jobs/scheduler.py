@@ -30,7 +30,7 @@ def run_worker(command: list[str]) -> int:
 
 
 def run_pipeline(job: str, *, start: date, symbols: str, output: Path, run=None,
-                 sentiment_execute=False, sentiment_limit=100, sentiment_max_cost_usd=0.50) -> int:
+                 sentiment_execute=True, sentiment_limit=100, sentiment_max_cost_usd=0.50) -> int:
     run = run or run_worker
     commands = []
     if job in {"finmind", "all"}:
@@ -107,8 +107,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--interval-minutes", type=float, default=30)
     parser.add_argument("--rag-delay-minutes", type=float, default=10)
     parser.add_argument("--finmind-time", type=time.fromisoformat, default=time(17))
-    parser.add_argument("--sentiment-execute", action="store_true",
-                        help="Enable incremental sentiment calls after successful news ingestion")
+    parser.add_argument("--sentiment-execute", action=argparse.BooleanOptionalAction, default=True,
+                        help="Execute incremental sentiment analysis (default: enabled); disabling skips it in "
+                             "rag/all pipelines and previews --job sentiment")
     parser.add_argument("--sentiment-limit", type=int, default=100, help="Maximum article/stock pairs per run")
     parser.add_argument("--sentiment-max-cost-usd", type=float, default=0.50, help="Estimated model budget per run")
     args = parser.parse_args(argv)

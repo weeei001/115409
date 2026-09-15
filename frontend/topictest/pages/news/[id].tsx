@@ -363,9 +363,6 @@ export default function NewsDetailPage() {
                       AI 新聞情緒分析
                     </h2>
                   </div>
-                  <span className="text-[10px] font-mono text-[var(--color-text-muted)] bg-[var(--color-bg-elevated)] px-2 py-0.5 rounded border border-[var(--color-border)]">
-                    gpt-5.6-luna
-                  </span>
                 </div>
 
                 {/* 多檔股票情緒切換頁籤（若有多檔股票分析） */}
