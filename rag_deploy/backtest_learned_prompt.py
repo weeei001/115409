@@ -78,8 +78,9 @@ def run(args) -> Path:
         if client is None:
             print("❌ NIM 未設定"); sys.exit(1)
 
+    period = getattr(args, "period", "week")
     anchors = [d.isoformat() for d in anchor_dates(
-        date.fromisoformat(args.start), date.fromisoformat(args.end), "week")]
+        date.fromisoformat(args.start), date.fromisoformat(args.end), period)]
     assert min(anchors) > train_end, f"洩漏：最早錨點 {min(anchors)} 未晚於 train_end {train_end}"
     if args.limit:
         anchors = anchors[: args.limit]
@@ -205,6 +206,8 @@ def main():
     ap.add_argument("--horizon", type=int, default=20)
     ap.add_argument("--neutral-band", type=float, default=None)
     ap.add_argument("--provider", choices=["nim", "h200"], default="h200")
+    ap.add_argument("--period", choices=["week", "day"], default="week",
+                    help="錨點頻率；day 會逐交易日評估（非交易日自然被略過）")
     ap.add_argument("--window-days", type=int, default=14)
     ap.add_argument("--methodology-dir", required=True,
                     help="methodology_trainer 的輸出目錄（含 best.json / prompt_v*.txt）")

@@ -226,3 +226,145 @@ def test_case_summary_contains_realised_outcome():
     s = mt.case_summary(c)
     assert "2330_2024-03-08" in s and "+7.20%" in s and "+3.10%" in s
     assert "MA20=105" in s
+
+
+# ══════════════════════════════════════════════════════════════════
+# 日頻錨點 / 時間連續切分 / 分層抽樣 / 學習曲線（樣本量診斷實驗）
+# ══════════════════════════════════════════════════════════════════
+
+def test_anchor_dates_day_and_week_unchanged():
+    """period="day" 逐日；week/month 行為不得改變（回歸）。"""
+    from datetime import date
+    from build_analysis_digests import anchor_dates
+    s, e = date(2024, 1, 1), date(2024, 1, 31)
+    days = anchor_dates(s, e, "day")
+    assert len(days) == 31 and days[0] == s and days[-1] == e
+    # 週頻仍只取週五
+    weeks = anchor_dates(s, e, "week")
+    assert all(d.weekday() == 4 for d in weeks)
+    # 月頻仍取月底
+    months = anchor_dates(date(2024, 1, 1), date(2024, 3, 31), "month")
+    assert [d.isoformat() for d in months] == ["2024-01-31", "2024-02-29", "2024-03-31"]
+
+
+def test_training_anchors_day_only_trading_days():
+    """日頻錨點只保留真正的交易日，且 h20 實現日 <= train_end。"""
+    rows = _synthetic_rows()
+    anchors = mt.training_anchors("2330", "2024-01-01", "2024-12-31",
+                                  price_rows=rows, horizon_max=20, period="day")
+    trading = {d for d, _ in rows if d <= "2024-12-31"}
+    assert len(anchors) > 100, "日頻應遠多於週頻"
+    for a in anchors:
+        assert a in trading, f"{a} 不是交易日"
+    capped = [(d, c) for d, c in rows if d <= "2024-12-31"]
+    for a in anchors:
+        assert mt.actual_from_rows(capped, a, 20) is not None
+
+
+def test_split_batches_temporal_embargo_prevents_overlap():
+    """時間連續切分：held-out 起點與歸納池終點之間至少隔 embargo 個錨點。"""
+    cases = [_case(f"c{i}", f"2024-{(i//20)+1:02d}-{(i%20)+1:02d}", 1.0, 5.0) for i in range(100)]
+    b1, b2 = mt.split_batches_temporal(cases, heldout_frac=0.4, embargo=20)
+    assert b1 and b2
+    # 時間上完全不重疊，且中間有 embargo 缺口
+    assert max(c.as_of for c in b1) < min(c.as_of for c in b2)
+    ids1, ids2 = {c.case_id for c in b1}, {c.case_id for c in b2}
+    assert not (ids1 & ids2)
+    assert len(b2) == 40
+    assert len(b1) == 100 - 40 - 20  # 扣掉 embargo
+
+
+def test_stratified_sample_preserves_distribution():
+    """分層抽樣後 up/flat/down 比例應貼近母體（差距 < 10 個百分點）。"""
+    cases = ([_case(f"u{i}", f"2024-01-{i+1:02d}", 1.0, 8.0) for i in range(60)]
+             + [_case(f"f{i}", f"2024-02-{i+1:02d}", 0.1, 0.5) for i in range(30)]
+             + [_case(f"d{i}", f"2024-03-{i+1:02d}", -1.0, -8.0) for i in range(10)])
+    picked = mt.stratified_sample(cases, 40, horizon=20, seed=42)
+    assert len(picked) == 40
+    from collections import Counter
+    got = Counter(c.dir_h20 for c in picked)
+    for lab, want in (("up", 0.6), ("flat", 0.3), ("down", 0.1)):
+        assert abs(got[lab] / 40 - want) < 0.10, f"{lab} 比例偏離母體：{got[lab]/40} vs {want}"
+    # 結果依 as_of 排序
+    assert [c.as_of for c in picked] == sorted(c.as_of for c in picked)
+
+
+def test_stratified_sample_returns_all_when_k_exceeds():
+    cases = [_case(f"c{i}", f"2024-01-{i+1:02d}", 1.0, 5.0) for i in range(5)]
+    assert len(mt.stratified_sample(cases, 40)) == 5
+
+
+def test_parse_curve_spec():
+    assert mt.parse_curve_spec("50,150,300,all", 481) == [50, 150, 300, 481]
+    # 超過池大小者被夾到池大小、去重、升冪
+    assert mt.parse_curve_spec("300,50,all", 100) == [50, 100]
+
+
+def test_cases_jsonl_roundtrip(tmp_path):
+    """JSONL 寫入/讀回一致。"""
+    cases = [_case(f"2330_2024-01-{i+1:02d}", f"2024-01-{i+1:02d}", 1.0, 5.0) for i in range(3)]
+    p = tmp_path / "cases.jsonl"
+    from dataclasses import asdict
+    with p.open("w", encoding="utf-8") as f:
+        for c in cases:
+            f.write(json.dumps(asdict(c), ensure_ascii=False) + "\n")
+    back = mt._read_cases_jsonl(p)
+    assert [c.case_id for c in back] == [c.case_id for c in cases]
+    assert back[0].actual_h20 == 5.0 and back[0].dir_h20 == "up"
+
+
+def test_load_or_build_cases_prefers_jsonl_and_falls_back_to_json(tmp_path):
+    """新格式 cases.jsonl 優先；沒有時仍能讀舊格式 cases.json（回溯相容）。"""
+    from dataclasses import asdict
+    cases = [_case(f"2330_2024-01-{i+1:02d}", f"2024-01-{i+1:02d}", 1.0, 5.0) for i in range(3)]
+    cache_path = tmp_path / "cases.json"
+
+    # 只有舊格式
+    cache_path.write_text(json.dumps(
+        {"config": {}, "cases": [asdict(c) for c in cases]}, ensure_ascii=False))
+    got = mt.load_or_build_cases(cache_path, "2330", "2024-01-01", "2024-12-31", None, None)
+    assert len(got) == 3
+
+    # 有新格式時優先用新格式
+    with cache_path.with_suffix(".jsonl").open("w", encoding="utf-8") as f:
+        for c in cases[:2]:
+            f.write(json.dumps(asdict(c), ensure_ascii=False) + "\n")
+    got2 = mt.load_or_build_cases(cache_path, "2330", "2024-01-01", "2024-12-31", None, None)
+    assert len(got2) == 2
+
+
+def test_learning_curve_shares_identical_heldout(monkeypatch, tmp_path):
+    """學習曲線的核心不變式：各檔位必須用同一個 held-out，否則曲線不可比。"""
+    cases = [_case(f"2330_d{i:03d}", f"2024-{(i//25)+1:02d}-{(i%25)+1:02d}", 1.0, 5.0)
+             for i in range(100)]
+    seen_heldout = []
+
+    def fake_setup(args, need_llm=True):
+        return "2330", tmp_path, object(), "FakeModel", cases
+
+    def fake_run_iterations(client, model_name, args, stock_id, pool, heldout,
+                            cache, cache_path, out_dir, tag_prefix="train",
+                            n_induction_cases=40, write_versions=True):
+        seen_heldout.append(tuple(c.case_id for c in heldout))
+        versions = {0: {"methodology": {}, "prompt_template": "T"}}
+        log = [{"k": 0, "heldout_h20": 0.5, "heldout_h5": 0.5,
+                "always_up_h20_heldout": 0.6}]
+        return versions, log
+
+    monkeypatch.setattr(mt, "_setup", fake_setup)
+    monkeypatch.setattr(mt, "run_iterations", fake_run_iterations)
+    args = SimpleNamespace(stock="2330", train_start="2024-01-01", train_end="2024-12-31",
+                           provider="h200", period="day", window_days=14, rounds=1,
+                           limit=None, rebuild_cases=False, induction_cases=40,
+                           curve="10,20,all", out_dir=str(tmp_path))
+    mt.run_learning_curve(args)
+
+    assert len(seen_heldout) == 3, "應跑三個檔位"
+    assert len(set(seen_heldout)) == 1, "各檔位的 held-out 必須完全相同"
+
+    curve = json.loads((tmp_path / "learning_curve.json").read_text())
+    assert [p["n_train"] for p in curve["points"]] == [10, 20, curve["pool_n"]]
+    assert curve["held_out_n"] == len(seen_heldout[0])
+    assert curve["embargo"] == mt.HORIZON_MAX
+    # delta_vs_always_up 應被算出來（0.5 - 0.6）
+    assert curve["points"][0]["delta_vs_always_up"] == pytest.approx(-0.1)

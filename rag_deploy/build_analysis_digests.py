@@ -47,7 +47,17 @@ def _month_ends(start: date, end: date):
         y, m = ny, nm
 
 
+def _every_day(start: date, end: date):
+    # 逐日推進；是否為交易日交由 actual_from_rows 回 None 自然過濾
+    d = start
+    while d <= end:
+        yield d
+        d += timedelta(days=1)
+
+
 def anchor_dates(start: date, end: date, period: str):
+    if period == "day":
+        return list(_every_day(start, end))
     return list(_fridays(start, end) if period == "week" else _month_ends(start, end))
 
 
