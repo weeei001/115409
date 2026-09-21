@@ -150,8 +150,8 @@ def test_answer_detail_reaches_answer_model_without_changing_retrieval(chat, str
     assert call_kind == ("stream" if stream else "text")
     assert instruction in call["system_prompt"]
     assert f"Default answer detail: {detail or 'plain'}" in call["system_prompt"]
-    assert "takes precedence" in call["system_prompt"]
-    assert "do not invent KD/RSI/MACD values" in call["system_prompt"]
+    assert "優先於預設值" in call["system_prompt"]
+    assert "不得捏造 KD/RSI/MACD 數值" in call["system_prompt"]
     assert query in call["prompt"] and retrieval.calls[-1]["query"] == query
 
 
