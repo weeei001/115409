@@ -7,7 +7,7 @@ import sys
 COMMANDS = (
     "crawl-cnyes", "crawl-ltn", "finmind-fetch", "finmind-import", "sentiment-batch",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
-    "cache-warmup", "technical-recompute",
+    "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
 )
 
 
@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "methodology-train":
+        from app.jobs.research.methodology_trainer import main as train
+        return train(argv)
+    if job == "backtest-learned":
+        from app.jobs.research.backtest_learned_prompt import main as backtest
+        return backtest(argv)
     if job in {"crawl-cnyes", "crawl-ltn"}:
         from app.jobs.crawlers import crawler_main
         return crawler_main(job.removeprefix("crawl-"), argv)
