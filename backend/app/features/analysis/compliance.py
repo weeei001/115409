@@ -38,6 +38,10 @@ _HARD_RULES = (
     ),
 )
 
+_TARGET_PRICE_SOURCE_NOTE = re.compile(
+    r"(?:部分)?新聞(?:為|僅為|是)媒體轉述(?:之|的)?目標價[，,](?:並)?非(?:正式)?公司公告[。]?"
+)
+
 _FORWARD_SOFT_MARKERS = (
     r"未來|後續|接下來|有機會|預料|看好|推估|評估|下一階段|中期內|短線內|波段內"
 )
@@ -57,6 +61,7 @@ _SOFT_RULES = (
 )
 
 def scan_compliance_hits(text: str) -> list[ComplianceHit]:
+    text = _TARGET_PRICE_SOURCE_NOTE.sub("", text)
     hits: list[ComplianceHit] = []
     hard_spans: list[tuple[int, int]] = []
     for rule_name, pattern in _HARD_RULES:
@@ -78,7 +83,7 @@ def scan_compliance(text: str) -> list[str]:
     return [f"{hit.rule}: {hit.snippet}" for hit in scan_compliance_hits(text)]
 
 def compliance_rules_signature() -> list[str]:
-    return [
+    return [f"source-note:{_TARGET_PRICE_SOURCE_NOTE.pattern}"] + [
         f"{severity}:{name}:{pattern.pattern}"
         for severity, rules in (("hard", _HARD_RULES), ("soft", _SOFT_RULES))
         for name, pattern in rules

@@ -331,3 +331,51 @@ def test_snapshot_failure_rolls_back_transaction(db_session, settings, monkeypat
     with pytest.raises(RuntimeError, match="simulated disk error"):
         run_service(db_session, settings)
     assert calls == ["rollback"] and not db_session.new
+
+
+def test_blocked_answer_is_regenerated_once_with_same_evidence(db_session, settings):
+    seed_prices(db_session)
+
+    class RecoveringLlm(FakeLlm):
+        async def generate(self, **kwargs):
+            output = await super().generate(**kwargs)
+            if self.calls == 1:
+                self.first_packet = deepcopy(kwargs["payload"])
+                output.payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
+            else:
+                assert kwargs["payload"] == self.first_packet
+                assert "上次輸出未通過檢查" in kwargs["system_prompt"]
+            return output
+
+    llm = RecoveringLlm()
+    result = run_service(db_session, settings, llm)
+    assert result.brief is not None and llm.calls == 2
+    row = db_session.get(LlmResponse, result.snapshot_id)
+    assert not row.is_fallback
+    assert json.loads(row.normalized_json)["model_metadata"]["validation_attempts"] == 2
+
+
+def test_repeated_invalid_output_stops_after_two_attempts(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["headline"] = "建議買進，目標價 1500 元"
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "unavailable" and llm.calls == 2
+
+
+def test_invalid_forward_view_is_disclosed_after_retry_without_losing_history(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "limited" and llm.calls == 2
+    assert result.brief.key_days
+    assert result.brief.forward_views.short_1_5.stance == "uncertain"
+    assert "2400" not in result.brief.model_dump_json()
+    assert any("部分期間展望" in item for item in result.limitations)
+    row = db_session.get(LlmResponse, result.snapshot_id)
+    metadata = json.loads(row.normalized_json)["model_metadata"]
+    assert metadata["verification"]["compliance_rules"]
+    assert not row.is_fallback

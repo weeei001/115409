@@ -11,10 +11,10 @@ from .compliance import ComplianceHit, scan_compliance_hits
 from .evidence import EvidenceBundle
 from datetime import date
 
-MAX_LLM_NEWS_SOURCES = 50
+MAX_LLM_NEWS_SOURCES = 20
 ANALYSIS_LANGUAGE = "zh-TW"
 RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60
-RAG_DEFAULT_MAX_NEWS_EVENTS = 50
+RAG_DEFAULT_MAX_NEWS_EVENTS = 20
 NEWS_SUMMARY_CHARS: int | None = None
 TEXT_BRIEF_SCHEMA_VERSION = "text-first-v2"
 TEXT_BRIEF_TARGET_COUNTS = {"key_days": 3, "watch_points": 2}
@@ -233,10 +233,11 @@ def _filter_text_brief_evidence_ids(
             if key == "evidence_ids" and isinstance(item, list):
                 kept = []
                 for evidence_id in item:
-                    if evidence_id in allowed_ids:
-                        kept.append(evidence_id)
+                    if isinstance(evidence_id, str) and evidence_id in allowed_ids:
+                        if evidence_id not in kept:
+                            kept.append(evidence_id)
                     else:
-                        filtered_ids.append(evidence_id)
+                        filtered_ids.append(str(evidence_id))
                 value[key] = kept
             else:
                 _filter_text_brief_evidence_ids(
@@ -305,7 +306,7 @@ def _scan_text_brief_compliance(value: Any) -> list[ComplianceHit]:
     return hits + _scan_forward_condition_prices(value)
 
 def _apply_text_brief_compliance_gate(
-    brief_payload: dict[str, Any],
+    brief_payload: dict[str, Any], *, allow_partial_forward_views: bool = False,
 ) -> tuple[list[str], list[str], list[str], bool]:
     removed_ids: list[str] = []
     hard_violations: list[str] = []
@@ -327,6 +328,20 @@ def _apply_text_brief_compliance_gate(
             else:
                 kept.append(item)
         brief_payload[section] = kept
+
+    if allow_partial_forward_views:
+        for horizon, view in brief_payload["forward_views"].items():
+            hits = _scan_text_brief_compliance(view)
+            hard = [hit for hit in hits if hit.severity == "hard"]
+            if hard:
+                hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
+                removed_ids.append(f"forward_views.{horizon}")
+                brief_payload["forward_views"][horizon] = {
+                    "stance": "uncertain",
+                    "reason": "此期間展望未通過內容檢查，暫不提供方向判讀。",
+                    "invalidation": "缺少通過檢查的失效條件。",
+                    "evidence_ids": [],
+                }
 
     core_payload = {
         "headline": brief_payload["headline"],
@@ -444,4 +459,3 @@ def _undercount_sections(brief_payload: dict[str, Any]) -> list[str]:
         for section, minimum in TEXT_BRIEF_TARGET_COUNTS.items()
         if len(brief_payload.get(section) or []) < minimum
     ]
-

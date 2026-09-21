@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, List, Literal, Optional
+from typing import Annotated, Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -115,12 +115,15 @@ class StockBehaviorTextBriefRequest(BaseModel):
         }
     )
 
+EvidenceId = Annotated[str, Field(max_length=16, pattern=r"^(d|ch|lt|fd|nw)_[0-9]+$")]
+
+
 class TextBriefClaim(BaseModel):
     id: str
     claim_type: Literal["observation", "inference", "conflict", "limitation"]
     text: str = Field(max_length=160)
     direction: ClaimDirection
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
     importance: Literal["high", "medium"] = "medium"
 
 class TextBriefKeyDay(BaseModel):
@@ -129,7 +132,7 @@ class TextBriefKeyDay(BaseModel):
     date: str
     ref: str
     what: str = Field(max_length=200)
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
     move_pct: Optional[float] = None
     volume_ratio: Optional[float] = None
 
@@ -138,20 +141,20 @@ class TextBriefRisk(BaseModel):
     risk_type: str = Field(max_length=20)
     description: str = Field(max_length=160)
     trigger: str = Field(max_length=120)
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
 
 class TextBriefWatchPoint(BaseModel):
     id: str
     what_to_watch: str = Field(max_length=80)
     why_it_matters: str = Field(max_length=160)
     when: str = Field(max_length=40)
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
 
 class TextBriefForwardView(BaseModel):
     stance: StanceLevel
     reason: str = Field(max_length=160)
     invalidation: str = Field(max_length=120)
-    evidence_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
 
 class TextBriefForwardViews(BaseModel):
     short_1_5: TextBriefForwardView
