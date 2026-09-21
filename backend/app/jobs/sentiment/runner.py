@@ -12,8 +12,9 @@ from app.clients.llm import LlmClient
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_sentiment import NewsSentiment
+from app.features.news.prompts import SYSTEM_PROMPT
 from app.features.news.sentiment import (
-    MAX_INPUT_TOKENS, PROMPT_VERSION, SYSTEM_PROMPT, SentimentOutput, TARGET_STOCKS, active_config_hash,
+    MAX_INPUT_TOKENS, PROMPT_VERSION, SentimentOutput, TARGET_STOCKS, active_config_hash,
     article_input_hash,
 )
 from .rules import TAIPEI_TZ, clean_text, estimate_token_count, extract_candidate_stocks, parse_news_pub_time, validate_sentiment_payload
