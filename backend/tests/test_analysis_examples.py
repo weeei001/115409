@@ -43,10 +43,15 @@ def test_generation_uses_one_bounded_example_and_bounded_citations():
     assert schema["maxItems"] == 6 and schema["items"]["maxLength"] == 16
 
 
-def test_source_disclaimer_does_not_hide_price_targets_or_trade_instructions():
+@pytest.mark.parametrize("note", [
+    "部分新聞為媒體轉述之目標價，非正式公司公告。",
+    "部分新聞提及之目標價為分析師預測，非確定事實。",
+])
+def test_source_disclaimer_does_not_hide_price_targets_or_trade_instructions(note):
     from app.features.analysis.compliance import scan_compliance_hits
 
-    note = "部分新聞為媒體轉述之目標價，非正式公司公告。"
     assert not scan_compliance_hits(note)
-    for text in (note + "目標價 1500 元。", note + "建議買進。", "媒體目標價 1500 元，非公司公告。"):
+    for text in (note + "目標價 1500 元。", note + "建議買進。",
+                 "媒體目標價 1500 元，非公司公告。",
+                 note.replace("目標價", "目標價 1500 元")):
         assert any(hit.severity == "hard" for hit in scan_compliance_hits(text))

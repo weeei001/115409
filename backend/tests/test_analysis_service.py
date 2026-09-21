@@ -249,6 +249,18 @@ def test_config_hash_is_order_independent_but_tracks_generation_settings(setting
         "LLM_API_KEY": "private-llm-key", "EMBED_API_KEY": "private-embedding-key"}), "model-a")
 
 
+def test_source_disclaimer_in_limitations_keeps_analysis_available(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    note = "部分新聞提及之目標價為分析師預測，非確定事實。"
+    payload["limitations"] = [note]
+    response = run_service(db_session, settings, FakeLlm(payload))
+    assert response.status in {"verified", "limited"}
+    assert note in response.brief.limitations
+    row = db_session.get(LlmResponse, response.snapshot_id)
+    assert not row.is_fallback and repository.saved_brief(row) is not None
+
+
 def test_compliance_blocks_core_and_never_publishes_blocked_output(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
