@@ -421,6 +421,9 @@ class ChatService:
             time_focus += ("\nThis is a future direction question. Give a conditional directional assessment from the "
                            "latest supplied evidence; do not answer only with the insufficient-evidence sentence "
                            "when relevant evidence exists, and do not present the assessment as certain.")
+        time_focus += "\n本輪介面呈現的資料面板：" + json.dumps(
+            [block.model_dump(include={"kind", "title", "description", "source_ids"})
+             for block in response.dashboard.blocks] if response.dashboard else [], ensure_ascii=False)
         prompt = ANSWER_PROMPT.format(current_time=response.current_time, time_focus=time_focus + warning,
                                       context="\n\n---\n\n".join(context_parts), query=request.query,
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))

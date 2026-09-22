@@ -60,6 +60,8 @@ ANSWER_SYSTEM_PROMPT = (
     "不得用無關來源填補缺口。"
     "不得輸出網址、Markdown 連結或參考資料清單；伺服器會附上已驗證的來源與頁面按鈕。"
     "介面也會直接以提供的資料呈現圖表、指標與表格；請解釋其意義，不要逐格重複。"
+    "依本輪資料面板清單說明實際呈現的圖表或表格；已有相關面板時，不得聲稱無法提供圖表或要求另行查看。"
+    "面板不存在或描述標示缺值時，據實說明；不得把模型不產生繪圖程式碼誤述為介面不能顯示圖表。"
     "不得產生 HTML、腳本或介面程式碼。請使用短段落或條列，不要使用 Markdown 表格。"
     "說明資料實際日期與涵蓋期間。已儲存的每日股價不是即時報價。"
     "指定區間以外的新聞只能作為背景。歷史分析必須排除截止時間之後的資訊。"
@@ -83,16 +85,15 @@ ANSWER_SYSTEM_PROMPT = (
 )
 
 ANSWER_DETAIL_INSTRUCTIONS = {
-    "plain": "Use everyday language for a beginner. Lead with the main takeaway, then up to three short "
-             "points when useful. Avoid unexplained acronyms; explain necessary or requested technical "
-             "terms when first used. An analogy may explain a concept, but must not imply a stock forecast.",
-    "standard": "Provide a concise, balanced analysis: conclusion, key evidence, and material limitations. "
-                "Use financial terms when useful and briefly explain unfamiliar ones. Explain how the "
-                "evidence supports the conclusion without repeating it.",
-    "technical": "Explain the relevant indicators, dated evidence, interpretation, conflicting signals, "
-                 "and limitations in detail. Discuss KD, RSI, MACD or price-volume relationships only "
-                 "when requested or supported and relevant; do not force a checklist of every indicator. "
-                 "Distinguish observed values from interpretation and explain terms as needed.",
+    "plain": "使用適合初學者的日常用語。先說明重點，再視需要列出最多三個簡短要點。"
+             "避免使用未解釋的縮寫；必要或使用者指定的專業術語，應在首次出現時解釋。"
+             "可以用比喻解釋概念，但不得藉此暗示股價預測。",
+    "standard": "提供精簡且平衡的分析，包含結論、關鍵證據與重大限制。"
+                "視需要使用金融術語，並簡要解釋不熟悉的用語。"
+                "說明證據如何支持結論，避免重複陳述證據。",
+    "technical": "詳細說明相關指標、附日期的證據、解讀、互相矛盾的訊號與限制。"
+                 "僅在使用者要求，或有證據支持且與問題相關時，討論 KD、RSI、MACD 或價量關係；"
+                 "不要強行逐一列出所有指標。區分觀測數值與解讀，並視需要解釋術語。",
 }
 
 
@@ -101,23 +102,23 @@ def answer_system_prompt(answer_detail: str) -> str:
             + ANSWER_DETAIL_INSTRUCTIONS[answer_detail])
 
 
-ANSWER_PROMPT = """Current Taipei time: {current_time}
+ANSWER_PROMPT = """目前台北時間：{current_time}
 {time_focus}
 
-Supplied sources (only these citation IDs are valid for this turn):
+提供的來源（本輪僅可使用這些引用編號）：
 {context}
 
-Conversation history (context only, not evidence):
+歷史對話（僅供理解上下文，不得作為證據）：
 {history}
 
-Resolved topic: {resolved_query}
-Latest user request: {query}
+釐清後的主題：{resolved_query}
+使用者最新請求：{query}
 
-Start with a direct answer to the latest request, then relevant evidence and limitations.
-Do not require a four-section report or a fixed number of events. Compare every requested company.
-Every paragraph and bullet, including the conclusion and limitations, MUST end with supporting
-source IDs exactly like [S1] or [S1][S2]. Use only supplied IDs; do not output standalone headings.
-Check every paragraph before returning.
+先直接回答最新請求，再說明相關證據與限制。
+不必採用四段式報告或列出固定數量的事件。比較使用者指定的每家公司。
+每個段落與條列項目（包含結論與限制）的結尾，都必須附上支持該內容的來源編號，
+格式須為 [S1] 或 [S1][S2]。僅可使用提供的編號；不得輸出獨立標題。
+回覆前請逐段檢查。
 """
 
 NON_FINANCE_ANSWER = (

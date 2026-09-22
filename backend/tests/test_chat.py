@@ -12,7 +12,7 @@ from app.clients.llm import LlmResult
 from app.core.errors import ServiceUnavailable, UpstreamTimeout, install_error_handlers
 from app.features.chat import service as chat_module
 from app.features.chat.router import get_service, router
-from app.features.chat.schemas import AskRequest
+from app.features.chat.schemas import AskRequest, SourceChunk
 from app.features.chat.service import ChatService, extract_time_filter
 
 
@@ -131,10 +131,10 @@ def test_frontend_stream_consumes_text_and_receives_fallback_warning(chat):
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize(("detail", "instruction"), [
-    (None, "Use everyday language for a beginner"),
-    ("plain", "Use everyday language for a beginner"),
-    ("standard", "Provide a concise, balanced analysis"),
-    ("technical", "Explain the relevant indicators"),
+    (None, "使用適合初學者的日常用語"),
+    ("plain", "使用適合初學者的日常用語"),
+    ("standard", "提供精簡且平衡的分析"),
+    ("technical", "詳細說明相關指標"),
 ])
 def test_answer_detail_reaches_answer_model_without_changing_retrieval(chat, stream, detail, instruction):
     client, _, llm, retrieval = chat
@@ -457,3 +457,31 @@ def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream):
                 assert response.answer == ANSWER and response.tokens["output"] == 30
     asyncio.run(run())
     assert requested_models == ["test-shared-model", "test-shared-model"]
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("with_chart", [False, True])
+def test_answer_model_receives_actual_dashboard_for_both_transports(chat, monkeypatch, stream, with_chart):
+    client, service, llm, _ = chat
+    llm.intent = {"is_finance": True, "stocks": ["2330"], "data_needs": ["market"],
+                  "display_focus": ["technical"]}
+    payload = {"columns": ["date", "kd_k9", "kd_d9"],
+               "rows": [["2026-09-10", 40, 50], ["2026-09-11", 55, 50]]}
+    monkeypatch.setattr(service, "_market_sources", lambda *args: [SourceChunk(
+        title="Technical data", category="market_technical" if with_chart else "knowledge", stock_id="2330",
+        source="system_market", source_name="Database", pub_time="2026-09-11", url="", score=1,
+        content=json.dumps(payload if with_chart else {}))])
+    response = client.post("/api/ask", json={"query": "台積電 KD", "stream": stream})
+    data = events(response)[-1] if stream else response.json()
+    assert response.status_code == 200 and data.get("answer")
+    call = llm.calls[-1][1]
+    panel_line = next(line for line in call["prompt"].splitlines()
+                      if line.startswith("本輪介面呈現的資料面板："))
+    panels = json.loads(panel_line.split("：", 1)[1])
+    expected = [{key: block[key] for key in ("kind", "title", "description", "source_ids")}
+                for block in (data["dashboard"]["blocks"] if data["dashboard"] else [])]
+    assert panels == expected
+    assert bool(panels) == with_chart
+    if with_chart:
+        assert panels[0]["kind"] == "chart" and panels[0]["title"] == "2330 KD"
+        assert panels[0]["source_ids"] == ["S1"]
+    assert "已有相關面板時，不得聲稱無法提供圖表" in call["system_prompt"]
