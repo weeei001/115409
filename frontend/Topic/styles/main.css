@@ -1,0 +1,362 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ═══════════════════════════════════════════════
+   Design tokens — Midnight Morandi × Beacon Gold
+   圖表用的解析後色值在 lib/charts/theme.ts，改這裡要一起改那裡。
+   ═══════════════════════════════════════════════ */
+
+:root {
+  /* shadcn/ui 對應 */
+  --background: #f8f9fa;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #ffa95a;
+  --primary-foreground: #1a1a1a;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #1a1a1a;
+  --muted: #f1f3f5;
+  --muted-foreground: #6b7280;
+  --accent: rgba(255, 169, 90, 0.12);
+  --accent-foreground: #a9521c;
+  --destructive: #a3336b;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: rgba(0, 0, 0, 0.1);
+  --ring: #ffa95a;
+  --radius: 0.75rem;
+  --chart-1: #ffa95a;
+  --chart-2: #7b9eb8;
+  --chart-3: #9b8ec4;
+  --chart-4: #a8821f;
+  --chart-5: #9a7550;
+
+  /* 文字與邊框 */
+  --subtle: #4b5563;
+  --border-strong: rgba(224, 120, 48, 0.35);
+
+  /* 品牌 */
+  --brand: #ffa95a;
+  --brand-light: #ffd6b8;
+  --brand-deep: #e07830;
+  --brand-text: #a9521c;
+  --on-brand: #1a1a1a;
+  --brand-gradient: linear-gradient(135deg, #f0a050, #ffa95a);
+  --brand-text-gradient: linear-gradient(135deg, #e07830, #ffa95a);
+
+  /* 台股漲跌：只用在價格方向、買賣超與多空立場 */
+  --up: #d06565;
+  --up-muted: rgba(208, 101, 101, 0.12);
+  --up-emphasis: #9f3a3a;
+  --down: #649a7e;
+  --down-muted: rgba(100, 154, 126, 0.12);
+  --down-emphasis: #3d6b56;
+
+  /* 狀態：刻意避開漲跌色 */
+  --danger: #a3336b;
+  --danger-muted: rgba(163, 51, 107, 0.08);
+  --danger-border: rgba(163, 51, 107, 0.3);
+  --success: #2f6a9e;
+  --success-muted: rgba(47, 106, 158, 0.08);
+  --success-border: rgba(47, 106, 158, 0.3);
+  --warning: #8a4f1d;
+  --warning-muted: rgba(217, 138, 64, 0.1);
+  --warning-border: rgba(217, 138, 64, 0.3);
+  --warning-icon: #b46a2a;
+
+  /* 質感 */
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-blur: 12px;
+  --glow-brand: rgba(255, 169, 90, 0.25);
+  --glow-brand-strong: rgba(255, 169, 90, 0.45);
+  --elev-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --elev-card-hover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --elev-raised: 0 8px 32px rgba(0, 0, 0, 0.08);
+
+  /* 版面 */
+  --app-header-height: 5.5rem;
+  --app-safe-area-top: env(safe-area-inset-top, 0px);
+  --app-safe-area-right: env(safe-area-inset-right, 0px);
+  --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+.dark {
+  --background: #0a0a0b;
+  --foreground: #e8e6e3;
+  --card: #161618;
+  --card-foreground: #e8e6e3;
+  --popover: #161618;
+  --popover-foreground: #e8e6e3;
+  --primary: #ffa95a;
+  --primary-foreground: #1a1a1a;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #e8e6e3;
+  --muted: #1c1c1f;
+  --muted-foreground: #9a9896;
+  --accent: rgba(255, 169, 90, 0.12);
+  --accent-foreground: #ffa95a;
+  --destructive: #e88bb5;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: #ffa95a;
+  --chart-4: #d9b44a;
+  --chart-5: #b8946a;
+
+  --subtle: #a8a6a3;
+  --border-strong: rgba(255, 169, 90, 0.25);
+
+  --brand-text: #ffa95a;
+  --brand-gradient: linear-gradient(135deg, #ffa95a, #ffd6b8);
+  --brand-text-gradient: linear-gradient(135deg, #ffa95a, #ffd6b8);
+
+  --up-emphasis: #e8a8a8;
+  --down-emphasis: #8fb89a;
+
+  --danger: #e88bb5;
+  --danger-muted: rgba(232, 139, 181, 0.12);
+  --danger-border: rgba(232, 139, 181, 0.35);
+  --success: #86b6e0;
+  --success-muted: rgba(134, 182, 224, 0.12);
+  --success-border: rgba(134, 182, 224, 0.35);
+  --warning: #e8b884;
+  --warning-muted: rgba(217, 138, 64, 0.14);
+  --warning-border: rgba(217, 138, 64, 0.35);
+  --warning-icon: #f2b572;
+
+  --glass-bg: rgba(22, 22, 24, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: 20px;
+  --glow-brand: rgba(255, 169, 90, 0.18);
+  --glow-brand-strong: rgba(255, 169, 90, 0.35);
+  --elev-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --elev-card-hover: 0 8px 32px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --elev-raised: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-subtle: var(--subtle);
+  --color-border-strong: var(--border-strong);
+  --color-brand: var(--brand);
+  --color-brand-light: var(--brand-light);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-text: var(--brand-text);
+  --color-on-brand: var(--on-brand);
+  --color-up: var(--up);
+  --color-up-muted: var(--up-muted);
+  --color-up-emphasis: var(--up-emphasis);
+  --color-down: var(--down);
+  --color-down-muted: var(--down-muted);
+  --color-down-emphasis: var(--down-emphasis);
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --color-danger-border: var(--danger-border);
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-warning-border: var(--warning-border);
+  --color-warning-icon: var(--warning-icon);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  --shadow-card: var(--elev-card);
+  --shadow-card-hover: var(--elev-card-hover);
+  --shadow-raised: var(--elev-raised);
+
+  --font-sans: "Noto Sans TC", "PingFang TC", "Inter", system-ui, sans-serif;
+  --font-mono: "Fira Code", ui-monospace, monospace;
+}
+
+/* ═══════════════════════════
+   Base
+   ═══════════════════════════ */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  #__next {
+    min-height: 100dvh;
+  }
+  button:not(:disabled),
+  [role="button"],
+  a[href],
+  summary,
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    cursor: pointer;
+  }
+  :where(button, a[href], summary, [role="button"], [role="tab"]):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  input[type="date"],
+  input[type="datetime-local"] {
+    color-scheme: light;
+  }
+  .dark input[type="date"],
+  .dark input[type="datetime-local"] {
+    color-scheme: dark;
+  }
+}
+
+/* ═══════════════════════════
+   Utilities
+   ═══════════════════════════ */
+
+@utility text-brand-gradient {
+  background: var(--brand-text-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@utility bg-brand-gradient {
+  background: var(--brand-gradient);
+}
+
+@utility glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+}
+
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* skip link：一般隱藏，鍵盤聚焦時浮出 */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 1rem;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--elev-raised);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* 主題切換時的顏色過渡（G-02） */
+.theme-transitioning * {
+  transition:
+    background-color 0.4s ease,
+    border-color 0.4s ease,
+    box-shadow 0.4s ease,
+    color 0.3s ease !important;
+}
+
+/* ═══════════════════════════
+   Keyframes
+   ═══════════════════════════ */
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px var(--glow-brand), 0 0 20px transparent;
+  }
+  50% {
+    box-shadow: 0 0 16px var(--glow-brand-strong), 0 0 40px var(--glow-brand);
+  }
+}
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes thinking-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+@keyframes cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.anim-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* reduced motion：壓縮動畫，保留 hover 與主題切換的 transition */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  .anim-glow-pulse {
+    animation: none !important;
+  }
+}
