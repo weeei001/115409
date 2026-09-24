@@ -20,6 +20,11 @@ class DailyPriceBase(BaseModel):
 class DailyPriceResponse(DailyPriceBase):
     model_config = ConfigDict(from_attributes=True)
 
+class StockInfoResponse(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=10)
+    name: str = Field(..., min_length=1, max_length=64)
+    industry: Optional[str] = None
+
 class SymbolDateRangeResponseBase(BaseModel):
     symbol: str
     start_date: Date
@@ -207,30 +212,6 @@ class StockValuationResponse(_OrmModel):
     per: Optional[Decimal] = None
     pbr: Optional[Decimal] = None
 
-class StockDividendResponse(_OrmModel):
-    date: Date
-    symbol: str
-    year: str
-    stock_earnings_distribution: Optional[Decimal] = None
-    stock_statutory_surplus: Optional[Decimal] = None
-    stock_ex_dividend_trading_date: Optional[Date] = None
-    total_employee_stock_dividend: Optional[Decimal] = None
-    total_employee_stock_dividend_amount: Optional[Decimal] = None
-    ratio_of_employee_stock_dividend_of_total: Optional[Decimal] = None
-    ratio_of_employee_stock_dividend: Optional[Decimal] = None
-    cash_earnings_distribution: Optional[Decimal] = None
-    cash_statutory_surplus: Optional[Decimal] = None
-    cash_ex_dividend_trading_date: Optional[Date] = None
-    cash_dividend_payment_date: Optional[Date] = None
-    total_employee_cash_dividend: Optional[Decimal] = None
-    total_number_of_cash_capital_increase: Optional[Decimal] = None
-    cash_increase_subscription_rate: Optional[Decimal] = None
-    cash_increase_subscription_price: Optional[Decimal] = None
-    remuneration_of_directors_and_supervisors: Optional[Decimal] = None
-    participate_distribution_of_total_shares: Optional[Decimal] = None
-    announcement_date: Optional[Date] = None
-    announcement_time: Optional[str] = None
-
 class DividendResultResponse(_OrmModel):
     date: Date
     symbol: str
@@ -286,7 +267,6 @@ class HoldingShareLevelResponse(_OrmModel):
 FinancialStatementListResponse = ListResponse[FinancialStatementRowResponse]
 MonthlyRevenueListResponse = ListResponse[MonthlyRevenueResponse]
 StockValuationListResponse = ListResponse[StockValuationResponse]
-StockDividendListResponse = ListResponse[StockDividendResponse]
 DividendResultListResponse = ListResponse[DividendResultResponse]
 MarginTradeListResponse = ListResponse[MarginTradeResponse]
 ForeignShareholdingListResponse = ListResponse[ForeignShareholdingResponse]

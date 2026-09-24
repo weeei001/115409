@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from app.core.config import get_settings
 from app.core.http import make_http_client
 from app.db.models.daily_price import DailyPrice
+from app.db.models.stock_info import StockInfo
 from app.db.engine import make_engine, make_session_factory
 from app.features.analysis.schemas import StockBehaviorTextBriefRequest
 from app.features.analysis.service import AnalysisService
@@ -29,12 +30,19 @@ def as_of_dates(session_factory, symbol: str, start: date | None, end: date | No
         return list(db.scalars(statement.order_by(DailyPrice.date)))
 
 
-async def warm(symbols: list[str], start: date | None, end: date | None) -> int:
+def stock_info_symbols(session_factory) -> list[str]:
+    with session_factory() as db:
+        return list(db.scalars(select(StockInfo.symbol).order_by(StockInfo.symbol)))
+
+
+async def warm(symbols: list[str] | None, start: date | None, end: date | None) -> int:
     settings = get_settings()
     engine = make_engine(settings)
     session_factory = make_session_factory(engine)
     failures = 0
     try:
+        if symbols is None:
+            symbols = await asyncio.to_thread(stock_info_symbols, session_factory)
         async with make_http_client(settings) as http:
             for symbol in symbols:
                 dates = await asyncio.to_thread(as_of_dates, session_factory, symbol, start, end)

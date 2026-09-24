@@ -4,7 +4,7 @@ from app.db.base import Base
 
 
 class FinancialStatementRow(Base):
-    __tablename__ = "fm_financial_statement_rows"
+    __tablename__ = "market_financial_statement_rows"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
@@ -17,7 +17,7 @@ class FinancialStatementRow(Base):
 
 
 class MonthlyRevenue(Base):
-    __tablename__ = "fm_monthly_revenues"
+    __tablename__ = "market_monthly_revenues"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
@@ -31,7 +31,7 @@ class MonthlyRevenue(Base):
 
 
 class StockValuation(Base):
-    __tablename__ = "fm_stock_valuations"
+    __tablename__ = "market_stock_valuations"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
@@ -42,37 +42,8 @@ class StockValuation(Base):
     __table_args__ = (Index("idx_fsv_symbol_date", "symbol", "date"),)
 
 
-class StockDividend(Base):
-    __tablename__ = "fm_stock_dividends"
-
-    date = Column(Date, primary_key=True, nullable=False)
-    symbol = Column(String(10), primary_key=True, nullable=False)
-    year = Column(String(32), primary_key=True, nullable=False, default="")
-    stock_earnings_distribution = Column(DECIMAL(24, 6), nullable=True)
-    stock_statutory_surplus = Column(DECIMAL(24, 6), nullable=True)
-    stock_ex_dividend_trading_date = Column(Date, nullable=True)
-    total_employee_stock_dividend = Column(DECIMAL(24, 6), nullable=True)
-    total_employee_stock_dividend_amount = Column(DECIMAL(24, 6), nullable=True)
-    ratio_of_employee_stock_dividend_of_total = Column(DECIMAL(24, 6), nullable=True)
-    ratio_of_employee_stock_dividend = Column(DECIMAL(24, 6), nullable=True)
-    cash_earnings_distribution = Column(DECIMAL(24, 6), nullable=True)
-    cash_statutory_surplus = Column(DECIMAL(24, 6), nullable=True)
-    cash_ex_dividend_trading_date = Column(Date, nullable=True)
-    cash_dividend_payment_date = Column(Date, nullable=True)
-    total_employee_cash_dividend = Column(DECIMAL(24, 6), nullable=True)
-    total_number_of_cash_capital_increase = Column(DECIMAL(24, 6), nullable=True)
-    cash_increase_subscription_rate = Column(DECIMAL(24, 6), nullable=True)
-    cash_increase_subscription_price = Column(DECIMAL(24, 6), nullable=True)
-    remuneration_of_directors_and_supervisors = Column(DECIMAL(24, 6), nullable=True)
-    participate_distribution_of_total_shares = Column(DECIMAL(24, 6), nullable=True)
-    announcement_date = Column(Date, nullable=True)
-    announcement_time = Column(String(16), nullable=True)
-
-    __table_args__ = (Index("idx_fsd_symbol_date", "symbol", "date"),)
-
-
 class DividendResult(Base):
-    __tablename__ = "fm_dividend_results"
+    __tablename__ = "market_dividend_results"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
@@ -89,7 +60,7 @@ class DividendResult(Base):
 
 
 class MarginTrade(Base):
-    __tablename__ = "fm_margin_trades"
+    __tablename__ = "market_margin_trades"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
@@ -112,7 +83,7 @@ class MarginTrade(Base):
 
 
 class ForeignShareholding(Base):
-    __tablename__ = "fm_foreign_shareholdings"
+    __tablename__ = "market_foreign_shareholdings"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
@@ -132,7 +103,7 @@ class ForeignShareholding(Base):
 
 
 class HoldingShareLevel(Base):
-    __tablename__ = "fm_holding_share_levels"
+    __tablename__ = "market_holding_share_levels"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)

@@ -5,9 +5,11 @@ import sys
 
 
 COMMANDS = (
-    "crawl-cnyes", "crawl-ltn", "finmind-fetch", "finmind-import", "sentiment-batch",
+    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import", "sentiment-batch",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
+    "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
+    "stock-info-sync",
 )
 
 
@@ -40,15 +42,46 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job in {"crawl-cnyes", "crawl-ltn"}:
         from app.jobs.crawlers import crawler_main
         return crawler_main(job.removeprefix("crawl-"), argv)
-    if job == "finmind-fetch":
+    if job == "market-fetch":
+        from app.jobs.market.fetch import main as fetch
+        return fetch(argv)
+    if job == "market-backfill":
+        from app.jobs.market_history import main as backfill
+        return backfill(argv)
+    if job in {"finmind-fetch", "finmind-backfill"}:
         from app.jobs.finmind.fetch import main as fetch
         return fetch(argv)
+    if job == "stock-info-sync":
+        from app.jobs.market.stock_info import main as sync
+        return sync(argv)
+    if job == "market-import":
+        from app.jobs.finmind.import_csv import main as import_csv
+        return import_csv([*argv, "--require-manifest"] if "--help" not in argv else argv)
     if job == "finmind-import":
         from app.jobs.finmind.import_csv import main as import_csv
         return import_csv(argv)
     if job == "sentiment-batch":
         from app.jobs.sentiment.cli import main as sentiment
         return sentiment(argv)
+    if job == "news-impact-batch":
+        from app.jobs.impact.cli import main as impact
+
+        return impact(argv)
+    if job == "news-impact-sync":
+        from app.jobs.impact.sync import main as sync
+
+        return sync(argv)
+    if job == "migrate-news-impact-schema":
+        from app.core.config import get_settings
+        from app.db.engine import make_engine
+        from app.jobs.impact.migrate import migrate_news_impact
+
+        engine = make_engine(get_settings())
+        try:
+            print(migrate_news_impact(engine))
+        finally:
+            engine.dispose()
+        return 0
     if job in {"chunk-news", "vectorize-news", "news-ingest"}:
         from app.jobs.ingestion.cli import main as ingest
         return ingest(job, argv)
@@ -67,18 +100,21 @@ def dispatch(job: str, argv: list[str]) -> int:
         return schedule(argv)
 
     parser = argparse.ArgumentParser(prog=f"python -m app.jobs {job}")
-    parser.add_argument("--symbols", required=True)
+    parser.add_argument("--symbols")
     parser.add_argument("--start", type=date.fromisoformat)
     parser.add_argument("--end", type=date.fromisoformat)
     args = parser.parse_args(argv)
-    symbols = list(dict.fromkeys(s.strip().upper() for s in args.symbols.split(",") if s.strip()))
-    if not symbols:
+    symbols = (list(dict.fromkeys(s.strip().upper() for s in args.symbols.split(",") if s.strip()))
+               if args.symbols else [])
+    if args.symbols is not None and not symbols:
         parser.error("--symbols must include at least one symbol")
     if args.start and args.end and args.start > args.end:
         parser.error("--start must be on or before --end")
     if job == "cache-warmup":
         from app.jobs.warmup import warm
-        return asyncio.run(warm(symbols, args.start, args.end))
+        return asyncio.run(warm(symbols or None, args.start, args.end))
+    if not symbols:
+        parser.error("--symbols must include at least one symbol")
 
     from app.core.config import get_settings
     from app.db.engine import make_engine, make_session_factory

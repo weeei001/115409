@@ -8,11 +8,27 @@ from app.db.models.daily_price import DailyPrice
 from app.db.models.finmind_extra import FinancialStatementRow, MonthlyRevenue, StockValuation
 from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.technical_indicator import TechnicalIndicator
+from app.db.models.stock_info import StockInfo
 
 
 def price(day, close="100.25", symbol="2330", **extra):
     return DailyPrice(date=day, symbol=symbol, open=close, high=close, low=close,
                       close=close, volume_shares=3_000_000_001, amount=9_000_000_001, **extra)
+
+
+def test_stock_infos_read_names_from_db_and_require_price_data(client, db_session):
+    day = date(2026, 5, 20)
+    db_session.add_all([
+        price(day, symbol="1101"),
+        StockInfo(symbol="1101", name="台泥", industry="水泥工業"),
+        StockInfo(symbol="2330", name="台積電", industry="半導體業"),
+    ])
+    db_session.commit()
+
+    response = client.get("/stocks/info")
+
+    assert response.status_code == 200
+    assert response.json() == [{"symbol": "1101", "name": "台泥", "industry": "水泥工業"}]
 
 
 def test_history_inclusive_dates_pagination_decimal_and_read_only(client, db_session):
@@ -123,7 +139,7 @@ def test_financial_statement_filters_and_bigint(client, db_session):
 
 
 @pytest.mark.parametrize("endpoint", ["latest", "date-range", "statistics", "chart/volume", "integrated-chart",
-    "institutional-trades", "technical-indicators", "fundamentals/dividends", "fundamentals/dividend-results",
+    "institutional-trades", "technical-indicators", "fundamentals/dividend-results",
     "chips/margin-trades", "chips/foreign-shareholding", "chips/holding-share-levels"])
 def test_missing_data_keeps_404_detail(client, endpoint):
     response = client.get(f"/stocks/MISSING/{endpoint}", params={"start_date": "2026-05-20", "end_date": "2026-05-20"})

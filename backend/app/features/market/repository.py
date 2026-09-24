@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models.daily_price import DailyPrice
 from app.db.models.finmind_extra import FinancialStatementRow
+from app.db.models.stock_info import StockInfo
 
 
 def symbol_range(db: Session, model, symbol: str, start_date: date, end_date: date):
@@ -15,6 +16,15 @@ def symbol_range(db: Session, model, symbol: str, start_date: date, end_date: da
 
 def symbols(db: Session):
     return list(db.scalars(select(DailyPrice.symbol).distinct().order_by(DailyPrice.symbol)))
+
+def stock_infos(db: Session):
+    rows = db.execute(
+        select(StockInfo.symbol, StockInfo.name, StockInfo.industry)
+        .join(DailyPrice, DailyPrice.symbol == StockInfo.symbol)
+        .distinct()
+        .order_by(StockInfo.symbol)
+    )
+    return [dict(row) for row in rows.mappings()]
 
 
 def latest(db: Session, symbol: str):

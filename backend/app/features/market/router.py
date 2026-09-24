@@ -15,6 +15,10 @@ router = APIRouter(prefix="/stocks", tags=["Market"])
 def get_available_symbols(db: Session = Depends(get_db)):
     return service.symbols(db)
 
+@router.get("/info", response_model=list[s.StockInfoResponse])
+def get_stock_infos(db: Session = Depends(get_db)):
+    return service.stock_infos(db)
+
 
 @router.get("/{symbol}/latest", response_model=s.DailyPriceResponse, responses={404: {"description": "Not found"}})
 def get_latest_price(symbol: str, db: Session = Depends(get_db)):
@@ -134,13 +138,6 @@ def get_valuations(
     symbol: str, start_date: date = Query(...), end_date: date = Query(...), db: Session = Depends(get_db),
 ):
     return service.dataset(db, "valuations", symbol, start_date, end_date)
-
-
-@router.get("/{symbol}/fundamentals/dividends", response_model=s.StockDividendListResponse)
-def get_dividends(
-    symbol: str, start_date: date = Query(...), end_date: date = Query(...), db: Session = Depends(get_db),
-):
-    return service.dataset(db, "dividends", symbol, start_date, end_date)
 
 
 @router.get("/{symbol}/fundamentals/dividend-results", response_model=s.DividendResultListResponse)

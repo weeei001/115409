@@ -14,7 +14,7 @@ from app.db.models.daily_price import DailyPrice
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.finmind_extra import (FinancialStatementRow, MonthlyRevenue, StockValuation,
-    StockDividend, DividendResult, MarginTrade, ForeignShareholding, HoldingShareLevel)
+    DividendResult, MarginTrade, ForeignShareholding, HoldingShareLevel)
 
 from app.jobs.finmind.transforms import (
     normalize_financial_statement_df,
@@ -165,9 +165,6 @@ def raw_dataset(name, symbol):
                  "revenue_month": 1, "revenue_year": 2024, "create_time": ""}]
     if name == "TaiwanStockPER":
         return [{**common, "PER": "18.12345", "PBR": "", "dividend_yield": "1.5"}]
-    if name == "TaiwanStockDividend":
-        return [{**common, "year": "2023", "CashEarningsDistribution": "4.1234565",
-                 "CashDividendPaymentDate": "2024-04-01", "CashIncreaseSubscriptionpRrice": "0"}]
     if name == "TaiwanStockDividendResult":
         return [{**common, "stock_and_cache_dividend": "4.12345", "stock_or_cache_dividend": "cash"}]
     if name == "TaiwanStockMarginPurchaseShortSale":
@@ -195,7 +192,7 @@ def test_export_and_import_all_datasets_with_warmup_decimal_and_schema_safety(tm
         return mock_finmind(request)
     with httpx.Client(transport=httpx.MockTransport(provider)) as http:
         counts, failed = fetch.export_symbol("2330", args, fetch.FinMindClient(http, "test-job-token", retries=0))
-    assert not failed and len(list(tmp_path.glob("*.csv"))) == 11
+    assert not failed and len(list(tmp_path.glob("*.csv"))) == 10
     assert counts["price_volume"] == counts["technical"] == 3
     assert requests[0]["start_date"] == "2024-01-01"
     technical = pd.read_csv(tmp_path / "2330_technical.csv")
@@ -217,7 +214,6 @@ def test_export_and_import_all_datasets_with_warmup_decimal_and_schema_safety(tm
     assert db_session.get(MonthlyRevenue, key).revenue == 9007199254740993
     assert db_session.get(StockValuation, key).per == Decimal("18.1235")
     assert db_session.get(StockValuation, key).pbr is None
-    assert db_session.get(StockDividend, (*key, "2023")).cash_earnings_distribution == Decimal("4.123457")
     assert db_session.get(DividendResult, key).stock_and_cash_dividend == Decimal("4.1235")
     assert db_session.get(MarginTrade, key).margin_purchase_buy == 10
     assert db_session.get(ForeignShareholding, key).number_of_shares_issued == 9007199254740993
@@ -296,6 +292,29 @@ def test_finmind_client_retries_and_sanitizes_errors(monkeypatch, failure):
     assert "private" not in str(error.value)
 
 
+def test_finmind_client_honors_hourly_request_limit(tmp_path):
+    calls = []
+
+    def provider(request):
+        calls.append(request)
+        return mock_finmind(request)
+
+    usage_path = tmp_path / "finmind_api_usage.json"
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        client = fetch.FinMindClient(http, "test-job-token", retries=0, max_requests=2,
+                                     usage_path=usage_path)
+        client.dataset("TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+        client.dataset("TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+        with pytest.raises(fetch.RequestLimitReached):
+            client.dataset("TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        with pytest.raises(fetch.RequestLimitReached):
+            fetch.FinMindClient(http, "test-job-token", retries=0, max_requests=2,
+                                usage_path=usage_path).dataset(
+                                    "TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+    assert len(calls) == client.requests_made == 2
+
+
 def test_paid_dataset_opt_in_and_export_failure_nonzero(tmp_path, settings, monkeypatch, capsys):
     monkeypatch.setattr(fetch, "get_settings", lambda: settings.model_copy(update={"FINMIND_API_TOKEN": "settings-token"}))
     seen = []
@@ -310,6 +329,20 @@ def test_paid_dataset_opt_in_and_export_failure_nonzero(tmp_path, settings, monk
     assert json.loads(capsys.readouterr().out) == {"symbol": "2317", "rows": {}, "failed": False}
     assert fetch.main(["--stock", "2317", "--start", "2024-01-01", "--token", "cli-token", "--include-holding-shares-per"]) == 0
     assert seen[-1] == ("2317", "cli-token", True)
+
+
+def test_from_stock_info_exports_every_symbol(tmp_path, settings, monkeypatch):
+    monkeypatch.setattr(fetch, "get_settings", lambda: settings)
+    monkeypatch.setattr(fetch, "stock_info_symbols", lambda configured: ["1101", "2330"])
+    seen = []
+
+    def export(symbol, args, client):
+        seen.append(symbol)
+        return {}, False
+
+    monkeypatch.setattr(fetch, "export_symbol", export)
+    assert fetch.main(["--from-stock-info", "--start", "2024-01-01", "--out", str(tmp_path)]) == 0
+    assert seen == ["1101", "2330"]
 
 
 def test_optional_paid_dataset_failure_is_visible_and_default_skips_http(tmp_path):

@@ -20,7 +20,7 @@ call the chat model. Training and backtesting explicitly call the configured mod
 - `ANALYSIS_LLM_*` (and existing backend aliases) select the endpoint, key and model.
   Both legacy `--provider` values use these settings; `h200` additionally sends
   Bob's thinking-disabled request option. No provider URL is hardcoded.
-- `DATABASE_*` selects imported `fm_daily_prices`. Prices are database closes,
+- `DATABASE_*` selects imported `market_daily_prices`. Prices are database closes,
   not Yahoo adjusted prices; comparisons against old Yahoo runs require matching
   price adjustments and coverage. Import the historical prices before building cases.
 - `QDRANT_*` and `EMBED_*` use the backend vector client, including its index/version

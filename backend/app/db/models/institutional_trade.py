@@ -4,7 +4,7 @@ from app.db.base import Base
 
 
 class InstitutionalTrade(Base):
-    __tablename__ = "fm_institutional_trades"
+    __tablename__ = "market_institutional_trades"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)
