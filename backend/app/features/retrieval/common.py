@@ -67,4 +67,7 @@ def source_provenance(payload: dict) -> dict:
     return {key: payload[key] for key in (
         "article_id", "chunk_id", "chunk_index", "char_start", "char_end",
         "content_hash", "revision", "index_version", "embedding_model", "stock_ids",
+        "analysis_status", "analysis_input_hash", "analysis_config_hash", "impact_scopes", "impact_company_ids",
+        "impact_industry_ids", "impact_directions", "impact_importance", "impact_topics",
+        "impact_context",
     ) if payload.get(key) is not None}

@@ -15,14 +15,34 @@ def test_pipeline_uses_native_jobs_in_dependency_order(tmp_path):
     assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols="2330,2317", output=tmp_path,
         run=lambda command: commands.append(command) or 0) == 0
     assert [command[0] for command in commands] == [
-        "finmind-fetch", "finmind-import", "crawl-cnyes", "crawl-ltn", "news-ingest", "cache-warmup", "sentiment-batch"]
-    assert commands[0] == ["finmind-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
-    assert commands[1] == ["finmind-import", "--input-dir", str(tmp_path), "--symbols", "2330,2317"]
+        "market-fetch", "market-import", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema",
+        "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]
+    assert commands[0] == ["market-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
+    assert commands[1] == ["market-import", "--input-dir", str(tmp_path)]
     assert commands[2] == ["crawl-cnyes", "--scheduled-once"]
     assert commands[3] == ["crawl-ltn", "--scheduled-once", "--lookback-days", "30"]
-    assert commands[-2] == ["cache-warmup", "--symbols", "2330,2317"]
-    assert commands[-1] == ["sentiment-batch", "--incremental", "--stocks", "2330,2317", "--limit", "100",
+    assert commands[-1] == ["cache-warmup", "--symbols", "2330,2317"]
+    assert commands[-3] == ["news-impact-batch", "--limit", "100",
                             "--max-cost-usd", "0.5", "--execute"]
+    assert commands[-2] == ["news-impact-sync", "--execute"]
+
+
+def test_text_brief_without_symbols_lets_warmup_read_stock_info(tmp_path):
+    commands = []
+    assert scheduler.run_pipeline("text-brief", start=date(2026, 7, 1), symbols=None, output=tmp_path,
+        run=lambda command: commands.append(command) or 0) == 0
+    assert commands == [["cache-warmup"]]
+
+
+def test_backfill_runs_before_market_import_and_ai(tmp_path):
+    commands = []
+    assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols=None, output=tmp_path,
+        backfill=True, run=lambda command: commands.append(command) or 0) == 0
+    assert [command[0] for command in commands[:4]] == [
+        "market-fetch", "market-import", "market-fetch", "market-import"]
+    assert commands[0] == ["market-fetch", "--from-stock-info", "--start", "2026-07-01",
+                            "--out", str(tmp_path / "backfill")]
+    assert commands[-1] == ["cache-warmup"]
 
 
 def test_incremental_sentiment_execution_and_preview_carry_budget(tmp_path):
@@ -31,19 +51,20 @@ def test_incremental_sentiment_execution_and_preview_carry_budget(tmp_path):
         assert scheduler.run_pipeline("sentiment", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
             sentiment_execute=execute, sentiment_limit=25, sentiment_max_cost_usd=0.2,
             run=lambda command: commands.append(command) or 0) == 0
-        assert commands == [["sentiment-batch", "--incremental", "--stocks", "2330", "--limit", "25",
+        assert commands == [["sentiment-batch", "--incremental", "--limit", "25",
                              "--max-cost-usd", "0.2", *(["--execute"] if execute else [])]]
     commands = []
     scheduler.run_pipeline("rag", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
         run=lambda command: commands.append(command) or 0)
-    assert [command[0] for command in commands] == ["news-ingest", "cache-warmup", "sentiment-batch"]
+    assert [command[0] for command in commands] == ["migrate-news-impact-schema", "news-ingest",
+                                                   "news-impact-batch", "news-impact-sync", "cache-warmup"]
 
 
 @pytest.mark.parametrize("failures,expected,commands", [
-    ({"news-ingest": 7}, 7, ["news-ingest"]),
-    ({"cache-warmup": 7}, 7, ["news-ingest", "cache-warmup", "sentiment-batch"]),
-    ({"sentiment-batch": 9}, 9, ["news-ingest", "cache-warmup", "sentiment-batch"]),
-    ({"cache-warmup": 7, "sentiment-batch": 9}, 7, ["news-ingest", "cache-warmup", "sentiment-batch"]),
+    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest"]),
+    ({"cache-warmup": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
+    ({"news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
+    ({"cache-warmup": 7, "news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
 ])
 def test_warmup_and_sentiment_run_independently_after_ingestion(failures, expected, commands, tmp_path):
     called = []
@@ -55,7 +76,7 @@ def test_warmup_and_sentiment_run_independently_after_ingestion(failures, expect
     assert called == commands
 
 
-@pytest.mark.parametrize("failure", ["finmind-fetch", "finmind-import", "crawl-cnyes", "crawl-ltn", "news-ingest"])
+@pytest.mark.parametrize("failure", ["market-fetch", "market-import", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema", "news-ingest"])
 def test_pipeline_stops_on_failure_before_warming_stale_cache(failure, tmp_path):
     commands = []
 
@@ -94,10 +115,10 @@ def test_daily_and_news_jobs_coalesce_one_followup(monkeypatch):
     tick(2400)
     assert calls == ["cnyes", "ltn", "rag"] and worker.followup is None
     tick(3600)
-    assert calls[-3:] == ["finmind", "cnyes", "ltn"] and worker.followup == 4200
-    assert worker.next_finmind == datetime(2026, 7, 14, 17, tzinfo=scheduler.TAIPEI)
+    assert calls[-3:] == ["market", "cnyes", "ltn"] and worker.followup == 4200
+    assert worker.next_market == datetime(2026, 7, 14, 17, tzinfo=scheduler.TAIPEI)
     tick(4200)
-    assert calls.count("rag") == 2 and calls.count("finmind") == 1
+    assert calls.count("rag") == 2 and calls.count("market") == 1
 
 
 @pytest.mark.parametrize("successful", [None, "ltn"])
@@ -202,7 +223,7 @@ def test_one_shot_cli_has_stop_handlers_and_restores_them(monkeypatch, tmp_path)
         assert callable(active.get(scheduler.signal.SIGINT))
         assert callable(active.get(scheduler.signal.SIGTERM))
         assert job == "rag" and kwargs == {"start": date(2026, 7, 1), "symbols": "2330,2317", "output": tmp_path,
-            "sentiment_execute": True, "sentiment_limit": 100, "sentiment_max_cost_usd": 0.5}
+            "backfill": False, "sentiment_execute": True, "sentiment_limit": 100, "sentiment_max_cost_usd": 0.5}
         operations.append(("run", job))
         return 9
 
@@ -223,9 +244,12 @@ def test_cli_sentiment_defaults_opt_out_and_compatible_flag(job, flags, execute,
     assert scheduler.main(["--job", job, "--symbols", "2330", "--sentiment-limit", "25",
                            "--sentiment-max-cost-usd", "0.2", *flags]) == 0
     sentiment = [command for command in commands if command[0] == "sentiment-batch"]
-    assert sentiment == ([["sentiment-batch", "--incremental", "--stocks", "2330", "--limit", "25",
+    assert sentiment == ([["sentiment-batch", "--incremental", "--limit", "25",
                            "--max-cost-usd", "0.2", *(["--execute"] if execute else [])]]
-                         if job == "sentiment" or execute else [])
+                         if job == "sentiment" else [])
+    impact = [command for command in commands if command[0] == "news-impact-batch"]
+    assert impact == ([["news-impact-batch", "--limit", "25", "--max-cost-usd", "0.2", "--execute"]]
+                      if job in {"rag", "all"} and execute else [])
 
 
 @pytest.mark.parametrize("flags,execute", [([], True), (["--no-sentiment-execute"], False)])
@@ -244,9 +268,10 @@ def test_regular_scheduler_followup_honors_sentiment_setting(flags, execute, mon
     monkeypatch.setattr(scheduler.clock, "sleep", advance)
     assert scheduler.main(flags) == 0
     assert [command[0] for command in commands] == [
-        "crawl-cnyes", "crawl-ltn", "news-ingest", "cache-warmup", *(["sentiment-batch"] if execute else [])]
+        "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema", "news-ingest",
+        *(["news-impact-batch", "news-impact-sync"] if execute else []), "cache-warmup"]
     if execute:
-        assert "--execute" in commands[-1]
+        assert "--execute" in next(command for command in commands if command[0] == "news-impact-batch")
 
 
 def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
@@ -275,7 +300,7 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
     monkeypatch.setattr(scheduler, "run_pipeline", run)
     monkeypatch.setattr(scheduler, "Scheduler", Scheduled)
     assert scheduler.main(["--run-now", "--interval-minutes", "2", "--rag-delay-minutes", "0.5"]) == 0
-    assert ("run", "finmind") in operations and ("tick", None) in operations
+    assert ("run", "market") in operations and ("tick", None) in operations
     assert active == {sig: f"previous-{sig}" for sig in (scheduler.signal.SIGINT, scheduler.signal.SIGTERM)}
     assert operations[-1] == ("unlock", "scheduler")
 

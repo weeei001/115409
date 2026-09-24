@@ -18,6 +18,7 @@ class VectorWriter:
         self.dimension = None
         self._create_allowed = False
         self._missing = False
+        self.unavailable_chunk_ids: set[str] = set()
 
     async def _request(self, method, suffix="", *, payload=None, allow_missing=False):
         self.reader.require_enabled()
@@ -96,6 +97,54 @@ class VectorWriter:
                 visited.add(offset)
             except (KeyError, TypeError, ValueError) as exc:
                 raise ServiceUnavailable("Invalid vector database scroll response") from exc
+
+    async def chunk_payloads(self, ids: list[str]) -> dict[str, dict]:
+        """Read existing point payloads so metadata sync never touches vectors."""
+        if not ids or self._missing:
+            return {}
+        result = {}
+        async def fetch(batch: list[str]) -> None:
+            wanted = set(batch)
+            point_ids = [str(uuid5(NAMESPACE_URL, "news_chunks:" + chunk_id)) for chunk_id in batch]
+            try:
+                data = await self._request("POST", "/points", payload={
+                    "ids": point_ids, "with_payload": True, "with_vector": False})
+            except ServiceUnavailable as exc:
+                cause = exc.__cause__
+                if not (isinstance(cause, httpx.HTTPStatusError)
+                        and cause.response.status_code == 500
+                        and "OffsetZero" in cause.response.text):
+                    raise
+                if len(batch) == 1:
+                    self.unavailable_chunk_ids.add(batch[0])
+                    return
+                midpoint = len(batch) // 2
+                await fetch(batch[:midpoint])
+                await fetch(batch[midpoint:])
+                return
+            try:
+                points = data["result"]
+                if not isinstance(points, list):
+                    raise ValueError("Invalid points")
+                for point in points:
+                    payload = point["payload"]
+                    chunk_id = payload["chunk_id"]
+                    if (not isinstance(payload, dict) or chunk_id not in wanted
+                            or point["id"] != str(uuid5(NAMESPACE_URL, "news_chunks:" + chunk_id))):
+                        raise ValueError("Invalid chunk payload")
+                    result[chunk_id] = {"id": point["id"], "payload": payload}
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ServiceUnavailable("Invalid vector database point response") from exc
+        for offset in range(0, len(ids), 256):
+            await fetch(ids[offset:offset + 256])
+        return result
+
+    async def set_chunk_payload(self, point_id: str | int, payload: dict) -> None:
+        if not point_id or not isinstance(payload, dict):
+            raise ValueError("Invalid chunk metadata")
+        result = await self._request("POST", "/points/payload?wait=true", payload={
+            "points": [point_id], "payload": payload})
+        self._require_completed(result)
 
     async def embed_documents(self, texts):
         return await self.reader.embed_documents(texts)

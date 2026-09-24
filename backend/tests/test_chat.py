@@ -114,6 +114,25 @@ def test_json_answer_keeps_contract_sources_tokens_and_ignores_demo_token(chat):
     assert "https://news.test/report" in prompt
 
 
+def test_all_listed_company_and_macro_news_do_not_require_six_stock_market_support(chat, monkeypatch):
+    client, _, llm, retrieval = chat
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {
+        "2603": {"name": "長榮", "industry": "TWSE:15"}})
+    llm.intent = {"is_finance": True, "stocks": ["2603"], "data_needs": ["news"]}
+    retrieval.hits[0]["payload"]["stock_id"] = "2603"
+    response = client.post("/api/ask", json={"query": "長榮最近新聞", "stock_id": "2603"})
+    assert response.status_code == 200
+    assert response.json()["detected_stocks"] == ["2603"]
+    assert retrieval.calls[-1]["symbols"] == ["2603"]
+    assert not response.json()["actions"]
+
+    llm.intent = {"is_finance": True, "stocks": [], "data_needs": ["market"]}
+    response = client.post("/api/ask", json={"query": "央行利率新聞"})
+    assert response.status_code == 200
+    assert retrieval.calls[-1]["symbols"] == []
+    assert "想分析或比較哪幾檔股票" not in response.json()["answer"]
+
+
 def test_frontend_stream_consumes_text_and_receives_fallback_warning(chat):
     client, _, llm, retrieval = chat
     retrieval.fallback = True

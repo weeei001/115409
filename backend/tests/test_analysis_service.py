@@ -16,6 +16,7 @@ from app.core.errors import AppError
 from app.db.models.daily_price import DailyPrice
 from app.db.models.llm_response import LlmResponse
 from app.db.models.news_article import NewsArticle
+from app.db.models.stock_info import StockInfo
 from app.features.analysis import repository, validation as gate
 from app.features.analysis.evidence import build_evidence_bundle
 from app.features.analysis.router import get_service
@@ -82,11 +83,11 @@ def seed_prices(db):
     db.commit()
 
 
-def run_service(db, settings, llm=None, rag=None, **request):
+def run_service(db, settings, llm=None, rag=None, symbol="2330", **request):
     async def run():
         async with httpx.AsyncClient() as http:
             service = AnalysisService(db=db, settings=settings, http=http, llm=llm or FakeLlm(), rag=rag or FakeRag())
-            return await service.generate_text_brief(StockBehaviorTextBriefRequest(symbol="2330", as_of_date=AS_OF, **request))
+            return await service.generate_text_brief(StockBehaviorTextBriefRequest(symbol=symbol, as_of_date=AS_OF, **request))
     return asyncio.run(run())
 
 
@@ -122,6 +123,15 @@ def test_cache_only_miss_skips_every_external_call_and_persistence(db_session, s
     assert result.status == "unavailable" and result.brief is None
     assert llm.calls == rag.calls == 0
     assert db_session.scalars(select(LlmResponse)).all() == []
+
+
+def test_text_brief_accepts_symbols_from_stock_info(db_session, settings):
+    db_session.add(StockInfo(symbol="1101", name="台泥"))
+    db_session.add_all([DailyPrice(symbol="1101", date=date(2026, 7, day), close=Decimal(100 + day),
+                                    volume_shares=1_000_000) for day in range(10, 15)])
+    db_session.commit()
+    result = run_service(db_session, settings, symbol="1101")
+    assert result.symbol == "1101" and result.status == "verified"
 
 
 @pytest.mark.parametrize("requested_date", [AS_OF, date(2026, 9, 12)])

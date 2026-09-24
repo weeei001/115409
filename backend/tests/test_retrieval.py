@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.errors import AppError, ServiceUnavailable, UpstreamTimeout, install_error_handlers
+from app.db.models.news_article import NewsArticle
 from app.features.retrieval.common import TAIPEI
 from app.features.retrieval.router import get_service, router
 from app.features.retrieval.schemas import RetrievalRequest
@@ -62,9 +63,24 @@ def test_analyze_three_routes_dedupe_noise_and_taipei_future_guard():
     assert response.news_sources[1].timestamp == "2024-01-31T15:59:59Z"
     assert response.news_sources[0].publisher == "鉅亨網"
     assert not response.no_recent_news
-    assert [args["symbols"] for _, args in vector.calls] == [["2330"], ["2330"], ["tw_stock"]]
+    assert [args["symbols"] for _, args in vector.calls] == [["2330"], ["2330"], None]
     assert all(args["end"].utcoffset() == timedelta(hours=8) for _, args in vector.calls)
     assert "台積電" not in vector.prompts[2]
+
+
+def test_related_news_retrieves_without_source_stock_filter_and_hydrates_article(db_session, settings, monkeypatch):
+    monkeypatch.setattr("app.features.retrieval.service.load_catalog", lambda: {})
+    db_session.add(NewsArticle(article_id="article", title="TSMC earnings", content="Revenue grew",
+                               pub_time="2024-01-31 12:00:00", url="https://news.test/article"))
+    db_session.commit()
+    candidate = hit("chunk", "TSMC earnings", stock="9999")
+    candidate["payload"].update(article_id="article", url="https://news.test/article")
+    vector = FakeVector(lambda embedding, kwargs: [candidate])
+    result = asyncio.run(RetrievalService(http=None, settings=settings, vector=vector,
+        stock_options={"2330": "TSMC"}).related_news(db_session, symbol="2330",
+        as_of="2024-01-31 23:59:59", limit=5))
+    assert vector.calls[0][1]["symbols"] is None
+    assert result["total"] == 1 and result["items"][0].article_id == "article"
 
 
 def test_analyze_only_general_expands_to_bounded_double_window():

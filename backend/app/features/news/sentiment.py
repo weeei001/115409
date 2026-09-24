@@ -11,8 +11,15 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from .prompts import SYSTEM_PROMPT
 
 
-TARGET_STOCKS = {"2330": "台積電", "2317": "鴻海", "2454": "聯發科", "2408": "南亞科", "2881": "富邦金", "2615": "萬海"}
-PROMPT_VERSION = "v2.0"
+ARTICLE_TARGET = "__article__"
+LEGACY_STOCK_NAMES = {"2330": "台積電", "2317": "鴻海", "2454": "聯發科", "2408": "南亞科", "2881": "富邦金", "2615": "萬海"}
+PROMPT_VERSION = "v3.0"
+ANALYSIS_INSTRUCTION = ("For target_stock_id='__article__', judge the overall financial event in this article, "
+    "including benefits and harms to different parties; do not average company labels. "
+    "For a company target, set related=false and label=insufficient when the article does not clearly refer "
+    "to that listed company (including ambiguous common words, namesakes and group companies). "
+    "Otherwise set related=true. Quote only exact text from title or content. "
+    "A title-only article can be judged with title evidence when sufficiently clear; mention the limited source in reason.")
 NORMALIZATION_VERSION = "norm_v1"
 MAX_INPUT_TOKENS = 8000
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
@@ -29,9 +36,12 @@ class SentimentOutput(BaseModel):
     label: Literal["positive", "negative", "neutral", "mixed", "insufficient"]
     reason: ShortText
     evidence: list[Evidence] = Field(max_length=2)
+    related: bool = True
 
     @model_validator(mode="after")
     def evidence_count_matches_label(self):
+        if not self.related and self.label != "insufficient":
+            raise ValueError("unrelated company requires insufficient label")
         if self.label == "mixed" and len(self.evidence) != 2:
             raise ValueError("mixed requires exactly two evidence quotes")
         if self.label in {"positive", "negative", "neutral"} and not self.evidence:
@@ -43,6 +53,7 @@ def active_config_hash(settings) -> str:
     configuration = {
         "model": settings.LLM_MODEL, "prompt_version": PROMPT_VERSION,
         "normalization_version": NORMALIZATION_VERSION, "system_prompt": SYSTEM_PROMPT,
+        "analysis_instruction": ANALYSIS_INSTRUCTION,
         "schema_definition": SentimentOutput.model_json_schema(),
         "generation_params": {"max_completion_tokens": settings.LLM_MAX_TOKENS,
             "temperature": settings.LLM_TEMPERATURE, "response_format": settings.LLM_RESPONSE_FORMAT,
@@ -54,6 +65,11 @@ def active_config_hash(settings) -> str:
 
 
 TAIPEI_TZ = timezone(timedelta(hours=8))
+
+
+def company_catalog():
+    from app.features.market.company_catalog import load_catalog
+    return load_catalog()
 
 
 def clean_text(raw_text: str | None) -> str:
@@ -92,10 +108,13 @@ def compute_input_hash(*, cleaned_title: str, cleaned_content: str, pub_time_str
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def article_input_hash(article, symbol: str) -> str | None:
-    if symbol not in TARGET_STOCKS:
+def article_input_hash(article, symbol: str, catalog=None) -> str | None:
+    if catalog is None:
+        catalog = company_catalog()
+    name = "" if symbol == ARTICLE_TARGET else (catalog.get(symbol) or {}).get("name") or LEGACY_STOCK_NAMES.get(symbol)
+    if name is None:
         return None
     canonical_time = parse_news_pub_time(article.pub_time)[1]
     return compute_input_hash(cleaned_title=clean_text(article.title), cleaned_content=clean_text(article.content),
         pub_time_str=canonical_time or (article.pub_time or "").strip(),
-        target_stock_id=symbol, target_stock_name=TARGET_STOCKS[symbol])
+        target_stock_id=symbol, target_stock_name=name)

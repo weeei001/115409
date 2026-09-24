@@ -9,6 +9,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.db.engine import make_engine, make_session_factory
+from app.jobs.impact.migrate import migrate_news_impact
 from app.jobs.locking import worker_lock
 from .service import chunk_news, failure_reason, vectorize_news
 
@@ -66,6 +67,8 @@ def main(mode: str, argv: list[str] | None = None) -> int:
     try:
         # All writable ingestion commands share the existing process lock.
         with nullcontext() if args.dry_run else worker_lock("news-ingestion"):
+            if not args.dry_run:
+                migrate_news_impact(engine)
             if mode in {"chunk-news", "news-ingest"}:
                 reports.append(chunk_news(session_factory, max_chars=settings.NEWS_CHUNK_MAX_CHARS,
                     overlap_chars=settings.NEWS_CHUNK_OVERLAP_CHARS, embedding_model=settings.EMBED_MODEL, **options))

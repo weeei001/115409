@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import httpx
+from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.clients.rag import RagResult
-from app.core.errors import AppError, NotFound
+from app.core.errors import AppError, NotFound, ServiceUnavailable
+from app.db.models.news_article import NewsArticle
+from app.db.models.news_impact import NewsEventAnalysis
+from app.features.market.company_catalog import load_catalog
+from app.features.news.impact import config_hash
 from .common import STOCK_OPTIONS, TAIPEI, article_identity, get_source_name, parse_timestamp, source_provenance
+from .impact_metadata import IMPACT_PAYLOAD_KEYS, current_analysis, current_chunk_ids
 from .schemas import NewsSource, QuestionSearchResult, RetrievalRequest, RetrievalResponse
 
 
@@ -39,30 +48,178 @@ def _within_window(hit: dict, start: datetime | None, end: datetime) -> bool:
 
 
 class RetrievalService:
-    def __init__(self, http: httpx.AsyncClient, settings: Any, vector=None):
+    def __init__(self, http: httpx.AsyncClient, settings: Any, vector=None, session_factory=None,
+                 stock_options=None):
         if vector is None:
             from app.clients.vector import VectorClient
             vector = VectorClient(http, settings)
         self.vector = vector
+        self.settings = settings
+        self.session_factory = session_factory if settings and settings.NEWS_INDEX_VERSION else None
+        self.catalog = load_catalog()
+        if stock_options is None and self.catalog:
+            stock_options = {symbol: row.get("name") for symbol, row in self.catalog.items()
+                             if row.get("name")}
+        self.stock_options = {**STOCK_OPTIONS, **(stock_options or {})}
+        self.impact_config = config_hash(settings, self.catalog) if self.session_factory and self.catalog else None
+
+    def _stock_descriptor(self, symbol: str) -> tuple[str, dict]:
+        row = self.catalog.get(symbol) or load_catalog().get(symbol) or {}
+        name = self.stock_options.get(symbol) or row.get("name")
+        if not name:
+            raise AppError(f"Invalid stock symbol: {symbol}")
+        return str(name), row
+
+    @staticmethod
+    def _related_query(symbol: str, name: str, row: dict, relation: str) -> str:
+        industry = row.get("industry_name") or row.get("industry") or ""
+        aliases = " ".join(str(alias) for alias in row.get("aliases") or [])
+        focus = {
+            "direct": "company news earnings revenue operations guidance outlook",
+            "industry_context": "industry peers demand supply chain sector news",
+            "market_context": "Taiwan stock market macroeconomy interest rates exchange rates policy news",
+        }[relation]
+        return " ".join(part for part in (name, aliases, symbol, industry, focus) if part)
+
+    @staticmethod
+    def _relation_bonus(payload: dict, symbol: str, relation: str, row: dict) -> float:
+        if payload.get("analysis_status") != "success":
+            return 0.0
+        industry = row.get("industry")
+        if relation == "direct" and symbol in (payload.get("impact_company_ids") or []):
+            return 0.15
+        if relation == "industry_context" and industry in (payload.get("impact_industry_ids") or []):
+            return 0.15
+        if relation == "market_context" and "market" in (payload.get("impact_scopes") or []):
+            return 0.15
+        return 0.0
+
+    def _select_related_hits(self, hits: list[dict], *, symbol: str, relation: str,
+                             row: dict, limit: int) -> list[dict]:
+        ranked = sorted(hits, key=lambda hit: float(hit.get("score") or 0) + self._relation_bonus(
+            hit.get("payload") or {}, symbol, relation, row), reverse=True)
+        selected, seen = [], set()
+        for hit in ranked:
+            payload = hit.get("payload") or {}
+            if not str(payload.get("title") or "").strip():
+                continue
+            key = article_identity(payload)
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(hit)
+            if len(selected) >= limit:
+                break
+        return selected
+
+    async def related_news(self, db: Session, *, symbol: str, relation: str = "direct",
+                           lookback_days: int = 30, limit: int = 20,
+                           as_of: str | None = None) -> dict:
+        symbol = symbol.strip().upper()
+        if relation not in {"direct", "industry_context", "market_context"}:
+            raise AppError("Invalid news relation")
+        name, row = self._stock_descriptor(symbol)
+        end = _time_bound(as_of, "as_of") or datetime.now(TAIPEI)
+        days = max(1, min(lookback_days, 120))
+        limit = max(1, min(limit, 50))
+        self.vector.require_enabled()
+        vector = await self.vector.embed_query(self._related_query(symbol, name, row, relation))
+        candidate_limit = min(200, max(40, limit * 5))
+        hits = await self._query(vector, symbols=None, start=end - timedelta(days=days), end=end,
+                                 limit=candidate_limit)
+        hits = self._select_related_hits(hits, symbol=symbol, relation=relation, row=row,
+                                         limit=candidate_limit)
+        article_ids = [str((hit.get("payload") or {}).get("article_id") or "") for hit in hits]
+        urls = [str((hit.get("payload") or {}).get("url") or "") for hit in hits]
+        clauses = []
+        if any(article_ids):
+            clauses.append(NewsArticle.article_id.in_([value for value in article_ids if value]))
+        if any(urls):
+            clauses.append(NewsArticle.url.in_([value for value in urls if value]))
+        articles = []
+        if clauses:
+            rows = list(db.scalars(select(NewsArticle).where(or_(*clauses))))
+            by_id = {article.article_id: article for article in rows}
+            by_url = {article.url: article for article in rows if article.url}
+            seen_articles = set()
+            for hit in hits:
+                payload = hit.get("payload") or {}
+                article = by_id.get(payload.get("article_id")) or by_url.get(payload.get("url"))
+                if article is not None and article.article_id not in seen_articles:
+                    seen_articles.add(article.article_id)
+                    articles.append(article)
+        from app.features.news.service import attach_event_analysis
+
+        items = attach_event_analysis(db, articles[:limit], symbol, settings=self.settings)
+        return {"page": 1, "page_size": limit, "total": len(items), "items": items}
+
+    def _fresh_hits(self, hits: list[dict], symbols: list[str] | None) -> list[dict]:
+        if not self.session_factory or not hits:
+            return hits
+        from app.jobs.ingestion.repository import news_chunks
+
+        ids = {str((hit.get("payload") or {}).get("chunk_id") or "") for hit in hits} - {""}
+        with self.session_factory() as db:
+            chunks = {row["chunk_id"]: dict(row) for row in db.execute(select(news_chunks).where(
+                news_chunks.c.chunk_id.in_(ids))).mappings()}
+            article_ids = {chunk["article_id"] for chunk in chunks.values()}
+            articles = {item.article_id: item for item in db.scalars(select(NewsArticle).where(
+                NewsArticle.article_id.in_(article_ids)))}
+            analyses = {item.article_id: item for item in db.scalars(select(NewsEventAnalysis).where(
+                NewsEventAnalysis.article_id.in_(article_ids)))} if self.impact_config else {}
+            valid = {article_id: current_chunk_ids(article, self.settings)
+                     for article_id, article in articles.items()}
+            result = []
+            for hit in hits:
+                payload = hit.get("payload") or {}
+                chunk_id = payload.get("chunk_id")
+                chunk = chunks.get(chunk_id)
+                if (chunk is None or chunk_id not in valid.get(chunk["article_id"], set())
+                        or payload.get("revision") != chunk["revision"]
+                        or payload.get("content_hash") != chunk["content_hash"]
+                        or payload.get("article_id") != chunk["article_id"]
+                        or payload.get("page_content") != chunk["content_chunk"]
+                        or payload.get("title") != chunk["title"]
+                        or payload.get("pub_time") != chunk["pub_time"]):
+                    continue
+                article = articles[chunk["article_id"]]
+                analysis = analyses.get(article.article_id)
+                analysis_is_current = bool(self.impact_config and current_analysis(article, analysis, self.impact_config))
+                metadata_is_current = (analysis_is_current
+                    and payload.get("analysis_input_hash") == analysis.input_hash
+                    and payload.get("analysis_config_hash") == analysis.config_hash
+                    and all(key in payload for key in IMPACT_PAYLOAD_KEYS))
+                if not metadata_is_current:
+                    payload = {key: value for key, value in payload.items() if key not in IMPACT_PAYLOAD_KEYS}
+                if symbols and analysis_is_current and not set(symbols).intersection(payload.get("impact_company_ids") or []):
+                    continue
+                result.append({**hit, "payload": payload})
+            return result
 
     async def _query(self, vector: list[float], *, symbols: list[str] | None,
                      start: datetime | None, end: datetime, limit: int) -> list[dict]:
         hits = await self.vector.query(vector, symbols=symbols, start=start, end=end, limit=limit)
         # The payload is independently checked even when the vector store applies a timestamp filter.
-        return [hit for hit in hits if _within_window(hit, start, end)]
+        hits = [hit for hit in hits if _within_window(hit, start, end)]
+        if not self.session_factory:
+            return hits
+        try:
+            return await asyncio.to_thread(self._fresh_hits, hits, symbols)
+        except (SQLAlchemyError, ValueError, KeyError) as exc:
+            raise ServiceUnavailable("News version check unavailable") from exc
 
     async def analyze(self, req: RetrievalRequest) -> RetrievalResponse:
-        symbols = list(dict.fromkeys(symbol for symbol in req.symbols if symbol in STOCK_OPTIONS))
+        symbols = list(dict.fromkeys(symbol for symbol in req.symbols if symbol in self.stock_options))
         if not symbols:
-            raise AppError(f"無效的股票代號，支援：{list(STOCK_OPTIONS.keys())}")
+            raise AppError(f"無效的股票代號，支援：{list(self.stock_options.keys())}")
         end = _time_bound(req.as_of, "as_of") or datetime.now(TAIPEI)
         days = max(1, min(req.lookback_days, 120))
         max_events = max(1, min(req.max_events, 50))
         start, fallback_start = end - timedelta(days=days), end - timedelta(days=days * 2)
         fetch_limit = max(40, max_events * 4)
         self.vector.require_enabled()
-        names = "、".join(STOCK_OPTIONS[symbol] for symbol in symbols)
-        stock_tokens = tuple(STOCK_OPTIONS[symbol] for symbol in symbols) + tuple(symbols)
+        names = "、".join(self.stock_options[symbol] for symbol in symbols)
+        stock_tokens = tuple(self.stock_options[symbol] for symbol in symbols) + tuple(symbols)
         vectors = {
             "general": await self.vector.embed_query(f"{names} 近期表現 營收 股價 財報"),
             "guidance": await self.vector.embed_query(f"{names} 法說會 財測 展望 財務預測 毛利率目標 資本支出 上修 下修"),
@@ -82,7 +239,7 @@ class RetrievalService:
                 vectors["guidance"], symbols=[symbol], start=start, end=end, limit=fetch_limit),
                 max(2, max_events // 2)))
         grouped.append(("market", await self._query(
-            vectors["market"], symbols=["tw_stock"], start=start, end=end, limit=fetch_limit),
+            vectors["market"], symbols=None, start=start, end=end, limit=fetch_limit),
             max(3, max_events // 3)))
         picked: dict[str, NewsSource] = {}
         for kind, hits, cap in grouped:
