@@ -2,7 +2,6 @@ import React, { useCallback, useRef } from 'react';
 import { motion } from 'motion/react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import type { DailyPriceResponse } from '../lib/types';
-import { getStockDisplayName } from '../lib/utils/symbolNames';
 import { AnimatedCounter } from './AnimatedCounter';
 import { StockSparkline, type SparklineTrend } from './StockSparkline';
 import { useCanHoverTilt } from '../lib/useCanHoverTilt';
@@ -10,6 +9,7 @@ import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionCli
 
 interface Props {
   data: DailyPriceResponse;
+  companyName?: string | null;
   onNavigate?: (symbol: string) => void;
   index?: number;
   sparkline?: number[];
@@ -17,6 +17,7 @@ interface Props {
 
 export const StockPriceCard = React.memo<Props>(function StockPriceCard({
   data,
+  companyName,
   onNavigate,
   index = 0,
   sparkline,
@@ -67,8 +68,7 @@ export const StockPriceCard = React.memo<Props>(function StockPriceCard({
       ? 'rgba(100, 154, 126, 0.18)'
       : 'var(--glow-brand)';
 
-  const name = getStockDisplayName(data.symbol);
-  const showName = name !== data.symbol;
+  const name = companyName?.trim() ?? '';
 
   return (
     <motion.button

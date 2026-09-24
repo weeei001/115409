@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 
@@ -14,8 +14,8 @@ import {
   Sparkles,
   ShoppingCart,
 } from 'lucide-react';
-import { fetchSymbols, fetchLatestPrice } from '../lib/api/stock';
-import type { DailyPriceResponse } from '../lib/types';
+import { fetchStockInfos, fetchLatestPrice } from '../lib/api/stock';
+import type { DailyPriceResponse, StockInfo } from '../lib/types';
 import { useNewsList } from '../lib/hooks/useNewsList';
 import { NewsAdvancedFilters } from '../components/news/NewsAdvancedFilters';
 import { NewsListSkeleton } from '../components/news/NewsListSkeleton';
@@ -39,7 +39,7 @@ export default function Home() {
   const pricesAbortRef = useRef<AbortController | null>(null);
   const sparklineAbortRef = useRef<AbortController | null>(null);
 
-  const [symbols, setSymbols] = useState<string[]>([]);
+  const [stockInfos, setStockInfos] = useState<StockInfo[]>([]);
   const [prices, setPrices] = useState<DailyPriceResponse[]>([]);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [loadingSymbols, setLoadingSymbols] = useState(true);
@@ -47,6 +47,12 @@ export default function Home() {
 
   const [errorSymbols, setErrorSymbols] = useState<string | null>(null);
   const [errorPrices, setErrorPrices] = useState<string | null>(null);
+
+  const symbols = useMemo(() => stockInfos.map((stock) => stock.symbol), [stockInfos]);
+  const stockNames = useMemo(
+    () => Object.fromEntries(stockInfos.map((stock) => [stock.symbol, stock.name])),
+    [stockInfos],
+  );
 
   const [newsKeyword, setNewsKeyword] = useState('');
   const newsList = useNewsList({ pageSize: NEWS_PAGE_SIZE });
@@ -62,9 +68,9 @@ export default function Home() {
     symbolsReloadRef.current += 1;
     setLoadingSymbols(true);
     setErrorSymbols(null);
-    fetchSymbols()
-      .then((syms) => {
-        setSymbols(syms);
+    fetchStockInfos()
+      .then((infos) => {
+        setStockInfos(infos);
         setErrorSymbols(null);
       })
       .catch((err) => setErrorSymbols(err instanceof Error ? err.message : '無法載入股票清單'))
@@ -205,6 +211,7 @@ export default function Home() {
                     <StockSearch
                       className="w-full max-w-none"
                       symbols={symbols}
+                      stockNames={stockNames}
                       onSelect={navigateToStock}
                       onBulkSelect={(input) => {
                         const parsed = parseBulkSymbolInput(input);
@@ -279,6 +286,7 @@ export default function Home() {
                   <StockPriceCard
                     key={p.symbol}
                     data={p}
+                    companyName={stockNames[p.symbol]}
                     index={i}
                     sparkline={sparklines[p.symbol]}
                     onNavigate={navigateToStock}

@@ -8,11 +8,25 @@ export interface FetchNewsParams {
   article_id?: string;
   keyword?: string;
   stock?: string;
+  scope?: 'market' | 'industry' | 'company';
+  industry?: string;
+  topic?: string;
+  direction?: 'positive' | 'negative' | 'neutral' | 'mixed' | 'uncertain';
+  importance?: 'high' | 'medium' | 'low';
+  relation?: 'direct' | 'market_context' | 'industry_context';
   source?: string;
   start_time?: string;
   end_time?: string;
-  sort_by?: 'pub_time' | 'created_at';
+  sort_by?: 'pub_time' | 'created_at' | 'importance';
   sort_order?: 'asc' | 'desc';
+}
+
+export interface FetchRelatedNewsParams {
+  symbol: string;
+  relation?: 'direct' | 'market_context' | 'industry_context';
+  lookback_days?: number;
+  limit?: number;
+  as_of?: string;
 }
 
 function newsRequestKey(params?: FetchNewsParams): string {
@@ -28,6 +42,14 @@ export async function fetchNews(params?: FetchNewsParams): Promise<PaginatedNews
   });
 }
 
+export async function fetchRelatedNews(params: FetchRelatedNewsParams): Promise<PaginatedNewsResponse> {
+  const key = `GET /api/retrieval/news ${JSON.stringify(params)}`;
+  return dedupeFetch(key, async () => {
+    const { data } = await apiClient.get<PaginatedNewsResponse>('/api/retrieval/news', { params });
+    return data;
+  });
+}
+
 /** openapi: GET /news/{article_id} */
 export async function fetchNewsDetail(articleId: string, stock?: string): Promise<News> {
   const key = `GET /news/${articleId} ${stock ?? ''}`;
@@ -35,6 +57,13 @@ export async function fetchNewsDetail(articleId: string, stock?: string): Promis
     const { data } = await apiClient.get<News>(`/news/${encodeURIComponent(articleId)}`, {
       params: stock ? { stock } : undefined,
     });
+    return data;
+  });
+}
+
+export async function fetchNewsIndustries(): Promise<{ items: { id: string; name: string }[] }> {
+  return dedupeFetch('GET /news/industries', async () => {
+    const { data } = await apiClient.get<{ items: { id: string; name: string }[] }>('/news/industries');
     return data;
   });
 }

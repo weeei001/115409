@@ -1,53 +1,27 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, ExternalLink, Tag, ChevronDown, Quote, ArrowUpRight } from 'lucide-react';
-import type { News, NewsSentiment } from '../lib/types';
+import { Clock, ExternalLink, Tag, ChevronDown, ArrowUpRight } from 'lucide-react';
+import type { News } from '../lib/types';
 import { formatTime } from '../lib/utils/date';
 import { usePrefersReducedMotionClient } from '../lib/usePrefersReducedMotionClient';
-import { getStockDisplayName } from '../lib/utils/symbolNames';
+import { DIRECTION_CLASSES, DIRECTION_LABELS, IMPORTANCE_LABELS, impactTarget, visibleImpacts } from '../lib/utils/newsImpact';
 
 interface Props {
   news: News;
   index?: number;
   defaultExpanded?: boolean;
   targetStock?: string;
+  relation?: 'direct' | 'market_context' | 'industry_context';
 }
-
-const SENTIMENT_CONFIG: Record<
-  string,
-  { label: string; badgeClass: string }
-> = {
-  positive: {
-    label: '正面',
-    badgeClass: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-  },
-  negative: {
-    label: '負面',
-    badgeClass: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
-  },
-  neutral: {
-    label: '中性',
-    badgeClass: 'text-slate-300 bg-slate-500/15 border-slate-500/30',
-  },
-  mixed: {
-    label: '正負混合',
-    badgeClass: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-  },
-  insufficient: {
-    label: '資訊不足',
-    badgeClass: 'text-zinc-400 bg-zinc-500/15 border-zinc-500/30',
-  },
-};
-
 
 /** 主要關聯股票放 stock_id，其餘關聯股票放 tags（逗號分隔） */
 function parseStocks(stockId: string | null, tags: string | null): string[] {
   const raw = [stockId ?? '', ...(tags ?? '').split(',')];
   const seen = new Set<string>();
   for (const item of raw) {
-    const s = item.trim().replace(/\.TW$/i, '');
-    if (s) seen.add(s);
+    const s = item.trim().replace(/\.(?:TW|TWO)$/i, '');
+    if (/^\d{4,6}$/.test(s)) seen.add(s);
   }
   return [...seen];
 }
@@ -74,19 +48,23 @@ export const NewsCard = React.memo<Props>(function NewsCard({
   index = 0,
   defaultExpanded = false,
   targetStock,
+  relation = 'direct',
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const reduceMotion = usePrefersReducedMotionClient();
-  const stocks = parseStocks(news.stock_id, news.tags);
+  const stocks = news.event_analysis?.status === 'success'
+    ? [...new Set(news.event_analysis.impacts.filter((impact) => impact.target_type === 'company').map((impact) => impact.target_id))]
+    : parseStocks(news.stock_id, news.tags);
   const hasContent = !!news.content?.trim();
   const snippet = truncateContent(news.content);
   const safeUrl = safeExternalUrl(news.url);
   const contentPanelId = `news-content-${news.article_id ?? index}`;
   const expandLabel = expanded ? '收合新聞內文' : '展開新聞內文';
 
-  const relevantSentiment = targetStock
-    ? news.sentiments?.find((s) => s.target_stock_id === targetStock)
-    : news.sentiments?.[0];
+  const impacts = visibleImpacts(news, targetStock, relation);
+  const visibleEvents = targetStock
+    ? news.event_analysis.events.filter((event) => impacts.some((impact) => impact.event_key === event.key))
+    : news.event_analysis.events;
 
   return (
     <motion.article
@@ -132,69 +110,33 @@ export const NewsCard = React.memo<Props>(function NewsCard({
             </Link>
           </h3>
 
-          {/* 情緒分析區塊（依規格第 1, 8 節展示） */}
-          {targetStock ? (
-            relevantSentiment ? (
-              <div className="my-2 p-2.5 rounded-lg bg-[var(--color-bg-elevated)]/60 border border-[var(--color-border)] text-xs">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded border ${
-                      SENTIMENT_CONFIG[relevantSentiment.label]?.badgeClass ??
-                      'text-zinc-400 bg-zinc-500/15 border-zinc-500/30'
-                    }`}
-                  >
-                    {getStockDisplayName(relevantSentiment.target_stock_id)} ｜{' '}
-                    {SENTIMENT_CONFIG[relevantSentiment.label]?.label ?? relevantSentiment.label}
-                  </span>
-                </div>
-                <p className="mt-1 text-[11px] text-[var(--color-text-secondary)] leading-relaxed">
-                  <span className="font-medium text-[var(--color-text-primary)]">理由：</span>
-                  {relevantSentiment.reason}
-                </p>
-                {/* 原文引用（展開時顯示，以純文字呈現避免 HTML 注入） */}
-                {expanded && relevantSentiment.evidence && relevantSentiment.evidence.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-[var(--color-border)]/60 space-y-1.5">
-                    <div className="text-[10px] font-semibold text-[var(--color-text-muted)] flex items-center gap-1">
-                      <Quote size={11} className="text-brand" aria-hidden />
-                      <span>原文依據：</span>
-                    </div>
-                    {relevantSentiment.evidence.map((ev, i) => (
-                      <div
-                        key={i}
-                        className="text-[11px] text-[var(--color-text-secondary)] pl-2 border-l-2 border-brand/50 leading-snug"
-                      >
-                        <span className="text-[10px] font-mono text-[var(--color-text-muted)] mr-1.5">
-                          [{ev.field === 'title' ? '標題' : '內文'}]
-                        </span>
-                        <span>"{ev.quote}"</span>
-                      </div>
+          {(
+            <div className="my-2 space-y-1.5 text-xs">
+              {news.event_analysis.status === 'success' ? (
+                <>
+                  {visibleEvents.slice(0, 2).map((event) => (
+                    <p key={event.key} className="text-[var(--color-text-secondary)] leading-relaxed">
+                      {event.summary}
+                    </p>
+                  ))}
+                  <div className="flex flex-wrap gap-1.5">
+                    {impacts.slice(0, 4).map((impact, i) => (
+                      <span key={`${impact.event_key}-${impact.target_type}-${impact.target_id}-${i}`}
+                        className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-medium ${DIRECTION_CLASSES[impact.direction]}`}>
+                        {impactTarget(impact)}｜{DIRECTION_LABELS[impact.direction]}｜{IMPORTANCE_LABELS[impact.importance]}
+                      </span>
                     ))}
+                    {impacts.length > 4 && <span className="text-[var(--color-text-muted)]">另有 {impacts.length - 4} 項影響</span>}
+                    {impacts.length === 0 && <span className="text-[var(--color-text-muted)]">無可確認的{targetStock ? '此範圍' : '台股'}影響</span>}
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="my-1.5">
-                <span className="inline-flex items-center text-[10px] font-medium text-[var(--color-text-muted)] bg-[var(--color-bg-elevated)] px-1.5 py-0.5 rounded border border-[var(--color-border)]">
-                  {getStockDisplayName(targetStock)} ｜ 尚無分析結果
+                </>
+              ) : (
+                <span className="text-[var(--color-text-muted)]">
+                  事件影響分析{news.event_analysis.status === 'failed' ? '失敗，等待重試' : news.event_analysis.status === 'skipped' ? '資料不足' : '尚待處理'}
                 </span>
-              </div>
-            )
-          ) : news.sentiments && news.sentiments.length > 0 ? (
-            <div className="my-1.5 flex items-center gap-1.5 flex-wrap">
-              {news.sentiments.map((s) => (
-                <span
-                  key={s.target_stock_id}
-                  className={`inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded border ${
-                    SENTIMENT_CONFIG[s.label]?.badgeClass ??
-                    'text-zinc-400 bg-zinc-500/15 border-zinc-500/30'
-                  }`}
-                >
-                  {getStockDisplayName(s.target_stock_id)} ｜{' '}
-                  {SENTIMENT_CONFIG[s.label]?.label ?? s.label}
-                </span>
-              ))}
+              )}
             </div>
-          ) : null}
+          )}
 
           {snippet && !expanded && (
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed line-clamp-2">{snippet}</p>
@@ -231,7 +173,7 @@ export const NewsCard = React.memo<Props>(function NewsCard({
               href={`/news/${encodeURIComponent(news.article_id)}${targetStock ? `?stock=${targetStock}` : ''}`}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-brand hover:underline"
             >
-              <span>查看新聞全文與 AI 情緒分析</span>
+              <span>查看新聞全文與事件影響</span>
               <ArrowUpRight size={12} aria-hidden />
             </Link>
             {safeUrl && (

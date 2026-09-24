@@ -5,6 +5,7 @@ import type { BulkSelectResult } from '../lib/types';
 
 interface Props {
   symbols: string[];
+  stockNames?: Record<string, string>;
   onSelect: (symbol: string) => void;
   onBulkSelect: (input: string) => BulkSelectResult;
   maxSelection: number;
@@ -16,6 +17,7 @@ interface Props {
 
 export const StockSearch: React.FC<Props> = ({
   symbols,
+  stockNames,
   onSelect,
   onBulkSelect,
   maxSelection,
@@ -44,8 +46,9 @@ export const StockSearch: React.FC<Props> = ({
 
   const filtered = useMemo(() => {
     if (!query.trim()) return symbols.slice(0, 20);
-    return symbols.filter((s) => s.includes(query.trim())).slice(0, 20);
-  }, [query, symbols]);
+    const keyword = query.trim().toUpperCase();
+    return symbols.filter((s) => s.includes(keyword) || stockNames?.[s]?.includes(query.trim())).slice(0, 20);
+  }, [query, stockNames, symbols]);
 
   const commitBulkInput = (rawInput: string) => {
     const text = rawInput.trim();
@@ -169,7 +172,7 @@ export const StockSearch: React.FC<Props> = ({
                 i === activeIndex && 'bg-brand/10 text-brand',
               )}
             >
-              {s}
+              {stockNames?.[s] ? `${s} ${stockNames[s]}` : s}
             </li>
           ))}
         </ul>

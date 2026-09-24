@@ -36,18 +36,34 @@ export const MiniPriceCard: React.FC<Props> = ({ priceChart, onOpenDetail }) => 
     const base = getEChartsBaseOption(isDark);
     const opt: EChartsOption = {
       ...base,
-      grid: { left: 8, right: 8, top: 8, bottom: 16, containLabel: false },
+      grid: { left: 48, right: 8, top: 8, bottom: 34, containLabel: true },
       xAxis: {
         type: 'category',
         data: dates,
-        show: false,
+        name: '日期',
+        nameLocation: 'middle',
+        nameGap: 22,
+        nameTextStyle: { color: palette.tickMuted, fontSize: 9 },
+        axisLabel: {
+          color: palette.tickMuted,
+          fontSize: 9,
+          formatter: (value: string) => value.slice(5),
+        },
+        axisLine: { lineStyle: { color: palette.grid } },
+        axisTick: { show: false },
         boundaryGap: false,
       },
       yAxis: {
         type: 'value',
         scale: true,
-        show: false,
-        splitLine: { show: false },
+        name: '價格（元）',
+        nameLocation: 'middle',
+        nameGap: 34,
+        nameTextStyle: { color: palette.tickMuted, fontSize: 9 },
+        axisLabel: { color: palette.tickMuted, fontSize: 9 },
+        axisLine: { show: true, lineStyle: { color: palette.grid } },
+        axisTick: { show: false },
+        splitLine: { show: true, lineStyle: { color: palette.gridSubtle } },
       },
       tooltip: {
         trigger: 'axis',
@@ -118,9 +134,9 @@ export const MiniPriceCard: React.FC<Props> = ({ priceChart, onOpenDetail }) => 
       <p className="text-[11px] text-[var(--color-text-muted)] -mt-1">
         近 {Math.min(priceChart?.candles?.length ?? 0, RECENT_CANDLES)} 個交易日收盤
       </p>
-      <div className="flex-1 min-h-[140px]">
+      <div className="flex-1 min-h-[200px]">
         {option ? (
-          <EChartPanel title="近期收盤走勢" option={option} height={140} bare />
+          <EChartPanel title="近期收盤走勢" option={option} height={200} bare />
         ) : (
           <p className="text-sm text-[var(--color-text-muted)] py-8 text-center">尚無 K 線資料</p>
         )}

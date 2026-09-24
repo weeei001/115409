@@ -5,15 +5,15 @@ import { TrendingUp, Loader2 } from 'lucide-react';
 import { SubpageHeader } from '../../components/SubpageHeader';
 import { StockDashboardLayout } from '../../components/stock/StockDashboardLayout';
 import { useStockDashboard } from '../../lib/hooks/useStockDashboard';
-import { getStockDisplayName } from '../../lib/utils/symbolNames';
+import { useStockDisplayName } from '../../lib/utils/symbolNames';
 import { breadcrumbsForStock, breadcrumbsTrail } from '../../lib/nav';
 
 function StockDashboardView({ symbol }: { symbol: string }) {
   const router = useRouter();
   const dashboard = useStockDashboard(symbol, true);
 
-  const displayName = symbol ? getStockDisplayName(symbol) : '';
-  const stockBreadcrumbs = breadcrumbsForStock(symbol);
+  const displayName = useStockDisplayName(symbol);
+  const stockBreadcrumbs = breadcrumbsForStock(symbol, displayName);
 
   const stockTitle = `股海明燈｜${symbol} ${displayName}`;
   const stockDesc = `查詢 ${symbol} ${displayName} 即時股價、K 線、籌碼、技術指標、AI 投資分析與新聞（展示／專題用途）。`;
@@ -140,7 +140,7 @@ function StockDashboardView({ symbol }: { symbol: string }) {
         aria-label="個股儀表板內容"
         tabIndex={-1}
       >
-        <StockDashboardLayout dashboard={dashboard} />
+        <StockDashboardLayout dashboard={dashboard} stockName={displayName} />
       </main>
     </div>
   );

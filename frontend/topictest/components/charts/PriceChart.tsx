@@ -885,6 +885,15 @@ export const PriceChart: React.FC<Props> = ({ data, compact = false }) => {
       </div>
       )}
       <div className="relative h-[360px] sm:h-[460px] w-full overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-card)]/70">
+        <span className="pointer-events-none absolute left-1 top-[25%] z-10 -translate-y-1/2 rounded bg-[var(--color-bg-card)]/80 px-1 py-1 text-[10px] font-medium text-[var(--color-text-muted)] [writing-mode:vertical-rl]">
+          價格（元）
+        </span>
+        <span className="pointer-events-none absolute left-1 bottom-[15%] z-10 rounded bg-[var(--color-bg-card)]/80 px-1 py-1 text-[10px] font-medium text-[var(--color-text-muted)] [writing-mode:vertical-rl]">
+          成交量（股）
+        </span>
+        <span className="pointer-events-none absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded bg-[var(--color-bg-card)]/80 px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-muted)]">
+          日期
+        </span>
         <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-card)]/90 px-3 py-2 text-xs text-[var(--color-text-secondary)] shadow-sm backdrop-blur">
           {overlayData ? (
             <div className="space-y-1">

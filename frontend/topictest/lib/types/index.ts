@@ -51,6 +51,12 @@ export interface DailyPriceResponse {
   trades: number | null;
 }
 
+export interface StockInfo {
+  symbol: string;
+  name: string;
+  industry?: string | null;
+}
+
 export interface HistoricalPriceList {
   symbol: string;
   start_date: string;
@@ -275,18 +281,39 @@ export interface TechnicalIndicatorListApiResponse {
 
 // ── News API Response Types ──
 
-export interface SentimentEvidence {
+export type NewsImpactDirection = 'positive' | 'negative' | 'neutral' | 'mixed' | 'uncertain';
+export type NewsImpactScope = 'market' | 'industry' | 'company';
+
+export interface NewsEvidence {
   field: 'title' | 'content';
   quote: string;
 }
 
-export type SentimentLabel = 'positive' | 'negative' | 'neutral' | 'mixed' | 'insufficient';
+export interface NewsEvent {
+  key: string;
+  summary: string;
+  statement_type: 'fact' | 'plan' | 'forecast' | 'opinion';
+  speaker?: string | null;
+  topics: string[];
+  evidence: NewsEvidence[];
+}
 
-export interface NewsSentiment {
-  target_stock_id: string;
-  label: SentimentLabel | string;
+export interface NewsImpact {
+  event_key: string;
+  target_type: NewsImpactScope;
+  target_id: string;
+  target_name?: string | null;
+  direction: NewsImpactDirection;
+  importance: 'high' | 'medium' | 'low';
+  basis: 'reported' | 'inferred';
   reason: string;
-  evidence: SentimentEvidence[];
+  evidence: NewsEvidence[];
+}
+
+export interface NewsEventAnalysis {
+  status: 'pending' | 'success' | 'failed' | 'skipped';
+  events: NewsEvent[];
+  impacts: NewsImpact[];
   analyzed_at?: string | null;
 }
 
@@ -301,7 +328,7 @@ export interface News {
   url: string | null;
   tags: string | null;
   created_at: string | null;
-  sentiments?: NewsSentiment[];
+  event_analysis: NewsEventAnalysis;
 }
 
 

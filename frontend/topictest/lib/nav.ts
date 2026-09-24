@@ -72,10 +72,10 @@ function isRoutableStockSymbol(symbol: string): boolean {
   return /^\d{4,6}$/.test(code);
 }
 
-export function breadcrumbsForStock(symbol: string): BreadcrumbItem[] {
+export function breadcrumbsForStock(symbol: string, stockName?: string): BreadcrumbItem[] {
   const code = symbol.trim();
   if (!isRoutableStockSymbol(code)) return breadcrumbsTrail('個股');
-  const name = getStockDisplayName(code);
+  const name = stockName?.trim() || getStockDisplayName(code);
   const label = name !== code ? `${code} ${name}` : code;
   return breadcrumbsTrail(label);
 }

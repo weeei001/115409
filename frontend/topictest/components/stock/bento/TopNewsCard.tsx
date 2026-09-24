@@ -4,6 +4,7 @@ import { Newspaper, Sparkles, ChevronRight } from 'lucide-react';
 import { useNewsList } from '../../../lib/hooks/useNewsList';
 import { parseNewsDate } from '../../../lib/utils/date';
 import { BentoCardShell } from './BentoCardShell';
+import { DIRECTION_CLASSES, DIRECTION_LABELS, visibleImpacts } from '../../../lib/utils/newsImpact';
 
 interface Props {
   symbol: string;
@@ -17,16 +18,8 @@ function formatDate(value: string | null | undefined): string {
   return d.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
-const SENTIMENT_BADGES: Record<string, { text: string; cls: string }> = {
-  positive: { text: '正面', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
-  negative: { text: '負面', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/30' },
-  neutral: { text: '中性', cls: 'text-slate-300 bg-slate-500/15 border-slate-500/30' },
-  mixed: { text: '正負混合', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
-  insufficient: { text: '資訊不足', cls: 'text-zinc-400 bg-zinc-500/15 border-zinc-500/30' },
-};
-
 export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
-  const newsList = useNewsList({ pageSize: 3, fixedStock: symbol });
+  const newsList = useNewsList({ pageSize: 3, fixedStock: symbol, fixedRelation: 'direct', retrieval: true });
   const items = newsList.data?.items ?? [];
   const hasError = !newsList.loading && Boolean(newsList.error);
   const isEmpty = !newsList.loading && !hasError && items.length === 0;
@@ -39,7 +32,7 @@ export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium text-brand bg-brand/10 border border-brand/20 px-2 py-0.5 rounded-full">
             <Sparkles size={10} aria-hidden />
-            AI 情緒標籤
+            AI 事件影響
           </span>
           {newsList.data ? (
             <span className="text-[11px] text-[var(--color-text-muted)] tabular-nums">
@@ -62,9 +55,8 @@ export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
           <ul className="flex flex-col gap-2">
             {items.map((news) => {
               const date = formatDate(news.pub_time);
-              const linkable = Boolean(news.url);
-              const sentiment = news.sentiments?.find((s) => s.target_stock_id === symbol);
-              const badge = sentiment ? SENTIMENT_BADGES[sentiment.label] : null;
+              const impact = visibleImpacts(news, symbol)[0];
+              const badge = impact ? { text: DIRECTION_LABELS[impact.direction], cls: DIRECTION_CLASSES[impact.direction] } : null;
 
               const content = (
                 <>
@@ -78,17 +70,19 @@ export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
                       </span>
                     ) : (
                       <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded border text-zinc-400 bg-zinc-500/10 border-zinc-500/20">
-                        尚無分析
+                        {news.event_analysis.status === 'success' ? '未確認直接影響' :
+                          news.event_analysis.status === 'failed' ? '分析失敗' :
+                            news.event_analysis.status === 'skipped' ? '資料無法分析' : '尚待分析'}
                       </span>
                     )}
                     {date ? (
                       <p className="text-[10px] text-[var(--color-text-muted)] tabular-nums">{date}</p>
                     ) : null}
                   </div>
-                  {sentiment?.reason ? (
+                  {impact?.reason ? (
                     <div className="mt-1.5 text-[11px] text-[var(--color-text-secondary)] line-clamp-1 bg-[var(--color-bg-card)]/90 px-2 py-1 rounded border border-[var(--color-border)]/60">
                       <span className="text-[var(--color-text-primary)] font-medium">理由：</span>
-                      {sentiment.reason}
+                      {impact.reason}
                     </div>
                   ) : null}
                 </>
@@ -113,7 +107,7 @@ export const TopNewsCard: React.FC<Props> = ({ symbol, onOpenDetail }) => {
           <div className="mt-3 pt-2.5 border-t border-[var(--color-border)]/50 flex items-center justify-between gap-2 flex-wrap">
             <span className="text-[10px] text-[var(--color-text-muted)] flex items-center gap-1">
               <Sparkles size={11} className="text-brand shrink-0" aria-hidden />
-              情緒反映新聞訊息，不代表股價預測
+              新聞影響判讀不代表股價預測
             </span>
             <button
               type="button"

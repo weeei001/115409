@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { UseStockDashboardResult } from '../../lib/hooks/useStockDashboard';
-import { getStockDisplayName } from '../../lib/utils/symbolNames';
 import { AnimatedSection } from '../AnimatedSection';
 import { StatisticsPanel } from '../StatisticsPanel';
 import { HistoryTable } from '../HistoryTable';
@@ -26,13 +25,14 @@ type DrawerKey = 'chart' | 'institutional' | 'indicators' | 'ai' | 'news';
 
 interface Props {
   dashboard: UseStockDashboardResult;
+  stockName?: string;
 }
 
 function Hairline() {
   return <div aria-hidden className="h-px w-full bg-[var(--color-border)]/60" />;
 }
 
-export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
+export const StockDashboardLayout: React.FC<Props> = ({ dashboard, stockName: stockNameProp }) => {
   const {
     symbol,
     latest,
@@ -67,7 +67,7 @@ export const StockDashboardLayout: React.FC<Props> = ({ dashboard }) => {
     setShowPriceChange,
   } = dashboard;
 
-  const stockName = getStockDisplayName(symbol);
+  const stockName = stockNameProp?.trim() || symbol;
   // 全頁只有這一份 AI 分析：Hero 卡片、風險提醒與 AI 抽屜共用同一個 text-brief 實例。
   const textBrief = useStockTextBrief({ symbol, asOfDate: endDate ?? undefined });
   const signals = useTechnicalSignals(priceChart);

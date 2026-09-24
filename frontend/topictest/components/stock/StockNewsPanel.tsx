@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Newspaper, RefreshCw, Info } from 'lucide-react';
 import { useNewsList } from '../../lib/hooks/useNewsList';
 import { useHydrated } from '../../lib/useHydrated';
 import { NewsCard } from '../NewsCard';
-import { NewsAdvancedFilters } from '../news/NewsAdvancedFilters';
 import { NewsListSkeleton } from '../news/NewsListSkeleton';
 
 interface Props {
@@ -13,10 +12,9 @@ interface Props {
 const PAGE_SIZE = 8;
 
 export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
-  const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol });
+  const [relation, setRelation] = useState<'direct' | 'industry_context' | 'market_context'>('direct');
+  const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol, fixedRelation: relation, retrieval: true });
   const hydrated = useHydrated();
-
-  const totalPages = newsList.data ? Math.max(1, Math.ceil(newsList.data.total / PAGE_SIZE)) : 1;
 
   return (
     <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-card)] p-4 sm:p-5">
@@ -26,19 +24,11 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
           <h2 className="text-lg font-bold tracking-tight">相關新聞</h2>
           {newsList.data ? (
             <span className="text-xs text-[var(--color-text-muted)] tabular-nums">
-              共 {newsList.data.total.toLocaleString()} 則
+              共 {newsList.data.total.toLocaleString()} 則候選
             </span>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <NewsAdvancedFilters
-            layout="toolbar"
-            draft={newsList.draft}
-            setDraft={newsList.setDraft}
-            onApply={newsList.applyFilters}
-            onClearAdvanced={newsList.clearAdvanced}
-            disabled={newsList.loading}
-          />
           <button
             type="button"
             onClick={newsList.reload}
@@ -53,7 +43,20 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
 
       <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)] bg-[var(--color-bg-elevated)]/60 px-3 py-1.5 rounded-lg mb-4">
         <Info size={12} className="text-brand shrink-0" aria-hidden />
-        <span>情緒反映新聞訊息，不代表股價預測。</span>
+        <span>以公司名稱、代號與語意檢索新聞；產業與大盤消息僅提供背景。</span>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+        <div className="flex gap-1.5 flex-wrap" role="group" aria-label="新聞關聯範圍">
+          {([
+            ['direct', '公司新聞'], ['industry_context', '產業背景'], ['market_context', '大盤背景'],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setRelation(value)} aria-pressed={relation === value}
+              className={`min-h-[36px] rounded-lg border px-3 py-1.5 text-xs ${relation === value ? 'border-brand bg-brand/10 text-brand font-semibold' : 'border-[var(--color-border)] text-[var(--color-text-secondary)]'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {!hydrated || newsList.loading ? (
@@ -69,35 +72,11 @@ export const StockNewsPanel: React.FC<Props> = ({ symbol }) => {
                 news={n}
                 index={i}
                 targetStock={symbol}
+                relation={relation}
               />
             ))}
           </div>
 
-          {totalPages > 1 ? (
-            <div className="mt-4 flex items-center justify-between border-t border-[var(--color-border)] pt-3">
-              <span className="text-xs text-[var(--color-text-muted)] tabular-nums">
-                第 {newsList.page} / {totalPages} 頁
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={newsList.page <= 1}
-                  onClick={() => newsList.goToPage(newsList.page - 1)}
-                  className="min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] disabled:opacity-50"
-                >
-                  上一頁
-                </button>
-                <button
-                  type="button"
-                  disabled={newsList.page >= totalPages}
-                  onClick={() => newsList.goToPage(newsList.page + 1)}
-                  className="min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] disabled:opacity-50"
-                >
-                  下一頁
-                </button>
-              </div>
-            </div>
-          ) : null}
         </>
       ) : (
         <p className="text-sm text-[var(--color-text-muted)] py-6 text-center">暫無相關新聞</p>
