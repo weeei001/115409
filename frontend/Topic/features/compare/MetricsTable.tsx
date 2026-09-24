@@ -1,0 +1,98 @@
+import React, { useMemo, useRef, useState } from 'react';
+import { TableScrollHint } from '@/components/common/CollapsibleSection';
+import type { CompareMetricsRow } from '@/lib/types/compare';
+import { sortMetricsRows, type CompareSortState } from '@/lib/utils/compare';
+import { fmtPercent, fmtVolume } from '@/lib/utils/format';
+import { valueToneText } from '@/lib/utils/tone';
+import { cn } from '@/lib/cn';
+
+const HEADERS: Array<{ key: keyof CompareMetricsRow; label: string; title?: string }> = [
+  { key: 'symbol', label: '股票' },
+  { key: 'totalReturnPct', label: '區間報酬%' },
+  { key: 'volatilityPct', label: '年化波動%', title: '日報酬標準差 × √252 × 100%' },
+  { key: 'maxDrawdownPct', label: '最大回撤%' },
+  { key: 'winRatePct', label: '勝率%' },
+  { key: 'maxDailyGainPct', label: '最大單日漲%' },
+  { key: 'maxDailyLossPct', label: '最大單日跌%' },
+  { key: 'avgVolume', label: '平均量' },
+  { key: 'avgAmount', label: '平均金額' },
+];
+
+const fmtAmountPlain = (v: number | null) => (v == null || !Number.isFinite(v) ? '--' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+
+const td = 'px-3 py-3 whitespace-nowrap tabular-nums sm:px-4';
+
+/** 比較指標表：點欄位標題排序（預設區間報酬由高到低） */
+export function MetricsTable({ rows, symbolColors }: { rows: CompareMetricsRow[]; symbolColors: Record<string, string> }) {
+  const [sort, setSort] = useState<CompareSortState>({ key: 'totalReturnPct', direction: 'desc' });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sorted = useMemo(() => sortMetricsRows(rows, sort), [rows, sort]);
+
+  const toggleSort = (key: keyof CompareMetricsRow) =>
+    setSort((prev) => ({
+      key,
+      direction: prev.key === key ? (prev.direction === 'asc' ? 'desc' : 'asc') : key === 'symbol' ? 'asc' : 'desc',
+    }));
+
+  return (
+    <section aria-label="股票比較指標表" className="overflow-hidden rounded-2xl border bg-card shadow-card">
+      <div className="border-b px-5 py-4">
+        <h2 className="text-base font-bold">比較指標表</h2>
+      </div>
+      <TableScrollHint scrollRef={scrollRef} className="px-5 pt-3" />
+      <div ref={scrollRef} className="overflow-x-auto overscroll-x-contain">
+        <table className="w-full text-sm">
+          <thead className="bg-muted">
+            <tr>
+              {HEADERS.map((h) => {
+                const active = sort.key === h.key;
+                return (
+                  <th
+                    key={h.key}
+                    scope="col"
+                    aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                    className="px-3 py-3 text-left whitespace-nowrap sm:px-4"
+                  >
+                    <button
+                      type="button"
+                      title={h.title}
+                      onClick={() => toggleSort(h.key)}
+                      className="min-h-9 font-semibold text-subtle transition-colors hover:text-brand-text"
+                    >
+                      {h.label}
+                      {active ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ''}
+                    </button>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr key={r.symbol} className="border-t transition-colors hover:bg-muted/60">
+                <td className={cn(td, 'font-mono font-semibold')}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block size-2 rounded-full" style={{ backgroundColor: symbolColors[r.symbol] }} aria-hidden />
+                    {r.symbol}
+                  </span>
+                </td>
+                <td className={cn(td, 'font-medium', valueToneText(r.totalReturnPct))}>{fmtPercent(r.totalReturnPct)}</td>
+                <td className={td}>{fmtPercent(r.volatilityPct)}</td>
+                <td className={td}>{fmtPercent(r.maxDrawdownPct)}</td>
+                <td className={td}>{fmtPercent(r.winRatePct)}</td>
+                <td className={cn(td, valueToneText(r.maxDailyGainPct))}>{fmtPercent(r.maxDailyGainPct)}</td>
+                <td className={cn(td, valueToneText(r.maxDailyLossPct))}>{fmtPercent(r.maxDailyLossPct)}</td>
+                <td className={td}>{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
+                <td className={td}>{fmtAmountPlain(r.avgAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-0.5 px-4 py-2 text-xs text-muted-foreground">
+        <p>點擊欄位標題可排序，空值以 -- 顯示。</p>
+        <p>「年化波動%」為日報酬標準差 × √252；台股年化常用 252 個交易日。</p>
+      </div>
+    </section>
+  );
+}
