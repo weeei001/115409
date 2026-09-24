@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from pydantic import ValidationError
 from .schemas import (RawStockBehaviorTextBrief, RawTextBriefClaim, RawTextBriefForwardView,
@@ -33,7 +34,7 @@ JARGON_TERMS_RE = re.compile(
     r"隨機指標|相對強弱|指數平滑異同"
 )
 FORWARD_CONDITION_KEYS = frozenset({"trigger", "invalidation"})
-FORWARD_PRICE_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:元|塊)")
+FORWARD_PRICE_RE = re.compile(r"(?<![\d.,])([\d.,]+(?:\s*(?:至|到|[-~～、/]|及|與|和|或)\s*[\d.,]+)*)\s*(?:元|塊)")
 TEXT_BRIEF_NUMBER_TOLERANCE_PP = 0.1
 TEXT_BRIEF_NO_GUIDANCE_LIMITATION = "本分析未涵蓋公司自提財測，展望類資訊僅來自媒體報導。"
 TEXT_BRIEF_DISCLAIMER_VERSION = "v1"
@@ -273,49 +274,59 @@ def _text_brief_compliance_texts(value: Any) -> list[str]:
     collect(value)
     return parts
 
-def _forward_condition_texts(value: Any) -> list[str]:
-    texts: list[str] = []
+def _historical_prices(bundle: EvidenceBundle) -> dict[str, Decimal]:
+    prices = {}
+    for row in bundle.daily_timeline + bundle.long_term_anchor:
+        try:
+            if date.fromisoformat(str(row.get("date"))) > bundle.as_of_date:
+                continue
+            value = (row.get("close") if "close" in row else row.get("value")
+                     if row.get("field") in {"high_1y", "low_1y"} else None)
+            price = Decimal(str(value))
+            if price.is_finite() and price > 0:
+                prices[row["id"]] = price
+        except (ValueError, InvalidOperation):
+            continue
+    return prices
 
-    def collect(item: Any) -> None:
-        if isinstance(item, dict):
-            for key, child in item.items():
-                if key in FORWARD_CONDITION_KEYS and isinstance(child, str):
-                    texts.append(child)
-                else:
-                    collect(child)
-        elif isinstance(item, list):
-            for child in item:
-                collect(child)
 
-    collect(value)
-    return texts
-
-def _scan_forward_condition_prices(value: Any) -> list[ComplianceHit]:
-    return [
-        ComplianceHit("前瞻價位-hard", "hard", text)
-        for text in _forward_condition_texts(value)
-        if FORWARD_PRICE_RE.search(text)
-    ]
-
-def _scan_text_brief_compliance(value: Any) -> list[ComplianceHit]:
-    hits = [
-        hit
-        for text in _text_brief_compliance_texts(value)
-        for hit in scan_compliance_hits(text)
-    ]
-    return hits + _scan_forward_condition_prices(value)
+def _scan_text_brief_compliance(value: Any, *, prices: dict[str, Decimal] | None = None) -> list[ComplianceHit]:
+    hits = []
+    if isinstance(value, list):
+        for item in value:
+            hits.extend(_scan_text_brief_compliance(item, prices=prices))
+    elif isinstance(value, dict):
+        cited_prices = {(prices or {})[ref] for ref in value.get("evidence_ids", []) if ref in (prices or {})}
+        for key, text in value.items():
+            if key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS and isinstance(text, str):
+                matches = list(FORWARD_PRICE_RE.finditer(text)) if key in FORWARD_CONDITION_KEYS else []
+                amounts = [amount for match in matches for amount in re.findall(r"[\d.,]+", match.group(1))]
+                grounded = bool(amounts) and all(
+                    re.fullmatch(r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", amount)
+                    and Decimal(amount.replace(",", "")) in cited_prices for amount in amounts)
+                hits.extend(scan_compliance_hits(text, grounded_condition=grounded))
+                if amounts and not grounded:
+                    hits.append(ComplianceHit("前瞻價位-hard", "hard", text))
+            elif key == "limitations" and isinstance(text, list):
+                for entry in text:
+                    if isinstance(entry, str):
+                        hits.extend(scan_compliance_hits(entry))
+            else:
+                hits.extend(_scan_text_brief_compliance(text, prices=prices))
+    return hits
 
 def _apply_text_brief_compliance_gate(
-    brief_payload: dict[str, Any], *, allow_partial_forward_views: bool = False,
+    brief_payload: dict[str, Any], *, bundle: EvidenceBundle | None = None, allow_partial_forward_views: bool = False,
 ) -> tuple[list[str], list[str], list[str], bool]:
     removed_ids: list[str] = []
     hard_violations: list[str] = []
     soft_hits: list[str] = []
+    prices = _historical_prices(bundle) if bundle is not None else {}
 
     for section in TEXT_BRIEF_ITEM_SECTIONS:
         kept = []
         for item in brief_payload[section]:
-            hits = _scan_text_brief_compliance(item)
+            hits = _scan_text_brief_compliance(item, prices=prices)
             hard = [hit for hit in hits if hit.severity == "hard"]
             hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
             soft_hits.extend(
@@ -331,7 +342,7 @@ def _apply_text_brief_compliance_gate(
 
     if allow_partial_forward_views:
         for horizon, view in brief_payload["forward_views"].items():
-            hits = _scan_text_brief_compliance(view)
+            hits = _scan_text_brief_compliance(view, prices=prices)
             hard = [hit for hit in hits if hit.severity == "hard"]
             if hard:
                 hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
@@ -341,6 +352,7 @@ def _apply_text_brief_compliance_gate(
                     "reason": "此期間展望未通過內容檢查，暫不提供方向判讀。",
                     "invalidation": "缺少通過檢查的失效條件。",
                     "evidence_ids": [],
+                    "validation_status": "rejected",
                 }
 
     core_payload = {
@@ -349,7 +361,7 @@ def _apply_text_brief_compliance_gate(
         "limitations": brief_payload["limitations"],
         "forward_views": brief_payload["forward_views"],
     }
-    core_hits = _scan_text_brief_compliance(core_payload)
+    core_hits = _scan_text_brief_compliance(core_payload, prices=prices)
     hard_violations.extend(
         f"{hit.rule}: {hit.snippet}"
         for hit in core_hits

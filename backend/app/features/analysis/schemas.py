@@ -4,6 +4,7 @@ from datetime import date
 from typing import Annotated, Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 ConfidenceLevel = Literal["low", "medium", "high"]
 ClaimDirection = Literal["positive", "negative", "mixed", "neutral", "not_applicable"]
@@ -155,6 +156,7 @@ class TextBriefForwardView(BaseModel):
     reason: str = Field(max_length=160)
     invalidation: str = Field(max_length=120)
     evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
+    validation_status: SkipJsonSchema[Literal["rejected"] | None] = None
 
 class TextBriefForwardViews(BaseModel):
     short_1_5: TextBriefForwardView

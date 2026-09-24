@@ -55,3 +55,15 @@ def test_source_disclaimer_does_not_hide_price_targets_or_trade_instructions(not
                  "媒體目標價 1500 元，非公司公告。",
                  note.replace("目標價", "目標價 1500 元")):
         assert any(hit.severity == "hard" for hit in scan_compliance_hits(text))
+
+
+@pytest.mark.parametrize("separator", ["，", ",", "；", ";", "\n", "\r\n"])
+def test_return_rules_do_not_join_separate_clauses(separator):
+    from app.features.analysis.compliance import scan_compliance_hits
+
+    actual = f"受輝達財報激勵記憶體短缺預期{separator}股價飆漲 4.64% 至 541 元再創新高。"
+    assert not scan_compliance_hits(actual)
+    assert not scan_compliance_hits(f"市場看好{separator}股價已上漲4.64%。")
+    for text in ("預期漲4.64%", f"預期{separator}將漲4.64%"):
+        assert any(hit.rule == "前瞻報酬-hard" for hit in scan_compliance_hits(text))
+    assert any(hit.rule == "前瞻報酬-soft" for hit in scan_compliance_hits("未來上漲4.64%"))

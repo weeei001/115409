@@ -72,6 +72,7 @@ export interface WatchPoint {
 
 export interface ForwardView {
   stance: Stance | string;
+  validation_status?: 'rejected' | null;
   reason: string;
   invalidation: string;
   evidence_ids?: string[];

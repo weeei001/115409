@@ -1,4 +1,4 @@
-import type { ClaimType, ForwardViewKey } from '../types/textBrief';
+import type { ClaimType, ForwardView, ForwardViewKey } from '../types/textBrief';
 
 /**
  * text-brief 回應裡列舉值 → 中文標籤。
@@ -14,6 +14,12 @@ export const STANCE: Record<string, string> = {
   bearish: '偏空',
   uncertain: '資料不足',
 };
+
+export function forwardViewLabel(view: ForwardView): string {
+  return view.validation_status === 'rejected'
+    ? '內容未通過檢查'
+    : (STANCE[view.stance] ?? view.stance);
+}
 
 /** 語意色調；各頁再自行對應到自己的樣式 */
 export type BriefTone = 'ok' | 'warn' | 'bad' | 'info' | 'plain';

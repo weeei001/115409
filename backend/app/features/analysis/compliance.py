@@ -9,7 +9,7 @@ class ComplianceHit(NamedTuple):
     snippet: str
 
 _HARD_RULES = (
-    ("目標價型-hard", re.compile(r"目標價|上看\s*\d|下看\s*\d|挑戰\s*\d+(\.\d+)?\s*元")),
+    ("目標價型-hard", re.compile(r"目標價|上看\s*\d|下看\s*\d|挑戰\s*\d[\d,.]*\s*元")),
     ("未來價位型-hard", re.compile(r"(支撐|壓力|防守|買點|賣點)[^。]{0,12}\d+(\.\d+)?\s*(元|塊)")),
     (
         "操作指令-hard",
@@ -27,8 +27,8 @@ _HARD_RULES = (
     (
         "前瞻報酬-hard",
         re.compile(
-            r"(預期|預估|可望|上看|挑戰|目標|將)[^。]{0,10}"
-            r"(上漲|下跌|漲|跌)幅?[^。]{0,6}\d+(\.\d+)?\s*%"
+            r"(預期|預估|可望|上看|挑戰|目標|將)[^。，,；;\r\n]{0,10}"
+            r"(上漲|下跌|漲|跌)幅?[^。，,；;\r\n]{0,6}\d+(\.\d+)?\s*%"
         ),
     ),
     ("承諾詞-hard", re.compile(r"保證|必然|穩賺|絕對(會|能)")),
@@ -55,18 +55,22 @@ _SOFT_RULES = (
     (
         "前瞻報酬-soft",
         re.compile(
-            rf"(?:{_FORWARD_SOFT_MARKERS})[^。]{{0,12}}(?:上漲|下跌|漲|跌)幅?[^。]{{0,6}}\d+(?:\.\d+)?\s*%"
-            rf"|\d+(?:\.\d+)?\s*%[^。]{{0,4}}(?:的空間|上檔空間|下檔空間)"
+            rf"(?:{_FORWARD_SOFT_MARKERS})[^。，,；;\r\n]{{0,12}}(?:上漲|下跌|漲|跌)幅?[^。，,；;\r\n]{{0,6}}\d+(?:\.\d+)?\s*%"
+            rf"|\d+(?:\.\d+)?\s*%[^。，,；;\r\n]{{0,4}}(?:的空間|上檔空間|下檔空間)"
         ),
     ),
 )
 
-def scan_compliance_hits(text: str) -> list[ComplianceHit]:
+def scan_compliance_hits(text: str, *, grounded_condition: bool = False) -> list[ComplianceHit]:
     text = _TARGET_PRICE_SOURCE_NOTE.sub("", text)
     hits: list[ComplianceHit] = []
     hard_spans: list[tuple[int, int]] = []
     for rule_name, pattern in _HARD_RULES:
         for match in pattern.finditer(text):
+            if (grounded_condition and rule_name == "未來價位型-hard"
+                    and match.group(1) in {"支撐", "壓力", "防守"}
+                    and not re.search(r"買點|賣點", match.group(0))):
+                continue
             hard_spans.append(match.span())
             snippet = text[max(0, match.start() - 20) : match.end() + 20]
             hits.append(ComplianceHit(rule_name, "hard", snippet))

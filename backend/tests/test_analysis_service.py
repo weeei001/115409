@@ -385,9 +385,94 @@ def test_invalid_forward_view_is_disclosed_after_retry_without_losing_history(db
     assert result.status == "limited" and llm.calls == 2
     assert result.brief.key_days
     assert result.brief.forward_views.short_1_5.stance == "uncertain"
+    assert result.brief.forward_views.short_1_5.validation_status == "rejected"
+    assert result.brief.forward_views.swing_6_20.validation_status is None
     assert "2400" not in result.brief.model_dump_json()
     assert any("部分期間展望" in item for item in result.limitations)
     row = db_session.get(LlmResponse, result.snapshot_id)
     metadata = json.loads(row.normalized_json)["model_metadata"]
     assert metadata["verification"]["compliance_rules"]
     assert not row.is_fallback
+
+
+@pytest.mark.parametrize("condition,refs,allowed", [
+    ("跌破 2026-07-13 收盤 113 元", ["d_04"], True),
+    ("跌破歷史收盤支撐 113 元", ["d_04"], True),
+    ("突破歷史高點壓力 2,510.50 元", ["lt_01"], True),
+    ("跌破低點 80.25 塊", ["lt_02"], True),
+    ("突破 2,510.50 元或跌破 80.25 元", ["lt_01", "lt_02"], True),
+    ("離開 80.25 至 2,510.50 元區間", ["lt_01", "lt_02"], True),
+    ("跌破 113 元", [], False),
+    ("跌破 113 元", ["d_03"], False),
+    ("跌破 113 元", ["fd_01", "nw_01", "ch_01"], False),
+    ("跌破 114 元", ["d_05"], False),
+    ("跌破 101 元", ["lt_03"], False),
+    ("跌破 2500 元", ["lt_04"], False),
+    ("突破 2,510.50 元或跌破 80.26 元", ["lt_01", "lt_02"], False),
+    ("離開 80.26 至 2,510.50 元區間", ["lt_01", "lt_02"], False),
+    ("跌破 2,113 元", ["d_04"], False),
+    ("跌破 2.113 元", ["d_04"], False),
+    ("跌破 2,51,0.50 元", ["lt_01"], False),
+    ("目標價 113 元", ["d_04"], False),
+    ("挑戰 2,510.50 元", ["lt_01"], False),
+    ("建議買進，支撐 113 元", ["d_04"], False),
+    ("買點 113 元", ["d_04"], False),
+    ("支撐113元，買點113元", ["d_04"], False),
+    ("保證守住 113 元", ["d_04"], False),
+    ("配置全部資金，守住 113 元", ["d_04"], False),
+])
+@pytest.mark.parametrize("field", ["trigger", "invalidation"])
+def test_price_conditions_require_all_prices_in_same_items_historical_market_citations(condition, refs, allowed, field):
+    from app.features.analysis.evidence import EvidenceBundle
+
+    bundle = EvidenceBundle(symbol="2330", as_of_date=AS_OF,
+        daily_timeline=[{"id": "d_04", "date": "2026-07-13", "close": 113},
+                        {"id": "d_03", "date": "2026-07-12", "close": 112},
+                        {"id": "d_05", "date": "2026-07-14", "close": 114}],
+        long_term_anchor=[{"id": "lt_01", "date": "2026-06-01", "field": "high_1y", "value": 2510.5},
+                          {"id": "lt_02", "date": "2026-05-01", "field": "low_1y", "value": 80.25},
+                          {"id": "lt_03", "date": "2026-07-13", "field": "vs_ma60_pct", "value": 101},
+                          {"id": "lt_04", "date": "2026-07-14", "field": "high_1y", "value": 2500}],
+        fundamental=[{"id": "fd_01", "date": "2026-03-31", "field": "eps", "value": 113}],
+        news=[{"id": "nw_01", "date": "2026-07-13", "value": "股價113元"}],
+        chip_summary=[{"id": "ch_01", "date": "2026-07-13", "value": 113}])
+    item = {field: condition, "evidence_ids": refs}
+    hits = gate._scan_text_brief_compliance(item, prices=gate._historical_prices(bundle))
+    assert (not any(hit.severity == "hard" for hit in hits)) == allowed
+    # A sibling item's citations must not authorize this item's price.
+    if not allowed:
+        assert any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(
+            [item, {"evidence_ids": ["d_04", "lt_01", "lt_02"]}], prices=gate._historical_prices(bundle)))
+
+
+def test_grounded_price_passes_service_without_retry_and_status_is_server_owned(db_session, settings):
+    from app.features.analysis.schemas import TextBriefForwardView
+
+    seed_prices(db_session)
+    payload = brief_payload()
+    view = payload["forward_views"]["short_1_5"]
+    view.update(stance="mildly_bullish", invalidation="跌破 7/13 收盤支撐 113 元", validation_status="rejected")
+    payload["risks"][0]["trigger"] = "跌破 7/13 收盤 113 元"
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.brief is not None and llm.calls == 1
+    assert result.brief.forward_views.short_1_5.invalidation == view["invalidation"]
+    assert result.brief.forward_views.short_1_5.validation_status is None
+    assert "validation_status" not in TextBriefForwardView.model_json_schema()["properties"]
+
+
+def test_saved_snapshot_backfills_rejection_from_metadata_only(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
+    result = run_service(db_session, settings, FakeLlm(payload))
+    row = db_session.get(LlmResponse, result.snapshot_id)
+    saved = json.loads(row.response_json)
+    for view in saved["brief"]["forward_views"].values():
+        view.pop("validation_status", None)
+    row.response_json = json.dumps(saved)
+    restored = repository.saved_brief(row)
+    assert restored.brief.forward_views.short_1_5.validation_status == "rejected"
+    assert restored.brief.forward_views.swing_6_20.validation_status is None
+    row.normalized_json = "{}"
+    assert repository.saved_brief(row).brief.forward_views.short_1_5.validation_status is None
