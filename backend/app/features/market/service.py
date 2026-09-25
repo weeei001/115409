@@ -65,8 +65,6 @@ def statistics(db: Session, symbol: str, start_date: date, end_date: date):
 
 def compare(db: Session, symbols: str, start_date: date, end_date: date):
     requested = [symbol.strip().upper() for symbol in symbols.split(",")]
-    if len(requested) > 10:
-        raise AppError("最多只能同時比較10支股票", status_code=400)
     rows = repository.compare(db, requested, start_date, end_date)
     if not rows:
         raise AppError("找不到任何股票數據", status_code=404)

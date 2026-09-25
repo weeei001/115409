@@ -16,7 +16,7 @@ import { MetricsTable } from '@/features/compare/MetricsTable';
 import { RiskReturnScatter } from '@/features/compare/RiskReturnScatter';
 import { SnapshotCard } from '@/features/compare/SnapshotCard';
 import { TechnicalSnapshotTable } from '@/features/compare/TechnicalSnapshotTable';
-import { MAX_COMPARE_STOCKS, useCompare } from '@/features/compare/useCompare';
+import { useCompare } from '@/features/compare/useCompare';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import type { CompareChartMode } from '@/lib/types/compare';
 import { buildSymbolColorMap } from '@/lib/utils/compare';
@@ -68,10 +68,7 @@ export default function ComparePage() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-3 text-xs text-subtle">
-              <p>
-                已選 {c.selected.length}/{MAX_COMPARE_STOCKS}；至少 2 檔才可比較。
-              </p>
+            <div className="flex items-center justify-end gap-3 text-xs text-subtle">
               {c.selected.length > 0 ? (
                 <button
                   type="button"
@@ -121,7 +118,7 @@ export default function ComparePage() {
             <button
               type="button"
               onClick={() => void c.compare()}
-              disabled={loading || c.selected.length < 2}
+              disabled={loading || c.selected.length === 0}
               className="bg-brand-gradient min-h-11 w-full rounded-2xl px-8 py-3 text-[15px] font-semibold text-on-brand shadow-md shadow-brand/25 transition-[box-shadow,filter,opacity] hover:shadow-lg hover:brightness-[1.02] disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none sm:w-auto sm:self-start"
             >
               {c.chartLoading ? '載入主圖資料...' : c.metricsLoading ? '計算比較指標...' : '開始比較'}

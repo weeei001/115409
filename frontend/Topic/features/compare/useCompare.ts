@@ -17,7 +17,6 @@ import { getDefaultDateRange } from '@/lib/utils/date';
 import { applyBulkSelection } from '@/lib/utils/stockSelection';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
-export const MAX_COMPARE_STOCKS = 6;
 const METRICS_BATCH_SIZE = 3;
 
 export interface CompareMetrics {
@@ -141,7 +140,6 @@ export function useCompare() {
         input,
         currentSelected: selected,
         allSymbols,
-        maxSelection: MAX_COMPARE_STOCKS,
       });
       if (nextSelected.length !== selected.length) {
         setSelected(nextSelected);
@@ -151,9 +149,7 @@ export function useCompare() {
       const issues: string[] = [];
       if (bulk.duplicates.length > 0) issues.push(`重複略過 ${bulk.duplicates.length} 檔`);
       if (bulk.invalid.length > 0) issues.push(`無效代號 ${bulk.invalid.length} 檔`);
-      if (bulk.overflow.length > 0) issues.push(`超過上限 ${MAX_COMPARE_STOCKS} 檔`);
       if (issues.length > 0) toast.warning(issues.join('；'));
-      if (bulk.overflow.length > 0) setError(`最多比較 ${MAX_COMPARE_STOCKS} 支股票`);
     },
     [allSymbols, selected],
   );
@@ -161,10 +157,6 @@ export function useCompare() {
   const addSymbol = useCallback(
     (sym: string) => {
       if (selected.includes(sym)) return;
-      if (selected.length >= MAX_COMPARE_STOCKS) {
-        setError(`最多比較 ${MAX_COMPARE_STOCKS} 支股票`);
-        return;
-      }
       setSelected((prev) => [...prev, sym]);
       setError(null);
     },
@@ -187,10 +179,7 @@ export function useCompare() {
   }, []);
 
   const compare = useCallback(async () => {
-    if (selected.length < 2) {
-      setError('請至少選擇 2 支股票');
-      return;
-    }
+    if (selected.length === 0) return;
     const symbols = [...selected];
     const seq = ++seqRef.current;
     const isCurrent = () => seq === seqRef.current;

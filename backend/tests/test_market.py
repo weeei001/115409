@@ -81,9 +81,20 @@ def test_chart_request_limits_reject_invalid_work_before_query(client):
         response = client.get("/stocks/2330/chart/candlestick-ma", params={**params, "ma_periods": periods})
         assert response.status_code == 400
         assert response.json()["detail"].startswith("移動平均線週期格式錯誤:")
-    response = client.get("/stocks/compare/multiple", params={**params, "symbols": ",".join(["2330"] * 11)})
-    assert response.status_code == 400
-    assert response.json() == {"detail": "最多只能同時比較10支股票"}
+
+
+def test_compare_accepts_all_40_stock_pool_symbols(client, db_session):
+    day = date(2026, 5, 20)
+    symbols = [str(1000 + index) for index in range(40)]
+    db_session.add_all([price(day, symbol=symbol) for symbol in symbols])
+    db_session.commit()
+
+    response = client.get("/stocks/compare/multiple", params={
+        "start_date": day.isoformat(), "end_date": day.isoformat(), "symbols": ",".join(symbols),
+    })
+
+    assert response.status_code == 200
+    assert response.json()["symbols"] == symbols
 
 
 def test_statistics_comparison_and_price_change_preserve_nulls(client, db_session):

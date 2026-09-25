@@ -5,14 +5,6 @@ export interface BulkSelectResult {
   added: string[];
   duplicates: string[];
   invalid: string[];
-  overflow: string[];
-}
-
-interface ApplyBulkSelectionInput {
-  input: string;
-  currentSelected: string[];
-  allSymbols: string[];
-  maxSelection: number;
 }
 
 function pushUnique(target: string[], value: string): void {
@@ -31,8 +23,12 @@ export function parseBulkSymbolInput(input: string): string[] {
     .filter(Boolean);
 }
 
-/** 多股比較：把貼上的代號加進已選清單，並分類成新增／重複／無效／超過上限 */
-export function applyBulkSelection({ input, currentSelected, allSymbols, maxSelection }: ApplyBulkSelectionInput): {
+/** 多股比較：把貼上的代號加進已選清單，並分類成新增／重複／無效 */
+export function applyBulkSelection({ input, currentSelected, allSymbols }: {
+  input: string;
+  currentSelected: string[];
+  allSymbols: string[];
+}): {
   nextSelected: string[];
   result: BulkSelectResult;
 } {
@@ -40,7 +36,7 @@ export function applyBulkSelection({ input, currentSelected, allSymbols, maxSele
   const nextSelected = [...currentSelected];
   const selected = new Set(currentSelected.map((symbol) => symbol.toUpperCase()));
   const seen = new Set<string>();
-  const result: BulkSelectResult = { added: [], duplicates: [], invalid: [], overflow: [] };
+  const result: BulkSelectResult = { added: [], duplicates: [], invalid: [] };
 
   for (const symbol of parseBulkSymbolInput(input)) {
     if (seen.has(symbol)) {
@@ -54,10 +50,6 @@ export function applyBulkSelection({ input, currentSelected, allSymbols, maxSele
     }
     if (selected.has(symbol)) {
       pushUnique(result.duplicates, symbol);
-      continue;
-    }
-    if (nextSelected.length >= maxSelection) {
-      pushUnique(result.overflow, symbol);
       continue;
     }
     selected.add(symbol);
