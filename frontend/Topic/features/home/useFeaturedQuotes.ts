@@ -5,9 +5,8 @@ import type { DailyPriceResponse, StockInfo } from '@/lib/types/api';
 import { fetchSparklineCloses } from '@/lib/utils/sparklineHistory';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
-/** 首頁固定顯示股價的 6 檔，依此順序；不在後端股票清單裡的會略過（決議 D13） */
-export const FEATURED_SYMBOLS = ['2317', '2330', '2454', '2881', '2408', '2615'];
-export const FEATURED_COUNT = FEATURED_SYMBOLS.length;
+/** 首頁顯示的股票數量；實際股票由 stock info API 提供。 */
+export const FEATURED_COUNT = 6;
 
 /** 首頁：股票清單 → 精選 6 檔最新價 → 各檔近 30 天 sparkline */
 export function useFeaturedQuotes() {
@@ -48,16 +47,16 @@ export function useFeaturedQuotes() {
     if (stockInfos.length === 0) return;
     const id = ++pricesRequest.current;
     const ctrl = new AbortController();
-    const featured = FEATURED_SYMBOLS.filter((symbol) => stockInfos.some((stock) => stock.symbol === symbol));
+    const featured = stockInfos.slice(0, FEATURED_COUNT);
     setLoadingPrices(true);
-    Promise.allSettled(featured.map((symbol) => fetchLatestPrice(symbol, { signal: ctrl.signal })))
+    Promise.allSettled(featured.map((stock) => fetchLatestPrice(stock.symbol, { signal: ctrl.signal })))
       .then((results) => {
         if (ctrl.signal.aborted || id !== pricesRequest.current) return;
         const loaded: DailyPriceResponse[] = [];
         const failed: string[] = [];
         results.forEach((r, i) => {
           if (r.status === 'fulfilled') loaded.push(r.value);
-          else failed.push(featured[i]);
+          else failed.push(featured[i].symbol);
         });
         setPrices(loaded);
         setErrorPrices(loaded.length === 0 ? '無法載入股價資料' : null);

@@ -8,8 +8,6 @@ interface Props {
   onSelect: (symbol: string) => void;
   /** 按 Enter 送出輸入框內容，或貼上含分隔符的文字時呼叫 */
   onBulkSelect: (input: string) => void;
-  /** 輸入框空白時排在最前面的代號（依此順序）；不在 symbols 裡的略過 */
-  suggested?: readonly string[];
   placeholder?: string;
   className?: string;
 }
@@ -18,10 +16,10 @@ const MAX_OPTIONS = 20;
 
 /**
  * 股票代號 combobox（首頁、多股比較共用）。
- * focus 就展開；空白時 suggested 排最前面，其餘照清單順序；有輸入時代號包含比對；最多 20 筆；方向鍵／Home／End／Esc；
+ * focus 就展開；空白時照清單順序；有輸入時代號包含比對；最多 20 筆；方向鍵／Home／End／Esc；
  * Enter：有反白項目就選它；否則有輸入時交給 onBulkSelect，沒輸入時選第一筆。
  */
-export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeholder = '輸入股票代號...', className }: Props) {
+export function StockSearch({ symbols, onSelect, onBulkSelect, placeholder = '輸入股票代號...', className }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -39,12 +37,8 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
   const filtered = useMemo(() => {
     const q = query.trim();
     if (q) return symbols.filter((s) => s.includes(q)).slice(0, MAX_OPTIONS);
-    if (!suggested?.length) return symbols.slice(0, MAX_OPTIONS);
-    const available = new Set(symbols);
-    const top = suggested.filter((s) => available.has(s));
-    const topSet = new Set(top);
-    return [...top, ...symbols.filter((s) => !topSet.has(s))].slice(0, MAX_OPTIONS);
-  }, [query, symbols, suggested]);
+    return symbols.slice(0, MAX_OPTIONS);
+  }, [query, symbols]);
 
   const reset = () => {
     setQuery('');

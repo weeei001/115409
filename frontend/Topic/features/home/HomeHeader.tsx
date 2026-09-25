@@ -4,7 +4,6 @@ import { TrendingUp } from 'lucide-react';
 import { AppNavDrawer } from '@/components/layout/AppNavDrawer';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { StockSearch } from '@/components/common/StockSearch';
-import { FEATURED_SYMBOLS } from '@/features/home/useFeaturedQuotes';
 import { usePrefersReducedMotion, useSyncAppHeaderHeight } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
 
@@ -60,10 +59,9 @@ export function HomeHeader({ symbols, loading, error, onRetry, onSelect, onBulkS
           ) : (
             <StockSearch
               symbols={symbols}
-              suggested={FEATURED_SYMBOLS}
               onSelect={onSelect}
               onBulkSelect={onBulkSelect}
-              placeholder="搜尋股票代號 (例如: 2330)"
+              placeholder="搜尋股票代號"
             />
           )}
         </div>

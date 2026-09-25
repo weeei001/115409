@@ -16,7 +16,6 @@ import { MetricsTable } from '@/features/compare/MetricsTable';
 import { RiskReturnScatter } from '@/features/compare/RiskReturnScatter';
 import { SnapshotCard } from '@/features/compare/SnapshotCard';
 import { TechnicalSnapshotTable } from '@/features/compare/TechnicalSnapshotTable';
-import { FEATURED_SYMBOLS } from '@/features/home/useFeaturedQuotes';
 import { MAX_COMPARE_STOCKS, useCompare } from '@/features/compare/useCompare';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import type { CompareChartMode } from '@/lib/types/compare';
@@ -56,7 +55,6 @@ export default function ComparePage() {
               <StockSearch
                 className="min-w-0 flex-1"
                 symbols={availableSymbols}
-                suggested={FEATURED_SYMBOLS}
                 onSelect={c.addSymbol}
                 onBulkSelect={c.handleBulkSelect}
                 placeholder="新增股票代號..."
