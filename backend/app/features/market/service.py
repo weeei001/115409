@@ -8,13 +8,16 @@ from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.db.models.finmind_extra import (
     DividendResult, ForeignShareholding, HoldingShareLevel, MarginTrade,
-    MonthlyRevenue, StockDividend, StockValuation,
+    MonthlyRevenue, StockValuation,
 )
 from app.features.market import repository
 
 
 def symbols(db: Session):
     return repository.symbols(db)
+
+def stock_infos(db: Session):
+    return repository.stock_infos(db)
 
 
 def latest(db: Session, symbol: str):
@@ -62,8 +65,6 @@ def statistics(db: Session, symbol: str, start_date: date, end_date: date):
 
 def compare(db: Session, symbols: str, start_date: date, end_date: date):
     requested = [symbol.strip().upper() for symbol in symbols.split(",")]
-    if len(requested) > 10:
-        raise AppError("最多只能同時比較10支股票", status_code=400)
     rows = repository.compare(db, requested, start_date, end_date)
     if not rows:
         raise AppError("找不到任何股票數據", status_code=404)
@@ -203,7 +204,6 @@ def financial_statements(db: Session, symbol: str, statement: str,
 _DATASETS = {
     "monthly_revenues": (MonthlyRevenue, "月營收"),
     "valuations": (StockValuation, "估值"),
-    "dividends": (StockDividend, "股利"),
     "dividend_results": (DividendResult, "除權息結果"),
     "margin_trades": (MarginTrade, "融資融券"),
     "foreign_shareholding": (ForeignShareholding, "外資持股"),

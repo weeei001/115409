@@ -13,28 +13,29 @@ from app.core.errors import AppError
 from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.db.models.news_article import NewsArticle
-from app.features.news.sentiment import TARGET_STOCKS
+from app.features.news.sentiment import company_catalog
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from .rules import extract_candidate_stocks
 from .runner import SentimentBatchRunner
 
 
 def generate_manifest(db, *, stocks: list[str], limit=100, seed=42, dev_split=20):
+    catalog = company_catalog()
     stocks = list(dict.fromkeys(stocks))
-    if not stocks or any(symbol not in TARGET_STOCKS for symbol in stocks):
-        raise ValueError("--stocks must contain supported stock symbols")
+    if not stocks or any(symbol not in catalog for symbol in stocks):
+        raise ValueError("--stocks must contain listed stock symbols")
     if limit < 1:
         raise ValueError("--limit must be positive")
     articles = db.scalars(select(NewsArticle).where(NewsArticle.content.is_not(None))
                          .order_by(NewsArticle.pub_time.desc(), NewsArticle.article_id))
     by_stock, seen, unique_pairs = {symbol: [] for symbol in stocks}, set(), []
     for article in articles:
-        for symbol in extract_candidate_stocks(article.stock_id, article.tags):
+        for symbol in extract_candidate_stocks(article.stock_id, article.tags, article.title, article.content, catalog):
             if symbol not in by_stock or (article.article_id, symbol) in seen:
                 continue
             seen.add((article.article_id, symbol))
             item = {"article_id": article.article_id, "symbol": symbol,
-                "target_stock_name": TARGET_STOCKS[symbol], "date": str(article.pub_time)[:10] if article.pub_time else "",
+                "target_stock_name": catalog[symbol]["name"], "date": str(article.pub_time)[:10] if article.pub_time else "",
                 "title": article.title or "", "url": article.url or "", "source": article.source or ""}
             by_stock[symbol].append(item)
             unique_pairs.append(item)
@@ -62,11 +63,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-cost-usd", type=float, default=0.50)
     parser.add_argument("--model", help="Override the shared LLM_MODEL setting for this invocation")
     parser.add_argument("--execute", action="store_true")
-    parser.add_argument("--stocks", default=",".join(TARGET_STOCKS))
+    parser.add_argument("--stocks", help="Comma-separated listed symbols; default is all listed companies")
+    parser.add_argument("--backfill-days", type=int, default=30)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--work-dir", type=Path, default=Path(__file__).resolve().parents[3] / ".state")
     args = parser.parse_args(argv)
-    if args.limit < 1 or not math.isfinite(args.max_cost_usd) or args.max_cost_usd < 0:
+    if args.limit < 1 or args.backfill_days < 1 or not math.isfinite(args.max_cost_usd) or args.max_cost_usd < 0:
         parser.error("--limit must be positive and --max-cost-usd must be finite and nonnegative")
     try:
         items = None
@@ -77,15 +79,18 @@ def main(argv: list[str] | None = None) -> int:
         settings = get_settings()
         if args.model:
             settings = settings.model_copy(update={"LLM_MODEL": args.model})
-        stocks = [symbol.strip() for symbol in args.stocks.split(",") if symbol.strip()]
-        if (args.generate_manifest or args.incremental) and (not stocks or any(symbol not in TARGET_STOCKS for symbol in stocks)):
-            raise ValueError("--stocks must contain supported stock symbols")
+        catalog = company_catalog()
+        if not catalog:
+            raise ValueError("Listed-company catalog is unavailable; refresh official catalog first")
+        stocks = [symbol.strip() for symbol in args.stocks.split(",") if symbol.strip()] if args.stocks else None
+        if stocks is not None and (not stocks or any(symbol not in catalog for symbol in stocks)):
+            raise ValueError("--stocks must contain listed stock symbols")
         with worker_lock("sentiment", args.work_dir):
             engine = make_engine(settings)
             try:
                 with make_session_factory(engine)() as db:
                     if args.generate_manifest:
-                        manifest = generate_manifest(db, stocks=stocks, limit=args.limit, seed=args.seed)
+                        manifest = generate_manifest(db, stocks=stocks or list(catalog), limit=args.limit, seed=args.seed)
                         output = Path(args.generate_manifest)
                         output.parent.mkdir(parents=True, exist_ok=True)
                         output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -97,7 +102,28 @@ def main(argv: list[str] | None = None) -> int:
                             runner = SentimentBatchRunner(db_session=db, settings=settings, http=http,
                                 max_cost_usd=args.max_cost_usd, limit=args.limit, execute=args.execute,
                                 work_dir=args.work_dir)
-                            return await runner.run_manifest(runner.incremental_manifest(stocks) if args.incremental else items)
+                            if args.incremental:
+                                from datetime import datetime, timedelta
+                                from app.features.news.sentiment import TAIPEI_TZ
+                                state = args.work_dir / "sentiment_backfill_start.json"
+                                if state.exists():
+                                    checkpoint = json.loads(state.read_text(encoding="utf-8"))
+                                    started = datetime.fromisoformat(checkpoint["started"])
+                                    days = checkpoint["days"]
+                                else:
+                                    started = datetime.now(TAIPEI_TZ).replace(tzinfo=None)
+                                    days = args.backfill_days
+                                    if args.execute:
+                                        args.work_dir.mkdir(parents=True, exist_ok=True)
+                                        state.write_text(json.dumps({"started": started.isoformat(),
+                                            "days": days}), encoding="utf-8")
+                                if started.tzinfo is not None or not isinstance(days, int) or days < 1:
+                                    raise ValueError("Invalid sentiment backfill checkpoint")
+                                since = (started - timedelta(days=days)).replace(tzinfo=TAIPEI_TZ)
+                                pending = runner.incremental_manifest(stocks, since=since, new_since=started)
+                            else:
+                                pending = items
+                            return await runner.run_manifest(pending)
                     summary = asyncio.run(run())
                     print(json.dumps(summary, ensure_ascii=False, indent=2))
                     return 1 if summary["failed"] or summary["stopped_reason"] else 0

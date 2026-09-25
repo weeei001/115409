@@ -27,7 +27,6 @@ def populate(db, models):
             origin_name="EPS", value="10.1234"),
         models.MonthlyRevenue(symbol="2330", date=DAY, revenue=9_000_000_001, revenue_year=2026, revenue_month=4),
         models.StockValuation(symbol="2330", date=DAY, per="15.1234"),
-        models.StockDividend(symbol="2330", date=DAY, year="2026", cash_earnings_distribution="2.123456"),
         models.DividendResult(symbol="2330", date=DAY, before_price="110.1234"),
         models.MarginTrade(symbol="2330", date=DAY, margin_purchase_buy=3000000001),
         models.ForeignShareholding(symbol="2330", date=DAY, foreign_investment_shares_ratio="65.1234"),
@@ -69,7 +68,7 @@ def requests():
     yield "/stocks/compare/multiple", {**dates, "symbols": "2330,2317"}
     for suffix in ("chart/candlestick-ma", "chart/volume", "chart/price-change", "institutional-trades",
                    "chart/chips-volume", "volume-with-chips", "technical-indicators", "integrated-chart",
-                   "fundamentals/monthly-revenues", "fundamentals/valuations", "fundamentals/dividends",
+                   "fundamentals/monthly-revenues", "fundamentals/valuations",
                    "fundamentals/dividend-results", "chips/margin-trades", "chips/foreign-shareholding",
                    "chips/holding-share-levels"):
         yield f"/stocks/2330/{suffix}", dates

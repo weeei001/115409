@@ -41,6 +41,7 @@ export default function HomePage() {
 
       <HomeHeader
         symbols={symbols}
+        stockInfos={quotes.stockInfos}
         loading={quotes.loadingSymbols}
         error={quotes.errorSymbols}
         onRetry={quotes.reloadSymbols}
@@ -92,7 +93,14 @@ export default function HomePage() {
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {quotes.prices.map((p, i) => (
-                  <StockPriceCard key={p.symbol} data={p} index={i} sparkline={quotes.sparklines[p.symbol]} onNavigate={goToStock} />
+                  <StockPriceCard
+                    key={p.symbol}
+                    data={p}
+                    stockName={quotes.stockInfos.find((stock) => stock.symbol === p.symbol)?.name}
+                    index={i}
+                    sparkline={quotes.sparklines[p.symbol]}
+                    onNavigate={goToStock}
+                  />
                 ))}
               </div>
             )}

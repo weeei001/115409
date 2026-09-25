@@ -24,8 +24,10 @@ from app.db.models.news_article import NewsArticle
 log = logging.getLogger(__name__)
 TAIPEI = timezone(timedelta(hours=8))
 CNYES_API_URL = "https://api.cnyes.com/media/api/v1/newslist/category/tw_stock_news"
+CNYES_CATEGORIES = ("tw_stock_news", "wd_macro")
 CNYES_ARTICLE_URL = "https://news.cnyes.com/news/id/{news_id}"
 LTN_LIST_URL = "https://ec.ltn.com.tw/list_ajax/securities/{page}"
+LTN_CATEGORIES = ("securities", "strategy", "international")
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 CNYES_HEADERS = {**HEADERS, "Accept": "application/json, text/plain, */*",
                  "Origin": "https://news.cnyes.com", "Referer": "https://news.cnyes.com/"}
@@ -163,15 +165,17 @@ def cnyes_item(row: dict) -> dict:
         if code and code not in related:
             related.append(code)
     news_id = _cnyes_news_id(row)
+    content = clean_html_content(row.get("content")) or clean_html_content(row.get("summary") or row.get("excerpt"))
     return {"article_id": article_id("cnyes", title, pub_time), "source": "cnyes", "source_group": "cnyes",
             "stock_id": related[0][:20] if related else None, "title": title, "pub_time": pub_time,
-            "url": row.get("url") or row.get("link") or cnyes_article_url(news_id),
-            "tags": ",".join(related), "content": clean_html_content(row.get("content"))
-            or clean_html_content(row.get("summary") or row.get("excerpt"))}
+            "url": cnyes_article_url(news_id) or row.get("url") or row.get("link"),
+            "tags": ",".join(related), "content": content,
+            "content_kind": "summary" if content else "title_only"}
 
 
-def cnyes_page(http: httpx.Client, page: int, start: int, end: int, limit: int = 30) -> list[dict]:
-    response = http.get(CNYES_API_URL, headers=CNYES_HEADERS, timeout=30,
+def cnyes_page(http: httpx.Client, page: int, start: int, end: int, limit: int = 30,
+               category: str = "tw_stock_news") -> list[dict]:
+    response = http.get(CNYES_API_URL.replace("tw_stock_news", category), headers=CNYES_HEADERS, timeout=30,
         params={"page": page, "limit": limit, "isCategoryHeadline": 0, "startAt": start, "endAt": end})
     response.raise_for_status()
     payload = response.json()
@@ -202,29 +206,49 @@ def month_ranges(start: datetime, end: datetime) -> list[tuple[int, int]]:
 def store_news(db: Session, items: list[dict]) -> dict[str, int]:
     if not items:
         return {"inserted": 0, "updated": 0, "skipped": 0}
+    from app.features.news.impact import article_source_hash
+
     unique = {}
+    seen_urls = set()
     duplicates = 0
     for item in items:
-        if item["article_id"] in unique:
+        source_url = (item["source"], item.get("url")) if item.get("url") else None
+        if item["article_id"] in unique or source_url in seen_urls:
             duplicates += 1
             continue
         unique.setdefault(item["article_id"], item)
+        if source_url:
+            seen_urls.add(source_url)
     try:
         existing = {article.article_id: article for article in db.scalars(
             select(NewsArticle).where(NewsArticle.article_id.in_(unique)))}
+        urls = [item["url"] for key, item in unique.items() if key not in existing and item.get("url")]
+        existing_urls = {(article.source, article.url): article for article in db.scalars(
+            select(NewsArticle).where(NewsArticle.url.in_(urls)))} if urls else {}
         inserted = updated = 0
         skipped = duplicates
         for key, item in unique.items():
-            article = existing.get(key)
+            article = existing.get(key) or existing_urls.get((item["source"], item.get("url")))
             if article is None:
-                db.add(NewsArticle(**item))
+                values = dict(item)
+                values["analysis_input_hash"] = article_source_hash(
+                    values["title"], values["content"], values["pub_time"], values["content_kind"])
+                db.add(NewsArticle(**values))
                 inserted += 1
                 continue
             values = dict(item)
+            values.pop("article_id")
             old_content = article.content or ""
             new_content = values.get("content") or ""
-            if len(new_content) < len(old_content):
+            if ((article.content_kind == "full_text" and values["content_kind"] != "full_text")
+                    or (article.content_kind == "unknown" and values["content_kind"] == "summary"
+                        and new_content == old_content)
+                    or (len(new_content) < len(old_content)
+                        and (values["content_kind"] != "full_text" or article.content_kind == "full_text"))):
                 values["content"] = article.content
+                values["content_kind"] = article.content_kind
+            values["analysis_input_hash"] = article_source_hash(
+                values["title"], values["content"], values["pub_time"], values["content_kind"])
             changed = False
             for field, value in values.items():
                 if getattr(article, field) != value:
@@ -243,17 +267,18 @@ def store_news(db: Session, items: list[dict]) -> dict[str, int]:
 
 def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                 limit: int | None = None, fetch_details: bool = False) -> dict[str, int]:
-    def crawl_range(bounds):
+    def crawl_range(bounds, category, seen_urls):
         result = {"inserted": 0, "updated": 0, "skipped": 0, "failed": 0}
         read = 0
 
         def build_item(row):
             try:
                 item = cnyes_item(row)
-                if fetch_details:
+                if fetch_details and (item["source"], item.get("url")) not in seen_urls:
                     detail = cnyes_detail_content(http, _cnyes_news_id(row))
                     if detail and len(detail) >= len(item["content"] or ""):
                         item["content"] = detail
+                        item["content_kind"] = "full_text"
                 return item
             except Exception as exc:
                 return exc
@@ -263,15 +288,15 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
             previous_ids = None
             while True:
                 try:
-                    rows = cnyes_page(http, page, *bounds)
+                    rows = cnyes_page(http, page, *bounds, category=category)
                 except httpx.HTTPStatusError as exc:
                     if page > 1 and exc.response.status_code == 422:
                         break
-                    log.error("Cnyes page %d failed (%s)", page, type(exc).__name__)
+                    log.error("Cnyes %s page %d failed (%s)", category, page, type(exc).__name__)
                     result["failed"] += 1
                     break
                 except Exception as exc:
-                    log.error("Cnyes page %d failed (%s)", page, type(exc).__name__)
+                    log.error("Cnyes %s page %d failed (%s)", category, page, type(exc).__name__)
                     result["failed"] += 1
                     break
                 if not rows:
@@ -299,13 +324,16 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                     result["failed"] += 1
                     break
                 previous_ids = ids
+                fresh = [item for item in items if (item["source"], item.get("url")) not in seen_urls]
                 try:
-                    stored = store_news(db, items)
-                    for key in ("inserted", "updated", "skipped"):
-                        result[key] += stored[key]
+                    if fresh:
+                        stored = store_news(db, fresh)
+                        for key in ("inserted", "updated", "skipped"):
+                            result[key] += stored[key]
+                        seen_urls.update((item["source"], item.get("url")) for item in fresh)
                 except Exception as exc:
                     log.error("Cnyes page write failed (%s)", type(exc).__name__)
-                    result["failed"] += len(items)
+                    result["failed"] += len(fresh)
                 if limit is not None and read >= limit:
                     break
                 if len(rows) < 30:
@@ -313,8 +341,10 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                 page += 1
         return result
     totals = {"inserted": 0, "updated": 0, "skipped": 0, "failed": 0}
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        for result in pool.map(crawl_range, month_ranges(start, end)):
+    for bounds in month_ranges(start, end):
+        seen_urls = set()
+        for category in CNYES_CATEGORIES:
+            result = crawl_range(bounds, category, seen_urls)
             for key in totals:
                 totals[key] += result[key]
     return totals
@@ -348,6 +378,10 @@ def refresh_cnyes_existing(engine, http: httpx.Client, limit: int | None = None)
                     result["skipped"] += 1
                     continue
                 article.content = content
+                article.content_kind = "full_text"
+                from app.features.news.impact import article_source_hash
+                article.analysis_input_hash = article_source_hash(
+                    article.title, article.content, article.pub_time, article.content_kind)
                 result["updated"] += 1
                 if (result["updated"] + result["skipped"]) % 50 == 0:
                     db.commit()
@@ -374,7 +408,7 @@ def clean_ltn_content(text: str) -> str:
     return "\n".join(line for line in text.split("\n") if line.strip()).strip()
 
 
-def ltn_article(raw_html: str, url: str) -> dict:
+def ltn_article(raw_html: str, url: str, catalog: dict | None = None) -> dict:
     soup = BeautifulSoup(raw_html, "html.parser")
     heading, content_div = soup.select_one("h1"), soup.select_one(".content")
     title = heading.get_text().strip() if heading else ""
@@ -384,20 +418,24 @@ def ltn_article(raw_html: str, url: str) -> dict:
     if len(title) <= 3 or not pub_time.startswith("20") or len(content) < 30:
         raise ValueError("LTN article lacks usable title, publication date or content")
     haystack = title + " " + content
-    # ponytail: curated aliases only; use an exchange symbol catalog when broader coverage is needed.
     symbols = [code for code, aliases in LTN_ALIASES
                if re.search(r"(?<![A-Za-z0-9_.])" + code + r"(?![A-Za-z0-9_.])", haystack)
                or any(re.search(r"(?<![A-Za-z])" + re.escape(alias) + r"(?![A-Za-z])", haystack, re.IGNORECASE)
                       if alias.isascii() else alias in haystack for alias in aliases)]
+    if catalog:
+        from app.jobs.sentiment.rules import extract_candidate_stocks
+        symbols = extract_candidate_stocks(symbols[0] if symbols else None, ",".join(symbols), title, content, catalog)
     symbol = symbols[0] if symbols else "tw_stock"
     return {"article_id": article_id("ltn", title, pub_time), "source": "ltn", "source_group": "ltn",
-            "stock_id": symbol, "title": title, "pub_time": pub_time, "url": url, "tags": ",".join(symbols), "content": content}
+            "stock_id": symbol, "title": title, "pub_time": pub_time, "url": url, "tags": ",".join(symbols),
+            "content": content, "content_kind": "full_text"}
 
 
 def collect_ltn_urls(http: httpx.Client, existing: set[str], cutoff: datetime,
-                     max_pages: int = 700) -> tuple[list[str], int]:
+                     max_pages: int = 700, category: str = "securities") -> tuple[list[str], int]:
     def fetch(page):
-        response = http.get(LTN_LIST_URL.format(page=page), headers=LTN_LIST_HEADERS, timeout=10)
+        response = http.get(LTN_LIST_URL.replace("securities", category).format(page=page),
+                            headers={**LTN_LIST_HEADERS, "referer": f"https://ec.ltn.com.tw/list/{category}"}, timeout=10)
         response.raise_for_status()
         rows = response.json()
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
@@ -438,15 +476,22 @@ def collect_ltn_urls(http: httpx.Client, existing: set[str], cutoff: datetime,
 
 
 def crawl_ltn(engine, http: httpx.Client, cutoff: datetime) -> dict[str, int]:
+    from app.features.market.company_catalog import load_catalog
+    catalog = load_catalog()
+
     def fetch(url):
         response = http.get(url, headers=HEADERS, timeout=15)
         response.raise_for_status()
-        return ltn_article(response.text, url)
+        return ltn_article(response.text, url, catalog)
     totals = {"inserted": 0, "updated": 0, "skipped": 0, "failed": 0}
     with Session(engine) as db:
         existing = set(db.scalars(select(NewsArticle.url).where(NewsArticle.source == "ltn", NewsArticle.url.is_not(None))))
         db.rollback()
-        urls, totals["failed"] = collect_ltn_urls(http, existing, cutoff)
+        urls = []
+        for category in LTN_CATEGORIES:
+            found, failed = collect_ltn_urls(http, existing | set(urls), cutoff, category=category)
+            urls.extend(found)
+            totals["failed"] += failed
         with ThreadPoolExecutor(max_workers=6) as pool:
             for future in as_completed([pool.submit(fetch, url) for url in urls]):
                 try:
@@ -478,6 +523,8 @@ def crawler_main(source: str, argv: list[str] | None = None) -> int:
     now = datetime.now(TAIPEI)
     engine = make_engine(get_settings())
     try:
+        from app.jobs.impact.migrate import migrate_news_impact
+        migrate_news_impact(engine)
         with httpx.Client() as http:
             if source == "cnyes":
                 if args.refresh_existing:

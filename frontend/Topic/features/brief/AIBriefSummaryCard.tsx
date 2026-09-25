@@ -8,6 +8,7 @@ import {
   CONF,
   CONF_HINT,
   FORWARD_VIEWS,
+  forwardViewLabel,
   STANCE,
   STANCE_TONE,
   type BriefTone,
@@ -280,7 +281,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
               <span className="text-xs text-muted-foreground">{label}</span>
               <span className="inline-flex items-center gap-1 text-sm font-semibold text-foreground">
                 <StanceIcon tone={tone} size={13} />
-                {view ? (STANCE[view.stance] ?? view.stance) : '—'}
+                {view ? forwardViewLabel(view) : '—'}
               </span>
             </div>
           );

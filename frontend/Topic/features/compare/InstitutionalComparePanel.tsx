@@ -37,7 +37,7 @@ export function InstitutionalComparePanel({ symbols, institutionalMap, aggregate
         <EmptyState>期間內無法人資料；可換股或拉長區間再試。</EmptyState>
       ) : (
         <div className="space-y-3">
-          <p className="text-[11px] text-muted-foreground">曲線越往上代表期間累計買超越多；負值代表累計賣超。</p>
+          <p className="text-[11px] text-muted-foreground">依有資料日期累計買賣超股數；正值代表累計買超，負值代表累計賣超。未依股票規模或成交量調整，不能直接視為法人偏好程度；缺值保留斷線。</p>
           <EChart title="三大法人累計買賣超" option={option} height={300} />
           <div className="overflow-x-auto rounded-xl border">
             <table className="w-full text-xs">

@@ -3,7 +3,7 @@ from app.db.base import Base
 
 
 class DailyPrice(Base):
-    __tablename__ = "fm_daily_prices"
+    __tablename__ = "market_daily_prices"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)

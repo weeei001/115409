@@ -12,9 +12,10 @@ from app.clients.llm import LlmClient
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_sentiment import NewsSentiment
+from app.features.news.prompts import SYSTEM_PROMPT
 from app.features.news.sentiment import (
-    MAX_INPUT_TOKENS, PROMPT_VERSION, SYSTEM_PROMPT, SentimentOutput, TARGET_STOCKS, active_config_hash,
-    article_input_hash,
+    ANALYSIS_INSTRUCTION, ARTICLE_TARGET, MAX_INPUT_TOKENS, PROMPT_VERSION, SentimentOutput,
+    active_config_hash, article_input_hash, company_catalog,
 )
 from .rules import TAIPEI_TZ, clean_text, estimate_token_count, extract_candidate_stocks, parse_news_pub_time, validate_sentiment_payload
 
@@ -55,6 +56,9 @@ class SentimentBatchRunner:
         self.settings = settings.model_copy(update={"LLM_MAX_RETRIES": 0, "LLM_STREAMING": False})
         self.llm = llm or LlmClient(self.settings, http)
         self.model = self.settings.LLM_MODEL
+        self.catalog = company_catalog()
+        if not self.catalog:
+            raise ValueError("Listed-company catalog is unavailable; refresh official catalog first")
         self.config_hash = active_config_hash(self.settings)
         self.budget = _decimal(max_cost_usd)
         self.limit, self.execute, self.work_dir = limit, execute, work_dir
@@ -75,6 +79,7 @@ class SentimentBatchRunner:
         self.skip_reasons, self.latencies = {}, []
         self.consecutive_failures = 0
         self.stopped_reason = None
+        self.pending_at_start = None
 
     def _skip(self, reason):
         self.counts["skipped"] += 1
@@ -123,7 +128,8 @@ class SentimentBatchRunner:
             start = perf_counter()
             output, error = None, None
             try:
-                output = await self.llm.generate(system_prompt=SYSTEM_PROMPT, payload=payload, schema=SentimentOutput)
+                output = await self.llm.generate(system_prompt=SYSTEM_PROMPT + "\n" + ANALYSIS_INSTRUCTION,
+                                                 payload=payload, schema=SentimentOutput)
             except AppError as exc:
                 error = _error_code(exc)
             latency = (perf_counter() - start) * 1000
@@ -147,12 +153,19 @@ class SentimentBatchRunner:
                     error = "truncated_output"
                 else:
                     validation = validate_sentiment_payload(output.payload, cleaned_title=title, cleaned_content=content)
-                    if not validation.is_valid:
+                    if symbol != ARTICLE_TARGET and (not isinstance(output.payload, dict)
+                            or type(output.payload.get("related")) is not bool):
+                        error = "validation_failed: explicit company relevance required"
+                    elif not validation.is_valid:
                         error = f"validation_failed: {validation.error_message}"
+                    elif symbol == ARTICLE_TARGET and not validation.output.related:
+                        error = "validation_failed: article target must be related"
             self._audit(article_id, symbol, input_hash, attempt, output, error, usage, latency)
             if not error:
                 result = validation.output
-                self._save_record(article_id, symbol, input_hash, "success", label=result.label, reason=result.reason,
+                self._save_record(article_id, symbol, input_hash,
+                    "irrelevant" if symbol != ARTICLE_TARGET and not result.related else "success",
+                    label=result.label if result.related else None, reason=result.reason,
                     evidence=json.dumps([quote.model_dump() for quote in result.evidence], ensure_ascii=False), **usage)
                 return True, None
             last_error = error
@@ -167,37 +180,55 @@ class SentimentBatchRunner:
         self._save_record(article_id, symbol, input_hash, "failed", error_code=last_error, **last_usage)
         return False, last_error
 
-    def incremental_manifest(self, stocks):
-        stocks = set(stocks)
-        if not stocks or not stocks <= TARGET_STOCKS.keys():
-            raise ValueError("--stocks must contain supported stock symbols")
+    def incremental_manifest(self, stocks=None, *, since: datetime | None = None, new_since: datetime | None = None):
+        include_article = stocks is None
+        stocks = set(stocks) if stocks is not None else set(self.catalog)
+        if not stocks <= self.catalog.keys():
+            raise ValueError("--stocks must contain listed stock symbols")
         retry_before = datetime.now(TAIPEI_TZ).replace(tzinfo=None) - timedelta(hours=1)
         # ponytail: a caught-up batch scans all hashes; add an article revision column if scans become expensive.
         query = select(NewsArticle, NewsSentiment).outerjoin(NewsSentiment, and_(
-            NewsSentiment.article_id == NewsArticle.article_id, NewsSentiment.target_stock_id.in_(stocks),
+            NewsSentiment.article_id == NewsArticle.article_id,
         )).order_by(NewsArticle.pub_time.desc(), NewsArticle.article_id).execution_options(yield_per=200)
-        items = []
+        items, fresh, backlog = [], [], []
         with self.db.execute(query) as rows:
             for _, grouped in groupby(rows, key=lambda row: row[0].article_id):
                 group = list(grouped)
                 article = group[0][0]
+                published = parse_news_pub_time(article.pub_time)[0]
+                if since and (published is None or published < since):
+                    continue
                 existing = {row.target_stock_id: row for _, row in group if row is not None}
-                for symbol in extract_candidate_stocks(article.stock_id, article.tags):
-                    if symbol not in stocks:
+                candidates = ([ARTICLE_TARGET] if include_article else []) + extract_candidate_stocks(
+                    article.stock_id, article.tags, article.title, article.content, self.catalog)
+                for symbol in candidates:
+                    if symbol != ARTICLE_TARGET and symbol not in stocks:
                         continue
                     previous = existing.get(symbol)
                     if (previous is not None and previous.config_hash == self.config_hash
-                            and previous.input_hash == article_input_hash(article, symbol)
-                            and (previous.status in {"success", "skipped"}
+                            and previous.input_hash == article_input_hash(article, symbol, self.catalog)
+                            and (previous.status in {"success", "skipped", "irrelevant"}
                                  or previous.status == "failed" and (
                                      previous.error_code not in {"timeout", "rate_limit_429", "upstream_model_error",
                                          "client_uninitialized", "auth_error_401", "model_not_found"}
                                      or previous.analyzed_at is not None and previous.analyzed_at > retry_before))):
                         # Retry transient failures hourly; explicit manifests can retry unchanged invalid output.
                         continue
-                    items.append({"article_id": article.article_id, "symbol": symbol})
-                    if len(items) == self.limit:
+                    item = {"article_id": article.article_id, "symbol": symbol}
+                    if new_since is not None and published is not None and published >= new_since.replace(tzinfo=TAIPEI_TZ):
+                        fresh.append(item)
+                    elif new_since is not None:
+                        backlog.append(item)
+                    else:
+                        items.append(item)
+                    if new_since is None and len(items) == self.limit:
                         return items
+        if new_since is not None:
+            self.pending_at_start = len(fresh) + len(backlog)
+            half = max(1, self.limit // 2)
+            items = fresh[:half] + list(reversed(backlog))[:self.limit - min(len(fresh), half)]
+            if len(items) < self.limit:
+                items += fresh[half:self.limit - len(items) + half]
         return items
 
     async def run_manifest(self, manifest_items):
@@ -210,7 +241,7 @@ class SentimentBatchRunner:
             if not isinstance(article_id, str) or not article_id or not isinstance(symbol, str) or not symbol:
                 self._skip("missing_id_or_symbol")
                 continue
-            if symbol not in TARGET_STOCKS:
+            if symbol != ARTICLE_TARGET and symbol not in self.catalog:
                 self._skip("not_in_target_stocks")
                 continue
             if (article_id, symbol) in seen:
@@ -224,11 +255,12 @@ class SentimentBatchRunner:
                 continue
             title, content = clean_text(article.title), clean_text(article.content)
             timestamp, canonical_time = parse_news_pub_time(article.pub_time)
-            input_hash = article_input_hash(article, symbol)
-            payload = {"target_stock_id": symbol, "target_stock_name": TARGET_STOCKS[symbol],
+            input_hash = article_input_hash(article, symbol, self.catalog)
+            payload = {"target_stock_id": symbol,
+                       "target_stock_name": "" if symbol == ARTICLE_TARGET else self.catalog[symbol]["name"],
                        "pub_time": canonical_time, "title": title, "content": content}
-            input_text = SYSTEM_PROMPT + json.dumps(payload, ensure_ascii=False) + json.dumps(SentimentOutput.model_json_schema(), ensure_ascii=False)
-            skip = ("skipped_empty_content" if not content else "skipped_invalid_date" if timestamp is None
+            input_text = SYSTEM_PROMPT + ANALYSIS_INSTRUCTION + json.dumps(payload, ensure_ascii=False) + json.dumps(SentimentOutput.model_json_schema(), ensure_ascii=False)
+            skip = ("skipped_empty_content" if not title and not content else "skipped_invalid_date" if timestamp is None
                     else "skipped_input_too_long" if estimate_token_count(input_text) > MAX_INPUT_TOKENS else None)
             if skip:
                 self._skip(skip)
@@ -239,7 +271,7 @@ class SentimentBatchRunner:
                 NewsSentiment.config_hash == self.config_hash, NewsSentiment.status == "success").limit(1))
             if cached:
                 try:
-                    validation = validate_sentiment_payload({"label": cached.label, "reason": cached.reason,
+                    validation = validate_sentiment_payload({"label": cached.label, "related": True, "reason": cached.reason,
                         "evidence": json.loads(cached.evidence or "[]")}, cleaned_title=title, cleaned_content=content)
                 except (ValueError, TypeError):
                     validation = None
@@ -271,7 +303,8 @@ class SentimentBatchRunner:
     def get_summary(self):
         latencies = sorted(self.latencies)
         return {"run_id": self.run_id, "mode": "execute" if self.execute else "preview", "model": self.model,
-                "config_hash": self.config_hash, **self.counts, "skip_reasons": self.skip_reasons,
+                "config_hash": self.config_hash, **self.counts, "pending_at_start": self.pending_at_start,
+                "skip_reasons": self.skip_reasons,
                 "total_cost_usd": round(float(self.known_cost), 6),
                 "total_cost_twd": round(float(self.known_cost * _decimal(self.settings.SENTIMENT_USD_TWD_RATE)), 2),
                 "budget_spent_usd": round(float(self.spent), 6), "stopped_reason": self.stopped_reason,

@@ -11,7 +11,6 @@ import time as clock
 
 TAIPEI = timezone(timedelta(hours=8))
 ROOT = Path(__file__).resolve().parents[2]
-SYMBOLS = "2330,2317,2454,2881,2408,2615"
 
 
 def run_worker(command: list[str]) -> int:
@@ -29,25 +28,43 @@ def run_worker(command: list[str]) -> int:
         raise
 
 
-def run_pipeline(job: str, *, start: date, symbols: str, output: Path, run=None,
-                 sentiment_execute=True, sentiment_limit=100, sentiment_max_cost_usd=0.50) -> int:
+def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, run=None,
+                 sentiment_execute=True, sentiment_limit=100, sentiment_max_cost_usd=0.50,
+                 backfill=False) -> int:
     run = run or run_worker
     commands = []
-    if job in {"finmind", "all"}:
+    if job in {"market", "all"}:
+        if backfill:
+            backfill_output = output / "backfill"
+            commands.extend([
+                ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
+                 "--start", start.isoformat(), "--out", str(backfill_output)],
+                ["market-import", "--input-dir", str(backfill_output)],
+            ])
         commands.extend([
-            ["finmind-fetch", "--stocks", symbols, "--start", start.isoformat(), "--out", str(output)],
-            ["finmind-import", "--input-dir", str(output), "--symbols", symbols],
+            ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
+             "--start", start.isoformat(), "--out", str(output)],
+            ["market-import", "--input-dir", str(output)],
+            ["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()],
         ])
     if job in {"cnyes", "all"}:
         commands.append(["crawl-cnyes", "--scheduled-once"])
     if job in {"ltn", "all"}:
         commands.append(["crawl-ltn", "--scheduled-once", "--lookback-days", "30"])
+    if job in {"rag", "all", "impact"}:
+        commands.append(["migrate-news-impact-schema"])
     if job in {"rag", "all"}:
         commands.append(["news-ingest"])
+    if job == "impact" or sentiment_execute and job in {"rag", "all"}:
+        commands.append(["news-impact-batch", "--limit", str(sentiment_limit),
+                         "--max-cost-usd", str(sentiment_max_cost_usd),
+                         *(["--execute"] if sentiment_execute else [])])
+        if sentiment_execute:
+            commands.append(["news-impact-sync", "--execute"])
     if job in {"rag", "text-brief", "all"}:
-        commands.append(["cache-warmup", "--symbols", symbols])
-    if job == "sentiment" or sentiment_execute and job in {"rag", "all"}:
-        commands.append(["sentiment-batch", "--incremental", "--stocks", symbols,
+        commands.append(["cache-warmup", *(["--symbols", symbols] if symbols else [])])
+    if job == "sentiment":
+        commands.append(["sentiment-batch", "--incremental",
                          "--limit", str(sentiment_limit), "--max-cost-usd", str(sentiment_max_cost_usd),
                          *(["--execute"] if sentiment_execute else [])])
     exit_code = 0
@@ -55,7 +72,7 @@ def run_pipeline(job: str, *, start: date, symbols: str, output: Path, run=None,
         result = run(command)
         print(f"job={command[0]} exit_code={result}", flush=True)
         if result:
-            if command[0] not in {"cache-warmup", "sentiment-batch"}:
+            if command[0] not in {"cache-warmup", "sentiment-batch", "news-impact-batch", "news-impact-sync"}:
                 return result
             exit_code = exit_code or result
     return exit_code
@@ -69,10 +86,10 @@ def next_daily(now: datetime, at: time) -> datetime:
 
 class Scheduler:
     def __init__(self, run, now: datetime, monotonic: float, *, interval: float = 1800,
-                 delay: float = 600, finmind_at: time = time(17)):
-        self.run, self.interval, self.delay, self.finmind_at = run, interval, delay, finmind_at
+                 delay: float = 600, market_at: time = time(17)):
+        self.run, self.interval, self.delay, self.market_at = run, interval, delay, market_at
         self.next_news = {"cnyes": monotonic + interval, "ltn": monotonic + interval}
-        self.next_finmind = next_daily(now, finmind_at)
+        self.next_market = next_daily(now, market_at)
         self.followup = None
 
     def tick(self, now: datetime, monotonic: float):
@@ -82,9 +99,9 @@ class Scheduler:
         def finished_at():
             return monotonic + max(0, clock.monotonic() - started)
 
-        if now >= self.next_finmind:
-            self.next_finmind = next_daily(now, self.finmind_at)
-            if self.run("finmind") == 0 and self.followup is None:
+        if now >= self.next_market:
+            self.next_market = next_daily(now, self.market_at)
+            if self.run("market") == 0 and self.followup is None:
                 self.followup = finished_at() + self.delay
         for name in self.next_news:
             if monotonic >= self.next_news[name]:
@@ -100,35 +117,50 @@ class Scheduler:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Standalone v2 scheduler, independent of FastAPI lifecycle")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2021, 1, 1))
-    parser.add_argument("--symbols", default=SYMBOLS)
-    parser.add_argument("--out", type=Path, default=ROOT / ".state" / "finmind")
+    parser.add_argument("--symbols", help="Limit market processing to these codes; default is all listed/OTC companies")
+    parser.add_argument("--out", type=Path, default=ROOT / ".state" / "market")
     parser.add_argument("--run-now", action="store_true")
-    parser.add_argument("--job", choices=["finmind", "cnyes", "ltn", "rag", "text-brief", "sentiment", "all"])
+    parser.add_argument("--backfill", action="store_true",
+                        help="Backfill all historical stock_info data before the first market/AI run")
+    parser.add_argument("--job", choices=["market", "finmind", "cnyes", "ltn", "rag", "text-brief", "sentiment", "impact", "all"])
     parser.add_argument("--interval-minutes", type=float, default=30)
     parser.add_argument("--rag-delay-minutes", type=float, default=10)
-    parser.add_argument("--finmind-time", type=time.fromisoformat, default=time(17))
-    parser.add_argument("--sentiment-execute", action=argparse.BooleanOptionalAction, default=True,
-                        help="Execute incremental sentiment analysis (default: enabled); disabling skips it in "
-                             "rag/all pipelines and previews --job sentiment")
-    parser.add_argument("--sentiment-limit", type=int, default=100, help="Maximum article/stock pairs per run")
-    parser.add_argument("--sentiment-max-cost-usd", type=float, default=0.50, help="Estimated model budget per run")
+    parser.add_argument("--market-time", "--finmind-time", dest="market_time", type=time.fromisoformat, default=time(17))
+    parser.add_argument("--impact-execute", "--sentiment-execute", dest="sentiment_execute",
+                        action=argparse.BooleanOptionalAction, default=True,
+                        help="Execute event impact analysis in rag/all pipelines (default: enabled)")
+    parser.add_argument("--impact-limit", "--sentiment-limit", dest="sentiment_limit",
+                        type=int, default=100, help="Maximum articles per event impact run")
+    parser.add_argument("--impact-max-cost-usd", "--sentiment-max-cost-usd",
+                        dest="sentiment_max_cost_usd", type=float, default=0.50,
+                        help="Estimated model budget per event impact run")
     args = parser.parse_args(argv)
     if not math.isfinite(args.interval_minutes) or not math.isfinite(args.rag_delay_minutes) or args.interval_minutes <= 0 or args.rag_delay_minutes < 0:
         parser.error("interval must be positive and delay must not be negative")
-    if args.finmind_time.tzinfo is not None:
-        parser.error("--finmind-time is a Taiwan local time without a timezone suffix")
+    if args.market_time.tzinfo is not None:
+        parser.error("--market-time is a Taiwan local time without a timezone suffix")
     if (args.sentiment_limit < 1 or not math.isfinite(args.sentiment_max_cost_usd)
             or args.sentiment_max_cost_usd < 0):
         parser.error("sentiment limit must be positive and budget must be finite and nonnegative")
-    symbols = ",".join(dict.fromkeys(s.strip() for s in args.symbols.split(",") if s.strip()))
-    if not symbols:
+    symbols = ",".join(dict.fromkeys(s.strip() for s in args.symbols.split(",") if s.strip())) if args.symbols else None
+    if args.symbols is not None and not symbols:
         parser.error("symbols must not be empty")
     from app.jobs.locking import worker_lock
 
+    backfill = args.backfill
+
     def run(job):
-        return run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
+        nonlocal backfill
+        if job == "finmind":
+            job = "market"
+        use_backfill = backfill and job in {"market", "all"}
+        result = run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
+                            backfill=use_backfill,
                             sentiment_execute=args.sentiment_execute, sentiment_limit=args.sentiment_limit,
                             sentiment_max_cost_usd=args.sentiment_max_cost_usd)
+        if use_backfill and result == 0:
+            backfill = False
+        return result
 
     with worker_lock("scheduler"):
         def stop(signum, frame):
@@ -140,8 +172,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.job:
                 return run(args.job)
             scheduler = Scheduler(run, datetime.now(TAIPEI), clock.monotonic(),
-                interval=args.interval_minutes * 60, delay=args.rag_delay_minutes * 60, finmind_at=args.finmind_time)
-            if args.run_now and run("finmind") != 0:
+                interval=args.interval_minutes * 60, delay=args.rag_delay_minutes * 60, market_at=args.market_time)
+            if args.run_now and run("market") != 0:
                 return 1
             while True:
                 scheduler.tick(datetime.now(TAIPEI), clock.monotonic())

@@ -8,10 +8,10 @@ import { cn } from '@/lib/cn';
 
 const HEADERS: Array<{ key: keyof CompareMetricsRow; label: string; title?: string }> = [
   { key: 'symbol', label: '股票' },
-  { key: 'totalReturnPct', label: '區間報酬%' },
-  { key: 'volatilityPct', label: '年化波動%', title: '日報酬標準差 × √252 × 100%' },
+  { key: 'totalReturnPct', label: '區間漲跌幅%' },
+  { key: 'volatilityPct', label: '年化波動%', title: '有效日漲跌幅的樣本標準差 × √252 × 100%' },
   { key: 'maxDrawdownPct', label: '最大回撤%' },
-  { key: 'winRatePct', label: '勝率%' },
+  { key: 'winRatePct', label: '上漲日比例%' },
   { key: 'maxDailyGainPct', label: '最大單日漲%' },
   { key: 'maxDailyLossPct', label: '最大單日跌%' },
   { key: 'avgVolume', label: '平均量' },
@@ -23,7 +23,7 @@ const fmtAmountPlain = (v: number | null) => (v == null || !Number.isFinite(v) ?
 const td = 'px-3 py-3 whitespace-nowrap tabular-nums sm:px-4';
 
 /** 比較指標表：點欄位標題排序（預設區間報酬由高到低） */
-export function MetricsTable({ rows, symbolColors }: { rows: CompareMetricsRow[]; symbolColors: Record<string, string> }) {
+export function MetricsTable({ rows, symbolColors, benchmarkReturnPct = null }: { rows: CompareMetricsRow[]; symbolColors: Record<string, string>; benchmarkReturnPct?: number | null }) {
   const [sort, setSort] = useState<CompareSortState>({ key: 'totalReturnPct', direction: 'desc' });
   const scrollRef = useRef<HTMLDivElement>(null);
   const sorted = useMemo(() => sortMetricsRows(rows, sort), [rows, sort]);
@@ -65,6 +65,7 @@ export function MetricsTable({ rows, symbolColors }: { rows: CompareMetricsRow[]
                   </th>
                 );
               })}
+              <th scope="col" className="px-3 py-3 text-left whitespace-nowrap sm:px-4">相對加權差值（百分點）</th>
             </tr>
           </thead>
           <tbody>
@@ -84,6 +85,7 @@ export function MetricsTable({ rows, symbolColors }: { rows: CompareMetricsRow[]
                 <td className={cn(td, valueToneText(r.maxDailyLossPct))}>{fmtPercent(r.maxDailyLossPct)}</td>
                 <td className={td}>{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
                 <td className={td}>{fmtAmountPlain(r.avgAmount)}</td>
+                <td className={td}>{r.totalReturnPct == null || benchmarkReturnPct == null ? '--' : (r.totalReturnPct - benchmarkReturnPct).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' })}</td>
               </tr>
             ))}
           </tbody>
@@ -91,7 +93,9 @@ export function MetricsTable({ rows, symbolColors }: { rows: CompareMetricsRow[]
       </div>
       <div className="space-y-0.5 px-4 py-2 text-xs text-muted-foreground">
         <p>點擊欄位標題可排序，空值以 -- 顯示。</p>
-        <p>「年化波動%」為日報酬標準差 × √252；台股年化常用 252 個交易日。</p>
+        <p>漲跌幅依共同起訖日的未還原收盤價計算，未計入股息；「上漲日比例」為有效日漲跌幅中大於 0 的比例。</p>
+        <p>「年化波動%」為有效日漲跌幅的樣本標準差 × √252；台股年化常用 252 個交易日。</p>
+        <p>相對加權差值＝個股區間漲跌幅 − 加權價格指數同期漲跌幅，單位為百分點；非含息超額報酬。基準缺少起訖資料時顯示 --。</p>
       </div>
     </section>
   );

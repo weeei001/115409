@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import type { PriceChangeResponse } from '../types/api';
+import type { MultiStockResponse, PriceChangeResponse } from '../types/api';
 import type { CategoryLeader, CompareMetricsRow, InstitutionalAggregate } from '../types/compare';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import { COMPARE_SYMBOL_COLORS, getChartPalette } from '../charts/theme';
 import {
   aggregateInstitutional,
+  alignComparePrices,
   buildCategoryLeaders,
   buildCompareViewModel,
-  buildCorrelationMatrix,
+  buildCorrelationData,
+  buildInstitutionalCumulative,
+  buildInstitutionalRankingAggregates,
   buildMetricsRow,
   buildSymbolColorMap,
   sortMetricsRows,
@@ -58,7 +61,7 @@ const change = (rows: Array<[string, number, number]>): PriceChangeResponse => (
 
 // c73：漲跌資料缺了，平均量與平均金額照樣只看成交資料
 {
-  const volume = { symbol: 'X', start_date: 's', end_date: 'e', data: [{ date: 'd1', volume: 100, amount: 1000, close: 1, change: 0 }, { date: 'd2', volume: 300, amount: 3000, close: 1, change: 0 }] };
+  const volume = { symbol: 'X', start_date: 'd0', end_date: 'd9', data: [{ date: 'd1', volume: 100, amount: 1000, close: 1, change: 0 }, { date: 'd2', volume: 300, amount: 3000, close: 1, change: 0 }] };
   const row = buildMetricsRow('X', null, volume);
   assert.equal(row.avgVolume, 200);
   assert.equal(row.avgAmount, 2000);
@@ -68,28 +71,42 @@ const change = (rows: Array<[string, number, number]>): PriceChangeResponse => (
 // 沒有漲跌資料：全部 null
 assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array(8).fill(null));
 
-// 相關係數：同向 1、反向 -1、沒有共同日 null、對角線 1；第一天不算（決議 c71）
+// Correlations exclude the first observation and retain exact pair counts.
 {
   const a = change([['d0', 1, 0], ['d1', 1, 1], ['d2', 1, 2], ['d3', 1, 3]]);
   const b = change([['d0', 1, 0], ['d1', 1, 2], ['d2', 1, 4], ['d3', 1, 6]]);
   const c = change([['d0', 1, 0], ['d1', 1, 3], ['d2', 1, 2], ['d3', 1, 1]]);
   const d = change([['d1', 1, 0], ['x2', 1, 2]]);
-  const m = buildCorrelationMatrix(['A', 'B', 'C', 'D'], { A: a, B: b, C: c, D: d });
+  const { correlationMatrix: m, correlationSamples } = buildCorrelationData(['A', 'B', 'C', 'D'], { A: a, B: b, C: c, D: d });
   assert.ok(close(m.A.B as number, 1));
   assert.ok(close(m.A.C as number, -1));
   assert.equal(m.A.D, null);
   assert.equal(m.A.A, 1);
+  assert.equal(m.D.D, null);
+  assert.equal(correlationSamples.A.B, 3);
+  assert.equal(correlationSamples.A.D, 0);
+  const flat = change([['d0', 100, 0], ['d1', 100, 0], ['d2', 100, 0]]);
+  assert.equal(buildCorrelationData(['F'], { F: flat }).correlationMatrix.F.F, null);
 }
 
-// 資料品質：共同交易日、缺值提醒；第一天不算有效樣本（決議 c71）
+// Interior missing closes break both adjacent daily samples, not the price window.
 {
-  const a = change([['d1', 1, 0], ['d2', 1, 1], ['d3', 1, 2], ['d4', 1, 3], ['d5', 1, 4]]);
-  const b = change([['d1', 1, 0], ['d2', 1, 1]]);
-  const vm = buildCompareViewModel({ symbols: ['A', 'B'], startDate: 's', endDate: 'e', priceChangeMap: { A: a, B: b }, volumeMap: {}, generatedAt: 't' });
-  assert.equal(vm.qualityMeta.alignedDays, 1);
-  assert.deepEqual(vm.qualityMeta.samplesBySymbol, { A: 4, B: 1 });
-  assert.ok(close(vm.qualityMeta.missingRatioBySymbol.B, 0.75));
-  assert.deepEqual(vm.qualityMeta.qualityWarnings, ['B 在比較區間缺值 75.0%，結果需審慎解讀。', '共同交易日僅 1 天，相關係數穩定性較低。']);
+  const chart: MultiStockResponse = { start_date: 'd1', end_date: 'd5', symbols: ['A', 'B'], data: [
+    { date: 'd1', prices: { A: 100, B: 100 } },
+    { date: 'd2', prices: { A: 110, B: 110 } },
+    { date: 'd3', prices: { A: 100, B: null } },
+    { date: 'd4', prices: { A: 120, B: 60 } },
+    { date: 'd5', prices: { A: 110, B: 66 } },
+  ] };
+  const vm = buildCompareViewModel({ symbols: chart.symbols, startDate: 'd1', endDate: 'd5', chart, volumeMap: {}, generatedAt: 't' });
+  assert.equal(vm.qualityMeta.alignedDays, 2);
+  assert.deepEqual(vm.qualityMeta.samplesBySymbol, { A: 4, B: 2 });
+  assert.ok(close(vm.qualityMeta.missingRatioBySymbol.B, 0.5));
+  assert.match(vm.qualityMeta.qualityWarnings.join('\n'), /B 缺少 50.0% 的日漲跌樣本/);
+  const b = vm.metricsRows[1];
+  assert.ok(close(b.maxDrawdownPct as number, (60 / 110 - 1) * 100));
+  assert.ok(close(b.maxDailyLossPct as number, 10), 'the missing interval is not a daily decline');
+  assert.ok(close(b.totalReturnPct as number, -34));
 }
 
 // 排序：空值排最後（升冪降冪都一樣）
@@ -117,12 +134,12 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.equal(aggregateInstitutional('A', null).totalNet, null);
 }
 
-// 主圖：指數化首日 = 100、累積報酬首日 = 0，缺值保持 null
+// All chart modes use the same valid shared boundaries.
 {
-  const data = { start_date: 's', end_date: 'e', symbols: ['A'], data: [{ date: 'd1', prices: { A: null } }, { date: 'd2', prices: { A: 50 } }, { date: 'd3', prices: { A: 60 } }] };
-  assert.deepEqual(toCompareChartSeries(data, 'index100').values.A, [null, 100, 120]);
-  assert.ok(close(toCompareChartSeries(data, 'cumulativeReturn').values.A[2] as number, 20));
-  assert.deepEqual(toCompareChartSeries(data, 'price').values.A, [null, 50, 60]);
+  const data = { start_date: 'd0', end_date: 'd9', symbols: ['A'], data: [{ date: 'd1', prices: { A: null } }, { date: 'd2', prices: { A: 50 } }, { date: 'd3', prices: { A: 60 } }] };
+  assert.deepEqual(toCompareChartSeries(data, 'index100').values.A, [100, 120]);
+  assert.ok(close(toCompareChartSeries(data, 'cumulativeReturn').values.A[1] as number, 20));
+  assert.deepEqual(toCompareChartSeries(data, 'price').values.A, [50, 60]);
 }
 
 // 股票代表色：依清單順序、6 檔不撞色、不是漲跌色（決議 c76）
@@ -165,15 +182,149 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
     { A: aggregate('A', -1000), B: aggregate('B', -3000) },
     { A: null, B: null },
     { A: { B: -0.3 }, B: { A: -0.3 } },
+    { A: { B: 20 }, B: { A: 20 } },
   );
   assert.deepEqual(tones(falling), {
     bestReturn: 'down', minVolatility: 'neutral', institutionalFavorite: 'down',
     strongestMomentum: 'neutral', lowestCorrelationPair: 'neutral',
   });
-  const rising = buildCategoryLeaders(['A'], [metric('A', 3, 20)], { A: aggregate('A', 500) }, { A: null }, {});
+  const rising = buildCategoryLeaders(['A'], [metric('A', 3, 20)], { A: aggregate('A', 500) }, { A: null }, {}, {});
   assert.equal(tones(rising).bestReturn, 'up');
   assert.equal(tones(rising).institutionalFavorite, 'up');
-  assert.equal(tones(buildCategoryLeaders(['A'], [metric('A', 0, 20)], {}, {}, {})).bestReturn, 'neutral');
+  assert.equal(tones(buildCategoryLeaders(['A'], [metric('A', 0, 20)], {}, {}, {}, {})).bestReturn, 'neutral');
+}
+
+// Unsorted histories align endpoints once; charts, metrics, and leaders agree.
+{
+  const chart: MultiStockResponse = { start_date: 'd0', end_date: 'd5', symbols: ['A', 'B'], data: [
+    { date: 'd4', prices: { A: 120, B: 110 } },
+    { date: 'd0', prices: { A: 10, B: null } },
+    { date: 'd2', prices: { A: null, B: 90 } },
+    { date: 'd1', prices: { A: 100, B: 100 } },
+    { date: 'd5', prices: { A: null, B: 200 } },
+    { date: 'd3', prices: { A: 80, B: 100 } },
+    { date: 'd9', prices: { A: 999, B: 999 } },
+  ] };
+  const originalOrder = chart.data.map((row) => row.date);
+  const aligned = alignComparePrices(chart);
+  assert.equal(aligned.start_date, 'd1');
+  assert.equal(aligned.end_date, 'd4');
+  assert.deepEqual(aligned.data.map((row) => row.date), ['d1', 'd2', 'd3', 'd4']);
+  assert.deepEqual(chart.data.map((row) => row.date), originalOrder, 'alignment does not mutate the response');
+  const vm = buildCompareViewModel({ symbols: chart.symbols, startDate: 'd0', endDate: 'd5', chart, volumeMap: {} });
+  assert.deepEqual(vm.qualityMeta.requestedRange, { startDate: 'd0', endDate: 'd5' });
+  assert.deepEqual(vm.qualityMeta.analysisRange, { startDate: 'd1', endDate: 'd4' });
+  assert.equal(vm.qualityMeta.alignedDays, 1);
+  const modes = ['price', 'index100', 'cumulativeReturn'] as const;
+  for (const mode of modes) {
+    const series = toCompareChartSeries(chart, mode);
+    assert.deepEqual(series.dates, ['d1', 'd2', 'd3', 'd4']);
+    assert.equal(series.values.A[1], null);
+  }
+  const cumulative = toCompareChartSeries(chart, 'cumulativeReturn');
+  for (const row of vm.metricsRows) {
+    assert.ok(close(cumulative.values[row.symbol].at(-1) as number, row.totalReturnPct as number));
+  }
+  const leaders = buildCategoryLeaders(chart.symbols, vm.metricsRows, {}, {}, vm.correlationMatrix, vm.correlationSamples);
+  assert.equal(leaders.find((leader) => leader.id === 'bestReturn')?.symbol, 'A');
+  assert.equal(leaders.find((leader) => leader.id === 'lowestCorrelationPair')?.symbol, '--');
+  assert.ok(close(vm.metricsRows[0].maxDrawdownPct as number, -20));
+  assert.ok(close(vm.metricsRows[0].maxDailyGainPct as number, 50));
+  assert.equal(vm.metricsRows[0].volatilityPct, null, 'one observed daily interval cannot define sample volatility');
+}
+
+// Pair samples use adjacent valid intervals, not the all-symbol intersection.
+{
+  const chart: MultiStockResponse = { start_date: 'd0', end_date: 'd6', symbols: ['A', 'B', 'C'], data: [
+    { date: 'd0', prices: { A: 100, B: 100, C: 100 } },
+    { date: 'd1', prices: { A: 110, B: 120, C: 90 } },
+    { date: 'd2', prices: { A: 108, B: null, C: 95 } },
+    { date: 'd3', prices: { A: 115, B: null, C: 92 } },
+    { date: 'd4', prices: { A: 112, B: 110, C: null } },
+    { date: 'd5', prices: { A: 116, B: 114, C: 91 } },
+    { date: 'd6', prices: { A: 113, B: 112, C: 97 } },
+  ] };
+  const vm = buildCompareViewModel({ symbols: chart.symbols, startDate: 'd0', endDate: 'd6', chart, volumeMap: {} });
+  assert.deepEqual(vm.qualityMeta.samplesBySymbol, { A: 6, B: 3, C: 4 });
+  assert.equal(vm.qualityMeta.alignedDays, 2);
+  assert.deepEqual(vm.correlationSamples, {
+    A: { A: 6, B: 3, C: 4 }, B: { A: 3, B: 3, C: 2 }, C: { A: 4, B: 2, C: 4 },
+  });
+}
+
+// Missing, disjoint, single-point, and invalid-price histories cannot invent a shared return.
+{
+  const cases: Array<MultiStockResponse['data']> = [
+    [],
+    [{ date: 'd1', prices: { A: 10, B: null } }, { date: 'd2', prices: { A: null, B: 20 } }],
+    [{ date: 'd1', prices: { A: 10, B: 20 } }],
+    [{ date: 'd1', prices: { A: 0, B: 20 } }, { date: 'd2', prices: { A: 10, B: 20 } }],
+    [{ date: 'd1', prices: { A: -1, B: 20 } }, { date: 'd2', prices: { A: Number.NaN, B: 20 } }],
+    [{ date: 'd1', prices: { A: 10, B: Number.POSITIVE_INFINITY } }, { date: 'd2', prices: { A: 10, B: 20 } }],
+  ];
+  for (const data of cases) {
+    const chart: MultiStockResponse = { start_date: 'd0', end_date: 'd9', symbols: ['A', 'B'], data };
+    assert.deepEqual(alignComparePrices(chart).data, []);
+    for (const mode of ['price', 'index100', 'cumulativeReturn'] as const) {
+      assert.deepEqual(toCompareChartSeries(chart, mode).dates, []);
+    }
+    const vm = buildCompareViewModel({ symbols: chart.symbols, startDate: 'd0', endDate: 'd9', chart, volumeMap: {} });
+    assert.equal(vm.qualityMeta.analysisRange, null);
+    assert.equal(vm.qualityMeta.alignedDays, 0);
+    assert.ok(vm.metricsRows.every((row) => row.totalReturnPct === null && row.maxDrawdownPct === null));
+  }
+  const volume = { symbol: 'A', start_date: 'd0', end_date: 'd9', data: [
+    { date: 'd1', volume: 100, amount: 1000, close: 10, change: 0 },
+    { date: 'd2', volume: 300, amount: 3000, close: 10, change: 0 },
+  ] };
+  const vm = buildCompareViewModel({ symbols: ['A'], startDate: 'd0', endDate: 'd9', chart: null, volumeMap: { A: volume } });
+  assert.equal(vm.metricsRows[0].avgVolume, 200);
+  assert.equal(vm.metricsRows[0].avgAmount, 2000);
+  assert.equal(vm.metricsRows[0].totalReturnPct, null);
+  assert.equal(vm.qualityMeta.analysisRange, null);
+}
+
+// The lowest coefficient is eligible only with at least 20 paired samples.
+{
+  const matrix = { A: { B: -0.9, C: 0.2 }, B: { A: -0.9, C: 0.4 }, C: { A: 0.2, B: 0.4 } };
+  const samples = { A: { B: 19, C: 20 }, B: { A: 19, C: 30 }, C: { A: 20, B: 30 } };
+  const leader = buildCategoryLeaders(['A', 'B', 'C'], [], {}, {}, matrix, samples)
+    .find((item) => item.id === 'lowestCorrelationPair');
+  assert.equal(leader?.symbol, 'A × C');
+  assert.match(leader?.reason ?? '', /20 筆/);
+  const insufficient = buildCategoryLeaders(['A', 'B'], [], {}, {}, matrix, samples)
+    .find((item) => item.id === 'lowestCorrelationPair');
+  assert.equal(insufficient?.symbol, '--');
+}
+
+// A missing institutional observation remains a gap, even between known totals.
+{
+  const day = (date: string, total: number | null): InstitutionalDay =>
+    ({ date, foreign_net: null, investment_trust_net: null, dealer_net: null, total_institutional_net: total }) as InstitutionalDay;
+  const series = buildInstitutionalCumulative(['A', 'B'], {
+    A: [day('d4', -5), day('d1', 10), day('d2', null)],
+    B: [day('d3', 2)],
+  });
+  assert.deepEqual(series.dates, ['d1', 'd2', 'd3', 'd4']);
+  assert.deepEqual(series.values.A, [10, null, null, 5]);
+  assert.deepEqual(series.values.B, [null, null, 2, null]);
+}
+
+// Institutional ranking uses shared report dates, not every price date.
+{
+  const day = (date: string, total: number): InstitutionalDay =>
+    ({ date, foreign_net: null, investment_trust_net: null, dealer_net: null, total_institutional_net: total }) as InstitutionalDay;
+  const result = buildInstitutionalRankingAggregates(['A', 'B'], {
+    A: [day('d1', 10), day('d2', 20), day('d3', 30)],
+    B: [day('d2', 5), day('d3', 15), day('d4', 25)],
+  });
+  assert.deepEqual(result.commonDates, ['d2', 'd3']);
+  assert.equal(result.aggregates.A.totalNet, 50);
+  assert.equal(result.aggregates.B.totalNet, 20);
+  assert.deepEqual(buildInstitutionalRankingAggregates(['A', 'B'], {
+    A: [day('d1', 10)],
+    B: [day('d2', 5)],
+  }).aggregates, {});
 }
 
 console.log('compare metrics tests passed');

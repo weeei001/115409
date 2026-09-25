@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Sparkline } from '@/components/common/Sparkline';
-import type { MultiStockResponse } from '@/lib/types/api';
+import type { MultiStockResponse, StockInfo } from '@/lib/types/api';
 import { recentCloses } from '@/lib/utils/compare';
 import { fmtPercent } from '@/lib/utils/format';
 import { getValueTone, valueToneText } from '@/lib/utils/tone';
@@ -9,13 +9,14 @@ import { cn } from '@/lib/cn';
 interface Props {
   symbol: string;
   color: string;
+  stockInfos: Record<string, StockInfo>;
   data: MultiStockResponse;
-  /** 期間漲跌（區間報酬 %） */
+  /** Closing-price change over the shared analysis window. */
   returnPct: number | null;
 }
 
-/** 個股快照：期間漲跌與近 30 點走勢 */
-export function SnapshotCard({ symbol, color, data, returnPct }: Props) {
+/** Company context, price change, and recent closes. */
+export function SnapshotCard({ symbol, color, stockInfos, data, returnPct }: Props) {
   const closes = useMemo(() => recentCloses(data, symbol), [data, symbol]);
   const tone = getValueTone(returnPct);
   return (
@@ -23,10 +24,13 @@ export function SnapshotCard({ symbol, color, data, returnPct }: Props) {
       <header className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
-          <h3 className="truncate font-mono text-sm font-semibold tabular-nums">{symbol}</h3>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold tabular-nums">{symbol} {stockInfos[symbol]?.name?.trim() || ''}</h3>
+            <p className="text-[11px] text-muted-foreground">{stockInfos[symbol]?.industry?.trim() || '產業未提供'}</p>
+          </div>
         </div>
         <div className="text-right">
-          <p className="text-[10px] leading-tight text-muted-foreground">期間漲跌</p>
+          <p className="text-[10px] leading-tight text-muted-foreground">期間價格漲跌</p>
           <p className={cn('font-mono text-xl leading-tight font-bold tabular-nums', valueToneText(returnPct))}>{fmtPercent(returnPct, { sign: true })}</p>
         </div>
       </header>
@@ -34,7 +38,7 @@ export function SnapshotCard({ symbol, color, data, returnPct }: Props) {
         {closes.length >= 2 ? (
           <Sparkline values={closes} trend={tone === 'neutral' ? 'flat' : tone} className="h-[60px]" />
         ) : (
-          <p className="py-2 text-center text-[11px] text-muted-foreground">走勢資料不足</p>
+          <p className="py-2 text-center text-[11px] text-muted-foreground">走勢資料不足或有缺值，請查看主圖斷點。</p>
         )}
       </div>
     </article>

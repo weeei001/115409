@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models.daily_price import DailyPrice
+from app.db.models.stock_info import StockInfo
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.jobs.__main__ import main
 from app.jobs.indicators import recompute
@@ -33,7 +34,11 @@ def test_indicators_preserve_lookback_rounding_and_upsert(db_session):
 @pytest.mark.parametrize("command,module,entry,prefix", [
     ("crawl-cnyes", "app.jobs.crawlers", "crawler_main", ("cnyes",)),
     ("crawl-ltn", "app.jobs.crawlers", "crawler_main", ("ltn",)),
+    ("market-fetch", "app.jobs.market.fetch", "main", ()),
+    ("finmind-backfill", "app.jobs.finmind.fetch", "main", ()),
     ("finmind-fetch", "app.jobs.finmind.fetch", "main", ()),
+    ("market-import", "app.jobs.finmind.import_csv", "main", ()),
+    ("stock-info-sync", "app.jobs.market.stock_info", "main", ()),
     ("finmind-import", "app.jobs.finmind.import_csv", "main", ()),
     ("sentiment-batch", "app.jobs.sentiment.cli", "main", ()),
     ("chunk-news", "app.jobs.ingestion.cli", "main", ("chunk-news",)),
@@ -85,6 +90,54 @@ def test_cache_warmup_uses_trading_dates_isolated_sessions_and_reports_failures(
     assert [request.as_of_date for request in requests] == [start, start + timedelta(days=1)]
     assert all(not request.force_refresh for request in requests)
     assert len(sessions) == 2 and sessions[0] is not sessions[1]
+
+
+def test_cache_warmup_defaults_to_stock_info_symbols(db_session, settings, monkeypatch):
+    from app.jobs import warmup
+    from sqlalchemy.orm import sessionmaker
+
+    day = date(2026, 5, 1)
+    db_session.add_all([
+        StockInfo(symbol="1101", name="台泥"),
+        DailyPrice(symbol="1101", date=day, close=Decimal("100")),
+        StockInfo(symbol="2330", name="台積電"),
+        DailyPrice(symbol="2330", date=day, close=Decimal("100")),
+    ])
+    db_session.commit()
+    engine = db_session.get_bind()
+    monkeypatch.setattr(warmup, "get_settings", lambda: settings)
+    monkeypatch.setattr(warmup, "make_engine", lambda configured: engine)
+    requests = []
+
+    async def capture(self, request, *, refresh_sources=False):
+        requests.append(request.symbol)
+        return SimpleNamespace(status="verified", cached=False)
+
+    class Analysis:
+        def __init__(self, **kwargs):
+            pass
+
+        generate_text_brief = capture
+
+    monkeypatch.setattr(warmup, "AnalysisService", Analysis)
+    factory = sessionmaker(bind=engine)
+    assert warmup.stock_info_symbols(factory) == ["1101", "2330"]
+    assert asyncio.run(warmup.warm(None, day, day)) == 0
+    assert requests == ["1101", "2330"]
+
+
+def test_stock_info_sync_upserts_catalog_names(db_session):
+    from app.jobs.market.stock_info import sync_catalog
+
+    db_session.add(StockInfo(symbol="1101", name="old"))
+    db_session.commit()
+    assert sync_catalog(db_session, {
+        "1101": {"name": "台泥", "industry_name": "水泥工業"},
+        "2330": {"name": "台積電", "industry_name": "半導體業"},
+    }) == 2
+    db_session.commit()
+    assert db_session.get(StockInfo, "1101").name == "台泥"
+    assert db_session.get(StockInfo, "2330").industry == "半導體業"
 
 
 def test_undated_warmup_uses_today_so_weekend_news_is_included(db_session, monkeypatch):

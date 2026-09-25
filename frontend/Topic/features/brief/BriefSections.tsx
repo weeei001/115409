@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertTriangle, CalendarClock, Eye, Sparkles } from 'lucide-react';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import type { Brief, Claim, ForwardViews, KeyDay, Risk, WatchPoint } from '@/lib/types/textBrief';
-import { FORWARD_VIEWS, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
+import { FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
 import { forwardViewKey } from '@/lib/brief/textBriefClaims';
 import { ClaimRow } from './BriefHighlight';
 import { ClaimTypeBadge, DirectionMark, Empty, SectionCard, StanceIcon, Tag } from './BriefAtoms';
@@ -169,7 +169,7 @@ const ForwardViewCards: React.FC<{ views?: ForwardViews }> = ({ views }) => {
             <div className="mt-2">
               <Tag tone={tone}>
                 <StanceIcon tone={tone} size={13} />
-                {STANCE[view.stance] ?? view.stance}
+                {forwardViewLabel(view)}
               </Tag>
             </div>
             <ClaimRow claimKey={forwardViewKey(key)} ids={view.evidence_ids} className="mt-2 -mx-1">

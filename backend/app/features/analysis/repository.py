@@ -142,6 +142,15 @@ def saved_brief(row: LlmResponse) -> StockBehaviorTextBriefResponse | None:
     response.generated_at = row.created_at.isoformat() if row.created_at else None
     response.analysis_revision = str(revision) if revision is not None else None
     response.config_hash = row.config_hash
+    try:
+        removed = json.loads(row.normalized_json or "{}").get("model_metadata", {}).get("verification", {}).get("removed_item_ids", [])
+    except (ValueError, AttributeError):
+        removed = []
+    if isinstance(removed, list):
+        for horizon in ("short_1_5", "swing_6_20", "medium_21_40"):
+            view = getattr(response.brief.forward_views, horizon)
+            if f"forward_views.{horizon}" in removed and view.stance == "uncertain":
+                view.validation_status = "rejected"
     response.cached = True
     return response
 

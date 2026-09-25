@@ -207,3 +207,43 @@ def test_legacy_collection_cannot_be_used_for_v2_writes(settings):
             await VectorWriter(http, configured(settings)).require_collection(create=True)
     with pytest.raises(AppError, match="explicit index version and a new collection"):
         asyncio.run(execute())
+
+
+def test_impact_sync_reads_and_updates_payload_without_vectors(settings):
+    calls = []
+    point_id = str(uuid5(NAMESPACE_URL, "news_chunks:chunk-1"))
+    def handler(request):
+        calls.append(request)
+        body = json.loads(request.content)
+        if request.url.path.endswith("/points"):
+            assert body == {"ids": [point_id], "with_payload": True, "with_vector": False}
+            return ok([{"id": point_id, "payload": {"chunk_id": "chunk-1"}}])
+        assert request.url.path.endswith("/payload") and request.url.params["wait"] == "true"
+        assert body == {"points": [point_id], "payload": {"impact_scopes": ["market"]}}
+        return ok({"status": "completed"})
+    async def operation(writer):
+        points = await writer.chunk_payloads(["chunk-1"])
+        await writer.set_chunk_payload(points["chunk-1"]["id"], {"impact_scopes": ["market"]})
+        return points
+    assert run(settings, handler, operation) == {
+        "chunk-1": {"id": point_id, "payload": {"chunk_id": "chunk-1"}}}
+    assert [request.url.path.rsplit("/", 1)[-1] for request in calls] == ["points", "payload"]
+
+
+def test_impact_sync_isolates_unreadable_qdrant_point(settings):
+    good_id = str(uuid5(NAMESPACE_URL, "news_chunks:good"))
+    bad_id = str(uuid5(NAMESPACE_URL, "news_chunks:bad"))
+
+    def handler(request):
+        ids = json.loads(request.content)["ids"]
+        if bad_id in ids:
+            return httpx.Response(500, json={"status": {"error": "OffsetZero"}})
+        return ok([{"id": good_id, "payload": {"chunk_id": "good"}}])
+
+    async def operation(writer):
+        points = await writer.chunk_payloads(["good", "bad"])
+        assert writer.unavailable_chunk_ids == {"bad"}
+        return points
+
+    assert run(settings, handler, operation) == {
+        "good": {"id": good_id, "payload": {"chunk_id": "good"}}}

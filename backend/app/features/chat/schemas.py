@@ -55,6 +55,16 @@ class SourceChunk(BaseModel):
     index_version: str | None = None
     embedding_model: str | None = None
     stock_ids: list[str] = Field(default_factory=list)
+    analysis_status: str | None = None
+    analysis_input_hash: str | None = None
+    analysis_config_hash: str | None = None
+    impact_scopes: list[str] = Field(default_factory=list)
+    impact_company_ids: list[str] = Field(default_factory=list)
+    impact_industry_ids: list[str] = Field(default_factory=list)
+    impact_directions: list[str] = Field(default_factory=list)
+    impact_importance: list[str] = Field(default_factory=list)
+    impact_topics: list[str] = Field(default_factory=list)
+    impact_context: list[dict] = Field(default_factory=list)
     in_time_range: bool = True
 
     @model_validator(mode="before")

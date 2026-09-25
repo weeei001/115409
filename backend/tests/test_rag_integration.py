@@ -1,5 +1,6 @@
 """Exercise the actual HTTP routes, services and adapters without a legacy RAG process."""
 import asyncio
+from datetime import datetime
 import json
 
 import httpx
@@ -12,6 +13,7 @@ from test_analysis_service import brief_payload, seed_prices
 
 
 def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_session, monkeypatch):
+    monkeypatch.setattr("app.features.chat.service.taipei_now", lambda: datetime(2026, 7, 13, 12))
     for name, value in {
         "QDRANT_URL": "http://vector.test", "EMBED_API_URL": "https://embed.test/v1/embeddings",
         "EMBED_API_KEY": "test-embed-key", "LLM_API_KEY": "test-llm-key",

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchNews, fetchRelatedNews, type FetchNewsParams } from '../api/news';
 import { userFacingMessage } from '../api/errorDetail';
-import { fetchNews, type FetchNewsParams } from '../api/news';
 import type { PaginatedNewsResponse } from '../types/api';
 import { formatNewsDateTimeParam, validateNewsTimeRange } from '../utils/newsFilters';
 
-export interface NewsListFilters {
+export interface NewsListFilters extends Pick<FetchNewsParams,
+  'scope' | 'industry' | 'topic' | 'direction' | 'importance' | 'relation'> {
   keyword?: string;
   stock?: string;
   start_time?: string;
@@ -16,6 +17,8 @@ export interface UseNewsListOptions {
   defaultSort?: Pick<FetchNewsParams, 'sort_by' | 'sort_order'>;
   /** Fixed stock filter (e.g. stock detail page) */
   fixedStock?: string;
+  fixedRelation?: FetchNewsParams['relation'];
+  retrieval?: boolean;
 }
 
 type NewsListFilterOverride =
@@ -60,6 +63,12 @@ function buildFetchParams(
     sort_order: options.defaultSort?.sort_order ?? 'desc',
     start_time,
     end_time,
+    scope: filters.scope,
+    industry: filters.industry?.trim() || undefined,
+    topic: filters.topic,
+    direction: filters.direction,
+    importance: filters.importance,
+    relation: options.fixedRelation ?? filters.relation,
   };
 
   if (options.fixedStock) {
@@ -83,9 +92,11 @@ export function useNewsList(options: UseNewsListOptions = {}) {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<NewsListFilters>({
     stock: options.fixedStock,
+    relation: options.fixedRelation,
   });
   const [draft, setDraft] = useState<NewsListFilters>({
     stock: options.fixedStock,
+    relation: options.fixedRelation,
   });
   const requestIdRef = useRef(0);
 
@@ -108,7 +119,15 @@ export function useNewsList(options: UseNewsListOptions = {}) {
       setLoading(true);
       setError(null);
 
-      fetchNews(params)
+      const request = optionsRef.current.retrieval && optionsRef.current.fixedStock
+        ? fetchRelatedNews({
+            symbol: optionsRef.current.fixedStock,
+            relation: optionsRef.current.fixedRelation,
+            limit: pageSize,
+          })
+        : fetchNews(params);
+
+      request
         .then((res) => {
           if (id !== requestIdRef.current) return;
           setData(res);
@@ -134,12 +153,12 @@ export function useNewsList(options: UseNewsListOptions = {}) {
   }, [draft, load, options.fixedStock]);
 
   useEffect(() => {
-    const initial: NewsListFilters = { stock: options.fixedStock };
+    const initial: NewsListFilters = { stock: options.fixedStock, relation: options.fixedRelation };
     setFilters(initial);
     setDraft(initial);
     load(1, initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial fetch only
-  }, [options.fixedStock]);
+  }, [options.fixedStock, options.fixedRelation, options.defaultSort?.sort_by, options.retrieval]);
 
   const reload = useCallback(() => {
     load(page, filters);
@@ -156,11 +175,12 @@ export function useNewsList(options: UseNewsListOptions = {}) {
     const cleared: NewsListFilters = {
       keyword: draft.keyword,
       stock: options.fixedStock,
+      relation: options.fixedRelation,
     };
     setDraft(cleared);
     setFilters(cleared);
     load(1, cleared);
-  }, [draft.keyword, load, options.fixedStock]);
+  }, [draft.keyword, load, options.fixedStock, options.fixedRelation]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
 

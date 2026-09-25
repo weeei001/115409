@@ -10,9 +10,35 @@ import type {
   MultiStockResponse,
   PriceChangeResponse,
   PriceStatistics,
+  StockInfo,
   TechnicalIndicatorListResponse,
   VolumeAnalysisResponse,
 } from '../types/api';
+
+function normalizeStockInfoList(data: unknown): StockInfo[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const value = item as { symbol?: unknown; name?: unknown; industry?: unknown };
+    if (typeof value.symbol !== 'string' || typeof value.name !== 'string') return [];
+    const symbol = value.symbol.trim().toUpperCase();
+    const name = value.name.trim();
+    return symbol && name
+      ? [{ symbol, name, industry: typeof value.industry === 'string' ? value.industry : null }]
+      : [];
+  });
+}
+
+export async function fetchStockInfos(): Promise<StockInfo[]> {
+  return dedupeFetch(
+    'GET /stocks/info',
+    async () => {
+      const { data } = await apiClient.get<unknown>('/stocks/info');
+      return normalizeStockInfoList(data);
+    },
+    30_000,
+  );
+}
 
 /** openapi: GET /stocks/symbols → string[]（30 秒快取） */
 export async function fetchSymbols(): Promise<string[]> {

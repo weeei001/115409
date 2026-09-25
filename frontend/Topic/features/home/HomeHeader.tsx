@@ -4,12 +4,13 @@ import { TrendingUp } from 'lucide-react';
 import { AppNavDrawer } from '@/components/layout/AppNavDrawer';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { StockSearch } from '@/components/common/StockSearch';
-import { FEATURED_SYMBOLS } from '@/features/home/useFeaturedQuotes';
 import { usePrefersReducedMotion, useSyncAppHeaderHeight } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
+import type { StockInfo } from '@/lib/types/api';
 
 interface Props {
   symbols: string[];
+  stockInfos: StockInfo[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -21,7 +22,7 @@ interface Props {
  * 首頁頁首：品牌、股票搜尋、主選單、主題切換（決議 c52）。
  * 手機：品牌與按鈕同一列、搜尋獨立一列；sm 以上三者同一列。
  */
-export function HomeHeader({ symbols, loading, error, onRetry, onSelect, onBulkSelect }: Props) {
+export function HomeHeader({ symbols, stockInfos, loading, error, onRetry, onSelect, onBulkSelect }: Props) {
   const reduce = usePrefersReducedMotion();
   const headerRef = useRef<HTMLElement>(null);
   useSyncAppHeaderHeight(headerRef);
@@ -60,10 +61,10 @@ export function HomeHeader({ symbols, loading, error, onRetry, onSelect, onBulkS
           ) : (
             <StockSearch
               symbols={symbols}
-              suggested={FEATURED_SYMBOLS}
+              stockInfos={stockInfos}
               onSelect={onSelect}
               onBulkSelect={onBulkSelect}
-              placeholder="搜尋股票代號 (例如: 2330)"
+              placeholder="搜尋代號或公司名稱"
             />
           )}
         </div>

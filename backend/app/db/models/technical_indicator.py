@@ -4,7 +4,7 @@ from app.db.base import Base
 
 
 class TechnicalIndicator(Base):
-    __tablename__ = "fm_technical_indicators"
+    __tablename__ = "market_technical_indicators"
 
     date = Column(Date, primary_key=True, nullable=False)
     symbol = Column(String(10), primary_key=True, nullable=False)

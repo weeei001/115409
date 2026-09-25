@@ -307,7 +307,7 @@ type SeriesTooltipItem = { seriesName?: string; value?: unknown; marker?: string
 const COMPARE_MODE_FORMAT: Record<CompareChartMode, { axis: (v: number) => string; tooltip: (v: number, name: string) => string }> = {
   price: { axis: (v) => v.toFixed(0), tooltip: (v, name) => `${name}：${v.toFixed(2)} 元` },
   index100: { axis: (v) => v.toFixed(1), tooltip: (v, name) => `${name}（指數）：${v.toFixed(2)}` },
-  cumulativeReturn: { axis: (v) => `${v.toFixed(1)}%`, tooltip: (v, name) => `${name}（累積報酬）：${v.toFixed(2)}%` },
+  cumulativeReturn: { axis: (v) => `${v.toFixed(1)}%`, tooltip: (v, name) => `${name}（區間漲跌幅）：${v.toFixed(2)}%` },
 };
 
 /** 多股比較主圖：報價／指數化／累積報酬%；圖例在圖表外自己畫（可切換、全顯示、全隱藏） */
@@ -340,7 +340,7 @@ export function compareLineOption(
       type: 'line' as const,
       data: chart.values[sym] ?? [],
       showSymbol: false,
-      connectNulls: true,
+      connectNulls: false,
       lineStyle: { width: 2, color: colors[sym] },
       itemStyle: { color: colors[sym] },
     })),
@@ -407,7 +407,7 @@ export function riskReturnScatterOption(points: RiskReturnPoint[], isDark: boole
       formatter: (params: unknown) => {
         const p = params as { name?: string; value?: [number, number] };
         if (!Array.isArray(p.value)) return '';
-        return `<b>${p.name ?? ''}</b><br/>年化波動度：${p.value[0].toFixed(2)}%<br/>區間報酬：${p.value[1].toFixed(2)}%`;
+        return `<b>${p.name ?? ''}</b><br/>年化波動度：${p.value[0].toFixed(2)}%<br/>區間漲跌幅：${p.value[1].toFixed(2)}%`;
       },
     },
     xAxis: {
@@ -432,10 +432,10 @@ export function riskReturnScatterOption(points: RiskReturnPoint[], isDark: boole
         markArea: {
           silent: true,
           data: [
-            [{ xAxis: xMin, yAxis: 0, itemStyle: shaded, label: quadrantLabel('理想：低波動、正報酬', 'insideTopLeft') }, { xAxis: xMedian, yAxis: yMax }],
-            [{ xAxis: xMedian, yAxis: 0, itemStyle: clear, label: quadrantLabel('激進：高波動、正報酬', 'insideTopRight') }, { xAxis: xMax, yAxis: yMax }],
-            [{ xAxis: xMin, yAxis: yMin, itemStyle: clear, label: quadrantLabel('防禦：低波動、負報酬', 'insideBottomLeft') }, { xAxis: xMedian, yAxis: 0 }],
-            [{ xAxis: xMedian, yAxis: yMin, itemStyle: shaded, label: quadrantLabel('落後：高波動、負報酬', 'insideBottomRight') }, { xAxis: xMax, yAxis: 0 }],
+            [{ xAxis: xMin, yAxis: 0, itemStyle: shaded, label: quadrantLabel('相對低波動：價格上漲', 'insideTopLeft') }, { xAxis: xMedian, yAxis: yMax }],
+            [{ xAxis: xMedian, yAxis: 0, itemStyle: clear, label: quadrantLabel('相對高波動：價格上漲', 'insideTopRight') }, { xAxis: xMax, yAxis: yMax }],
+            [{ xAxis: xMin, yAxis: yMin, itemStyle: clear, label: quadrantLabel('相對低波動：價格下跌', 'insideBottomLeft') }, { xAxis: xMedian, yAxis: 0 }],
+            [{ xAxis: xMedian, yAxis: yMin, itemStyle: shaded, label: quadrantLabel('相對高波動：價格下跌', 'insideBottomRight') }, { xAxis: xMax, yAxis: 0 }],
           ],
         },
         markLine: {
@@ -471,7 +471,7 @@ export function institutionalCompareOption(
       type: 'line' as const,
       data: chart.values[sym] ?? [],
       showSymbol: false,
-      connectNulls: true,
+      connectNulls: false,
       lineStyle: { width: 2, color: colors[sym] },
       itemStyle: { color: colors[sym] },
     })),

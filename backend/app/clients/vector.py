@@ -84,6 +84,7 @@ class VectorClient:
             ])
         if symbols:
             conditions.append({"should": [
+                {"key": "impact_company_ids", "match": {"any": symbols}},
                 {"key": "stock_ids", "match": {"any": symbols}},
                 {"key": "stock_id", "match": {"any": symbols}},
             ]})

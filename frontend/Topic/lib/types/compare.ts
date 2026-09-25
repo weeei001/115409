@@ -17,7 +17,8 @@ export interface CompareMetricsRow {
 }
 
 export interface CompareQualityMeta {
-  analysisRange: { startDate: string; endDate: string };
+  requestedRange: { startDate: string; endDate: string };
+  analysisRange: { startDate: string; endDate: string } | null;
   alignedDays: number;
   samplesBySymbol: Record<string, number>;
   missingRatioBySymbol: Record<string, number>;
@@ -30,6 +31,7 @@ export type CorrelationMatrix = Record<string, Record<string, number | null>>;
 export interface CompareViewModel {
   metricsRows: CompareMetricsRow[];
   correlationMatrix: CorrelationMatrix;
+  correlationSamples: Record<string, Record<string, number>>;
   qualityMeta: CompareQualityMeta;
 }
 

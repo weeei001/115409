@@ -1,4 +1,6 @@
 from .daily_price import DailyPrice
+from .benchmark_price import BenchmarkPrice
+from .stock_info import StockInfo
 from .news_article import NewsArticle
 from .technical_indicator import TechnicalIndicator
 from .simulated_order import SimulatedOrder
@@ -10,18 +12,22 @@ from .finmind_extra import (
     HoldingShareLevel,
     MarginTrade,
     MonthlyRevenue,
-    StockDividend,
     StockValuation,
 )
 from .user import User
 from .password_reset_token import PasswordResetToken
 from .llm_response import LlmResponse
 from .news_sentiment import NewsSentiment
+from .news_impact import NewsEventAnalysis, NewsEventImpact
 
 __all__ = [
     "DailyPrice",
+    "BenchmarkPrice",
+    "StockInfo",
     "NewsArticle",
     "NewsSentiment",
+    "NewsEventAnalysis",
+    "NewsEventImpact",
     "TechnicalIndicator",
     "SimulatedOrder",
     "InstitutionalTrade",
@@ -31,7 +37,6 @@ __all__ = [
     "HoldingShareLevel",
     "MarginTrade",
     "MonthlyRevenue",
-    "StockDividend",
     "StockValuation",
     "User",
     "PasswordResetToken",

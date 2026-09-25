@@ -6,30 +6,6 @@ import pandas as pd
 FINANCIAL_STATEMENT_COLUMNS = ["date", "symbol", "statement", "item_type", "origin_name", "value"]
 MONTHLY_REVENUE_COLUMNS = ["date", "symbol", "country", "revenue", "revenue_month", "revenue_year", "create_time"]
 PER_PBR_COLUMNS = ["date", "symbol", "dividend_yield", "per", "pbr"]
-DIVIDEND_COLUMNS = [
-    "date",
-    "symbol",
-    "year",
-    "stock_earnings_distribution",
-    "stock_statutory_surplus",
-    "stock_ex_dividend_trading_date",
-    "total_employee_stock_dividend",
-    "total_employee_stock_dividend_amount",
-    "ratio_of_employee_stock_dividend_of_total",
-    "ratio_of_employee_stock_dividend",
-    "cash_earnings_distribution",
-    "cash_statutory_surplus",
-    "cash_ex_dividend_trading_date",
-    "cash_dividend_payment_date",
-    "total_employee_cash_dividend",
-    "total_number_of_cash_capital_increase",
-    "cash_increase_subscription_rate",
-    "cash_increase_subscription_price",
-    "remuneration_of_directors_and_supervisors",
-    "participate_distribution_of_total_shares",
-    "announcement_date",
-    "announcement_time",
-]
 DIVIDEND_RESULT_COLUMNS = [
     "date",
     "symbol",
@@ -202,46 +178,6 @@ def normalize_per_pbr_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         out[PER_PBR_COLUMNS]
         .sort_values(["date", "symbol"])
         .drop_duplicates(["date", "symbol"], keep="last")
-        .reset_index(drop=True)
-    )
-
-
-def normalize_dividend_df(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    if df.empty:
-        return _empty_df(DIVIDEND_COLUMNS)
-    rename_map = {
-        "StockEarningsDistribution": "stock_earnings_distribution",
-        "StockStatutorySurplus": "stock_statutory_surplus",
-        "StockExDividendTradingDate": "stock_ex_dividend_trading_date",
-        "TotalEmployeeStockDividend": "total_employee_stock_dividend",
-        "TotalEmployeeStockDividendAmount": "total_employee_stock_dividend_amount",
-        "RatioOfEmployeeStockDividendOfTotal": "ratio_of_employee_stock_dividend_of_total",
-        "RatioOfEmployeeStockDividend": "ratio_of_employee_stock_dividend",
-        "CashEarningsDistribution": "cash_earnings_distribution",
-        "CashStatutorySurplus": "cash_statutory_surplus",
-        "CashExDividendTradingDate": "cash_ex_dividend_trading_date",
-        "CashDividendPaymentDate": "cash_dividend_payment_date",
-        "TotalEmployeeCashDividend": "total_employee_cash_dividend",
-        "TotalNumberOfCashCapitalIncrease": "total_number_of_cash_capital_increase",
-        "CashIncreaseSubscriptionRate": "cash_increase_subscription_rate",
-        "CashIncreaseSubscriptionpRrice": "cash_increase_subscription_price",
-        "RemunerationOfDirectorsAndSupervisors": "remuneration_of_directors_and_supervisors",
-        "ParticipateDistributionOfTotalShares": "participate_distribution_of_total_shares",
-        "AnnouncementDate": "announcement_date",
-        "AnnouncementTime": "announcement_time",
-    }
-    out = _with_date_symbol(df, symbol).rename(columns=rename_map)
-    out = _ensure_columns(out, DIVIDEND_COLUMNS)
-    numeric_cols = [
-        col
-        for col in DIVIDEND_COLUMNS
-        if col not in {"date", "symbol", "year", "stock_ex_dividend_trading_date", "cash_ex_dividend_trading_date", "cash_dividend_payment_date", "announcement_date", "announcement_time"}
-    ]
-    out = _coerce_numeric(out, numeric_cols)
-    return (
-        out[DIVIDEND_COLUMNS]
-        .sort_values(["date", "symbol", "year"])
-        .drop_duplicates(["date", "symbol", "year"], keep="last")
         .reset_index(drop=True)
     )
 

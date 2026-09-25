@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Index, String, Text, func
+from sqlalchemy import Column, DateTime, Index, String, Text, event, func
 from sqlalchemy.dialects.mysql import LONGTEXT
 
 from app.db.base import Base
@@ -24,6 +24,8 @@ class NewsArticle(Base):
     url = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
     content = Column(_LONG_TEXT, nullable=True)
+    content_kind = Column(String(20), nullable=False, default="unknown")
+    analysis_input_hash = Column(String(64), nullable=True, index=True)
     created_at = Column(
         DateTime,
         nullable=True,
@@ -38,3 +40,11 @@ class NewsArticle(Base):
 
     def __repr__(self) -> str:
         return f"<NewsArticle(article_id={self.article_id!r}, stock_id={self.stock_id!r}, title={self.title!r})>"
+
+
+@event.listens_for(NewsArticle, "before_insert")
+@event.listens_for(NewsArticle, "before_update")
+def refresh_analysis_hash(mapper, connection, target):
+    from app.features.news.impact import article_hash
+
+    target.analysis_input_hash = article_hash(target)

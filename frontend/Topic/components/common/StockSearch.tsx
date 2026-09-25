@@ -1,27 +1,54 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import type { StockInfo } from '@/lib/types/api';
 import { hasBulkDelimiter } from '@/lib/utils/stockSelection';
 
 interface Props {
   symbols: string[];
+  stockInfos?: StockInfo[];
   onSelect: (symbol: string) => void;
   /** 按 Enter 送出輸入框內容，或貼上含分隔符的文字時呼叫 */
   onBulkSelect: (input: string) => void;
-  /** 輸入框空白時排在最前面的代號（依此順序）；不在 symbols 裡的略過 */
-  suggested?: readonly string[];
   placeholder?: string;
   className?: string;
 }
 
 const MAX_OPTIONS = 20;
 
+export function searchStockOptions(symbols: string[], stockInfos: StockInfo[] = [], query: string, limit = MAX_OPTIONS): StockInfo[] {
+  const infoBySymbol = new Map(stockInfos.map((stock) => [stock.symbol.toUpperCase(), stock]));
+  const options = symbols.map((rawSymbol) => {
+    const symbol = rawSymbol.trim().toUpperCase();
+    return infoBySymbol.get(symbol) ?? { symbol, name: '', industry: null };
+  });
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return options.slice(0, limit);
+
+  return options
+    .map((option) => {
+      const symbol = option.symbol.toLocaleLowerCase();
+      const name = option.name.toLocaleLowerCase();
+      const industry = option.industry?.toLocaleLowerCase() ?? '';
+      const rank = symbol === needle ? 0
+        : symbol.startsWith(needle) ? 1
+          : name.startsWith(needle) ? 2
+            : industry.startsWith(needle) ? 3
+              : symbol.includes(needle) || name.includes(needle) || industry.includes(needle) ? 4 : 99;
+      return { option, rank };
+    })
+    .filter((item) => item.rank < 99)
+    .sort((a, b) => a.rank - b.rank || a.option.symbol.localeCompare(b.option.symbol))
+    .slice(0, limit)
+    .map((item) => item.option);
+}
+
 /**
  * 股票代號 combobox（首頁、多股比較共用）。
- * focus 就展開；空白時 suggested 排最前面，其餘照清單順序；有輸入時代號包含比對；最多 20 筆；方向鍵／Home／End／Esc；
+ * focus 就展開；空白時照清單順序；可用代號、公司名稱與產業搜尋；最多 20 筆；方向鍵／Home／End／Esc；
  * Enter：有反白項目就選它；否則有輸入時交給 onBulkSelect，沒輸入時選第一筆。
  */
-export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeholder = '輸入股票代號...', className }: Props) {
+export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, placeholder = '搜尋代號或公司名稱...', className }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -36,15 +63,7 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
     return () => document.removeEventListener('mousedown', onDown);
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim();
-    if (q) return symbols.filter((s) => s.includes(q)).slice(0, MAX_OPTIONS);
-    if (!suggested?.length) return symbols.slice(0, MAX_OPTIONS);
-    const available = new Set(symbols);
-    const top = suggested.filter((s) => available.has(s));
-    const topSet = new Set(top);
-    return [...top, ...symbols.filter((s) => !topSet.has(s))].slice(0, MAX_OPTIONS);
-  }, [query, symbols, suggested]);
+  const filtered = useMemo(() => searchStockOptions(symbols, stockInfos, query), [query, stockInfos, symbols]);
 
   const reset = () => {
     setQuery('');
@@ -66,6 +85,7 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      if (filtered.length === 0) return;
       e.preventDefault();
       setOpen(true);
       setActiveIndex(0);
@@ -74,10 +94,10 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
     if (e.key === 'Enter') {
       e.preventDefault();
       // 用方向鍵反白了某一項就送出那一項，不送輸入文字（決議 D9-c15）
-      if (open && activeIndex >= 0 && activeIndex < filtered.length) return selectItem(filtered[activeIndex]);
+      if (open && activeIndex >= 0 && activeIndex < filtered.length) return selectItem(filtered[activeIndex].symbol);
       if (query.trim()) return commitInput(query);
       if (!open || filtered.length === 0) return;
-      selectItem(filtered[0]);
+      selectItem(filtered[0].symbol);
       return;
     }
     if (!open || filtered.length === 0) return;
@@ -106,7 +126,7 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
     }
   };
 
-  const expanded = open && filtered.length > 0;
+  const expanded = open && (filtered.length > 0 || Boolean(query.trim()) || symbols.length === 0);
 
   return (
     <div ref={rootRef} className={cn('relative w-full min-w-0', className)}>
@@ -114,7 +134,7 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
       <input
         type="text"
         role="combobox"
-        aria-label="搜尋股票代號"
+        aria-label="搜尋股票代號或公司名稱"
         aria-expanded={expanded}
         aria-controls={expanded ? listboxId : undefined}
         aria-autocomplete="list"
@@ -141,24 +161,39 @@ export function StockSearch({ symbols, onSelect, onBulkSelect, suggested, placeh
           id={listboxId}
           role="listbox"
           aria-label="股票代號"
-          className="absolute top-full right-0 left-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border bg-popover py-1 shadow-md"
+          className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border bg-popover py-1 shadow-md"
         >
-          {filtered.map((symbol, i) => (
+          {filtered.map((stock, i) => (
             <li
-              key={symbol}
+              key={stock.symbol}
               id={`${listboxId}-option-${i}`}
               role="option"
               aria-selected={i === activeIndex}
-              onClick={() => selectItem(symbol)}
+              onClick={() => selectItem(stock.symbol)}
               onMouseEnter={() => setActiveIndex(i)}
               className={cn(
-                'cursor-pointer px-4 py-2.5 font-mono text-sm text-subtle transition-colors',
+                'cursor-pointer px-4 py-2.5 text-subtle transition-colors',
                 i === activeIndex && 'bg-accent text-accent-foreground',
               )}
             >
-              {symbol}
+              <span className="flex min-w-0 items-baseline gap-3">
+                <span className="shrink-0 font-mono text-sm font-semibold tabular-nums">{stock.symbol}</span>
+                <span className="min-w-0 truncate text-sm font-medium">{stock.name || '公司名稱未提供'}</span>
+              </span>
+              <span className="mt-0.5 block truncate pl-[3.75rem] text-[11px] text-muted-foreground">
+                {stock.industry?.trim() || '產業未提供'}
+              </span>
             </li>
           ))}
+          {filtered.length === 0 ? (
+            <li role="status" className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+              {hasBulkDelimiter(query) ? '按 Enter 套用貼上的多個股票代號。' : symbols.length === 0 ? '目前沒有可搜尋的股票。' : `找不到「${query.trim()}」；可改用股票代號或公司名稱。`}
+            </li>
+          ) : (
+            <li role="status" className="border-t px-4 py-2 text-[11px] text-muted-foreground">
+              可貼上多個代號，以空白、逗號或分號分隔
+            </li>
+          )}
         </ul>
       ) : null}
     </div>

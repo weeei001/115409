@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Info, Newspaper, RefreshCw } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
-import { NewsCard } from '@/features/news/NewsCard';
+import { NewsCard, type NewsRelation } from '@/features/news/NewsCard';
 import { NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,8 @@ const PAGE_SIZE = 8;
 
 /** 「相關新聞」抽屜：股票固定、可依發布時間篩選、分頁 */
 export function StockNewsPanel({ symbol }: { symbol: string }) {
-  const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol });
+  const [relation, setRelation] = useState<NewsRelation>('direct');
+  const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol, fixedRelation: relation, retrieval: true });
   const hydrated = useHydrated();
   const totalPages = newsList.totalPages;
 
@@ -45,8 +46,26 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
 
       <p className="mb-4 flex items-center gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5 text-[11px] text-muted-foreground">
         <Info size={12} className="shrink-0 text-brand" aria-hidden />
-        情緒反映新聞訊息，不代表股價預測。
+        事件影響反映新聞訊息，不代表股價預測。
       </p>
+
+      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="新聞關聯範圍">
+        {([
+          ['direct', '直接關聯'],
+          ['industry_context', '產業脈絡'],
+          ['market_context', '市場脈絡'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={relation === value}
+            onClick={() => setRelation(value)}
+            className={`min-h-9 rounded-lg border px-3 py-1 text-xs transition-colors ${relation === value ? 'border-brand bg-accent font-semibold text-accent-foreground' : 'text-muted-foreground hover:border-border-strong hover:text-brand-text'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {!hydrated || newsList.loading ? (
         <NewsListSkeleton count={4} />
@@ -56,7 +75,7 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
         <>
           <div>
             {newsList.data.items.map((n) => (
-              <NewsCard key={n.article_id} news={n} targetStock={symbol} />
+                <NewsCard key={n.article_id} news={n} targetStock={symbol} relation={relation} />
             ))}
           </div>
           {totalPages > 1 ? (

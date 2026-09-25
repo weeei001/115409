@@ -6,6 +6,12 @@
 
 // ── Market ──
 
+export interface StockInfo {
+  symbol: string;
+  name: string;
+  industry?: string | null;
+}
+
 export interface DailyPriceResponse {
   date: string;
   symbol: string;
@@ -203,6 +209,42 @@ export interface SentimentResponse {
   analyzed_at?: string | null;
 }
 
+export type NewsImpactDirection = 'positive' | 'negative' | 'neutral' | 'mixed' | 'uncertain';
+export type NewsImpactScope = 'market' | 'industry' | 'company';
+
+export interface NewsEvidence {
+  field: 'title' | 'content';
+  quote: string;
+}
+
+export interface NewsEvent {
+  key: string;
+  summary: string;
+  statement_type: 'fact' | 'plan' | 'forecast' | 'opinion';
+  speaker?: string | null;
+  topics: string[];
+  evidence: NewsEvidence[];
+}
+
+export interface NewsImpact {
+  event_key: string;
+  target_type: NewsImpactScope;
+  target_id: string;
+  target_name?: string | null;
+  direction: NewsImpactDirection;
+  importance: 'high' | 'medium' | 'low';
+  basis: 'reported' | 'inferred';
+  reason: string;
+  evidence: NewsEvidence[];
+}
+
+export interface NewsEventAnalysis {
+  status: 'pending' | 'success' | 'failed' | 'skipped';
+  events: NewsEvent[];
+  impacts: NewsImpact[];
+  analyzed_at?: string | null;
+}
+
 export interface News {
   article_id: string;
   source: string | null;
@@ -215,6 +257,7 @@ export interface News {
   content: string | null;
   created_at: string | null;
   sentiments?: SentimentResponse[];
+  event_analysis: NewsEventAnalysis;
 }
 
 export interface PaginatedNewsResponse {

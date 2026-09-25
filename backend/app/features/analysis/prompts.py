@@ -18,7 +18,7 @@ def select_examples(symbol: str, as_of_date: str) -> list[tuple[str, str]]:
             continue
         selected.append((json.dumps(example["input_payload"], ensure_ascii=False),
                          json.dumps(example["output_brief"], ensure_ascii=False)))
-    return selected
+    return sorted(selected, key=lambda pair: len(pair[0]) + len(pair[1]))[:1]
 
 
 TEXT_BRIEF_SYSTEM_PROMPT = """
@@ -33,7 +33,7 @@ daily_timeline 是近期交易日資料；chip_summary 只包含實際提供的�
 二、證據與敘述
 先考量整包資料，再選擇重要資訊。不要先決定立場再挑證據。
 observation 用於來源可直接核對的事實；inference 用於資料支持但仍有不確定性的推論；conflict 用於具體矛盾；limitation 用於資訊限制。
-每則敘述聚焦一項主要主張，引用真正支持該主張的證據。核對日期、數值、單位與正負方向，其他日期或其他指標的相同數字不能替代。
+每則敘述聚焦一項主要主張，引用真正支持該主張的證據。每項 evidence_ids 通常只需 1 至 3 個，最多 6 個且不得重複；只填證據編號，不得附註文字或列出整包來源。核對日期、數值、單位與正負方向，其他日期或其他指標的相同數字不能替代。
 只引用已提供的衍生數值，不自行加總多日法人、不估算未提供的報酬率或估值。只有外資累計時，不描述投信累計。沒有比較基準時不用「大額」「顯著」等規模判斷。
 價格上漲不等於成交量增加。vol_vs_ma5_pct 為負表示低於五日均量，為正才表示高於均量；vs_ma20_pct 只說明價格相對月線位置，不直接證明支撐或壓力。單一動能指標不能直接決定整體方向。
 法人單日與累計方向相反時，兩者都要交代；不同法人的方向不可混為一談。券商研究觀點與全體外資交易統計是不同對象，不能把兩者差異說成同一機構言行矛盾。
@@ -68,7 +68,8 @@ confidence_reason 簡要交代資料及矛盾情況；limitations 收錄會影�
 
 六、輸出約束
 只輸出符合附加 output_schema 的合法 JSON object，不增加欄位。id 前綴依區塊使用 kd_、cs_、pos_、neg_、div_、rk_、wp_，各自從 01 編號且不重複。欄位、enum、id 及 evidence_ids 按 schema 保留；供讀者閱讀的文字使用台灣繁體中文，每段一至兩句，遵守各欄位長度，直接描述現象而不堆砌技術縮寫。月線、季線與年線可保留。
-已發生的數值可以依來源引用。不得提供未來目標價、預期報酬、價格門檻、交易操作或資金配置指令，也不得保證結果。
+已發生的數值可以依來源引用。trigger 與 invalidation 可用同項 evidence_ids 引用的歷史價格作為條件式觀察基準，僅限截止日內 daily_timeline.close 及 long_term_anchor 的 high_1y、low_1y；交代歷史日期及數值來源，不得用 EPS、新聞數字、其他項目的引用或自行換算值代替。引用歷史價位不代表已證明支撐或壓力，也不代表買賣訊號。
+不得提供未來目標價、預期報酬、自創價格門檻、交易操作或資金配置指令，也不得保證結果。
 未來非價格條件只有在資料已明確提供時才能重述；不得自行發明成交量倍數、法人張數或營收成長門檻。一般失效條件採能理解且有資料脈絡的相對描述。
 輸出前修正找不到依據的主張、錯誤方向、不相關引用及格式衝突。只提供完成的簡報及精簡理由，不輸出私人思考過程。
 """

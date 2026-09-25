@@ -57,6 +57,7 @@ def test_qdrant_query_and_count_use_stock_and_taipei_timestamp_bounds(settings):
     end = datetime(2024, 1, 31, 15, 59, 59, tzinfo=timezone.utc)
     expected_filter = {"must": [
         {"should": [
+            {"key": "impact_company_ids", "match": {"any": ["2330", "2317"]}},
             {"key": "stock_ids", "match": {"any": ["2330", "2317"]}},
             {"key": "stock_id", "match": {"any": ["2330", "2317"]}},
         ]},

@@ -4,13 +4,13 @@ import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import type { DailyPriceResponse } from '@/lib/types/api';
 import { Sparkline } from '@/components/common/Sparkline';
 import { useCanHoverTilt, usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
-import { formatStockLabel, getStockName } from '@/lib/utils/symbolNames';
 import { getValueTone, toneBadge, toneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
 import { AnimatedCounter } from './AnimatedCounter';
 
 interface Props {
   data: DailyPriceResponse;
+  stockName?: string | null;
   index: number;
   sparkline?: number[];
   onNavigate: (symbol: string) => void;
@@ -25,7 +25,7 @@ const GLOW = {
 const REST_TRANSFORM = 'perspective(600px) rotateY(0deg) rotateX(0deg) scale3d(1,1,1)';
 
 /** 首頁即時股價卡：點擊進個股頁；滑鼠裝置才有 3D 傾斜 */
-export const StockPriceCard = memo(function StockPriceCard({ data, index, sparkline, onNavigate }: Props) {
+export const StockPriceCard = memo(function StockPriceCard({ data, stockName, index, sparkline, onNavigate }: Props) {
   const ref = useRef<HTMLButtonElement>(null);
   const canTilt = useCanHoverTilt();
   const reduce = usePrefersReducedMotion();
@@ -37,7 +37,7 @@ export const StockPriceCard = memo(function StockPriceCard({ data, index, sparkl
   const tone = getValueTone(change);
   const TrendIcon = tone === 'up' ? TrendingUp : tone === 'down' ? TrendingDown : Minus;
   const sign = change > 0 ? '+' : '';
-  const name = getStockName(data.symbol);
+  const label = stockName ? `${data.symbol} ${stockName}` : data.symbol;
 
   const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (!canTilt || !ref.current) return;
@@ -56,7 +56,7 @@ export const StockPriceCard = memo(function StockPriceCard({ data, index, sparkl
       onMouseLeave={() => {
         if (ref.current) ref.current.style.transform = REST_TRANSFORM;
       }}
-      aria-label={`${formatStockLabel(data.symbol)} 收盤 ${close.toFixed(2)}，漲跌 ${sign}${change.toFixed(2)}（${sign}${changePct.toFixed(2)}%），查看個股`}
+      aria-label={`${label} 收盤 ${close.toFixed(2)}，漲跌 ${sign}${change.toFixed(2)}（${sign}${changePct.toFixed(2)}%），查看個股`}
       className="w-full rounded-xl border bg-card px-4 py-4 text-left hover:border-border-strong hover:shadow-[0_0_24px_var(--card-glow),var(--elev-card-hover)]"
       style={
         {
@@ -73,7 +73,7 @@ export const StockPriceCard = memo(function StockPriceCard({ data, index, sparkl
       <div className="mb-2 flex items-start justify-between gap-2" aria-hidden>
         <div className="min-w-0">
           <div className="font-mono text-lg font-bold tabular-nums">{data.symbol}</div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">{name ?? '\u00a0'}</div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">{stockName ?? '\u00a0'}</div>
         </div>
         <span className={cn('inline-flex shrink-0 items-center gap-0.5 rounded-full border px-2 py-1 text-xs font-medium', toneBadge(tone))}>
           <TrendIcon size={12} />

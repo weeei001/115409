@@ -17,12 +17,21 @@ from app.clients.llm import LlmClient, LlmResult
 from app.core.errors import ModelUnavailable, UpstreamTimeout
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_sentiment import NewsSentiment
+from app.features.market import company_catalog
 from app.features.news import service as news_service
 from app.features.news.sentiment import SentimentOutput, active_config_hash, article_input_hash
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.sentiment import cli
 from app.jobs.sentiment.rules import clean_text, compute_input_hash, extract_candidate_stocks, parse_news_pub_time, validate_sentiment_payload
 from app.jobs.sentiment.runner import SentimentBatchRunner
+
+
+@pytest.fixture(autouse=True)
+def listed_companies(monkeypatch):
+    names = {"2330": "台積電", "2317": "鴻海", "2454": "聯發科", "2408": "南亞科", "2881": "富邦金", "2615": "萬海"}
+    monkeypatch.setattr(company_catalog, "load_catalog",
+        lambda: {symbol: {"symbol": symbol, "name": name, "market": "TWSE", "aliases": []}
+                 for symbol, name in names.items()})
 
 
 def config(settings, **updates):
@@ -41,6 +50,7 @@ def add_article(db, identifier="article", **updates):
 def output(**updates):
     payload = {"label": "positive", "reason": "公司本季營收與毛利皆優於預期。",
                "evidence": [{"field": "content", "quote": "台積電本季營收與毛利皆優於預期"}], **updates}
+    payload.setdefault("related", True)
     return LlmResult(payload, json.dumps(payload, ensure_ascii=False),
                      {"prompt_tokens": 500, "completion_tokens": 80, "reasoning_tokens": 5})
 
@@ -172,7 +182,7 @@ def test_incremental_limits_pending_pairs_and_skips_unchanged_attempts(db_sessio
     assert worker.incremental_manifest(["2330", "2317"]) == expected
     changed_config = runner(db_session, settings, tmp_path, llm=FakeLlm(), limit=10)
     changed_config.config_hash = "changed-config"
-    assert len(changed_config.incremental_manifest(["2330"])) == 4
+    assert len(changed_config.incremental_manifest(["2330"])) == 5
     for article, field, value in zip(existing, ("title", "content", "pub_time"),
                                      ("Corrected headline", "Corrected content", "2026-08-09 10:00:00")):
         setattr(article, field, value)
@@ -183,7 +193,7 @@ def test_incremental_limits_pending_pairs_and_skips_unchanged_attempts(db_sessio
 
 def test_incremental_persists_unusable_inputs_once_and_obeys_budget(db_session, settings, tmp_path):
     add_article(db_session, "long", content="過長內文" * 9000, pub_time="2026-08-08")
-    add_article(db_session, "empty", content=None, pub_time="2026-08-07")
+    add_article(db_session, "empty", title=None, content=None, pub_time="2026-08-07")
     add_article(db_session, "invalid", pub_time="bad-date")
     llm = FakeLlm()
     worker = runner(db_session, settings, tmp_path, llm=llm, execute=True)
@@ -266,7 +276,7 @@ def test_three_consecutive_failures_stop_and_skips_are_persisted(db_session, set
     result = run(runner(db_session, settings, tmp_path, llm=llm, execute=True),
                  [{"article_id": key, "symbol": "2330"} for key in ("a", "b", "c", "d")])
     assert result["failed"] == 3 and result["api_calls"] == 3 and result["stopped_reason"] == "consecutive_failures"
-    add_article(db_session, "empty", content="<br>")
+    add_article(db_session, "empty", title=None, content="<br>")
     add_article(db_session, "invalid", pub_time="not-a-date")
     add_article(db_session, "long", content="過長內文" * 9000)
     items = [{"article_id": key, "symbol": "2330"} for key in ("empty", "invalid", "long", "missing")]

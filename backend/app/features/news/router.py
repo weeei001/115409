@@ -20,14 +20,27 @@ def list_news(
     stock: str | None = Query(None, max_length=20),
     source: str | None = Query(None, max_length=50),
     start_time: datetime | None = Query(None), end_time: datetime | None = Query(None),
-    sort_by: str = Query("pub_time", pattern="^(pub_time|created_at)$"),
+    scope: str | None = Query(None, pattern="^(market|industry|company)$"),
+    industry: str | None = Query(None, max_length=80),
+    topic: str | None = Query(None, pattern="^(interest_rates|inflation|exchange_rates|trade_tariffs|geopolitics|energy_materials|regulation|ai|technology_demand|company_operations|capital_markets)$"),
+    direction: str | None = Query(None, pattern="^(positive|negative|neutral|mixed|uncertain)$"),
+    importance: str | None = Query(None, pattern="^(high|medium|low)$"),
+    relation: str | None = Query(None, pattern="^(direct|market_context|industry_context)$"),
+    sort_by: str = Query("pub_time", pattern="^(pub_time|created_at|importance)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"), db: Session = Depends(get_db),
 ):
     return service.news_list(
         db, page=page, page_size=page_size, article_id=article_id, keyword=keyword,
         stock=stock, source=source, start_time=start_time, end_time=end_time,
-        sort_by=sort_by, sort_order=sort_order, settings=request.app.state.settings,
+        scope=scope, industry=industry, topic=topic, direction=direction,
+        importance=importance, relation=relation, sort_by=sort_by, sort_order=sort_order,
+        settings=request.app.state.settings,
     )
+
+
+@router.get("/industries")
+def list_industries():
+    return service.industries()
 
 
 @router.get("/{article_id}", response_model=News, responses={404: {"description": "Not found"}})

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
 import { getMaStructureLabel, summarizePricePosition } from '@/lib/utils/technicalSignals';
-import { formatStockLabel, getStockName } from '@/lib/utils/symbolNames';
+import { useStockDisplayName } from '@/lib/utils/symbolNames';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { AIBriefSummaryCard } from '@/features/brief/AIBriefSummaryCard';
 import { StockTextBriefPanel } from '@/features/brief/StockTextBriefPanel';
@@ -24,7 +24,8 @@ const Hairline = () => <div aria-hidden className="h-px w-full bg-border" />;
 
 export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResult }) {
   const { symbol, latest, loading, baseDate, priceChart, chipsLoading, institutionalLatest, indicators, indicatorLatest } = dashboard;
-  const stockName = getStockName(symbol);
+  const stockDisplayName = useStockDisplayName(symbol);
+  const stockName = stockDisplayName === symbol ? null : stockDisplayName;
   // 全頁只有一份 AI 分析：摘要卡與抽屜共用；基準日固定為資料最後一天（決議 D9-c20）
   const textBrief = useStockTextBrief({ symbol, asOfDate: baseDate ?? undefined });
   const maStructureLabel = useMemo(() => getMaStructureLabel(summarizePricePosition(priceChart)), [priceChart]);
@@ -46,7 +47,7 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
   }, [symbol, baseDate, loading, latest]);
 
   if (!latest) return null;
-  const subtitle = formatStockLabel(symbol);
+  const subtitle = stockName ? `${symbol} ${stockName}` : symbol;
 
   return (
     <div className="flex flex-col gap-4">

@@ -4,16 +4,36 @@ import re
 from pydantic import ValidationError
 
 from app.features.news.sentiment import (
-    TAIPEI_TZ, SentimentOutput, TARGET_STOCKS, clean_text, compute_input_hash, parse_news_pub_time,
+    TAIPEI_TZ, SentimentOutput, clean_text, company_catalog, compute_input_hash, parse_news_pub_time,
 )
 
 
-def extract_candidate_stocks(stock_id: str | None, tags: str | None) -> list[str]:
+def extract_candidate_stocks(stock_id: str | None, tags: str | None, title: str | None = None,
+                             content: str | None = None, catalog=None) -> list[str]:
+    if catalog is None:
+        catalog = company_catalog()
     result = []
     for candidate in ([stock_id] if stock_id else []) + (tags.split(",") if tags else []):
-        symbol = re.sub(r"\.TW$", "", candidate.strip(), flags=re.IGNORECASE).strip()
-        if symbol in TARGET_STOCKS and symbol not in result:
+        symbol = re.sub(r"\.(?:TW|TWO)$", "", candidate.strip(), flags=re.IGNORECASE).strip()
+        if symbol in catalog and symbol not in result:
             result.append(symbol)
+    text = "\n".join((title or "", content or ""))
+    if text:
+        names = {}
+        for symbol, company in catalog.items():
+            for name in [company.get("name"), *(company.get("aliases") or [])]:
+                if isinstance(name, str) and len(name.strip()) >= 2:
+                    names.setdefault(name.strip(), set()).add(symbol)
+        for name, symbols in names.items():
+            search_text = (title or "") if len(name) == 2 else text
+            if len(symbols) == 1 and name in search_text:
+                symbol = next(iter(symbols))
+                if symbol not in result:
+                    result.append(symbol)
+        for match in re.finditer(r"(?<!\d)(\d{4,6})\.(?:TW|TWO)\b", text, flags=re.IGNORECASE):
+            symbol = match.group(1)
+            if symbol in catalog and symbol not in result:
+                result.append(symbol)
     return result
 
 

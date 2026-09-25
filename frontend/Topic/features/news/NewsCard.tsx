@@ -1,17 +1,26 @@
 import React, { memo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, ChevronDown, Clock, ExternalLink, Quote, Tag } from 'lucide-react';
-import type { News } from '@/lib/types/api';
+import type { News, NewsImpact } from '@/lib/types/api';
 import { formatTime } from '@/lib/utils/date';
-import { getStockDisplayName } from '@/lib/utils/symbolNames';
+import { formatStockLabel } from '@/lib/utils/symbolNames';
+import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/sentiment';
+import {
+  DIRECTION_CLASSES,
+  DIRECTION_LABELS,
+  IMPORTANCE_LABELS,
+  impactTarget,
+  visibleImpacts,
+} from '@/lib/utils/newsImpact';
 import { safeHttpUrl } from '@/lib/utils/url';
-import { newsHref, parseRelatedStocks, sentimentMeta, stripHtml } from '@/lib/news/sentiment';
 import { cn } from '@/lib/cn';
+
+export type NewsRelation = 'direct' | 'market_context' | 'industry_context';
 
 interface Props {
   news: News;
-  /** 指定股票時只顯示該股的情緒與理由 */
   targetStock?: string;
+  relation?: NewsRelation;
 }
 
 function snippet(content: string | null, maxLen = 120): string {
@@ -20,22 +29,33 @@ function snippet(content: string | null, maxLen = 120): string {
   return plain.length > maxLen ? `${plain.slice(0, maxLen)}…` : plain;
 }
 
-function SentimentBadge({ stockId, label }: { stockId: string; label: string }) {
-  const meta = sentimentMeta(label);
+function impactLabel(impact: NewsImpact): string {
+  return impact.target_name || (impact.target_type === 'company' ? impact.target_id : impactTarget(impact));
+}
+
+function ImpactBadge({ impact }: { impact: NewsImpact }) {
   return (
-    <span className={cn('inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-medium', meta.badge)}>
-      {getStockDisplayName(stockId)} ｜ {meta.label}
+    <span className={cn('inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-medium', DIRECTION_CLASSES[impact.direction])}>
+      {impactLabel(impact)} · {DIRECTION_LABELS[impact.direction]} · {IMPORTANCE_LABELS[impact.importance]}
     </span>
   );
 }
 
-export const NewsCard = memo(function NewsCard({ news, targetStock }: Props) {
+export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct' }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const stocks = parseRelatedStocks(news).slice(0, 3);
+  const stocks = Array.from(
+    new Set([
+      ...(news.event_analysis?.status === 'success'
+        ? news.event_analysis.impacts.filter((impact) => impact.target_type === 'company').map((impact) => impact.target_id)
+        : []),
+      ...parseRelatedStocks(news),
+    ]),
+  ).slice(0, 3);
   const hasContent = Boolean(news.content?.trim());
   const originUrl = safeHttpUrl(news.url);
   const panelId = `news-content-${news.article_id}`;
-  const sentiment = targetStock ? news.sentiments?.find((s) => s.target_stock_id === targetStock) : undefined;
+  const impacts = visibleImpacts(news, targetStock, relation);
+  const allImpacts = visibleImpacts(news).slice(0, 3);
   const href = newsHref(news.article_id, targetStock);
 
   return (
@@ -44,10 +64,10 @@ export const NewsCard = memo(function NewsCard({ news, targetStock }: Props) {
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            {stocks.map((s) => (
-              <span key={s} className="inline-flex items-center gap-0.5 rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent-foreground">
+            {stocks.map((stock) => (
+              <span key={stock} className="inline-flex items-center gap-0.5 rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent-foreground">
                 <Tag size={10} aria-hidden />
-                {s}
+                {formatStockLabel(stock)}
               </span>
             ))}
             {news.pub_time ? (
@@ -65,60 +85,51 @@ export const NewsCard = memo(function NewsCard({ news, targetStock }: Props) {
           </h3>
 
           {targetStock ? (
-            sentiment ? (
-              <div className="my-2 rounded-lg border bg-muted/60 p-2.5 text-xs">
-                <SentimentBadge stockId={sentiment.target_stock_id} label={sentiment.label} />
-                <p className="mt-1 text-[11px] leading-relaxed text-subtle">
-                  <span className="font-medium text-foreground">理由：</span>
-                  {sentiment.reason}
-                </p>
-                {expanded && sentiment.evidence?.length ? (
-                  <div className="mt-2 space-y-1.5 border-t pt-2">
-                    <p className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
-                      <Quote size={11} className="text-brand" aria-hidden />
-                      原文依據：
-                    </p>
-                    {sentiment.evidence.map((ev, i) => (
-                      <p key={i} className="border-l-2 border-brand/50 pl-2 text-[11px] leading-snug text-subtle">
-                        <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">[{ev.field === 'title' ? '標題' : '內文'}]</span>
-                        「{ev.quote}」
-                      </p>
-                    ))}
+            <div className="my-2 rounded-lg border bg-muted/60 p-2.5 text-xs">
+              {impacts.length ? (
+                <>
+                  <div className="flex flex-wrap gap-1.5">
+                    {impacts.slice(0, 3).map((impact) => <ImpactBadge key={`${impact.event_key}:${impact.target_id}`} impact={impact} />)}
                   </div>
-                ) : null}
-              </div>
-            ) : (
-              <p className="my-1.5">
+                  {impacts[0]?.reason ? <p className="mt-1 text-[11px] leading-relaxed text-subtle"><span className="font-medium text-foreground">理由：</span>{impacts[0].reason}</p> : null}
+                </>
+              ) : (
                 <span className="inline-flex items-center rounded border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {getStockDisplayName(targetStock)} ｜ 尚無分析結果
+                  {formatStockLabel(targetStock)} · 尚無事件影響分析
                 </span>
-              </p>
-            )
-          ) : news.sentiments?.length ? (
+              )}
+              {expanded && impacts.some((impact) => impact.evidence?.length) ? (
+                <div className="mt-2 space-y-1.5 border-t pt-2">
+                  <p className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
+                    <Quote size={11} className="text-brand" aria-hidden />
+                    原文依據
+                  </p>
+                  {impacts.flatMap((impact) => impact.evidence ?? []).map((ev, i) => (
+                    <p key={i} className="border-l-2 border-brand/50 pl-2 text-[11px] leading-snug text-subtle">
+                      <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">[{ev.field === 'title' ? '標題' : '內文'}]</span>
+                      「{ev.quote}」
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : allImpacts.length ? (
             <div className="my-1.5 flex flex-wrap items-center gap-1.5">
-              {news.sentiments.map((s) => (
-                <SentimentBadge key={s.target_stock_id} stockId={s.target_stock_id} label={s.label} />
-              ))}
+              {allImpacts.map((impact) => <ImpactBadge key={`${impact.event_key}:${impact.target_id}`} impact={impact} />)}
             </div>
           ) : null}
 
-          {!expanded && snippet(news.content) ? (
-            <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{snippet(news.content)}</p>
-          ) : null}
-          {hasContent && expanded ? (
-            <p id={panelId} className="mt-1 text-xs leading-relaxed whitespace-pre-line text-subtle">
-              {stripHtml(news.content ?? '').trim()}
-            </p>
-          ) : null}
+          {!expanded && snippet(news.content) ? <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{snippet(news.content)}</p> : null}
+          {hasContent && expanded ? <p id={panelId} className="mt-1 text-xs leading-relaxed whitespace-pre-line text-subtle">{stripHtml(news.content ?? '').trim()}</p> : null}
 
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
             <Link href={href} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-text hover:underline">
-              查看新聞全文與 AI 情緒分析
+              查看事件影響分析
               <ArrowUpRight size={12} aria-hidden />
             </Link>
             {originUrl ? (
               <a href={originUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-brand-text hover:underline">
-                原始新聞來源
+                查看原始來源
                 <ExternalLink size={11} aria-hidden />
               </a>
             ) : null}
@@ -129,10 +140,10 @@ export const NewsCard = memo(function NewsCard({ news, targetStock }: Props) {
           {hasContent ? (
             <button
               type="button"
-              onClick={() => setExpanded((v) => !v)}
+              onClick={() => setExpanded((value) => !value)}
               aria-expanded={expanded}
               aria-controls={panelId}
-              aria-label={expanded ? '收合新聞內文' : '展開新聞內文'}
+              aria-label={expanded ? '收起新聞內文' : '展開新聞內文'}
               className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-subtle"
             >
               <ChevronDown size={16} aria-hidden className={cn('transition-transform', expanded && 'rotate-180')} />
@@ -143,7 +154,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock }: Props) {
               href={originUrl}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={`開啟原文：${news.title ?? '新聞'}（新分頁）`}
+              aria-label={`開啟原始來源：${news.title ?? '新聞'}`}
               className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-brand-text"
             >
               <ExternalLink size={16} aria-hidden />

@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.clients.llm import LlmClient
 from app.core.errors import AppError, NotFound, ServiceUnavailable
+from app.features.market.company_catalog import load_catalog
 from app.features.retrieval.common import (STOCK_KEYWORDS, STOCK_OPTIONS, get_source_name,
                                             normalize_source_url, source_provenance)
 from app.features.retrieval.service import RetrievalService
@@ -252,7 +253,8 @@ def _conversation_history(request: AskRequest) -> list[dict[str, str]]:
 
 class ChatService:
     def __init__(self, *, http, settings, retrieval=None, intent_llm=None, llm=None, session_factory=None):
-        self.retrieval = retrieval if retrieval is not None else RetrievalService(http, settings)
+        self.retrieval = retrieval if retrieval is not None else RetrievalService(
+            http, settings, session_factory=session_factory)
         if llm is not None:
             self.llm = llm
         else:
@@ -310,18 +312,24 @@ class ChatService:
         forward_outlook = _is_forward_outlook(query)
         if forward_outlook:
             needs.update({"market", "news"})
-        symbols = list(dict.fromkeys(symbol for symbol in intent.stocks if symbol in STOCK_OPTIONS))
+        catalog = load_catalog()
+        known_symbols = set(catalog) | set(STOCK_OPTIONS)
+        symbols = list(dict.fromkeys(symbol for symbol in intent.stocks if symbol in known_symbols))
         if request.stock_id:
-            if request.stock_id not in STOCK_OPTIONS:
-                response.answer = "目前沒有這檔股票的分析資料。可查詢：" + "、".join(STOCK_OPTIONS.values()) + "。"
+            if request.stock_id not in known_symbols:
+                response.answer = "目前沒有這檔上市櫃公司的新聞資料。"
                 return response, "", ""
             symbols = [request.stock_id]
         elif not symbols:
-            symbols = [symbol for symbol, words in STOCK_KEYWORDS.items()
-                       if any(word.casefold() in query.casefold() for word in words)]
+            from app.jobs.sentiment.rules import extract_candidate_stocks
+
+            supported = [symbol for symbol, words in STOCK_KEYWORDS.items()
+                         if any(word.casefold() in query.casefold() for word in words)]
+            listed = extract_candidate_stocks(None, None, query, None, catalog) if catalog else []
+            symbols = list(dict.fromkeys([*supported, *listed]))
         response.detected_stocks = symbols
         response.actions = [ChatAction(label=f"{STOCK_OPTIONS[symbol]}個股分析", path=f"/stock/{symbol}")
-                            for symbol in symbols]
+                            for symbol in symbols if symbol in STOCK_OPTIONS]
         if len(symbols) > 1 or "help" in needs:
             response.actions.append(ChatAction(label="多股比較", path="/compare"))
         if "help" in needs:
@@ -329,7 +337,13 @@ class ChatService:
                                      ChatAction(label="模擬下單", path="/order")])
         response.actions.extend(ChatFollowUp(label=question.strip(), query=question.strip())
                                 for question in dict.fromkeys(intent.suggested_questions) if question.strip())
-        if "market" in needs and not symbols:
+        market_symbols = [symbol for symbol in symbols if symbol in STOCK_OPTIONS]
+        if ("market" in needs and not market_symbols and not symbols
+                and re.search(r"台股|大盤|加權指數|櫃買|央行|利率|通膨|關稅|匯率|Fed|聯準會", query, re.I)):
+            needs.add("news")
+        if "market" in needs and not market_symbols and "news" in needs:
+            needs.remove("market")
+        if "market" in needs and not market_symbols:
             response.answer = ("想分析或比較哪幾檔股票？目前可查詢：" +
                                "、".join(f"{name}（{code}）" for code, name in STOCK_OPTIONS.items()) + "。")
             return response, "", ""
@@ -383,7 +397,7 @@ class ChatService:
                 unavailable.append("指定區間內沒有可採用的完整日資料。")
             else:
                 try:
-                    response.sources.extend(await asyncio.to_thread(self._market_sources, symbols, as_of, start_date))
+                    response.sources.extend(await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date))
                 except (SQLAlchemyError, ServiceUnavailable) as exc:
                     logging.getLogger(__name__).warning("Chat market source unavailable: %s", type(exc).__name__)
                     unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
@@ -403,10 +417,12 @@ class ChatService:
         for number, item in enumerate(response.sources, 1):
             item.citation_id = f"S{number}"
             star = "★ " if item.category == "news" and item.in_time_range else ""
+            impact_context = ("\n事件影響判讀（AI 推論；須以原文核對，不等於股價預測）："
+                              + json.dumps(item.impact_context, ensure_ascii=False)) if item.impact_context else ""
             context_parts.append(f"[{star}片段{number}] [{item.citation_id}] 標題：{item.title}\n"
                                  f"類別：{item.category} | 股票：{item.stock_id}\n"
                                  f"來源：{item.source_name} | 時間：{item.pub_time or '參考定義／無發布時間'}\n"
-                                 f"內容：{item.content}\n連結：{item.url}")
+                                 f"內容：{item.content}{impact_context}\n連結：{item.url}")
         response.dashboard = build_dashboard(
             response.sources, symbols, query, [] if forward_outlook else intent.display_focus
         )
@@ -421,6 +437,9 @@ class ChatService:
             time_focus += ("\nThis is a future direction question. Give a conditional directional assessment from the "
                            "latest supplied evidence; do not answer only with the insufficient-evidence sentence "
                            "when relevant evidence exists, and do not present the assessment as certain.")
+        time_focus += "\n本輪介面呈現的資料面板：" + json.dumps(
+            [block.model_dump(include={"kind", "title", "description", "source_ids"})
+             for block in response.dashboard.blocks] if response.dashboard else [], ensure_ascii=False)
         prompt = ANSWER_PROMPT.format(current_time=response.current_time, time_focus=time_focus + warning,
                                       context="\n\n---\n\n".join(context_parts), query=request.query,
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))

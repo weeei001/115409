@@ -1,4 +1,4 @@
-import type { MultiStockResponse, PriceChangeResponse, VolumeAnalysisResponse } from '../types/api';
+import type { MultiStockResponse, VolumeAnalysisResponse } from '../types/api';
 import type {
   CategoryLeader,
   CompareChartMode,
@@ -19,6 +19,11 @@ const TRADING_DAYS_PER_YEAR = 252;
 const ANNUALIZE_FACTOR = Math.sqrt(TRADING_DAYS_PER_YEAR);
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isPrice = (v: unknown): v is number => isNum(v) && v > 0;
+
+interface ComparePriceHistory {
+  data: Array<{ date: string; close: number | null; change_percent: number | null }>;
+}
 
 // ── 股票代表色 ──────────────────────────────────────────────
 
@@ -34,11 +39,22 @@ export interface CompareChartSeries {
   values: Record<string, Array<number | null>>;
 }
 
+/** Keep interior gaps, but require two common, positive closing prices as boundaries. */
+export function alignComparePrices(data: MultiStockResponse): MultiStockResponse {
+  const rows = [...data.data].filter((row) => row.date >= data.start_date && row.date <= data.end_date).sort(byDate);
+  const common = data.symbols.length ? rows.filter((row) => data.symbols.every((symbol) => isPrice(row.prices[symbol]))) : [];
+  if (common.length < 2) return { ...data, data: [] };
+  const start_date = common[0].date;
+  const end_date = common[common.length - 1].date;
+  return { ...data, start_date, end_date, data: rows.filter((row) => row.date >= start_date && row.date <= end_date) };
+}
+
 /** 報價（元）／指數化（首日 = 100）／累積報酬（%） */
 export function toCompareChartSeries(data: MultiStockResponse, mode: CompareChartMode): CompareChartSeries {
+  data = alignComparePrices(data);
   const bases = new Map<string, number>();
   for (const sym of data.symbols) {
-    const first = data.data.find((d) => isNum(d.prices[sym]))?.prices[sym];
+    const first = data.data[0]?.prices[sym];
     if (isNum(first) && first > 0) bases.set(sym, first);
   }
   const values: CompareChartSeries['values'] = {};
@@ -46,7 +62,7 @@ export function toCompareChartSeries(data: MultiStockResponse, mode: CompareChar
     const base = bases.get(sym);
     values[sym] = data.data.map((row) => {
       const price = row.prices[sym];
-      if (!isNum(price)) return null;
+      if (!isPrice(price)) return null;
       if (mode === 'price') return price;
       if (!base) return null;
       return mode === 'index100' ? (price / base) * 100 : (price / base - 1) * 100;
@@ -67,7 +83,8 @@ export function visibleSymbolsFromHidden(symbols: string[], hiddenSymbols: strin
 /** 每檔最後一個有效收盤（快照卡 sparkline 取最近 30 點用） */
 export function recentCloses(data: MultiStockResponse | null, symbol: string, points = 30): number[] {
   if (!data) return [];
-  return data.data.map((row) => row.prices[symbol]).filter(isNum).slice(-points);
+  const closes = data.data.slice(-points).map((row) => row.prices[symbol]);
+  return closes.every(isPrice) ? closes : [];
 }
 
 // ── 比較指標 ────────────────────────────────────────────────
@@ -84,15 +101,13 @@ function std(nums: number[]): number | null {
   return Math.sqrt(nums.reduce((acc, n) => acc + (n - avg) ** 2, 0) / (nums.length - 1));
 }
 
-function maxDrawdownPctFromReturns(dailyReturns: number[]): number | null {
-  if (dailyReturns.length === 0) return null;
-  let nav = 1;
-  let peak = 1;
+function maxDrawdownPctFromCloses(closes: number[]): number | null {
+  if (closes.length < 2) return null;
+  let peak = closes[0];
   let maxDd = 0;
-  for (const r of dailyReturns) {
-    nav *= 1 + r;
-    if (nav > peak) peak = nav;
-    const dd = (nav - peak) / peak;
+  for (const price of closes) {
+    if (price > peak) peak = price;
+    const dd = (price - peak) / peak;
     if (dd < maxDd) maxDd = dd;
   }
   return maxDd * 100;
@@ -104,14 +119,14 @@ const byDate = <T extends { date: string }>(a: T, b: T) => a.date.localeCompare(
  * 可用的日報酬列：依日期排序後去掉區間第一天。第一天的 change_percent 是相對區間前一天，
  * 後端實際回 0（決議 D9-c25）；指標表、相關係數、有效樣本與共同交易日都用這份（決議 c71）。
  */
-function dailyReturnRows(change: PriceChangeResponse | null) {
+function dailyReturnRows(change: ComparePriceHistory | null) {
   return [...(change?.data ?? [])]
     .sort(byDate)
     .slice(1)
-    .filter((d) => typeof d.date === 'string' && d.date && isNum(d.change_percent));
+    .filter((d): d is typeof d & { change_percent: number } => Boolean(d.date) && isNum(d.change_percent));
 }
 
-export function buildMetricsRow(symbol: string, change: PriceChangeResponse | null, volume: VolumeAnalysisResponse | null): CompareMetricsRow {
+export function buildMetricsRow(symbol: string, change: ComparePriceHistory | null, volume: VolumeAnalysisResponse | null): CompareMetricsRow {
   // 平均量與平均金額只看成交資料，漲跌資料缺了也照算（決議 c73）
   const avgVolume = mean(volume?.data.map((d) => d.volume).filter(isNum) ?? []);
   const avgAmount = mean(volume?.data.map((d) => d.amount).filter(isNum) ?? []);
@@ -134,7 +149,7 @@ export function buildMetricsRow(symbol: string, change: PriceChangeResponse | nu
   const dailyReturns = changePercents.map((p) => p / 100);
   const upDays = changePercents.filter((p) => p > 0).length;
 
-  const closes = rows.map((d) => d.close).filter(isNum);
+  const closes = rows.map((d) => d.close).filter(isPrice);
   const first = closes[0];
   const last = closes[closes.length - 1];
   const totalReturnPct = closes.length >= 2 && first !== 0 ? (last / first - 1) * 100 : null;
@@ -146,7 +161,7 @@ export function buildMetricsRow(symbol: string, change: PriceChangeResponse | nu
     totalReturnPct,
     // 年化波動度：日報酬樣本標準差 × √252 × 100%
     volatilityPct: volatility == null ? null : volatility * ANNUALIZE_FACTOR * 100,
-    maxDrawdownPct: maxDrawdownPctFromReturns(dailyReturns),
+    maxDrawdownPct: maxDrawdownPctFromCloses(closes),
     // 分母只算有效的日報酬（決議 D9-c25）
     winRatePct: changePercents.length > 0 ? (upDays / changePercents.length) * 100 : null,
     maxDailyGainPct: changePercents.length ? Math.max(...changePercents) : null,
@@ -202,36 +217,35 @@ function pearson(x: number[], y: number[]): number | null {
   return den === 0 ? null : num / den;
 }
 
-/** 共同交易日的日報酬 Pearson 相關係數；對角線為 1 */
-export function buildCorrelationMatrix(symbols: string[], priceChangeMap: Record<string, PriceChangeResponse | null>): CorrelationMatrix {
+/** Pair each valid daily change with the exact same observation interval. */
+export function buildCorrelationData(symbols: string[], priceChangeMap: Record<string, ComparePriceHistory | null>) {
   const returnsBySymbol: Record<string, Map<string, number>> = {};
   for (const sym of symbols) {
     returnsBySymbol[sym] = new Map(dailyReturnRows(priceChangeMap[sym] ?? null).map((d) => [d.date, d.change_percent / 100]));
   }
 
   const matrix: CorrelationMatrix = {};
+  const sampleCounts: Record<string, Record<string, number>> = {};
   for (const a of symbols) {
     matrix[a] = {};
+    sampleCounts[a] = {};
     for (const b of symbols) {
-      if (a === b) {
-        matrix[a][b] = 1;
-        continue;
-      }
       const aMap = returnsBySymbol[a];
       const bMap = returnsBySymbol[b];
       const common = [...aMap.keys()].filter((date) => bMap.has(date)).sort();
-      matrix[a][b] = pearson(
+      sampleCounts[a][b] = common.length;
+      matrix[a][b] = common.length < 2 ? null : pearson(
         common.map((date) => aMap.get(date) as number),
         common.map((date) => bMap.get(date) as number),
       );
     }
   }
-  return matrix;
+  return { correlationMatrix: matrix, correlationSamples: sampleCounts };
 }
 
 // ── 資料品質 ────────────────────────────────────────────────
 
-function validDailyDateSet(change: PriceChangeResponse | null): Set<string> {
+function validDailyDateSet(change: ComparePriceHistory | null): Set<string> {
   return new Set(dailyReturnRows(change).map((d) => d.date));
 }
 
@@ -239,30 +253,30 @@ function buildQualityMeta(
   symbols: string[],
   startDate: string,
   endDate: string,
-  priceChangeMap: Record<string, PriceChangeResponse | null>,
+  priceChangeMap: Record<string, ComparePriceHistory | null>,
   generatedAt: string,
+  chart: MultiStockResponse | null,
 ): CompareQualityMeta {
   const samplesBySymbol: Record<string, number> = {};
   const missingRatioBySymbol: Record<string, number> = {};
   const qualityWarnings: string[] = [];
-  const unionDates = new Set<string>();
+  const expectedSamples = Math.max(0, (chart?.data.length ?? 0) - 1);
   const dateSets = symbols.map((symbol) => {
     const set = validDailyDateSet(priceChangeMap[symbol] ?? null);
-    for (const date of set) unionDates.add(date);
     samplesBySymbol[symbol] = set.size;
     return set;
   });
 
   for (const symbol of symbols) {
     const sampleCount = samplesBySymbol[symbol] ?? 0;
-    const missingRatio = unionDates.size > 0 ? Math.max(0, 1 - sampleCount / unionDates.size) : 0;
+    const missingRatio = expectedSamples > 0 ? Math.max(0, 1 - sampleCount / expectedSamples) : 0;
     missingRatioBySymbol[symbol] = missingRatio;
     if (sampleCount === 0) {
       qualityWarnings.push(`${symbol} 缺少有效漲跌資料，部分指標以 -- 顯示。`);
       continue;
     }
-    if (missingRatio >= 0.2) {
-      qualityWarnings.push(`${symbol} 在比較區間缺值 ${(missingRatio * 100).toFixed(1)}%，結果需審慎解讀。`);
+    if (missingRatio > 0) {
+      qualityWarnings.push(`${symbol} 缺少 ${(missingRatio * 100).toFixed(1)}% 的日漲跌樣本；不跨缺值計算，回撤僅依已觀測收盤價。`);
     }
   }
 
@@ -272,33 +286,52 @@ function buildQualityMeta(
     alignedDays = [...first].filter((date) => rest.every((set) => set.has(date))).length;
   }
 
-  if (symbols.length >= 2) {
-    if (alignedDays === 0) qualityWarnings.push('標的之間沒有共同交易日，相關係數無法計算。');
-    else if (alignedDays < 20) qualityWarnings.push(`共同交易日僅 ${alignedDays} 天，相關係數穩定性較低。`);
+  const analysisRange = chart?.data.length ? { startDate: chart.start_date, endDate: chart.end_date } : null;
+  if (!analysisRange) qualityWarnings.push('不足兩個共同有效收盤日，無法比較區間漲跌幅與價格風險；其他資料仍依所選期間顯示。');
+  else if (analysisRange.startDate !== startDate || analysisRange.endDate !== endDate) {
+    qualityWarnings.push(`價格比較已對齊共同起訖日：${analysisRange.startDate} 至 ${analysisRange.endDate}。`);
   }
 
-  return { analysisRange: { startDate, endDate }, alignedDays, samplesBySymbol, missingRatioBySymbol, generatedAt, qualityWarnings };
+  return { requestedRange: { startDate, endDate }, analysisRange, alignedDays, samplesBySymbol, missingRatioBySymbol, generatedAt, qualityWarnings };
 }
 
 export function buildCompareViewModel({
   symbols,
   startDate,
   endDate,
-  priceChangeMap,
+  chart,
   volumeMap,
   generatedAt = new Date().toISOString(),
 }: {
   symbols: string[];
   startDate: string;
   endDate: string;
-  priceChangeMap: Record<string, PriceChangeResponse | null>;
+  chart: MultiStockResponse | null;
   volumeMap: Record<string, VolumeAnalysisResponse | null>;
   generatedAt?: string;
 }): CompareViewModel {
+  const aligned = chart ? alignComparePrices({ ...chart, symbols, start_date: startDate, end_date: endDate }) : null;
+  const priceChangeMap: Record<string, ComparePriceHistory> = Object.fromEntries(symbols.map((symbol) => [symbol, {
+    data: (aligned?.data ?? []).map((row, index, rows) => {
+      const price = row.prices[symbol];
+      const previous = rows[index - 1]?.prices[symbol];
+      return {
+        date: row.date,
+        close: isPrice(price) ? price : null,
+        // Missing observations break the daily interval; never turn a multi-day move into a daily return.
+        change_percent: isPrice(price) && isPrice(previous) ? (price / previous - 1) * 100 : null,
+      };
+    }),
+  }]));
+  const correlations = buildCorrelationData(symbols, priceChangeMap);
+  const qualityMeta = buildQualityMeta(symbols, startDate, endDate, priceChangeMap, generatedAt, aligned);
+  if (symbols.some((a, i) => symbols.slice(i + 1).some((b) => correlations.correlationSamples[a][b] < 20))) {
+    qualityMeta.qualityWarnings.push('部分配對的共同日漲跌樣本少於 20 筆，不列入相關性摘要排名；各配對樣本數顯示於相關性區塊。');
+  }
   return {
     metricsRows: symbols.map((symbol) => buildMetricsRow(symbol, priceChangeMap[symbol] ?? null, volumeMap[symbol] ?? null)),
-    correlationMatrix: buildCorrelationMatrix(symbols, priceChangeMap),
-    qualityMeta: buildQualityMeta(symbols, startDate, endDate, priceChangeMap, generatedAt),
+    ...correlations,
+    qualityMeta,
   };
 }
 
@@ -341,6 +374,30 @@ export function aggregateInstitutional(symbol: string, rows: InstitutionalDay[] 
 }
 
 /** 各檔在所有日期上的累計合計買賣超（該日沒有資料為 null） */
+export function buildInstitutionalRankingAggregates(
+  symbols: string[],
+  institutionalMap: Record<string, InstitutionalDay[] | null>,
+): { commonDates: string[]; aggregates: Record<string, InstitutionalAggregate> } {
+  const dateSets = symbols.map((symbol) => new Set(
+    (institutionalMap[symbol] ?? [])
+      .filter((row) => isNum(row.total_institutional_net))
+      .map((row) => row.date),
+  ));
+  const commonDates = dateSets.length === 0
+    ? []
+    : [...dateSets[0]].filter((date) => dateSets.every((dates) => dates.has(date))).sort();
+  if (commonDates.length < 2) return { commonDates, aggregates: {} };
+
+  const sharedDates = new Set(commonDates);
+  return {
+    commonDates,
+    aggregates: Object.fromEntries(symbols.map((symbol) => [
+      symbol,
+      aggregateInstitutional(symbol, (institutionalMap[symbol] ?? []).filter((row) => sharedDates.has(row.date))),
+    ])),
+  };
+}
+
 export function buildInstitutionalCumulative(
   symbols: string[],
   institutionalMap: Record<string, InstitutionalDay[] | null>,
@@ -348,11 +405,13 @@ export function buildInstitutionalCumulative(
   const dates = [...new Set(symbols.flatMap((sym) => (institutionalMap[sym] ?? []).map((row) => row.date)))].sort();
   const values: CompareChartSeries['values'] = {};
   for (const sym of symbols) {
-    const byDateMap = new Map<string, number>();
+    const byDateMap = new Map<string, number | null>();
     let running = 0;
-    for (const row of institutionalMap[sym] ?? []) {
-      if (isNum(row.total_institutional_net)) running += row.total_institutional_net;
-      byDateMap.set(row.date, running);
+    for (const row of [...(institutionalMap[sym] ?? [])].sort(byDate)) {
+      if (isNum(row.total_institutional_net)) {
+        running += row.total_institutional_net;
+        byDateMap.set(row.date, running);
+      } else byDateMap.set(row.date, null);
     }
     values[sym] = dates.map((date) => byDateMap.get(date) ?? null);
   }
@@ -381,6 +440,7 @@ export function buildCategoryLeaders(
   institutionalAggregateMap: Record<string, InstitutionalAggregate>,
   technicalLatestMap: Record<string, TechnicalDay | null>,
   correlationMatrix: CorrelationMatrix,
+  correlationSamples: Record<string, Record<string, number>>,
 ): CategoryLeader[] {
   const bestReturn = metricsRows
     .filter((r) => r.totalReturnPct != null)
@@ -400,7 +460,10 @@ export function buildCategoryLeaders(
     .filter((m): m is { symbol: string; score: number } => m.score != null)
     .sort((a, b) => b.score - a.score)[0];
 
-  const lowestPair = lowestCorrelationPair(symbols, correlationMatrix);
+  const rankedCorrelations = Object.fromEntries(symbols.map((a) => [a, Object.fromEntries(symbols.map((b) => [
+    b, (correlationSamples[a]?.[b] ?? 0) >= 20 ? correlationMatrix[a]?.[b] ?? null : null,
+  ]))]));
+  const lowestPair = lowestCorrelationPair(symbols, rankedCorrelations);
 
   const momentumReason = (() => {
     if (!topMomentum) return '技術指標資料不足，無法計算均線乖離。';
@@ -421,23 +484,21 @@ export function buildCategoryLeaders(
   const correlationReason = (() => {
     if (!lowestPair) return '';
     const v = lowestPair.value;
-    if (v < 0) return '呈現負相關，理論上具分散風險效果。';
-    if (v < 0.3) return '相關性低，分散效果尚可。';
-    if (v < 0.7) return '中度相關，分散效果有限。';
-    return '相關性偏高，並無顯著分散效果。';
+    const samples = correlationSamples[lowestPair.a][lowestPair.b];
+    return `共同日漲跌樣本 ${samples} 筆；${v < 0 ? '期間呈反向變動' : '期間呈同向變動'}，不代表未來關係。`;
   })();
 
   return [
     bestReturn
       ? {
           id: 'bestReturn',
-          title: '期間累積報酬最高',
+          title: '期間價格漲跌幅最高',
           symbol: bestReturn.symbol,
           value: fmtPercent(bestReturn.totalReturnPct, { sign: true }),
           tone: getValueTone(bestReturn.totalReturnPct),
-          reason: '依首末日收盤計算之累積報酬最高。',
+          reason: '依共同起訖日未還原收盤價計算，不含股息。',
         }
-      : fallbackLeader('bestReturn', '期間累積報酬最高', '尚無可計算資料。'),
+      : fallbackLeader('bestReturn', '期間價格漲跌幅最高', '不足兩個共同有效收盤日。'),
     minVolatility
       ? {
           id: 'minVolatility',
@@ -455,7 +516,7 @@ export function buildCategoryLeaders(
           symbol: topInstitutional.symbol,
           value: fmtInstitutionalShares(topInstitutional.totalNet),
           tone: getValueTone(topInstitutional.totalNet),
-          reason: '期間三大法人合計買超總量最大（非投資建議）。',
+          reason: '期間法人合計淨買賣超量最高；未依股本或成交量調整。',
         }
       : fallbackLeader('institutionalFavorite', '法人合計買超最高', '法人資料載入中或不足。'),
     topMomentum
@@ -477,6 +538,6 @@ export function buildCategoryLeaders(
           tone: 'neutral',
           reason: correlationReason,
         }
-      : fallbackLeader('lowestCorrelationPair', '相關性最低組合', '共同交易日不足。'),
+      : fallbackLeader('lowestCorrelationPair', '相關性最低組合', '須至少 20 筆共同日漲跌樣本，且兩檔價格變動皆有變異。'),
   ];
 }
