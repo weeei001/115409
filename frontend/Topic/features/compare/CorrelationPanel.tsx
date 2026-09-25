@@ -7,8 +7,7 @@ import { cn } from '@/lib/cn';
 interface Props {
   symbols: string[];
   matrix: CorrelationMatrix;
-  /** 共同交易日數 */
-  alignedDays: number;
+  sampleCounts: Record<string, Record<string, number>>;
 }
 
 /** 依標準閾值（|ρ| ≥ 0.7 高、0.3–0.7 中度、< 0.3 低）回傳解讀 */
@@ -19,32 +18,6 @@ function interpretRho(rho: number): string {
   return abs >= 0.7 ? `高度${dir}` : `中度${dir}`;
 }
 
-type VerdictTone = 'good' | 'mid' | 'weak';
-
-function diversificationVerdict(rho: number): { label: string; tone: VerdictTone; detail: string } {
-  const abs = Math.abs(rho);
-  if (abs < 0.3) return { label: '分散效果佳', tone: 'good', detail: '兩檔走勢相對獨立，同時持有可分散個股風險。' };
-  if (abs < 0.7) {
-    return {
-      label: '分散效果有限',
-      tone: 'mid',
-      detail: rho >= 0 ? '兩檔多數時候同向波動，分散效果打折。' : '兩檔多數時候反向波動，可部分對沖、但波動仍互有牽動。',
-    };
-  }
-  return {
-    label: rho >= 0 ? '走勢高度連動' : '走勢高度互沖',
-    tone: rho >= 0 ? 'weak' : 'good',
-    detail: rho >= 0 ? '兩檔多半同漲同跌，等同集中持有單一風險來源。' : '兩檔幾乎相反，可作為避險配對。',
-  };
-}
-
-/** 好壞評價不用漲跌色（決議 D8-c4）：好用品牌色，其餘用警示色 */
-const VERDICT_TONE: Record<VerdictTone, string> = {
-  good: 'border-brand/30 bg-accent text-accent-foreground',
-  mid: 'border-warning-border bg-warning-muted text-warning',
-  weak: 'border-warning-border bg-warning-muted text-warning',
-};
-
 function Header({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="space-y-1 border-b px-5 py-4">
@@ -54,8 +27,8 @@ function Header({ title, children }: { title: string; children?: React.ReactNode
   );
 }
 
-/** 報酬相關性：2 檔顯示單一 ρ 與分散效果結論，3 檔以上顯示矩陣 */
-export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
+/** Show pairwise daily price correlation and its exact sample count. */
+export function CorrelationPanel({ symbols, matrix, sampleCounts }: Props) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const textColor = getChartPalette(isDark).text;
@@ -71,12 +44,12 @@ export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
   if (symbols.length === 2) {
     const [a, b] = symbols;
     const rho = matrix[a]?.[b] ?? null;
-    const verdict = rho == null ? null : diversificationVerdict(rho);
+    const count = sampleCounts[a]?.[b] ?? 0;
     const barPct = rho == null ? null : Math.round(((Math.max(-1, Math.min(1, rho)) + 1) / 2) * 100);
     return (
       <section className="flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
-        <Header title="報酬率相關性">
-          <p className="text-xs text-muted-foreground">共同交易日的日報酬 Pearson ρ；用來判斷兩檔同向程度與分散風險效果。</p>
+        <Header title="日漲跌幅相關性">
+          <p className="text-xs text-muted-foreground">以兩檔同日有效的日漲跌幅計算 Pearson ρ，描述期間內的線性連動程度。</p>
         </Header>
         <div className="flex flex-1 flex-col gap-4 px-5 py-5">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -102,25 +75,24 @@ export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
             </div>
             <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground tabular-nums">
               <span>-1 反向</span>
-              <span>0 獨立</span>
+              <span>0 無線性相關</span>
               <span>+1 同向</span>
             </div>
           </div>
 
-          {verdict && rho != null ? (
-            <div className={cn('rounded-xl border px-3.5 py-3', VERDICT_TONE[verdict.tone])}>
+          {rho != null ? (
+            <div className="rounded-xl border bg-muted/40 px-3.5 py-3">
               <div className="mb-1 flex items-baseline gap-2">
                 <span className="text-sm font-semibold">{interpretRho(rho)}</span>
-                <span className="text-[11px] opacity-80">→ {verdict.label}</span>
               </div>
-              <p className="text-xs leading-snug">{verdict.detail}</p>
+              <p className="text-xs leading-snug text-muted-foreground">係數接近 +1 表示同向線性連動較強，接近 −1 表示反向連動較強；接近 0 不代表彼此獨立。</p>
             </div>
           ) : (
-            <div className="rounded-xl border px-3.5 py-3 text-xs text-muted-foreground">此區間無共同交易日資料，無法計算相關係數。</div>
+            <div className="rounded-xl border px-3.5 py-3 text-xs text-muted-foreground">有效配對樣本不足 2 筆，或其中一檔日漲跌幅沒有變異，無法計算相關係數。</div>
           )}
 
           <p className="mt-auto text-[11px] text-muted-foreground">
-            樣本：共同交易日 {alignedDays} 天{alignedDays < 20 ? '（樣本偏少，係數穩定性較低）' : ''}；|ρ| ≥ 0.7 高相關、0.3–0.7 中度、&lt; 0.3 低相關。
+            有效配對樣本：{count} 筆{count < 20 ? '（樣本少於 20 筆，係數穩定性較低）' : ''}；|ρ| ≥ 0.7 高相關、0.3–0.7 中度、&lt; 0.3 低相關。歷史相關性無法保證未來分散風險效果。
           </p>
         </div>
       </section>
@@ -129,9 +101,9 @@ export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
 
   return (
     <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
-      <Header title="報酬率相關性矩陣">
+      <Header title="日漲跌幅相關性矩陣">
         <p className="text-[11px] text-muted-foreground">
-          共同交易日 {alignedDays} 天{alignedDays < 20 ? '（樣本不足，相關係數穩定性較低）' : ''}
+          每格列出 Pearson ρ 與該配對的有效樣本數；各配對的樣本數可能不同。
         </p>
       </Header>
       <div className="space-y-4 overflow-auto p-4">
@@ -154,12 +126,9 @@ export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
                 </th>
                 {symbols.map((colSym) => {
                   const val = matrix[rowSym]?.[colSym] ?? null;
+                  const count = sampleCounts[rowSym]?.[colSym] ?? 0;
                   const diagonal = rowSym === colSym;
-                  const title = diagonal
-                    ? '對角線：股票對自身相關性恆為 1'
-                    : val == null
-                      ? '無共同交易日資料'
-                      : `相關性 ρ = ${val.toFixed(4)}；樣本約 ${alignedDays} 天`;
+                  const title = `${val == null ? '樣本不足 2 筆或日漲跌幅無變異，無法計算' : `相關性 ρ = ${val.toFixed(4)}`}；有效配對樣本 ${count} 筆${count < 20 ? '，樣本偏少' : ''}`;
                   const colored = !diagonal && val != null;
                   return (
                     <td
@@ -169,6 +138,7 @@ export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
                       style={colored ? { backgroundColor: correlationColor(val, isDark), color: textColor } : undefined}
                     >
                       {val == null ? '--' : val.toFixed(2)}
+                      <span className="block whitespace-nowrap text-[10px]">{count} 筆{count < 20 ? '＊' : ''}</span>
                     </td>
                   );
                 })}
@@ -186,7 +156,7 @@ export function CorrelationPanel({ symbols, matrix, alignedDays }: Props) {
           </div>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          解讀建議：|ρ| ≥ 0.7 為高相關、0.3–0.7 為中度相關、&lt; 0.3 為低相關。對角線為股票對自身，恆為 1.00。
+          |ρ| ≥ 0.7 為高相關、0.3–0.7 為中度相關、&lt; 0.3 為低相關。＊少於 20 筆，係數穩定性較低；-- 表示樣本不足 2 筆或無變異。對角線只在可計算時為 1.00。低相關不代表獨立，歷史相關性無法保證未來分散風險效果。
         </p>
       </div>
     </section>

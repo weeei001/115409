@@ -1,4 +1,5 @@
 from .daily_price import DailyPrice
+from .benchmark_price import BenchmarkPrice
 from .stock_info import StockInfo
 from .news_article import NewsArticle
 from .technical_indicator import TechnicalIndicator
@@ -21,6 +22,7 @@ from .news_impact import NewsEventAnalysis, NewsEventImpact
 
 __all__ = [
     "DailyPrice",
+    "BenchmarkPrice",
     "StockInfo",
     "NewsArticle",
     "NewsSentiment",

@@ -41,6 +41,7 @@ export default function HomePage() {
 
       <HomeHeader
         symbols={symbols}
+        stockInfos={quotes.stockInfos}
         loading={quotes.loadingSymbols}
         error={quotes.errorSymbols}
         onRetry={quotes.reloadSymbols}

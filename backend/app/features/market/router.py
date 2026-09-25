@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.features.market import schemas as s, service
+from app.features.market import benchmark
 
 
 router = APIRouter(prefix="/stocks", tags=["Market"])
@@ -18,6 +19,15 @@ def get_available_symbols(db: Session = Depends(get_db)):
 @router.get("/info", response_model=list[s.StockInfoResponse])
 def get_stock_infos(db: Session = Depends(get_db)):
     return service.stock_infos(db)
+
+
+@router.get("/benchmark/history", response_model=benchmark.BenchmarkHistory,
+            responses={400: {"description": "Invalid date range"},
+                       503: {"description": "Benchmark storage has not been initialized or is unavailable"}})
+def get_benchmark_history(
+    start_date: date = Query(...), end_date: date = Query(...), db: Session = Depends(get_db),
+):
+    return benchmark.history(db, start_date, end_date)
 
 
 @router.get("/{symbol}/latest", response_model=s.DailyPriceResponse, responses={404: {"description": "Not found"}})

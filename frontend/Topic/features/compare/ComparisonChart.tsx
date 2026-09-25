@@ -6,17 +6,21 @@ import type { MultiStockResponse } from '@/lib/types/api';
 import type { CompareChartMode } from '@/lib/types/compare';
 import { toCompareChartSeries, toggleHiddenSymbol, visibleSymbolsFromHidden } from '@/lib/utils/compare';
 import { cn } from '@/lib/cn';
+import type { BenchmarkHistoryResponse } from '@/lib/api/benchmark';
+import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
+import { getChartPalette } from '@/lib/charts/theme';
+import { fmtPercent } from '@/lib/utils/format';
 
 const MODES: Array<{ key: CompareChartMode; label: string }> = [
   { key: 'price', label: '報價' },
   { key: 'index100', label: '指數化' },
-  { key: 'cumulativeReturn', label: '累積報酬%' },
+  { key: 'cumulativeReturn', label: '區間漲跌幅%' },
 ];
 
 const MODE_META: Record<CompareChartMode, { title: string; description: string; yAxisLabel: string }> = {
-  price: { title: '多股價格比較', description: '顯示原始收盤價（單位：元），適合觀察絕對價格差距。', yAxisLabel: '收盤價（元）' },
-  index100: { title: '多股指數化比較', description: '以區間首日收盤價設為 100，對齊不同價位股票的相對走勢。', yAxisLabel: '指數（首日=100）' },
-  cumulativeReturn: { title: '多股累積報酬比較', description: '以區間首日為基準，顯示累積報酬率，便於比較績效。', yAxisLabel: '累積報酬（%）' },
+  price: { title: '多股價格比較', description: '顯示未還原收盤價（單位：元），未計入股息。', yAxisLabel: '收盤價（元）' },
+  index100: { title: '多股指數化比較', description: '以共同起日的未還原收盤價設為 100，比較相對走勢；未計入股息。', yAxisLabel: '指數（共同起日=100）' },
+  cumulativeReturn: { title: '多股區間漲跌幅比較', description: '以共同起日的未還原收盤價為基準，比較價格漲跌幅；未計入股息。', yAxisLabel: '區間漲跌幅（%）' },
 };
 
 function ModeTabs({ mode, onModeChange }: { mode: CompareChartMode; onModeChange: (mode: CompareChartMode) => void }) {
@@ -70,27 +74,33 @@ interface Props {
   mode: CompareChartMode;
   onModeChange: (mode: CompareChartMode) => void;
   symbolColors: Record<string, string>;
+  benchmark?: BenchmarkHistoryResponse | null;
+  benchmarkLoading?: boolean;
 }
 
 /** 比較主圖：三種模式；下方圖例可切換單檔顯示 */
-export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColors }: Props) {
+export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColors, benchmark = null, benchmarkLoading = false }: Props) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [hiddenSymbols, setHiddenSymbols] = useState<string[]>([]);
-  const symbolKey = symbols.join('|');
+  const comparison = useMemo(() => buildBenchmarkComparison({ ...data, symbols }, benchmark), [data, symbols, benchmark]);
+  const chartData = mode !== 'price' && comparison.chart ? comparison.chart : data;
+  const chartSymbols = mode !== 'price' && comparison.chart ? comparison.chart.symbols : symbols;
+  const chartColors = useMemo<Record<string, string>>(() => ({ ...symbolColors, TAIEX: getChartPalette(isDark).tick }), [symbolColors, isDark]);
+  const symbolKey = chartSymbols.join('|');
 
   // 換一組股票時，只保留仍在清單裡的隱藏設定
   useEffect(() => {
-    setHiddenSymbols((prev) => prev.filter((sym) => symbols.includes(sym)));
+    setHiddenSymbols((prev) => prev.filter((sym) => chartSymbols.includes(sym)));
   }, [symbolKey]); // symbols 每次 render 都是新陣列，用 symbolKey 判斷內容是否改變
 
-  const visibleSymbols = useMemo(() => visibleSymbolsFromHidden(symbols, hiddenSymbols), [symbols, hiddenSymbols]);
-  const series = useMemo(() => toCompareChartSeries({ ...data, symbols }, mode), [data, symbols, mode]);
-  const option = useMemo(() => compareLineOption(series, visibleSymbols, symbolColors, mode, isDark), [series, visibleSymbols, symbolColors, mode, isDark]);
+  const visibleSymbols = useMemo(() => visibleSymbolsFromHidden(chartSymbols, hiddenSymbols), [chartSymbols, hiddenSymbols]);
+  const series = useMemo(() => toCompareChartSeries({ ...chartData, symbols: chartSymbols }, mode), [chartData, chartSymbols, mode]);
+  const option = useMemo(() => compareLineOption(series, visibleSymbols, chartColors, mode, isDark), [series, visibleSymbols, chartColors, mode, isDark]);
   const meta = MODE_META[mode];
   const lastIndex = series.dates.length - 1;
 
-  if (!option) return <p className="py-12 text-center text-sm text-muted-foreground">無比較資料</p>;
+  if (!option) return <p className="py-12 text-center text-sm text-muted-foreground">共同有效收盤價不足 2 天，無法建立同期間比較。可調整區間或選擇資料較完整的股票。</p>;
 
   return (
     <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
@@ -98,6 +108,13 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
         <div className="min-w-0 flex-1 space-y-1">
           <h2 className="text-base font-bold">{meta.title}</h2>
           <p className="text-xs text-muted-foreground">{meta.description}</p>
+          <p className="text-xs text-muted-foreground">實際比較期間：{series.dates[0]} 至 {series.dates[lastIndex]}</p>
+          <p className="text-xs text-muted-foreground">
+            大盤基準：臺灣加權股價指數（TAIEX，不含現金股利）。
+            {benchmarkLoading ? '載入中…' : comparison.returnPct == null ? comparison.warning : `同期間漲跌幅 ${fmtPercent(comparison.returnPct, { sign: true })}。${comparison.warning ?? ''}`}
+            {mode === 'price' ? ' 指數走勢顯示於「指數化」與「區間漲跌幅」模式。' : ''}
+            {' '}<a href="https://www.twse.com.tw/zh/indices/taiex/mi-5min-hist.html" target="_blank" rel="noreferrer" className="underline">證交所資料來源</a>
+          </p>
         </div>
         <ModeTabs mode={mode} onModeChange={onModeChange} />
       </div>
@@ -122,17 +139,17 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
           </button>
           <button
             type="button"
-            onClick={() => setHiddenSymbols([...symbols])}
+            onClick={() => setHiddenSymbols([...chartSymbols])}
             className="min-h-9 rounded-full border px-3 py-1 text-xs text-subtle transition-colors hover:border-brand hover:text-brand-text"
           >
             全隱藏
           </button>
           <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-xs text-subtle">
-            已顯示 {visibleSymbols.length}/{symbols.length}
+            已顯示 {visibleSymbols.length}/{chartSymbols.length} 條
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {symbols.map((sym) => {
+          {chartSymbols.map((sym) => {
             const hidden = hiddenSymbols.includes(sym);
             return (
               <button
@@ -145,14 +162,14 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
                   hidden ? 'text-muted-foreground opacity-60' : 'text-foreground',
                 )}
               >
-                <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: symbolColors[sym] }} aria-hidden />
-                {sym}
+                <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: chartColors[sym] }} aria-hidden />
+                {sym === 'TAIEX' ? 'TAIEX 加權指數' : sym}
               </button>
             );
           })}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          圖例色彩與摘要卡、風險報酬散點一致；Y 軸口徑：{meta.yAxisLabel}。點擊圖例可切換顯示。
+          圖例色彩與摘要卡、波動與漲跌幅散點一致；Y 軸口徑：{meta.yAxisLabel}。缺值保留斷線；點擊圖例可切換顯示。
         </p>
         <div className="sr-only">
           <p>圖表資料摘要（最後一個交易日）</p>
@@ -160,7 +177,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
             <thead>
               <tr>
                 <th scope="col">日期</th>
-                {symbols.map((sym) => (
+                {chartSymbols.map((sym) => (
                   <th key={sym} scope="col">
                     {sym}
                   </th>
@@ -170,7 +187,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
             <tbody>
               <tr>
                 <td>{series.dates[lastIndex] ?? '—'}</td>
-                {symbols.map((sym) => {
+                {chartSymbols.map((sym) => {
                   const v = series.values[sym]?.[lastIndex];
                   return <td key={sym}>{typeof v === 'number' ? v.toFixed(2) : '—'}</td>;
                 })}

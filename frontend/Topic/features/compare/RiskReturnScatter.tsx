@@ -21,10 +21,10 @@ export function RiskReturnScatter({ rows, symbolColors }: { rows: CompareMetrics
     const missing = rows.filter((r) => r.volatilityPct == null || r.totalReturnPct == null).map((r) => r.symbol);
     return (
       <section className="space-y-1.5 rounded-2xl border bg-card px-5 py-10 text-center shadow-card">
-        <p className="text-sm font-medium">資料不足，無法繪製風險–報酬分佈</p>
+        <p className="text-sm font-medium">資料不足，無法繪製波動與漲跌幅分佈</p>
         {missing.length > 0 ? (
           <p className="text-xs text-muted-foreground">
-            缺少波動度或報酬：<span className="font-mono">{missing.join('、')}</span>
+            缺少波動度或漲跌幅：<span className="font-mono">{missing.join('、')}</span>
           </p>
         ) : null}
         <p className="text-xs text-muted-foreground">下一步：拉長比較區間或換成資料較完整的個股。</p>
@@ -35,16 +35,16 @@ export function RiskReturnScatter({ rows, symbolColors }: { rows: CompareMetrics
   return (
     <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
       <div className="space-y-1 border-b px-5 py-4">
-        <h2 className="text-base font-bold">風險-報酬分佈</h2>
+        <h2 className="text-base font-bold">波動與漲跌幅分佈</h2>
         <p className="text-xs text-muted-foreground">
-          X 軸＝年化波動度（%，越右越震盪），Y 軸＝區間報酬（%，越上越賺）。象限以「樣本波動中位數」與「0% 報酬」切分。
+          X 軸＝年化波動度（%，越右波動越大），Y 軸＝區間價格漲跌幅（%）。象限以「樣本波動中位數」與「0% 漲跌幅」切分。
         </p>
       </div>
       <div className="p-4">
-        <EChart title="風險報酬散點圖：X 軸波動度、Y 軸區間報酬，四象限以中位波動與 0% 報酬切分" option={option} height={340} />
+        <EChart title="波動與漲跌幅散點圖：X 軸波動度、Y 軸區間漲跌幅，四象限以中位波動與 0% 漲跌幅切分" option={option} height={340} />
       </div>
       <div className="-mt-1 space-y-0.5 px-5 pb-4 text-[11px] leading-relaxed text-muted-foreground">
-        <p>解讀：左上＝CP 值最高（少波動換取正報酬）；右上＝高風險換高報酬；右下＝白做工。</p>
+        <p>上半部為期間價格上漲，下半部為下跌；未計入股息，且除權息、分割等公司行動可能影響價格變化。</p>
         <p>
           注意：象限的「高/低波動」是<strong>已選樣本之間的相對位置</strong>，非絕對風險評等。
         </p>

@@ -15,12 +15,13 @@ def test_pipeline_uses_native_jobs_in_dependency_order(tmp_path):
     assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols="2330,2317", output=tmp_path,
         run=lambda command: commands.append(command) or 0) == 0
     assert [command[0] for command in commands] == [
-        "market-fetch", "market-import", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema",
+        "market-fetch", "market-import", "market-backfill", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema",
         "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]
     assert commands[0] == ["market-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
     assert commands[1] == ["market-import", "--input-dir", str(tmp_path)]
-    assert commands[2] == ["crawl-cnyes", "--scheduled-once"]
-    assert commands[3] == ["crawl-ltn", "--scheduled-once", "--lookback-days", "30"]
+    assert commands[2] == ["market-backfill", "--benchmark-only", "--incremental", "--start", "2026-07-01"]
+    assert commands[3] == ["crawl-cnyes", "--scheduled-once"]
+    assert commands[4] == ["crawl-ltn", "--scheduled-once", "--lookback-days", "30"]
     assert commands[-1] == ["cache-warmup", "--symbols", "2330,2317"]
     assert commands[-3] == ["news-impact-batch", "--limit", "100",
                             "--max-cost-usd", "0.5", "--execute"]

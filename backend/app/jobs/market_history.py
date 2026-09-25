@@ -213,7 +213,18 @@ def _symbols_from_db(engine) -> list[str]:
 
 
 def backfill(args: argparse.Namespace) -> dict:
+    from app.jobs.market import benchmark
+
     engine = make_engine(get_settings())
+    if getattr(args, "benchmark_only", False):
+        try:
+            with httpx.Client(timeout=args.timeout, trust_env=False, follow_redirects=True) as http:
+                client = OfficialClient(http, args.interval, args.retries)
+                count = benchmark.import_history(engine, client, args.start, args.end,
+                                                 incremental=args.incremental)
+                return {"datasets": {"benchmark_prices": count}, "requests": client.requests}
+        finally:
+            engine.dispose()
     catalog = _load_catalog()
     symbols = args.symbols or _symbols_from_db(engine)
     unknown = set(symbols) - catalog.keys()
@@ -226,6 +237,8 @@ def backfill(args: argparse.Namespace) -> dict:
     try:
         with httpx.Client(timeout=args.timeout, trust_env=False, follow_redirects=True) as http:
             client = OfficialClient(http, args.interval, args.retries)
+            report["datasets"]["benchmark_prices"] = benchmark.import_history(
+                engine, client, args.start, args.end, incremental=getattr(args, "incremental", False))
             for symbol in symbols:
                 market = selected[symbol].get("market")
                 for month in _months(args.start, args.end):
@@ -286,6 +299,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument("--skip-valuations", action="store_true")
+    parser.add_argument("--benchmark-only", action="store_true", help="Import only the official TAIEX closing index")
+    parser.add_argument("--incremental", action="store_true", help="Refresh benchmark history from its latest stored month")
     args = parser.parse_args(argv)
     if args.stocks:
         args.symbols = list(dict.fromkeys(s.strip() for s in args.stocks.split(",") if s.strip()))
