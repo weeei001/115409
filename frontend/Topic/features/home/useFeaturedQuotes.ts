@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { fetchLatestPrice, fetchSymbols } from '@/lib/api/stock';
-import type { DailyPriceResponse } from '@/lib/types/api';
+import { fetchLatestPrice, fetchStockInfos } from '@/lib/api/stock';
+import type { DailyPriceResponse, StockInfo } from '@/lib/types/api';
 import { fetchSparklineCloses } from '@/lib/utils/sparklineHistory';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
@@ -11,7 +11,7 @@ export const FEATURED_COUNT = FEATURED_SYMBOLS.length;
 
 /** 首頁：股票清單 → 精選 6 檔最新價 → 各檔近 30 天 sparkline */
 export function useFeaturedQuotes() {
-  const [symbols, setSymbols] = useState<string[]>([]);
+  const [stockInfos, setStockInfos] = useState<StockInfo[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(true);
   const [errorSymbols, setErrorSymbols] = useState<string | null>(null);
   const [prices, setPrices] = useState<DailyPriceResponse[]>([]);
@@ -25,9 +25,9 @@ export function useFeaturedQuotes() {
   const reloadSymbols = useCallback(() => {
     setLoadingSymbols(true);
     setErrorSymbols(null);
-    fetchSymbols()
+    fetchStockInfos()
       .then((list) => {
-        setSymbols(list);
+        setStockInfos(list);
         // 清單為空時沒有股價可抓，結束骨架改顯示空狀態（決議 c64）
         if (list.length === 0) setLoadingPrices(false);
       })
@@ -39,14 +39,16 @@ export function useFeaturedQuotes() {
     reloadSymbols();
   }, [reloadSymbols]);
 
+  const symbols = stockInfos.map((stock) => stock.symbol);
+
   const retryPrices = useCallback(() => setPricesAttempt((n) => n + 1), []);
 
   // 換清單或重試時中止還沒完成的舊請求，避免舊資料覆蓋
   useEffect(() => {
-    if (symbols.length === 0) return;
+    if (stockInfos.length === 0) return;
     const id = ++pricesRequest.current;
     const ctrl = new AbortController();
-    const featured = FEATURED_SYMBOLS.filter((symbol) => symbols.includes(symbol));
+    const featured = FEATURED_SYMBOLS.filter((symbol) => stockInfos.some((stock) => stock.symbol === symbol));
     setLoadingPrices(true);
     Promise.allSettled(featured.map((symbol) => fetchLatestPrice(symbol, { signal: ctrl.signal })))
       .then((results) => {
@@ -65,7 +67,7 @@ export function useFeaturedQuotes() {
         if (id === pricesRequest.current && !ctrl.signal.aborted) setLoadingPrices(false);
       });
     return () => ctrl.abort();
-  }, [symbols, pricesAttempt]);
+  }, [stockInfos, pricesAttempt]);
 
   useEffect(() => {
     if (prices.length === 0) {
@@ -89,5 +91,5 @@ export function useFeaturedQuotes() {
   }, [prices]);
 
   const emptySymbols = !loadingSymbols && !errorSymbols && symbols.length === 0;
-  return { symbols, loadingSymbols, errorSymbols, emptySymbols, reloadSymbols, prices, loadingPrices, errorPrices, retryPrices, sparklines };
+  return { symbols, stockInfos, loadingSymbols, errorSymbols, emptySymbols, reloadSymbols, prices, loadingPrices, errorPrices, retryPrices, sparklines };
 }
