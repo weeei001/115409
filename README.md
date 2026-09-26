@@ -151,6 +151,7 @@ npm run test:compare
 
 ## 文件與協作
 
+- [GitHub CI/CD](docs/ci-cd.md)：自動測試、前端建置與 Windows 部署設定。
 - [開發與操作文件](docs/README.md)：後端邊界、背景工作與資料匯入。
 - [AGENTS.md](AGENTS.md)：程式代理的專案協作指引。
 - [Android 建置腳本](frontend/Topic/build-capacitor-release.ps1)：Capacitor APK 匯出。
