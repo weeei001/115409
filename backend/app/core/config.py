@@ -1,12 +1,37 @@
 from functools import lru_cache
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
+def application_environment() -> str:
+    environment = os.environ.get("APP_ENV", "production")
+    if environment not in {"production", "development"}:
+        raise ValueError("APP_ENV must be production or development")
+    return environment
+
+
+def state_directory(*, production: Path | None = None) -> Path:
+    if application_environment() == "development":
+        return BACKEND_DIR / ".state" / "development"
+    return production if production is not None else BACKEND_DIR / ".state"
+
+
+def require_development_names(settings, *fields: str) -> None:
+    if application_environment() == "development":
+        for field in fields:
+            value = getattr(settings, field, None)
+            if not isinstance(value, str) or not value.endswith("_dev"):
+                raise ValueError(f"{field} must end with _dev in development")
 
 
 def news_index_fingerprint(index_version="news-v2", model="nvidia/nemotron-3-embed-1b",
@@ -60,7 +85,7 @@ class Settings(BaseSettings):
     LLM_OUTPUT_PRICE_PER_M: float = 1.20
     SENTIMENT_USD_TWD_RATE: float = 32.0
     ANALYSIS_TIMEOUT_SECONDS: int = 1200
-    SIMULATION_CACHE_DIR: Path = Path(__file__).resolve().parents[2] / ".state" / "simulation"
+    SIMULATION_CACHE_DIR: Path = Field(default_factory=lambda: state_directory() / "simulation")
     FINMIND_API_TOKEN: str = ""
 
     RAG_API_URL: str = ""
@@ -136,7 +161,7 @@ class Settings(BaseSettings):
     CORS_ALLOW_ORIGINS: str = "*"
 
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).resolve().parents[2] / ".env",
+        env_file=BACKEND_DIR / ".env",
         case_sensitive=True,
         extra="ignore",
     )
@@ -153,4 +178,11 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    if application_environment() == "production":
+        return Settings()
+    path = BACKEND_DIR / ".env.development"
+    if not path.is_file():
+        raise ValueError("Development configuration is missing: backend/.env.development")
+    settings = Settings(_env_file=path)
+    require_development_names(settings, "DATABASE_NAME", "DATABASE_USER", "QDRANT_COLLECTION")
+    return settings

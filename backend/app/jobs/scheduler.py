@@ -8,6 +8,8 @@ import subprocess
 import sys
 import time as clock
 
+from app.core.config import state_directory
+
 
 TAIPEI = timezone(timedelta(hours=8))
 ROOT = Path(__file__).resolve().parents[2]
@@ -118,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Standalone v2 scheduler, independent of FastAPI lifecycle")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2021, 1, 1))
     parser.add_argument("--symbols", help="Limit market processing to these codes; default is all listed/OTC companies")
-    parser.add_argument("--out", type=Path, default=ROOT / ".state" / "market")
+    parser.add_argument("--out", type=Path, default=state_directory() / "market")
     parser.add_argument("--run-now", action="store_true")
     parser.add_argument("--backfill", action="store_true",
                         help="Backfill all historical stock_info data before the first market/AI run")

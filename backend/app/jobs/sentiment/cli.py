@@ -8,7 +8,7 @@ import random
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.config import get_settings
+from app.core.config import get_settings, state_directory
 from app.core.errors import AppError
 from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stocks", help="Comma-separated listed symbols; default is all listed companies")
     parser.add_argument("--backfill-days", type=int, default=30)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--work-dir", type=Path, default=Path(__file__).resolve().parents[3] / ".state")
+    parser.add_argument("--work-dir", type=Path, default=state_directory())
     args = parser.parse_args(argv)
     if args.limit < 1 or args.backfill_days < 1 or not math.isfinite(args.max_cost_usd) or args.max_cost_usd < 0:
         parser.error("--limit must be positive and --max-cost-usd must be finite and nonnegative")

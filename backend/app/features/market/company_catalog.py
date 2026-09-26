@@ -11,8 +11,9 @@ from pathlib import Path
 
 import httpx
 
+from app.core.config import state_directory
 
-CATALOG_PATH = Path(__file__).resolve().parents[3] / ".state" / "company_catalog.json"
+
 SOURCES = {
     "TWSE": "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
     "TPEx": "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
@@ -41,7 +42,8 @@ TPEX_INDUSTRIES = {
      "32": "文化創意業", "33": "農業科技業"}
 
 
-def load_catalog(path: Path = CATALOG_PATH) -> dict[str, dict]:
+def load_catalog(path: Path | None = None) -> dict[str, dict]:
+    path = path if path is not None else state_directory() / "company_catalog.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -80,8 +82,9 @@ def _parse(rows: object, market: str) -> dict[str, dict]:
     return result
 
 
-def refresh_catalog(http: httpx.Client | None = None, path: Path = CATALOG_PATH) -> dict[str, dict]:
+def refresh_catalog(http: httpx.Client | None = None, path: Path | None = None) -> dict[str, dict]:
     """Replace the cached directory only after both official markets succeed."""
+    path = path if path is not None else state_directory() / "company_catalog.json"
     if http is None:
         with httpx.Client(trust_env=False, timeout=30) as client:
             return refresh_catalog(client, path)

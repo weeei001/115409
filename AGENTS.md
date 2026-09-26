@@ -10,8 +10,9 @@ Communicate in Taiwan Traditional Chinese by default. Write implementation artif
 
 - Backend: `backend/app/`; tests: `backend/tests/`; API entry: `app.main:app` from `backend/`.
 - Frontend: `frontend/Topic/`, Next.js Pages Router with npm and `package-lock.json`. `frontend/topictest/` is historical, not the active app.
-- Use [README.md](README.md) for setup and current verification caveats and [docs/README.md](docs/README.md) for backend boundaries and benchmark operations. Read the parts relevant to the task.
+- Use [README.md](README.md) for setup and [docs/README.md](docs/README.md) for backend boundaries, benchmark operations, and verification limits. Read the parts relevant to the task.
 - Keep secrets, machine-local `.env` files, `deploy/`, `.state/`, `qdrant_db/`, and generated outputs out of commits. Preserve local data unless the task requires a change; sanitized example configuration can be maintained with the source.
+- Keep machine-specific deployment runbooks, service configurations, and deployment scripts local; do not commit them.
 
 ## Design constraints
 
@@ -36,6 +37,8 @@ With the backend dependencies installed, useful commands are:
 | `frontend/Topic/` | `npm.cmd run lint -- --incremental false` |
 | `frontend/Topic/` | `npm.cmd run test:chat` or `npm.cmd run test:compare` for the affected feature |
 
-Use the configured Python interpreter; `npm` replaces `npm.cmd` outside Windows. Check the README's known failures before interpreting a full-suite result. Do not mask regressions or rewrite unrelated tests to make the suite green.
+Use the configured Python interpreter; `npm` replaces `npm.cmd` outside Windows. Check the [documented verification limits](docs/README.md#已知驗證限制) before interpreting a full-suite result. Do not mask regressions or rewrite unrelated tests to make the suite green.
 
 Runtime operations are separate from tests: worker commands can write data or call paid providers. In particular, `migrate-news-schema` and `migrate-news-impact-schema` execute even with `--help`. Inspect their dispatch before running them and stay within existing authorization. `/health` checks the API process only; database and provider readiness require separate evidence.
+
+Development uses `APP_ENV=development`, `backend/.env.development`, database/account/collection names ending in `_dev`, and `backend/.state/development/`. Start the backend and frontend independently in separate terminals using the native CLI commands in README.md. Do not copy production credentials into development settings.

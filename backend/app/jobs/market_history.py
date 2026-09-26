@@ -16,7 +16,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, state_directory
 from app.db.engine import make_engine
 from app.db.models.daily_price import DailyPrice
 from app.db.models.finmind_extra import StockValuation
@@ -27,7 +27,6 @@ TWSE_PRICE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
 TPEX_PRICE_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock"
 TWSE_VALUATION_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU_d"
 TPEX_VALUATION_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/peQryDate"
-CATALOG_PATH = Path(__file__).resolve().parents[2] / ".state" / "company_catalog.json"
 
 
 def _date(value: object) -> date:
@@ -197,10 +196,11 @@ def _upsert(db: Session, model, rows: list[dict]) -> int:
 
 
 def _load_catalog() -> dict[str, dict]:
+    path = state_directory() / "company_catalog.json"
     try:
-        payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise ValueError(f"Missing official company catalog: {CATALOG_PATH}") from exc
+        raise ValueError(f"Missing official company catalog: {path}") from exc
     if not isinstance(payload, dict):
         raise ValueError("Invalid official company catalog")
     return payload
@@ -294,7 +294,8 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--from-stock-info", action="store_true")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2024, 9, 25))
     parser.add_argument("--end", type=date.fromisoformat, default=date.today())
-    parser.add_argument("--out", type=Path, default=Path(".state/market/history_2y.json"))
+    parser.add_argument("--out", type=Path,
+                        default=state_directory(production=Path(".state")) / "market" / "history_2y.json")
     parser.add_argument("--interval", type=float, default=0.5)
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--retries", type=int, default=2)

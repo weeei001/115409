@@ -20,6 +20,34 @@ API 與 worker 共用 feature／db 層；API 不反向依賴 jobs。`features/re
 
 這些是本專案的設計選擇。FastAPI 官方提供 [APIRouter 與依賴組合](https://fastapi.tiangolo.com/tutorial/bigger-applications/)及 [lifespan](https://fastapi.tiangolo.com/advanced/events/) 機制，並未要求每個專案都新增 service、repository 或抽象基底。
 
+## 背景工作
+
+Worker 與 API 各自啟動。從 `backend/` 使用已安裝依賴的 Python 查看工作清單；開發時先設定程序環境 `APP_ENV=development`：
+
+```bash
+python -m app.jobs --help
+```
+
+工作涵蓋行情、新聞、索引、分析、scheduler 與研究。實際執行可能寫入 MySQL／Qdrant 或呼叫模型，執行前需確認目標環境與該命令的執行模式。
+
+目前 `migrate-news-schema` 與 `migrate-news-impact-schema` 不解析後續參數，附加 `--help` 仍會執行遷移；查看行為時請閱讀 [dispatch](../backend/app/jobs/__main__.py)。
+
+## 已知驗證限制
+
+需要完整後端回歸時，從專案根目錄使用已安裝依賴的 Python 執行：
+
+```bash
+python -m pytest backend/tests -q
+```
+
+目前保留以下已知問題（2026-09-26）：
+
+- `backend/tests/test_contract.py` 的部分案例需要已移除的 legacy 模組，例如 `backend/config.py`。
+- `backend/tests/test_sentiment_jobs.py` 有三個案例仍期待已移除的 `News.sentiments`；目前新聞回應使用 `event_analysis`。
+- `npm test` 與 `npm run sync:openapi` 指向缺失的 `scripts/openapiMapper.test.ts`、`scripts/sync-openapi.mjs`；`test:all` 也會因先執行 `npm test` 而中止。
+
+判讀完整測試結果時，應區分上述既有問題與新變更造成的失敗。手動 benchmark 與實際 worker 不屬於離線測試。
+
 ## 大盤資料匯入
 
 比較 API 使用 TWSE TAIEX 收盤價格指數，不含現金股利。資料來源為 [TWSE 歷史資料](https://www.twse.com.tw/zh/indices/taiex/mi-5min-hist.html)；不是含息報酬指數。

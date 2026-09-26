@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 import httpx
 
+from app.core.config import require_development_names
 from app.core.errors import ServiceUnavailable, UpstreamTimeout
 
 
@@ -16,6 +17,7 @@ def _timestamp(value: datetime) -> float:
 
 class VectorClient:
     def __init__(self, http: httpx.AsyncClient, settings):
+        require_development_names(settings, "QDRANT_COLLECTION")
         self.http, self.settings = http, settings
         self.base_url = (settings.QDRANT_URL or (
             f"http://{settings.QDRANT_HOST}:{settings.QDRANT_PORT}" if settings.QDRANT_HOST else "")).rstrip("/")

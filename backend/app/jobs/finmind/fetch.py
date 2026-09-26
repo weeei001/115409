@@ -17,7 +17,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, state_directory
 from app.db.engine import make_engine
 from app.db.models.stock_info import StockInfo
 from . import transforms as transform
@@ -240,7 +240,8 @@ def main(argv: list[str] | None = None) -> int:
     limit_reached = False
     with httpx.Client() as http:
         client = FinMindClient(http, args.token or settings.FINMIND_API_TOKEN, args.timeout, args.retries,
-                               DEFAULT_MAX_API_REQUESTS, usage_path=API_USAGE_PATH,
+                               DEFAULT_MAX_API_REQUESTS,
+                               usage_path=state_directory(production=API_USAGE_PATH.parent) / API_USAGE_PATH.name,
                                request_interval=args.request_interval)
         for symbol in args.symbols:
             if has_exported_symbol(Path(args.out), symbol):

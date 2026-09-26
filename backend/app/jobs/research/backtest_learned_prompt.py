@@ -11,6 +11,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+from app.core.config import state_directory
 from app.jobs.research.digest_core import (
     compute_technical, fetch_pit_articles, fetch_prices, make_h200_client,
 )
@@ -79,7 +80,7 @@ def run(args) -> Path:
         anchors = anchors[:args.limit]
 
     out_dir = Path(args.out_dir) if args.out_dir else (
-        Path(__file__).resolve().parents[3] / ".state" / "backtest_results"
+        state_directory() / "backtest_results"
         / f"{stock_id}_learned_{args.start}_{args.end}_h{args.horizon}")
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = out_dir / "predictions_cache.json"
