@@ -11,7 +11,6 @@
 | [backend/app/jobs/](backend/app/jobs/) | 爬蟲、資料匯入、新聞處理、排程與研究工作 |
 | [frontend/Topic/](frontend/Topic/) | 正式前端，使用 Next.js Pages Router 與 npm |
 | [docs/README.md](docs/README.md) | 架構說明、大盤資料匯入、官方文件依據 |
-| [backend/RESEARCH.md](backend/RESEARCH.md) | 方法論訓練與回測流程 |
 | [AGENTS.md](AGENTS.md) | 程式代理的專案協作指引 |
 
 `frontend/topictest/` 保留舊檔案與本機產物，並非目前的前端啟動目錄。
@@ -125,7 +124,7 @@ Worker 與 API 各自啟動。從 `backend/` 查看工作清單：
 .\.venv\Scripts\python.exe -m app.jobs --help
 ```
 
-工作涵蓋行情、新聞、索引、分析與 scheduler；大盤匯入範例見 [操作說明](docs/README.md#大盤資料匯入)，研究工作見 [RESEARCH.md](backend/RESEARCH.md)。實際工作可能寫入 MySQL／Qdrant 或呼叫模型，執行前需確認目標環境與該命令的執行模式。
+工作涵蓋行情、新聞、索引、分析、scheduler 與研究；大盤匯入範例見 [操作說明](docs/README.md#大盤資料匯入)。實際工作可能寫入 MySQL／Qdrant 或呼叫模型，執行前需確認目標環境與該命令的執行模式。
 
 目前 `migrate-news-schema` 與 `migrate-news-impact-schema` 不解析後續參數，附加 `--help` 仍會執行遷移；查看行為時請閱讀 [dispatch](backend/app/jobs/__main__.py)。
 

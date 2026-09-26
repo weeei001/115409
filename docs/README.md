@@ -46,12 +46,11 @@ python -m app.jobs market-backfill --benchmark-only --incremental --start 2024-0
 python -m pytest tests/test_benchmark.py tests/test_scheduler.py -q
 ```
 
-## 研究與歷史資料
+## 歷史資料
 
-- [方法論訓練與回測](../backend/RESEARCH.md)：研究工作入口、資料需求與輸出位置。
-- [歷史設計圖](圖檔/)與[學期進度](上學期進度/)：保留設計脈絡；介面與命令應以目前程式碼、執行中的 OpenAPI 及根目錄 README 為準。
+[歷史設計圖](圖檔/)與[學期進度](上學期進度/)保留設計脈絡；介面與命令應以目前程式碼、執行中的 OpenAPI 及根目錄 README 為準。
 
-根目錄 `.gitignore` 目前忽略新的 `docs/` 檔案，既有追蹤文件仍可更新。若新增文件，需確認它會納入版本控制。
+`docs/` 可納入版本控制；本機產生的報告與匯出檔請放在已忽略的 `output/` 或 `artifacts/`。
 
 ## 文件依據
 
