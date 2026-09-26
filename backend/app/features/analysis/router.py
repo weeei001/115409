@@ -1,5 +1,4 @@
 import asyncio
-import json
 from contextlib import aclosing
 from datetime import date
 from typing import Literal
@@ -9,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.errors import UpstreamTimeout
+from app.core.streaming import encode_sse
 from app.db.session import get_db
 from .schemas import (StockBehaviorRagRequest, StockBehaviorRagResponse,
                       StockBehaviorTextBriefRequest, StockBehaviorTextBriefResponse)
@@ -73,17 +73,11 @@ async def analysis_digest(request: Request,
 
 async def _bounded_prediction_events(service: AnalysisService, stock_id: str, timeout: int):
     try:
-        async with asyncio.timeout(timeout):
-            async for event in service.stream_trend_prediction(stock_id):
+        async with asyncio.timeout(timeout), aclosing(service.stream_trend_prediction(stock_id)) as events:
+            async for event in events:
                 yield event
     except TimeoutError:
         yield {"type": "error", "message": "預測逾時，請稍後重試"}
-
-
-async def _prediction_sse(events):
-    async with aclosing(events):
-        async for event in events:
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @prediction_router.get("/api/trend_predict_stream", response_class=StreamingResponse,
@@ -95,7 +89,7 @@ async def trend_predict_stream(request: Request,
         service, stock_id, request.app.state.settings.ANALYSIS_TIMEOUT_SECONDS,
     )
     return StreamingResponse(
-        _prediction_sse(events), media_type="text/event-stream",
+        encode_sse(events), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
                  "Connection": "keep-alive"},
     )

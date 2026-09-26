@@ -10,8 +10,10 @@ from typing import Any
 from app.core.errors import AppError
 from app.features.retrieval.common import parse_timestamp
 from . import repository
-from .chunking import (CHUNK_OVERLAP, CHUNK_SIZE, DEFAULT_EMBED_MODEL, DEFAULT_INDEX_VERSION,
-                       article_chunks, article_stock_ids, embedding_text)
+from app.features.retrieval.chunking import (
+    CHUNK_OVERLAP, CHUNK_SIZE, DEFAULT_EMBED_MODEL, DEFAULT_INDEX_VERSION,
+    article_chunks, article_stock_ids, embedding_text,
+)
 
 
 @dataclass

@@ -210,13 +210,15 @@ async function check() {
 if (process.argv.includes('--child')) {
   check().catch((error) => { console.error(error); process.exitCode = 1; });
 } else {
-  for (const [apiBase, expected] of [
-    ['', 'http://127.0.0.1:8003'],
-    ['https://production.example/backend/', 'https://production.example/backend'],
-  ]) {
+  for (const [nodeEnv, apiBase, expected] of [
+    ['development', '', 'http://127.0.0.1:8002'],
+    ['production', '', 'http://127.0.0.1:8003'],
+    ['development', 'http://127.0.0.1:8012/', 'http://127.0.0.1:8012'],
+    ['production', 'https://production.example/backend/', 'https://production.example/backend'],
+  ] as const) {
     const child = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--child'], {
       encoding: 'utf8',
-      env: { ...process.env, NEXT_PUBLIC_API_URL: apiBase, EXPECTED_API_BASE: expected },
+      env: { ...process.env, NODE_ENV: nodeEnv, NEXT_PUBLIC_API_URL: apiBase, EXPECTED_API_BASE: expected },
     });
     assert.equal(child.status, 0, child.stderr || child.stdout);
   }

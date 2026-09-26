@@ -12,7 +12,6 @@ from typing import Any
 
 import httpx
 from pydantic import ValidationError
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.clients.llm import LlmClient
@@ -20,7 +19,6 @@ from app.features.retrieval.service import RetrievalService
 from app.features.retrieval.common import STOCK_OPTIONS, TAIPEI
 from app.core.errors import AppError
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
-from app.db.models.stock_info import StockInfo
 from . import repository, validation as gate
 from .compliance import compliance_rules_signature
 from .evidence import FIELD_GLOSSARY, TIMELINE_TRADING_DAYS, build_evidence_bundle
@@ -102,19 +100,13 @@ def _validate_symbol(symbol: str, allowed_symbols=ALLOWED_SYMBOLS) -> str:
     return symbol
 
 
-def _stock_options(db: Session | None) -> dict[str, str]:
-    options = dict(STOCK_OPTIONS)
-    if db is not None:
-        options.update({row.symbol: row.name for row in db.execute(
-            select(StockInfo.symbol, StockInfo.name)).all()})
-    return options
-
-
 class AnalysisService:
     def __init__(self, *, db: Session, settings: Any, http: httpx.AsyncClient,
                  llm: LlmClient | None = None, rag: RetrievalService | None = None):
         self.db, self.settings = db, settings
-        self.stock_options = _stock_options(db)
+        self.stock_options = dict(STOCK_OPTIONS)
+        if db is not None:
+            self.stock_options.update(repository.stock_names(db))
         self.llm = llm or LlmClient(settings, http)
         self.rag = rag or RetrievalService(http, settings, stock_options=self.stock_options)
 

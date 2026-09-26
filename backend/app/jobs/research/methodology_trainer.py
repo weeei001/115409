@@ -24,6 +24,7 @@ from dataclasses import dataclass, asdict, field
 from datetime import date
 from pathlib import Path
 
+from app.core.config import state_directory
 
 from app.jobs.research.digest_core import (
     STOCK_NAMES, make_h200_client, DIGEST_EXTRA_BODY,
@@ -657,7 +658,7 @@ def _setup(args, need_llm: bool = True) -> tuple:
     """共用初始化：out_dir、LLM client、cases。need_llm=False 供 --build-cases-only 使用。"""
     stock_id = args.stock
     out_dir = Path(args.out_dir) if args.out_dir else (
-        Path(__file__).resolve().parents[3] / ".state" / "methodology" / f"{stock_id}_{args.train_start}_{args.train_end}_{args.period}")
+        state_directory() / "methodology" / f"{stock_id}_{args.train_start}_{args.train_end}_{args.period}")
     out_dir.mkdir(parents=True, exist_ok=True)
     cases_path = out_dir / "cases.json"
 

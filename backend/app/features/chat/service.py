@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.clients.llm import LlmClient
 from app.core.errors import AppError, NotFound, ServiceUnavailable
 from app.features.market.company_catalog import load_catalog
+from app.features.news.sentiment import extract_candidate_stocks
 from app.features.retrieval.common import (STOCK_KEYWORDS, STOCK_OPTIONS, get_source_name,
                                             normalize_source_url, source_provenance)
 from app.features.retrieval.service import RetrievalService
@@ -321,8 +322,6 @@ class ChatService:
                 return response, "", ""
             symbols = [request.stock_id]
         elif not symbols:
-            from app.jobs.sentiment.rules import extract_candidate_stocks
-
             supported = [symbol for symbol, words in STOCK_KEYWORDS.items()
                          if any(word.casefold() in query.casefold() for word in words)]
             listed = extract_candidate_stocks(None, None, query, None, catalog) if catalog else []

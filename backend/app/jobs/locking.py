@@ -2,6 +2,8 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 
+from app.core.config import state_directory
+
 
 class JobAlreadyRunning(RuntimeError):
     pass
@@ -11,7 +13,7 @@ class JobAlreadyRunning(RuntimeError):
 def worker_lock(name: str, directory: Path | None = None):
     if not name or Path(name).name != name or name in {".", ".."}:
         raise ValueError("Worker lock name must be a filename component")
-    directory = directory or Path(__file__).resolve().parents[2] / ".state"
+    directory = directory or state_directory()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}.lock"
     with path.open("a+b") as handle:
