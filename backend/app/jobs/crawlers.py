@@ -423,7 +423,7 @@ def ltn_article(raw_html: str, url: str, catalog: dict | None = None) -> dict:
                or any(re.search(r"(?<![A-Za-z])" + re.escape(alias) + r"(?![A-Za-z])", haystack, re.IGNORECASE)
                       if alias.isascii() else alias in haystack for alias in aliases)]
     if catalog:
-        from app.jobs.sentiment.rules import extract_candidate_stocks
+        from app.features.news.sentiment import extract_candidate_stocks
         symbols = extract_candidate_stocks(symbols[0] if symbols else None, ",".join(symbols), title, content, catalog)
     symbol = symbols[0] if symbols else "tw_stock"
     return {"article_id": article_id("ltn", title, pub_time), "source": "ltn", "source_group": "ltn",

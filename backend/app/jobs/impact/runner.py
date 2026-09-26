@@ -16,8 +16,8 @@ from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.news.impact import (ImpactOutput, PROMPT_VERSION, SYSTEM_PROMPT, TOPICS, article_hash,
                                       config_hash, validate_output)
-from app.features.news.sentiment import TAIPEI_TZ, clean_text
-from app.jobs.sentiment.rules import estimate_token_count, extract_candidate_stocks
+from app.features.news.sentiment import TAIPEI_TZ, clean_text, extract_candidate_stocks
+from app.jobs.sentiment.rules import estimate_token_count
 from app.jobs.sentiment.runner import _error_code, calculate_cost
 
 

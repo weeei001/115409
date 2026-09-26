@@ -13,9 +13,8 @@ from app.core.errors import AppError
 from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.db.models.news_article import NewsArticle
-from app.features.news.sentiment import company_catalog
+from app.features.news.sentiment import company_catalog, extract_candidate_stocks
 from app.jobs.locking import JobAlreadyRunning, worker_lock
-from .rules import extract_candidate_stocks
 from .runner import SentimentBatchRunner
 
 

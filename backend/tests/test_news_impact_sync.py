@@ -5,12 +5,13 @@ import json
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models.news_article import NewsArticle
+from app.db.models.news_chunk import chunk_metadata
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.news.impact import article_hash, config_hash
 from app.features.retrieval.service import RetrievalService
 from app.jobs.impact import sync
-from app.jobs.ingestion.chunking import article_chunks
-from app.jobs.ingestion.repository import chunk_metadata, insert_article_chunks
+from app.features.retrieval.chunking import article_chunks
+from app.jobs.ingestion.repository import insert_article_chunks
 
 
 class FakeWriter:

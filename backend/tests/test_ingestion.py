@@ -11,7 +11,8 @@ from sqlalchemy.schema import CreateTable
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.jobs.ingestion import cli, repository
-from app.jobs.ingestion.chunking import article_chunks, embedding_text, split_spans, split_text
+from app.db.models.news_chunk import chunk_metadata
+from app.features.retrieval.chunking import article_chunks, embedding_text, split_spans, split_text
 from app.jobs.ingestion.service import chunk_news, vectorize_news
 
 
@@ -20,7 +21,7 @@ def ingestion_db():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     with engine.begin() as connection:
         connection.execute(CreateTable(NewsArticle.__table__))
-    repository.chunk_metadata.create_all(engine)
+    chunk_metadata.create_all(engine)
     yield engine, sessionmaker(engine, expire_on_commit=False)
     engine.dispose()
 
@@ -80,7 +81,7 @@ def test_revision_includes_metadata_model_and_configuration():
     ]:
         assert changed[0]["revision"] != original[0]["revision"]
         assert changed[0]["chunk_id"] != original[0]["chunk_id"]
-    assert list(repository.chunk_metadata.tables) == ["news_chunks"]
+    assert list(chunk_metadata.tables) == ["news_chunks"]
 
 
 def test_chunking_replaces_changed_revision_and_resumes(ingestion_db):

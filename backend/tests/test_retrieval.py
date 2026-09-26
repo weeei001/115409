@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.errors import AppError, ServiceUnavailable, UpstreamTimeout, install_error_handlers
 from app.db.models.news_article import NewsArticle
 from app.features.retrieval.common import TAIPEI
+from app.features.retrieval.repository import articles_for_hits
 from app.features.retrieval.router import get_service, router
 from app.features.retrieval.schemas import RetrievalRequest
 from app.features.retrieval.service import RetrievalService
@@ -81,6 +82,24 @@ def test_related_news_retrieves_without_source_stock_filter_and_hydrates_article
         as_of="2024-01-31 23:59:59", limit=5))
     assert vector.calls[0][1]["symbols"] is None
     assert result["total"] == 1 and result["items"][0].article_id == "article"
+
+
+def test_article_hydration_preserves_ranking_id_precedence_and_url_fallback(db_session):
+    db_session.add_all([
+        NewsArticle(article_id="first", title="First", url="https://news.test/first"),
+        NewsArticle(article_id="second", title="Second", url="https://news.test/second"),
+    ])
+    db_session.commit()
+    hits = [{"payload": payload} for payload in (
+        {"article_id": "missing", "url": "https://news.test/missing"},
+        {"article_id": "second", "url": "https://news.test/first"},
+        {"article_id": "outdated", "url": "https://news.test/first"},
+        {"url": "https://news.test/second"},
+        {},
+    )]
+    assert [article.article_id for article in articles_for_hits(db_session, hits)] == ["second", "first"]
+    # No usable identifiers must not turn into an unfiltered article query.
+    assert articles_for_hits(None, [{"payload": {}}]) == []
 
 
 def test_analyze_only_general_expands_to_bounded_double_window():

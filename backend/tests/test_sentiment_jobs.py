@@ -19,10 +19,12 @@ from app.db.models.news_article import NewsArticle
 from app.db.models.news_sentiment import NewsSentiment
 from app.features.market import company_catalog
 from app.features.news import service as news_service
-from app.features.news.sentiment import SentimentOutput, active_config_hash, article_input_hash
+from app.features.news.sentiment import (
+    SentimentOutput, active_config_hash, article_input_hash, extract_candidate_stocks,
+)
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.sentiment import cli
-from app.jobs.sentiment.rules import clean_text, compute_input_hash, extract_candidate_stocks, parse_news_pub_time, validate_sentiment_payload
+from app.jobs.sentiment.rules import clean_text, compute_input_hash, parse_news_pub_time, validate_sentiment_payload
 from app.jobs.sentiment.runner import SentimentBatchRunner
 
 

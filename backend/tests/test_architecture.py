@@ -22,6 +22,8 @@ def test_runtime_dependency_boundaries():
                 errors.append(f"{relative}: LangChain escaped the client boundary")
             if "/features/" in relative and path.name != "router.py" and name.startswith("fastapi"):
                 errors.append(f"{relative}: domain imports HTTP framework")
+            if "/jobs/" not in relative and (name == "app.jobs" or name.startswith("app.jobs.")):
+                errors.append(f"{relative}: application imports a background worker")
             if "/clients/" in relative and name.startswith("app.features.") and name.endswith(("service", "router")):
                 errors.append(f"{relative}: client imports a feature service/router")
         for node in ast.walk(tree):
@@ -33,6 +35,8 @@ def test_runtime_dependency_boundaries():
                     errors.append(f"{relative}: repository owns a transaction")
                 if path.name == "router.py" and method in {"query", "execute", "scalars", "scalar", "commit", "rollback"}:
                     errors.append(f"{relative}: router executes database work")
+                if path.name == "service.py" and method in {"execute", "scalars", "scalar"}:
+                    errors.append(f"{relative}: service executes SQL instead of using a repository")
     assert errors == []
 
 
@@ -73,7 +77,7 @@ print('Independent import: passed')
     assert "Independent import: passed" in result.stdout
 
 
-def test_domain_services_import_without_an_http_framework():
+def test_domain_services_import_without_http_frameworks_or_workers():
     script = r'''
 import importlib.abc, sys
 sys.path.insert(0, sys.argv[1])
@@ -81,6 +85,8 @@ class NoHttpFramework(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split('.')[0] in {'fastapi', 'starlette'}:
             raise AssertionError('Domain imports HTTP framework: ' + fullname)
+        if fullname == 'app.jobs' or fullname.startswith('app.jobs.'):
+            raise AssertionError('Domain imports background worker: ' + fullname)
 sys.meta_path.insert(0, NoHttpFramework())
 from app.features.auth import service
 from app.features.market import service
@@ -89,6 +95,7 @@ from app.features.orders import service
 from app.features.analysis import service
 from app.features.chat import service
 from app.features.retrieval import service
+from app.features.simulation import service
 '''
     result = subprocess.run([sys.executable, "-I", "-c", script, str(ROOT)], cwd=ROOT,
                             capture_output=True, text=True)

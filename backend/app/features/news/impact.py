@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .sentiment import clean_text, parse_news_pub_time
+from .sentiment import clean_text, extract_candidate_stocks, parse_news_pub_time
 
 
 PROMPT_VERSION = "impact-v2"
@@ -107,8 +107,6 @@ def config_hash(settings, catalog: dict[str, dict]) -> str:
 
 
 def validate_output(payload: object, *, article, catalog: dict[str, dict]) -> ImpactOutput:
-    from app.jobs.sentiment.rules import extract_candidate_stocks
-
     source = {"title": clean_text(article.title), "content": clean_text(article.content)}
     if isinstance(payload, dict):
         payload = deepcopy(payload)

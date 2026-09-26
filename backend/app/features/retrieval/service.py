@@ -5,16 +5,14 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.clients.rag import RagResult
 from app.core.errors import AppError, NotFound, ServiceUnavailable
-from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis
 from app.features.market.company_catalog import load_catalog
 from app.features.news.impact import config_hash
+from . import repository
 from .common import STOCK_OPTIONS, TAIPEI, article_identity, get_source_name, parse_timestamp, source_provenance
 from .impact_metadata import IMPACT_PAYLOAD_KEYS, current_analysis, current_chunk_ids
 from .schemas import NewsSource, QuestionSearchResult, RetrievalRequest, RetrievalResponse
@@ -129,25 +127,7 @@ class RetrievalService:
                                  limit=candidate_limit)
         hits = self._select_related_hits(hits, symbol=symbol, relation=relation, row=row,
                                          limit=candidate_limit)
-        article_ids = [str((hit.get("payload") or {}).get("article_id") or "") for hit in hits]
-        urls = [str((hit.get("payload") or {}).get("url") or "") for hit in hits]
-        clauses = []
-        if any(article_ids):
-            clauses.append(NewsArticle.article_id.in_([value for value in article_ids if value]))
-        if any(urls):
-            clauses.append(NewsArticle.url.in_([value for value in urls if value]))
-        articles = []
-        if clauses:
-            rows = list(db.scalars(select(NewsArticle).where(or_(*clauses))))
-            by_id = {article.article_id: article for article in rows}
-            by_url = {article.url: article for article in rows if article.url}
-            seen_articles = set()
-            for hit in hits:
-                payload = hit.get("payload") or {}
-                article = by_id.get(payload.get("article_id")) or by_url.get(payload.get("url"))
-                if article is not None and article.article_id not in seen_articles:
-                    seen_articles.add(article.article_id)
-                    articles.append(article)
+        articles = repository.articles_for_hits(db, hits)
         from app.features.news.service import attach_event_analysis
 
         items = attach_event_analysis(db, articles[:limit], symbol, settings=self.settings)
@@ -156,17 +136,10 @@ class RetrievalService:
     def _fresh_hits(self, hits: list[dict], symbols: list[str] | None) -> list[dict]:
         if not self.session_factory or not hits:
             return hits
-        from app.jobs.ingestion.repository import news_chunks
-
         ids = {str((hit.get("payload") or {}).get("chunk_id") or "") for hit in hits} - {""}
         with self.session_factory() as db:
-            chunks = {row["chunk_id"]: dict(row) for row in db.execute(select(news_chunks).where(
-                news_chunks.c.chunk_id.in_(ids))).mappings()}
-            article_ids = {chunk["article_id"] for chunk in chunks.values()}
-            articles = {item.article_id: item for item in db.scalars(select(NewsArticle).where(
-                NewsArticle.article_id.in_(article_ids)))}
-            analyses = {item.article_id: item for item in db.scalars(select(NewsEventAnalysis).where(
-                NewsEventAnalysis.article_id.in_(article_ids)))} if self.impact_config else {}
+            chunks, articles, analyses = repository.versioned_sources(
+                db, ids, include_analyses=bool(self.impact_config))
             valid = {article_id: current_chunk_ids(article, self.settings)
                      for article_id, article in articles.items()}
             result = []

@@ -15,9 +15,9 @@ from app.db.models.news_sentiment import NewsSentiment
 from app.features.news.prompts import SYSTEM_PROMPT
 from app.features.news.sentiment import (
     ANALYSIS_INSTRUCTION, ARTICLE_TARGET, MAX_INPUT_TOKENS, PROMPT_VERSION, SentimentOutput,
-    active_config_hash, article_input_hash, company_catalog,
+    active_config_hash, article_input_hash, company_catalog, extract_candidate_stocks,
 )
-from .rules import TAIPEI_TZ, clean_text, estimate_token_count, extract_candidate_stocks, parse_news_pub_time, validate_sentiment_payload
+from .rules import TAIPEI_TZ, clean_text, estimate_token_count, parse_news_pub_time, validate_sentiment_payload
 
 
 def _decimal(value) -> Decimal:

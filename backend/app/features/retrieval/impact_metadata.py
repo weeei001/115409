@@ -2,6 +2,7 @@
 import json
 
 from app.features.news.impact import article_hash
+from .chunking import article_chunks
 
 
 IMPACT_PAYLOAD_KEYS = (
@@ -18,8 +19,6 @@ def current_analysis(article, analysis, expected_config_hash: str):
 
 
 def current_chunk_ids(article, settings) -> set[str]:
-    from app.jobs.ingestion.chunking import article_chunks
-
     return {chunk["chunk_id"] for chunk in article_chunks(
         vars(article), index_version=settings.NEWS_INDEX_VERSION,
         max_chars=settings.NEWS_CHUNK_MAX_CHARS,
