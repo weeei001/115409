@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
 import { Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShoppingCart, UserRound, type LucideIcon } from 'lucide-react';
+import { FlaskConical } from 'lucide-react'; // DEMO: ai-trade-demo
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from './ThemeToggle';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser } from '@/lib/auth/storage';
@@ -15,6 +16,7 @@ const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/ai': Bot,
   '/order': ShoppingCart,
   '/compare': GitCompareArrows,
+  '/ai-trade-demo': FlaskConical, // DEMO: ai-trade-demo
 };
 
 function avatarLetter(user: UserPublic): string {

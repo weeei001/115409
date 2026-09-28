@@ -7,6 +7,7 @@ export const PRIMARY_NAV = [
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬下單' },
   { path: '/compare', label: '多股比較' },
+  { path: '/ai-trade-demo', label: 'AI 模擬下單 Demo' }, // DEMO: ai-trade-demo
 ] as const;
 
 export function isChatNavigationAction(value: unknown): value is Extract<ChatAction, { type: 'navigate' }> {
@@ -39,6 +40,7 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/ai': 'AI 對話',
   '/order': '模擬下單',
   '/compare': '多股比較',
+  '/ai-trade-demo': 'AI 模擬下單 Demo', // DEMO: ai-trade-demo
   '/login': '登入',
   '/register': '註冊',
   '/forgot-password': '忘記密碼',
