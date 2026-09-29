@@ -41,8 +41,9 @@ def prepare(db, request):
 def build_daily_payload(request, inputs, as_of, portfolio):
     # ponytail: scan the loaded history per day; use sliding windows if multi-decade runs need them.
     cutoff = date.fromisoformat(as_of)
+    prior_close = (cutoff - timedelta(days=1)).isoformat()
     closes = [float(row["close"]) for row in inputs["prices"]
-              if (cutoff - timedelta(days=60)).isoformat() <= row["date"] <= as_of][-30:]
+              if (cutoff - timedelta(days=60)).isoformat() <= row["date"] <= prior_close][-30:]
     digests = [row for row in inputs["digests"] if row["as_of_date"] <= as_of][-4:]
     latest = digests[-1] if digests else None
     news = []

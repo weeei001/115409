@@ -10,7 +10,6 @@ qdrant_snapshots/
 qdrant_db_*/
 news_db_local/
 news_db_filtered/
-rag/news_db_filtered
 
 # 数据库文件
 *.db
@@ -73,10 +72,10 @@ docs/week*.pdf
 backend/golden_candidates/
 backend/eval_reports/
 
-# rag/ 子資料夾內不上傳的設定/說明檔
-rag/CLAUDE.md
-rag/docker-compose.yml
-rag/nginx.conf
+# rag/ 與 rag_deploy/ 已脫鉤獨立跑（見 project_backend_dev_switch_2026-09 記憶），
+# 整個目錄不進版控，避免誤 add
+/rag/
+/rag_deploy/
 CLAUDE.md
 
 # 備份資料夾（帶時間戳）
@@ -94,13 +93,11 @@ scratch_*.py
 PROJECT_STATUS.md
 
 # 新聞原始資料（大型資料，不進版控）
-rag/OtherNewWeb/
 OtherNewWeb/
 
 # 資料匯出檔（一次性交付用，非原始碼）
 news_articles.sql
 news_chunks.sql
-rag_deploy/data/
 
 # 舊版檔案系統快照（資料已在 MySQL，見 CLAUDE.md 新聞儲存架構）
 export_for_server/

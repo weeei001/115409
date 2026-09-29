@@ -106,6 +106,7 @@ def test_daily_payload_excludes_future_evidence_and_limits_snapshots():
     from app.features.simulation.service import build_daily_payload
 
     data = inputs()
+    data["prices"] = [{"date": "2025-01-01", "close": "90.00"}, *data["prices"]]
     dates = ["2024-12-01", "2024-12-08", "2024-12-15", "2024-12-22", "2025-01-02", "2025-01-03"]
     data["digests"] = [{"as_of_date": day, "digest_json": {"overall": day}, "news_json": [
         {"pub_time": "2025-01-01 10:00:00", "title": "Available news"},
@@ -113,7 +114,7 @@ def test_daily_payload_excludes_future_evidence_and_limits_snapshots():
         {"title": "Undated news"},
     ]} for day in dates]
     payload = build_daily_payload(request(), data, "2025-01-02", Portfolio(Decimal(10000)))
-    assert payload["closes"] == [100.0]
+    assert payload["closes"] == [90.0]
     assert [row["as_of_date"] for row in payload["weekly_digests"]] == dates[1:-1]
     assert payload["digest_as_of_date"] == "2025-01-02"
     assert [row["title"] for row in payload["news"]] == ["Available news"]
