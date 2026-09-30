@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models.llm_response import LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse
 from app.features.analysis import repository
+from app.features.analysis.service import text_brief_revision
 from app.features.analysis.evidence import (
     ANNUAL_PUBLISH_LAG_DAYS, FINANCIAL_PUBLISH_LAG_DAYS, REVENUE_PUBLISH_DAY,
     TIMELINE_TRADING_DAYS, _financial_is_published, _revenue_is_published, build_evidence_bundle,
@@ -47,9 +48,24 @@ def _saved_brief_source(db: Session, symbol: str, as_of: date) -> SourceChunk | 
         LlmResponse.is_fallback.is_(False), LlmResponse.as_of_date <= as_of,
         LlmResponse.created_at <= datetime.combine(as_of, time.max),
     ).order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc())
+    fingerprints = {}
     for row in db.scalars(candidates):
         saved = repository.saved_brief(row)
-        if saved is None:
+        if saved is None or saved.analysis_revision != text_brief_revision():
+            continue
+        # Archived snapshots remain readable, but an active answer must not reuse
+        # interpretations of inputs whose content or effective source changed.
+        config = json.loads(row.config_json)
+        fingerprint = config.get("input_fingerprint")
+        if not fingerprint:
+            continue
+        referenced = repository.news_article_ids([item.model_dump(mode="python") for item in saved.evidence_catalog
+                                                 if item.field == "news"])
+        key = (row.as_of_date, tuple(sorted(referenced)))
+        if key not in fingerprints:
+            fingerprints[key] = repository.input_fingerprint(db, symbol=symbol, as_of=row.as_of_date,
+                                                              referenced_article_ids=referenced)
+        if fingerprint != fingerprints[key]:
             continue
         return _source(symbol, "analysis_snapshot", "已存 AI 分析", as_of, {
             "snapshot_id": saved.snapshot_id, "analysis_as_of": saved.as_of_date,
@@ -57,7 +73,8 @@ def _saved_brief_source(db: Session, symbol: str, as_of: date) -> SourceChunk | 
             "interpretation": saved.brief.model_dump(mode="json"),
             "limitations": saved.limitations,
             "evidence_basis": "Stored AI interpretation, not independent market evidence. "
-                              "It has not been regenerated or checked for subsequent corrections.",
+                              "Its input fingerprint and analysis revision are current; "
+                              "this does not verify the interpretation's full meaning or predictions.",
         }, saved.generated_at)
     return None
 
@@ -142,7 +159,7 @@ def collect_stock_sources(db: Session, symbols: list[str], as_of: date,
 
         published_income = [row for row in rows["income_rows"] if _financial_is_published(row.date, as_of)]
         latest_income_date = max((row.date for row in published_income), default=None)
-        published_revenue = [row for row in rows["revenue_rows"] if _revenue_is_published(row.date, as_of)]
+        published_revenue = [row for row in rows["revenue_rows"] if _revenue_is_published(row, as_of)]
         latest_revenue = published_revenue[-1] if published_revenue else None
         if bundle.fundamental or published_income or published_revenue:
             fundamental_ids = {item["id"] for item in bundle.fundamental}
@@ -178,7 +195,7 @@ def collect_stock_sources(db: Session, symbols: list[str], as_of: date,
                 "publication_basis": f"Actual announcement and revision times are unavailable. "
                                      f"The existing evidence builder assumes a {FINANCIAL_PUBLISH_LAG_DAYS}-day "
                                      f"quarterly lag, {ANNUAL_PUBLISH_LAG_DAYS}-day annual lag, and monthly "
-                                     f"revenue availability from day {REVENUE_PUBLISH_DAY} of its stored date month. "
+                                     f"revenue availability no earlier than day {REVENUE_PUBLISH_DAY} of the month after its revenue period, or a later issue date. "
                                      "These are availability estimates, not verified publication dates. "
                                      "Each item retains its reporting period or market date; compare matching "
                                      "periods only. This is the latest available background at the cutoff, "

@@ -173,6 +173,7 @@ def test_current_second_is_not_mistaken_for_a_historical_intraday_cutoff(hub, mo
     assert market["as_of_date"] == NOW.date().isoformat()
     assert "保守取前一天" not in data["answer"]
     llm.intent["time_to"] = "2026-09-10 23:59:59"
+    llm.answer = "台積電昨日收盤 100 元。[S1]"
     data = client.post("/api/ask", json={"query": "只用截止日之前的資料"}).json()
     market = json.loads(next(s["content"] for s in data["sources"] if s["category"] == "market_technical"))
     assert market["as_of_date"] == "2026-09-10"
