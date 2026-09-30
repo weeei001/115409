@@ -46,7 +46,7 @@ TEXT_BRIEF_DISCLAIMER_TEXT = (
 )
 TEXT_BRIEF_UNAVAILABLE_MESSAGE = "模型輸出無法解析，本次無法提供簡報。"
 TEXT_BRIEF_COMPLIANCE_UNAVAILABLE_MESSAGE = "簡報內容未通過合規檢查，本次無法提供。"
-TEXT_BRIEF_CACHE_MISS_LIMITATION = "目前沒有符合設定、資料版本與用途的 AI 分析，排程更新後才會出現。"
+TEXT_BRIEF_CACHE_MISS_LIMITATION = "目前沒有可用的已存 AI 分析，排程更新後才會出現。"
 TEXT_BRIEF_ITEM_SECTIONS = (
     "key_days",
     "current_status",

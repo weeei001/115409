@@ -19,7 +19,7 @@ export function useStockTextBrief({ symbol, asOfDate }: Params) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TextBriefResponse | null>(null);
-  /** 已等待秒數，給 90 秒左右的等待畫面用 */
+  /** Elapsed seconds while loading a saved analysis. */
   const [seconds, setSeconds] = useState(0);
 
   const reset = useCallback(() => {

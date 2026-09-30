@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
-import { CONF, CONF_HINT, STANCE, STANCE_TONE, STATUS, type BriefTone } from '@/lib/brief/textBriefLabels';
+import { CONF, CONF_HINT, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
 import { BriefHighlightProvider, useBriefHighlight } from './BriefHighlight';
 import { SectionCard, StanceIcon, Tag } from './BriefAtoms';
 import { KeyPointsTab, ScenarioTab } from './BriefSections';
@@ -104,11 +104,11 @@ const Skeleton: React.FC<{ symbol: string; seconds: number }> = ({ symbol, secon
   <div className="flex flex-col gap-4" aria-busy="true" aria-live="polite">
     <p className="inline-flex items-center gap-2 text-sm font-medium text-brand-text">
       <Loader2 size={15} className="animate-spin shrink-0" aria-hidden />
-      正在分析 {symbol}
+      正在載入 {symbol} 的最新已存分析
       {seconds > 0 ? <span className="tabular-nums text-muted-foreground">{seconds} 秒</span> : null}
     </p>
     <p className="text-xs text-muted-foreground">
-      整合價量、籌碼、技術面與新聞後交由 AI 撰寫，第一次大約需要 90 秒。
+      讀取最新已存的 AI 分析。
     </p>
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-12" aria-hidden>
       <div className="space-y-3 lg:col-span-7">
@@ -193,13 +193,12 @@ export const StockTextBriefPanel: React.FC<Props> = ({
   }
 
   const b = data.brief;
-  const [, statusNote] = STATUS[data.status] ?? (['plain', data.status] as const);
 
   if (!b) {
     return (
       <div className="flex flex-col gap-3">
         <Notice tone="warn">
-          這次沒有產出分析：AI 寫出來的內容沒通過系統檢查，已經被擋下來（{statusNote}）。
+          目前沒有可用的已存 AI 分析，排程更新後才會出現。
         </Notice>
         {data.limitations?.length ? (
           <ul className="list-disc space-y-1 pl-5 text-sm leading-7 text-subtle">
