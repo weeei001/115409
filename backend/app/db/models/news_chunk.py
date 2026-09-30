@@ -25,7 +25,7 @@ news_chunks = Table(
     Column("char_end", Integer, nullable=False),
     Column("token_count", Integer),
     Column("created_at", DateTime, server_default=func.current_timestamp()),
-    Index("idx_v2_article_version", "article_id", "index_version"),
-    Index("idx_v2_stock_id", "stock_id"),
-    Index("idx_v2_pub_time", "pub_time"),
+    Index("idx_v1_article_version", "article_id", "index_version"),
+    Index("idx_v1_stock_id", "stock_id"),
+    Index("idx_v1_pub_time", "pub_time"),
 )

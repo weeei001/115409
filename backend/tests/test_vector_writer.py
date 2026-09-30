@@ -16,7 +16,7 @@ def chunk(key="new_0", **updates):
     return dict(chunk_id=key, article_id="new", stock_id="2330", source="test",
                 pub_time="2026-01-02 10:00:00", title="Title", url=None, tags=None,
                 stock_ids=["2330"], chunk_index=0, char_start=0, char_end=8,
-                content_hash="a" * 64, revision="b" * 64, index_version="news-v2",
+                content_hash="a" * 64, revision="b" * 64, index_version="news-v1",
                 index_fingerprint=news_index_fingerprint(model="test-embedding-model"), token_count=None,
                 content_chunk="Document", **updates)
 
@@ -31,12 +31,12 @@ def collection(size=2):
 
 def run(settings, handler, operation, *, incompatible_points=0):
     async def execute():
-        config = configured(settings, NEWS_INDEX_VERSION="news-v2", QDRANT_COLLECTION="news_chunks_v2")
+        config = configured(settings, NEWS_INDEX_VERSION="news-v1", QDRANT_COLLECTION="news_chunks_v1")
         def transport(request):
             if request.url.path.endswith("/count"):
                 body = json.loads(request.content)
                 assert body == {"filter": {"must_not": [{"must": [
-                    {"key": "index_version", "match": {"value": "news-v2"}},
+                    {"key": "index_version", "match": {"value": "news-v1"}},
                     {"key": "embedding_model", "match": {"value": config.EMBED_MODEL}},
                     {"key": "index_fingerprint", "match": {"value": config.news_index_fingerprint}},
                 ]}]}, "exact": True}
@@ -96,7 +96,7 @@ def test_existing_legacy_points_paginate_by_chunk_id_and_new_points_keep_payload
             "pub_time": "2026-01-02 10:00:00", "title": "Title", "url": None, "tags": None,
             "article_id": "new", "chunk_index": 0, "stock_ids": ["2330"],
             "char_start": 0, "char_end": 8, "content_hash": "a" * 64, "revision": "b" * 64,
-            "index_version": "news-v2", "index_fingerprint": news_index_fingerprint(model="test-embedding-model"),
+            "index_version": "news-v1", "index_fingerprint": news_index_fingerprint(model="test-embedding-model"),
             "embedding_model": "test-embedding-model", "token_count": None,
             "page_content": "Document", "pub_ts": datetime(2026, 1, 2, 2, tzinfo=timezone.utc).timestamp()}}]}
         return ok({"status": "completed"})
@@ -132,7 +132,7 @@ def test_collection_creation_requires_explicit_opt_in_and_known_document_dimensi
         if request.method == "GET":
             return httpx.Response(404)
         body = json.loads(request.content)
-        if request.url.path.endswith("/news_chunks_v2"):
+        if request.url.path.endswith("/news_chunks_v1"):
             assert body == {"vectors": {"size": 2, "distance": "Cosine"}}
             return ok(True)
         if request.url.path.endswith("/index"):
@@ -192,12 +192,12 @@ def test_stale_cleanup_waits_for_complete_replacement_and_is_article_scoped(sett
         deleted.append(json.loads(request.content))
         return ok({"status": "completed"})
     with pytest.raises(AppError, match="incomplete"):
-        run(settings, handler, lambda writer: writer.delete_stale_article_chunks("article", "news-v2", ["current_0", "current_1"]))
+        run(settings, handler, lambda writer: writer.delete_stale_article_chunks("article", "news-v1", ["current_0", "current_1"]))
     assert not deleted
-    run(settings, handler, lambda writer: writer.delete_stale_article_chunks("article", "news-v2", ["current_0"]))
+    run(settings, handler, lambda writer: writer.delete_stale_article_chunks("article", "news-v1", ["current_0"]))
     assert deleted == [{"filter": {"must": [
         {"key": "article_id", "match": {"value": "article"}},
-        {"key": "index_version", "match": {"value": "news-v2"}},
+        {"key": "index_version", "match": {"value": "news-v1"}},
     ], "must_not": [{"key": "chunk_id", "match": {"any": ["current_0"]}}]}}]
 
 

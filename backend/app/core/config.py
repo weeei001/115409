@@ -34,7 +34,7 @@ def require_development_names(settings, *fields: str) -> None:
                 raise ValueError(f"{field} must end with _dev in development")
 
 
-def news_index_fingerprint(index_version="news-v2", model="nvidia/nemotron-3-embed-1b",
+def news_index_fingerprint(index_version="news-v1", model="nvidia/nemotron-3-embed-1b",
                            max_chars=800, overlap_chars=120):
     """Bind an index to its model, text construction, and chunking parameters."""
     value = {"index_version": index_version, "model": model, "max_chars": max_chars,

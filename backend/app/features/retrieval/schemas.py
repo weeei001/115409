@@ -19,6 +19,11 @@ class NewsSource(BaseModel):
     url: str
     publisher: str = ""
     kind: str = "general"
+    retrieval_branch: str = "general"
+    shared_fact_ids: list[str] = Field(default_factory=list)
+    shared_facts: list[dict] = Field(default_factory=list)
+    source_state: dict = Field(default_factory=dict)
+    source_relationships: list[dict] = Field(default_factory=list)
     article_id: str | None = None
     chunk_id: str | None = None
     chunk_index: int | None = None
@@ -29,6 +34,8 @@ class NewsSource(BaseModel):
     index_version: str | None = None
     embedding_model: str | None = None
     stock_ids: list[str] = Field(default_factory=list)
+    content_kind: str | None = None
+    content_truncated: bool = False
     analysis_status: str | None = None
     analysis_input_hash: str | None = None
     analysis_config_hash: str | None = None

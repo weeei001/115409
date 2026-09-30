@@ -14,26 +14,45 @@ from app.clients.llm import LlmClient
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+from app.features.news.eligibility import contains_simulation
+from app.features.news.versions import source_states
 from app.features.news.impact import (ImpactOutput, PROMPT_VERSION, SYSTEM_PROMPT, TOPICS, article_hash,
                                       config_hash, validate_output)
-from app.features.news.sentiment import TAIPEI_TZ, clean_text, extract_candidate_stocks
-from app.jobs.sentiment.rules import estimate_token_count
-from app.jobs.sentiment.runner import _error_code, calculate_cost
+from app.features.news.sentiment import TAIPEI_TZ, clean_text, extract_candidate_stocks, analysis_content_window
 
 
 MAX_INPUT_TOKENS = 8000
 RETRY_DELAY = timedelta(hours=1)
 
 
-def _content_window(content: str) -> str:
-    low, high = 0, len(content)
-    while low < high:
-        middle = (low + high + 1) // 2
-        if estimate_token_count(content[:middle]) <= 4500:
-            low = middle
-        else:
-            high = middle - 1
-    return content[:low]
+_content_window = analysis_content_window
+
+
+def _decimal(value) -> Decimal:
+    return Decimal(str(value))
+
+
+def calculate_cost(input_tokens: int | None, output_tokens: int | None, settings) -> Decimal | None:
+    if input_tokens is None or output_tokens is None:
+        return None
+    return (input_tokens * _decimal(settings.LLM_INPUT_PRICE_PER_M)
+            + output_tokens * _decimal(settings.LLM_OUTPUT_PRICE_PER_M)) / 1_000_000
+
+
+def _error_code(error: AppError) -> str:
+    status = getattr(error, "upstream_status_code", None)
+    upstream_code = getattr(error, "upstream_code", None)
+    if error.status_code == 504:
+        return "timeout"
+    if status in {401, 403} or upstream_code == "invalid_api_key":
+        return "auth_error_401"
+    if status == 404 or upstream_code in {"model_not_found", "invalid_model"}:
+        return "model_not_found"
+    if status == 429 or upstream_code == "rate_limit_exceeded":
+        return "rate_limit_429"
+    if isinstance(error.detail, dict) and error.detail.get("code") == "llm_unavailable":
+        return "client_uninitialized"
+    return "upstream_model_error"
 
 
 class ImpactBatchRunner:
@@ -74,8 +93,11 @@ class ImpactBatchRunner:
             ids = [row.article_id for row in rows[index:index + 500]]
             existing.update({row.article_id: row for row in self.db.scalars(
                 select(NewsEventAnalysis).where(NewsEventAnalysis.article_id.in_(ids)))})
+        states = source_states(self.db, rows)
         selected = []
         for article in rows:
+            if contains_simulation(vars(article)) or not states[article.article_id]["eligible"]:
+                continue
             published = article.created_at
             if article.pub_time:
                 from app.features.news.sentiment import parse_news_pub_time

@@ -8,6 +8,7 @@ from itertools import groupby
 from typing import Any
 
 from app.core.errors import AppError
+from app.features.news.eligibility import contains_simulation
 from app.features.retrieval.common import parse_timestamp
 from . import repository
 from app.features.retrieval.chunking import (
@@ -58,6 +59,10 @@ def _read_page(session_factory, query, **kwargs):
 
 
 def _in_scope(row: dict, start: date | None, end: date | None, symbols: list[str] = ()) -> bool:
+    if not row.get("_source_eligible", True):
+        return False
+    if contains_simulation(row):
+        return False
     if symbols and not set(symbols).intersection(article_stock_ids(row)):
         return False
     if start is None and end is None:

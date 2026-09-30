@@ -40,7 +40,6 @@ def test_indicators_preserve_lookback_rounding_and_upsert(db_session):
     ("market-import", "app.jobs.finmind.import_csv", "main", ()),
     ("stock-info-sync", "app.jobs.market.stock_info", "main", ()),
     ("finmind-import", "app.jobs.finmind.import_csv", "main", ()),
-    ("sentiment-batch", "app.jobs.sentiment.cli", "main", ()),
     ("chunk-news", "app.jobs.ingestion.cli", "main", ("chunk-news",)),
     ("vectorize-news", "app.jobs.ingestion.cli", "main", ("vectorize-news",)),
     ("news-ingest", "app.jobs.ingestion.cli", "main", ("news-ingest",)),
@@ -77,7 +76,7 @@ def test_cache_warmup_uses_trading_dates_isolated_sessions_and_reports_failures(
     sessions, requests = [], []
 
     class Analysis:
-        def __init__(self, *, db, settings, http):
+        def __init__(self, *, db, settings, http, session_factory):
             sessions.append(db)
 
         async def generate_text_brief(self, request, *, refresh_sources=False):
@@ -127,17 +126,38 @@ def test_cache_warmup_defaults_to_stock_info_symbols(db_session, settings, monke
 
 
 def test_stock_info_sync_upserts_catalog_names(db_session):
-    from app.jobs.market.stock_info import sync_catalog
+    from app.jobs.market.stock_info import SUPPORTED_SYMBOLS, sync_catalog
 
     db_session.add(StockInfo(symbol="1101", name="old"))
     db_session.commit()
-    assert sync_catalog(db_session, {
+    catalog = {symbol: {"name": symbol} for symbol in SUPPORTED_SYMBOLS}
+    catalog.update({
         "1101": {"name": "台泥", "industry_name": "水泥工業"},
         "2330": {"name": "台積電", "industry_name": "半導體業"},
-    }) == 2
+        "2618": {"name": "長榮航", "industry_name": "航運業"},
+    })
+    assert len(set(SUPPORTED_SYMBOLS)) == 40
+    assert sync_catalog(db_session, catalog) == 40
     db_session.commit()
     assert db_session.get(StockInfo, "1101").name == "台泥"
     assert db_session.get(StockInfo, "2330").industry == "半導體業"
+    assert set(db_session.scalars(select(StockInfo.symbol))) == set(SUPPORTED_SYMBOLS)
+    assert "2618" in catalog
+    assert sync_catalog(db_session, catalog) == 40
+    db_session.flush()
+    assert len(list(db_session.scalars(select(StockInfo.symbol)))) == 40
+
+
+def test_stock_info_sync_rejects_incomplete_catalog_before_updates(db_session):
+    from app.jobs.market.stock_info import SUPPORTED_SYMBOLS, sync_catalog
+
+    db_session.add(StockInfo(symbol="1101", name="original"))
+    db_session.commit()
+    catalog = {symbol: {"name": "changed"} for symbol in SUPPORTED_SYMBOLS if symbol != "2330"}
+    with pytest.raises(ValueError, match="missing supported symbols: 2330"):
+        sync_catalog(db_session, catalog)
+    assert db_session.get(StockInfo, "1101").name == "original"
+    assert list(db_session.scalars(select(StockInfo.symbol))) == ["1101"]
 
 
 def test_undated_warmup_uses_today_so_weekend_news_is_included(db_session, monkeypatch):
@@ -152,3 +172,10 @@ def test_undated_warmup_uses_today_so_weekend_news_is_included(db_session, monke
     assert warmup.as_of_dates(factory, "2330", None, None) == [today.date()]
     assert warmup.as_of_dates(factory, "missing", None, None) == []
     assert warmup.as_of_dates(factory, "2330", date(2026, 7, 17), today.date()) == [date(2026, 7, 17)]
+
+
+def test_removed_sentiment_worker_is_rejected_before_dispatch(monkeypatch):
+    monkeypatch.setattr("app.jobs.__main__.dispatch", lambda *_: pytest.fail("No dispatch"))
+    with pytest.raises(SystemExit) as result:
+        main(["sentiment-batch", "--execute"])
+    assert result.value.code == 2

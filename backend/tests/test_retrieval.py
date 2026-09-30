@@ -60,7 +60,8 @@ def test_analyze_three_routes_dedupe_noise_and_taipei_future_guard():
     vector = FakeVector(lambda embedding, kwargs: {1.0: general, 2.0: guidance, 3.0: market}[embedding[0]])
     response = asyncio.run(service(vector).analyze(RetrievalRequest(symbols=["2330", "unknown"], as_of="2024-01-31 23:59:59")))
     assert [(item.id, item.kind) for item in response.news_sources] == [
-        ("guidance-copy", "guidance"), ("guidance", "guidance"), ("market", "market")]
+        ("earnings", "general"), ("guidance", "general"), ("market", "market")]
+    assert [item.retrieval_branch for item in response.news_sources] == ["general", "guidance", "market"]
     assert response.news_sources[1].timestamp == "2024-01-31T15:59:59Z"
     assert response.news_sources[0].publisher == "鉅亨網"
     assert not response.no_recent_news
@@ -149,7 +150,7 @@ def test_collect_compatible_shape_end_of_day_strict_window_and_fallback():
 
     result = asyncio.run(service(FakeVector(handler)).collect(symbol="2330", lookback_days=10, as_of=date(2024, 1, 31), enforce_window=True))
     assert [item["id"] for item in result.news_sources] == ["latest"]
-    assert result.news_sources[0]["timestamp"] == "2024-01-31T23:59:59.500000"
+    assert result.news_sources[0]["timestamp"] == "2024-01-31 23:59:59.500000"
     assert result.fallback_mode and result.status == "degraded" and result.reason == "no_recent_news"
 
 

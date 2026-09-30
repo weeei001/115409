@@ -31,8 +31,20 @@ async def related_news(
     lookback_days: int = Query(30, ge=1, le=120),
     limit: int = Query(20, ge=1, le=50),
     as_of: str | None = Query(None, max_length=40),
+    start_time: str | None = Query(None, max_length=40),
+    end_time: str | None = Query(None, max_length=40),
+    direction: str | None = Query(None, pattern="^(positive|negative|neutral|mixed|uncertain)$"),
+    scope: str | None = Query(None, pattern="^(company|industry|market)$"),
+    industry: str | None = Query(None, max_length=80),
+    topic: str | None = Query(None, max_length=80),
+    importance: str | None = Query(None, pattern="^(high|medium|low)$"),
+    sort_by: str = Query("relevance", pattern="^(relevance|pub_time|created_at|importance)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
+    page: int = Query(1, ge=1),
     db: Session = Depends(get_db),
     service: RetrievalService = Depends(get_service),
 ):
     return await service.related_news(db, symbol=symbol, relation=relation,
-                                      lookback_days=lookback_days, limit=limit, as_of=as_of)
+                                      lookback_days=lookback_days, limit=limit, as_of=as_of,
+                                      start_time=start_time, end_time=end_time, direction=direction,
+                                      importance=importance, scope=scope, industry=industry, topic=topic, sort_by=sort_by, sort_order=sort_order, page=page)

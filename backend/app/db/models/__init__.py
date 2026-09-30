@@ -2,6 +2,7 @@ from .daily_price import DailyPrice
 from .benchmark_price import BenchmarkPrice
 from .stock_info import StockInfo
 from .news_article import NewsArticle
+from .news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDecision
 from .technical_indicator import TechnicalIndicator
 from .simulated_order import SimulatedOrder
 from .institutional_trade import InstitutionalTrade
@@ -25,6 +26,9 @@ __all__ = [
     "BenchmarkPrice",
     "StockInfo",
     "NewsArticle",
+    "NewsArticleVersion",
+    "NewsSourceSelection",
+    "NewsSourceDecision",
     "NewsSentiment",
     "NewsEventAnalysis",
     "NewsEventImpact",

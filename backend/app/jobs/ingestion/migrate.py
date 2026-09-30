@@ -14,9 +14,9 @@ _COLUMNS = {
     "token_count": "INT NULL",
 }
 _INDEXES = {
-    "idx_v2_article_version": "(`article_id`, `index_version`)",
-    "idx_v2_stock_id": "(`stock_id`)",
-    "idx_v2_pub_time": "(`pub_time`)",
+    "idx_v1_article_version": "(`article_id`, `index_version`)",
+    "idx_v1_stock_id": "(`stock_id`)",
+    "idx_v1_pub_time": "(`pub_time`)",
 }
 
 

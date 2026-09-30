@@ -2,6 +2,7 @@
 import json
 
 from app.features.news.impact import article_hash
+from app.features.news.sentiment import source_quote_span
 from .chunking import article_chunks
 
 
@@ -36,21 +37,27 @@ def impact_payload(chunk: dict, analysis, impacts: list) -> dict:
     selected = []
     for impact in impacts:
         quotes = json.loads(impact.evidence or "[]")
-        matched_quotes = [item["quote"] for item in quotes if isinstance(item, dict)
-                          and item.get("field") in {"title", "content"}
-                          and item.get("quote")
-                          and item["quote"] in ((chunk.get("title") or "") if item["field"] == "title"
-                                                else (chunk.get("content_chunk") or ""))]
+        matched_quotes, spans = [], []
+        for item in quotes:
+            if not isinstance(item, dict) or item.get("field") not in {"title", "content"} or not item.get("quote"):
+                continue
+            raw = (chunk.get("title") or "") if item["field"] == "title" else (chunk.get("content_chunk") or "")
+            span = source_quote_span(raw, item["quote"])
+            if span is not None:
+                matched_quotes.append(raw[span[0]:span[1]])
+                offset = 0 if item["field"] == "title" else (chunk.get("char_start") or 0)
+                spans.append({"field": item["field"], "start": offset + span[0], "end": offset + span[1]})
         if not matched_quotes:
             continue
         event = events.get(impact.event_key)
         if event is None:
             continue
-        selected.append({"event": event["summary"], "target_type": impact.target_type,
+        selected.append({"event": event["summary"], "statement_type": event.get("statement_type"),
+                         "speaker": event.get("speaker"), "target_type": impact.target_type,
                          "target_id": impact.target_id, "direction": impact.direction,
                          "importance": impact.importance, "basis": impact.basis,
                          "reason": impact.reason, "topics": event.get("topics", []),
-                         "quotes": matched_quotes})
+                         "quotes": matched_quotes, "quote_spans": spans})
     return dict(analysis_status="success", analysis_input_hash=analysis.input_hash,
                 analysis_config_hash=analysis.config_hash,
                 impact_scopes=sorted({item["target_type"] for item in selected}),

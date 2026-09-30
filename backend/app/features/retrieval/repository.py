@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_chunk import news_chunks
 from app.features.news.repository import event_analyses
+from app.features.news.versions import source_states
 
 
-def articles_for_hits(db: Session, hits: list[dict]) -> list[NewsArticle]:
+def articles_for_hits(db: Session, hits: list[dict], *, as_of=None) -> list[NewsArticle]:
     article_ids = [str((hit.get("payload") or {}).get("article_id") or "") for hit in hits]
     urls = [str((hit.get("payload") or {}).get("url") or "") for hit in hits]
     clauses = []
@@ -18,6 +19,8 @@ def articles_for_hits(db: Session, hits: list[dict]) -> list[NewsArticle]:
     if not clauses:
         return []
     rows = list(db.scalars(select(NewsArticle).where(or_(*clauses))))
+    states = source_states(db, rows, as_of=as_of)
+    rows = [row for row in rows if states[row.article_id]["eligible"]]
     by_id = {article.article_id: article for article in rows}
     by_url = {article.url: article for article in rows if article.url}
     articles, seen_articles = [], set()

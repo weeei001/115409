@@ -69,5 +69,6 @@ def source_provenance(payload: dict) -> dict:
         "content_hash", "revision", "index_version", "embedding_model", "stock_ids",
         "analysis_status", "analysis_input_hash", "analysis_config_hash", "impact_scopes", "impact_company_ids",
         "impact_industry_ids", "impact_directions", "impact_importance", "impact_topics",
-        "impact_context",
+        "impact_context", "content_kind", "content_truncated",
+        "shared_facts", "shared_fact_ids", "source_state", "source_relationships",
     ) if payload.get(key) is not None}

@@ -46,5 +46,6 @@ def list_industries():
 @router.get("/{article_id}", response_model=News, responses={404: {"description": "Not found"}})
 def get_single_news(
     article_id: str, request: Request, stock: str | None = Query(None, max_length=20), db: Session = Depends(get_db),
+    revision_id: str | None = Query(None, pattern="^[0-9a-f]{64}$"),
 ):
-    return service.news_detail(db, article_id, stock, settings=request.app.state.settings)
+    return service.news_detail(db, article_id, stock, settings=request.app.state.settings, revision_id=revision_id)

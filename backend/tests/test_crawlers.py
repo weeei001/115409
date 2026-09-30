@@ -25,7 +25,7 @@ def article_html(title="台積電與鴻海營運展望", **changes):
 
 
 def cnyes_detail_html(body="完整新聞內文第一段。完整新聞內文第二段。"):
-    payload = json.dumps({"@type": "NewsArticle", "articleBody": body}, ensure_ascii=False)
+    payload = json.dumps({"@type": "NewsArticle", "headline": "台積電營運展望", "articleBody": body}, ensure_ascii=False)
     return f'<html><script type="application/ld+json">{payload}</script></html>'
 
 
@@ -47,9 +47,27 @@ def test_cnyes_news_identity_html_stock_tags_and_timestamp_aliases():
 
 
 def test_cnyes_article_body_reads_full_public_body_from_json_ld():
-    assert crawlers.cnyes_article_body(cnyes_detail_html()) == "完整新聞內文第一段。完整新聞內文第二段。"
+    assert crawlers.cnyes_article_fields(cnyes_detail_html()) == {"content": "完整新聞內文第一段。完整新聞內文第二段。", "title": "台積電營運展望"}
     assert crawlers.cnyes_article_url("12345") == "https://news.cnyes.com/news/id/12345"
     assert crawlers.cnyes_article_url("invalid") is None
+
+
+@pytest.mark.parametrize("headline,heading,name,expected", [
+    ("公司公布財報", "其他標題", "公司公布財報 | 鉅亨網", "公司公布財報"),
+    (None, "公司更新營運展望", "公司公布財報 | 鉅亨網", "公司更新營運展望"),
+    (None, None, "公司公布財報 | 鉅亨網", "公司公布財報"),
+    (None, None, "公司 | 產業觀察", "公司 | 產業觀察"),
+])
+def test_cnyes_detail_uses_article_title_without_publisher_seo_suffix(headline, heading, name, expected):
+    payload = {"@context": "https://schema.org", "@type": "NewsArticle",
+               "name": name, "articleBody": "公司公布最新財報與完整營運展望。"}
+    if headline:
+        payload["headline"] = headline
+    html = f'<script type="application/ld+json">{json.dumps(payload, ensure_ascii=False)}</script>'
+    if heading:
+        html += f"<article><h1>{heading}</h1></article>"
+    assert crawlers.cnyes_article_fields(html) == {
+        "title": expected, "content": "公司公布最新財報與完整營運展望。"}
 
 
 def test_cnyes_html_cleaner_removes_footer_and_app_promos():
@@ -168,7 +186,7 @@ def test_cnyes_worker_replaces_list_excerpt_with_detail_body(db_session):
     assert stored.content_kind == "full_text" and stored.analysis_input_hash == original_hash
 
 
-def test_refresh_cnyes_existing_updates_only_when_detail_is_longer(db_session):
+def test_refresh_cnyes_existing_uses_coherent_detail_title_and_body(db_session):
     item = crawlers.cnyes_item(cnyes_raw(content="列表摘要"))
     crawlers.store_news(db_session, [item])
 

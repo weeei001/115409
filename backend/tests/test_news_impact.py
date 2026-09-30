@@ -85,6 +85,55 @@ def run(db_session, settings, tmp_path, llm):
     return asyncio.run(runner.run(since=datetime(2026, 1, 1)))
 
 
+def test_pending_excludes_simulation_before_limit_without_touching_records(db_session, settings, tmp_path):
+    markers = [
+        {"source": "simulation_test"},
+        {"url": "https://example.invalid/simulation/case"},
+        {"article_id": "sim_war_case"},
+        {"title": "【模擬測試・非真實新聞】事件"},
+    ]
+    articles = [NewsArticle(**{
+        "article_id": f"sim-marker-{index}", "source": "cnyes", "title": "財經事件",
+        "content": "央行宣布升息一碼", "pub_time": "2026-09-20 12:00:00",
+        "created_at": datetime(2026, 9, 20), **marker,
+    }) for index, marker in enumerate(markers)]
+    real = NewsArticle(article_id="real", source="cnyes", title="金融業推出模擬投資教學",
+                       content="真實活動新聞", pub_time="2026-09-19 12:00:00",
+                       created_at=datetime(2026, 9, 19))
+    db_session.add_all([*articles, real])
+    db_session.commit()
+    llm = StubLlm([])
+    runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
+                               llm=llm, limit=1, execute=True, work_dir=tmp_path)
+    selected = runner.pending(datetime(2026, 1, 1))
+    assert [article.article_id for article, _ in selected] == ["real"]
+    assert runner.counts["pending"] == 1 and llm.calls == 0
+    assert all(db_session.get(NewsArticle, article.article_id) is article for article in articles)
+    assert not db_session.new and not db_session.dirty and not db_session.deleted
+
+
+@pytest.mark.parametrize("status", ["conflict", "superseded"])
+def test_pending_source_selection_exclusion_precedes_limit(db_session, settings, tmp_path, status):
+    from app.features.news.versions import set_selection, source_identity
+    excluded = NewsArticle(article_id="excluded", source="cnyes", title="Obsolete report", content="Old financial facts",
+        url="https://news.test/source", pub_time="2026-09-20 12:00:00", created_at=datetime(2026, 9, 20))
+    active = NewsArticle(article_id="active", source="cnyes", title="Current report", content="Current financial facts",
+        url="https://news.test/source" if status == "superseded" else "https://news.test/other",
+        pub_time="2026-09-19 12:00:00", created_at=datetime(2026, 9, 19))
+    db_session.add_all([excluded, active])
+    db_session.flush()
+    key, canonical = source_identity(excluded)
+    set_selection(db_session, key, canonical, "active" if status == "superseded" else None,
+                  "active" if status == "superseded" else "conflict", "Fixed source review")
+    db_session.commit()
+    llm = StubLlm([])
+    runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
+                               llm=llm, limit=1, execute=True, work_dir=tmp_path)
+    assert [article.article_id for article, _ in runner.pending(datetime(2026, 1, 1))] == ["active"]
+    assert runner.counts["pending"] == 1 and llm.calls == 0
+    assert db_session.get(NewsArticle, "excluded") is excluded
+
+
 def test_macro_article_is_searchable_without_company_and_stale_analysis_is_hidden(
         client, db_session, settings, tmp_path, monkeypatch):
     settings.LLM_MODEL = "test-model"

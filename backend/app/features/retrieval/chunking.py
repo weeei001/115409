@@ -8,7 +8,7 @@ from app.core.config import news_index_fingerprint
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 120
-DEFAULT_INDEX_VERSION = "news-v2"
+DEFAULT_INDEX_VERSION = "news-v1"
 DEFAULT_EMBED_MODEL = "nvidia/nemotron-3-embed-1b"
 
 

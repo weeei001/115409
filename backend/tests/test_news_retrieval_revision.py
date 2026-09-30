@@ -13,7 +13,7 @@ from test_chat import FakeModels, FakeRetrieval
 from test_retrieval import FakeVector, hit, service
 
 
-def test_numeric_titles_remain_distinct_and_guidance_uses_its_passage():
+def test_numeric_titles_remain_distinct_and_query_name_cannot_replace_factual_passage():
     july = hit("july", "Revenue July 20%", content="July result")
     august = hit("august", "Revenue August 30%", content="August result")
     first = hit("first", "Revenue 7 month 20%", content="Historical revenue")
@@ -25,7 +25,8 @@ def test_numeric_titles_remain_distinct_and_guidance_uses_its_passage():
     result = asyncio.run(service(vector).analyze(RetrievalRequest(symbols=["2330"], as_of="2024-01-31 23:59:59")))
     assert len(result.news_sources) == 4
     selected = next(item for item in result.news_sources if item.article_id == "article-one")
-    assert selected.summary == guidance["payload"]["page_content"] and selected.chunk_id == "guidance"
+    assert selected.summary == first["payload"]["page_content"] and selected.chunk_id == "first"
+    assert selected.kind == "general"
 
 
 def test_analyze_balances_symbols_and_collect_passes_its_budget():
@@ -76,7 +77,7 @@ def test_article_id_never_guessed_from_long_chunk_id_and_passage_keeps_whitespac
 def test_chat_preserves_citation_provenance_and_raw_passage():
     item = hit("passage")
     item["payload"].update(article_id="article", chunk_index=2, char_start=8, char_end=30,
-        content_hash="hash", revision="r1", index_version="news-v2", embedding_model="test-model",
+        content_hash="hash", revision="r1", index_version="news-v1", embedding_model="test-model",
         stock_ids=["2330", "2317"], page_content="Raw.\n\n  Exact passage.")
     llm = FakeModels()
     chat = ChatService(http=None, settings=None, retrieval=FakeRetrieval(hits=[item]), llm=llm)

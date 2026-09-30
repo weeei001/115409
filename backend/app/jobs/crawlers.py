@@ -19,6 +19,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.engine import make_engine
 from app.db.models.news_article import NewsArticle
+from app.db.models.news_version import NewsSourceSelection
+from app.features.news.versions import (source_identity, record_version, set_selection,
+                                        update_article, acceptable_update, utc_now)
 
 
 log = logging.getLogger(__name__)
@@ -108,8 +111,8 @@ def cnyes_article_url(news_id: object) -> str | None:
     return CNYES_ARTICLE_URL.format(news_id=parsed) if parsed is not None else None
 
 
-def cnyes_article_body(raw_html: str) -> str:
-    """Extract the public article body embedded in CNYES article JSON-LD."""
+def cnyes_article_fields(raw_html: str) -> dict:
+    """Extract title/body from the same public article JSON-LD record."""
     bodies = []
     soup = BeautifulSoup(raw_html or "", "html.parser")
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -125,14 +128,22 @@ def cnyes_article_body(raw_html: str) -> str:
             elif isinstance(item, dict):
                 body = item.get("articleBody")
                 if isinstance(body, str) and body.strip():
-                    bodies.append(body)
+                    bodies.append({"content": clean_html_content(body), "headline": clean_html_content(item.get("headline")),
+                                   "name": clean_html_content(item.get("name"))})
                 graph = item.get("@graph")
                 if isinstance(graph, (dict, list)):
                     stack.append(graph)
-    return clean_html_content(max(bodies, key=len)) if bodies else ""
+    if not bodies:
+        return {}
+    chosen = max(bodies, key=lambda item: len(item["content"]))
+    headings = soup.select("article h1") or soup.select("h1")
+    heading = clean_html_content(headings[0].get_text()) if len(headings) == 1 else ""
+    title = chosen["headline"] or heading or chosen["name"]
+    title = re.sub(r"\s+\|\s*鉅亨網\s*$", "", title)
+    return {"content": chosen["content"], "title": title}
 
 
-def cnyes_detail_content(http: httpx.Client, news_id: object) -> str | None:
+def cnyes_detail_article(http: httpx.Client, news_id: object) -> dict | None:
     url = cnyes_article_url(news_id)
     if not url:
         return None
@@ -140,8 +151,8 @@ def cnyes_detail_content(http: httpx.Client, news_id: object) -> str | None:
         try:
             response = http.get(url, headers=CNYES_HEADERS, timeout=20)
             response.raise_for_status()
-            content = cnyes_article_body(response.text)
-            return content or None
+            content = cnyes_article_fields(response.text)
+            return content if content.get("content") else None
         except (httpx.HTTPError, ValueError) as exc:
             if attempt:
                 log.warning("Cnyes article detail unavailable (%s)", type(exc).__name__)
@@ -206,13 +217,11 @@ def month_ranges(start: datetime, end: datetime) -> list[tuple[int, int]]:
 def store_news(db: Session, items: list[dict]) -> dict[str, int]:
     if not items:
         return {"inserted": 0, "updated": 0, "skipped": 0}
-    from app.features.news.impact import article_source_hash
-
     unique = {}
     seen_urls = set()
     duplicates = 0
     for item in items:
-        source_url = (item["source"], item.get("url")) if item.get("url") else None
+        source_url = source_identity(item)[0] if item.get("url") else None
         if item["article_id"] in unique or source_url in seen_urls:
             duplicates += 1
             continue
@@ -223,37 +232,41 @@ def store_news(db: Session, items: list[dict]) -> dict[str, int]:
         existing = {article.article_id: article for article in db.scalars(
             select(NewsArticle).where(NewsArticle.article_id.in_(unique)))}
         urls = [item["url"] for key, item in unique.items() if key not in existing and item.get("url")]
-        existing_urls = {(article.source, article.url): article for article in db.scalars(
-            select(NewsArticle).where(NewsArticle.url.in_(urls)))} if urls else {}
+        existing_urls = {}
+        for article in db.scalars(select(NewsArticle).where(NewsArticle.url.in_(urls))) if urls else []:
+            existing_urls.setdefault(source_identity(article)[0], []).append(article)
         inserted = updated = 0
         skipped = duplicates
         for key, item in unique.items():
-            article = existing.get(key) or existing_urls.get((item["source"], item.get("url")))
+            source_key, canonical = source_identity(item)
+            selection = db.get(NewsSourceSelection, source_key)
+            if selection is not None and selection.status == "conflict":
+                skipped += 1
+                continue
+            matches = existing_urls.get(source_key, [])
+            if len(matches) > 1 and selection is None:
+                set_selection(db, source_key, canonical, None, "conflict", "Multiple legacy IDs require reviewed source selection")
+                skipped += 1
+                continue
+            article = (db.get(NewsArticle, selection.selected_article_id) if selection else None)
+            article = article or existing.get(key) or (matches[0] if matches else None)
+            if article is not None and source_identity(article)[0] != source_key:
+                skipped += 1
+                continue
             if article is None:
-                values = dict(item)
-                values["analysis_input_hash"] = article_source_hash(
-                    values["title"], values["content"], values["pub_time"], values["content_kind"])
-                db.add(NewsArticle(**values))
+                if not acceptable_update(NewsArticle(content="", content_kind=item.get("content_kind")), item):
+                    skipped += 1
+                    continue
+                article = NewsArticle(**item)
+                db.add(article)
+                record_version(db, article, observed_at=utc_now())
+                set_selection(db, source_key, canonical, article.article_id, "active", "First observed source")
                 inserted += 1
                 continue
-            values = dict(item)
-            values.pop("article_id")
-            old_content = article.content or ""
-            new_content = values.get("content") or ""
-            if ((article.content_kind == "full_text" and values["content_kind"] != "full_text")
-                    or (article.content_kind == "unknown" and values["content_kind"] == "summary"
-                        and new_content == old_content)
-                    or (len(new_content) < len(old_content)
-                        and (values["content_kind"] != "full_text" or article.content_kind == "full_text"))):
-                values["content"] = article.content
-                values["content_kind"] = article.content_kind
-            values["analysis_input_hash"] = article_source_hash(
-                values["title"], values["content"], values["pub_time"], values["content_kind"])
-            changed = False
-            for field, value in values.items():
-                if getattr(article, field) != value:
-                    setattr(article, field, value)
-                    changed = True
+            record_version(db, article, observed_at=None)
+            if selection is None:
+                set_selection(db, source_key, canonical, article.article_id, "active", "Existing source; earlier observation time unknown")
+            changed = update_article(db, article, item)
             if changed:
                 updated += 1
             else:
@@ -275,9 +288,11 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
             try:
                 item = cnyes_item(row)
                 if fetch_details and (item["source"], item.get("url")) not in seen_urls:
-                    detail = cnyes_detail_content(http, _cnyes_news_id(row))
-                    if detail and len(detail) >= len(item["content"] or ""):
-                        item["content"] = detail
+                    detail = cnyes_detail_article(http, _cnyes_news_id(row))
+                    if detail:
+                        item["content"] = detail["content"]
+                        if detail.get("title"):
+                            item["title"] = detail["title"]
                         item["content_kind"] = "full_text"
                 return item
             except Exception as exc:
@@ -360,29 +375,27 @@ def refresh_cnyes_existing(engine, http: httpx.Client, limit: int | None = None)
 
     def fetch(article):
         news_id = _cnyes_news_id_from_url(article.url)
-        return article.article_id, cnyes_detail_content(http, news_id), news_id is not None
+        return article.article_id, cnyes_detail_article(http, news_id), news_id is not None
 
     result = {"read": len(articles), "updated": 0, "skipped": 0, "failed": 0}
     with Session(engine) as db:
         with ThreadPoolExecutor(max_workers=16) as pool:
             completed = 0
-            for article_id, content, attempted in pool.map(fetch, articles):
+            for article_id, detail, attempted in pool.map(fetch, articles):
                 completed += 1
                 if completed % 500 == 0:
                     print(f"cnyes refresh progress={completed}/{len(articles)}", flush=True)
                 article = db.get(NewsArticle, article_id)
-                if article is None or not attempted or not content:
+                if article is None or not attempted or not detail or not detail.get("title"):
                     result["skipped"] += 1
                     continue
-                if len(content) <= len(article.content or ""):
+                key, _ = source_identity(article)
+                selection = db.get(NewsSourceSelection, key)
+                if selection and (selection.status != "active" or selection.selected_article_id != article.article_id):
                     result["skipped"] += 1
                     continue
-                article.content = content
-                article.content_kind = "full_text"
-                from app.features.news.impact import article_source_hash
-                article.analysis_input_hash = article_source_hash(
-                    article.title, article.content, article.pub_time, article.content_kind)
-                result["updated"] += 1
+                changed = update_article(db, article, {**detail, "content_kind": "full_text"})
+                result["updated" if changed else "skipped"] += 1
                 if (result["updated"] + result["skipped"]) % 50 == 0:
                     db.commit()
         db.commit()
