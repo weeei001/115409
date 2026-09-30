@@ -1,4 +1,5 @@
 from functools import lru_cache
+from datetime import date, time
 import hashlib
 import json
 import os
@@ -145,6 +146,15 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8002
     APP_RELOAD: bool = False
+
+    JOBS_ENABLED: bool = True
+    JOBS_INTERVAL_MINUTES: float = Field(30, gt=0, allow_inf_nan=False)
+    JOBS_RAG_DELAY_MINUTES: float = Field(10, ge=0, allow_inf_nan=False)
+    JOBS_MARKET_TIME: time = time(17)
+    JOBS_START_DATE: date = date(2021, 1, 1)
+    JOBS_IMPACT_SINCE: date | None = None
+    JOBS_IMPACT_LIMIT: int = Field(100, ge=1)
+    JOBS_IMPACT_MAX_COST_USD: float = Field(0.50, ge=0, allow_inf_nan=False)
 
     JWT_SECRET: str = "change-me-in-production-use-long-random-string"
     JWT_ALGORITHM: str = "HS256"

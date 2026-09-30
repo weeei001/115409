@@ -18,7 +18,7 @@ from app.main import create_app
 
 @pytest.fixture
 def settings():
-    return Settings(_env_file=None, JWT_SECRET="test-only-secret-not-a-production-secret")
+    return Settings(_env_file=None, JWT_SECRET="test-only-secret-not-a-production-secret", JOBS_ENABLED=False)
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings, application_environment, get_settings
 from app.core.errors import install_error_handlers
 from app.core.http import make_http_client
 from app.db.session import make_engine, make_session_factory
@@ -19,12 +19,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             async with make_http_client(settings) as http:
                 app.state.http = http
-                yield
+                from app.jobs.runtime import JobRuntime
+                import asyncio
+
+                jobs = JobRuntime(settings, app.state.session_factory)
+                app.state.jobs = jobs
+                jobs.start()
+                try:
+                    yield
+                finally:
+                    await asyncio.to_thread(jobs.stop)
         finally:
             engine.dispose()
 
     app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
     app.state.settings = settings
+    app.state.environment = application_environment()
     install_error_handlers(app)
     app.add_middleware(
         CORSMiddleware, allow_origins=[origin.strip() for origin in settings.CORS_ALLOW_ORIGINS.split(",") if origin.strip()], allow_credentials=True,
@@ -39,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.features.chat.router import router as chat_router
     from app.features.retrieval.router import router as retrieval_router
     from app.features.simulation.router import router as simulation_router
+    from app.features.admin.router import router as admin_router
 
     app.include_router(market_router)
     app.include_router(news_router)
@@ -49,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(chat_router)
     app.include_router(retrieval_router)
     app.include_router(simulation_router)
+    app.include_router(admin_router)
 
     @app.get("/", tags=["系統"])
     def read_root():

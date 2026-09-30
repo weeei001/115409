@@ -92,8 +92,9 @@ def next_daily(now: datetime, at: time) -> datetime:
 
 class Scheduler:
     def __init__(self, run, now: datetime, monotonic: float, *, interval: float = 1800,
-                 delay: float = 600, market_at: time = time(17)):
+                 delay: float = 600, market_at: time = time(17), enabled=None):
         self.run, self.interval, self.delay, self.market_at = run, interval, delay, market_at
+        self.enabled = enabled or (lambda name: True)
         self.next_news = {"cnyes": monotonic + interval, "ltn": monotonic + interval}
         self.next_market = next_daily(now, market_at)
         self.followup = None
@@ -105,12 +106,12 @@ class Scheduler:
         def finished_at():
             return monotonic + max(0, clock.monotonic() - started)
 
-        if now >= self.next_market:
+        if now >= self.next_market and self.enabled("market"):
             self.next_market = next_daily(now, self.market_at)
             if self.run("market") == 0 and self.followup is None:
                 self.followup = finished_at() + self.delay
         for name in self.next_news:
-            if monotonic >= self.next_news[name]:
+            if monotonic >= self.next_news[name] and self.enabled(name):
                 result = self.run(name)
                 self.next_news[name] = finished_at() + self.interval
                 if result:
@@ -118,7 +119,7 @@ class Scheduler:
                 # A page failure can coexist with committed articles and pending SQL analysis.
                 if self.followup is None:
                     self.followup = finished_at() + self.delay
-        if self.followup is not None and finished_at() >= self.followup:
+        if self.followup is not None and finished_at() >= self.followup and self.enabled("rag"):
             self.followup = None
             self.run("rag")
 

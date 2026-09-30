@@ -6,6 +6,7 @@ import sys
 
 COMMANDS = (
     "init-schema",
+    "admin-grant",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
@@ -17,7 +18,7 @@ COMMANDS = (
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(description="Independent workers. No job is started or stopped by FastAPI.")
+    parser = argparse.ArgumentParser(description="Worker commands and explicit administrator bootstrap.")
     parser.add_argument("job", choices=COMMANDS)
     args = parser.parse_args(argv[:1])
     forwarded = argv[1:]
@@ -35,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "admin-grant":
+        from app.jobs.admin import main as grant
+        return grant(argv)
     if job == "init-schema":
         from app.jobs.schema import main as initialize
         return initialize(argv)

@@ -13,7 +13,7 @@ const ParticleBackground = dynamic(() => import('./ParticleBackground'), {
 
 /** 個股頁與多股比較是分析頁：不放粒子背景，改用純色底 */
 function isAnalysisRoute(pathname: string, asPath: string): boolean {
-  return pathname.startsWith('/stock') || asPath.startsWith('/stock/') || pathname === '/compare';
+  return pathname.startsWith('/stock') || asPath.startsWith('/stock/') || pathname === '/compare' || pathname === '/admin';
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
