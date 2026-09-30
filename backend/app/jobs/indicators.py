@@ -64,7 +64,7 @@ def _calc_rsi(closes: Sequence[Optional[float]], period: int = 14) -> List[Optio
     avg_loss = sum(losses) / period
 
     if avg_loss == 0:
-        result[period] = 100.0
+        result[period] = 100.0 if avg_gain > 0 else 50.0
     else:
         rs = avg_gain / avg_loss
         result[period] = 100.0 - (100.0 / (1.0 + rs))
@@ -79,7 +79,7 @@ def _calc_rsi(closes: Sequence[Optional[float]], period: int = 14) -> List[Optio
         avg_loss = ((avg_loss * (period - 1)) + loss) / period
 
         if avg_loss == 0:
-            result[idx] = 100.0
+            result[idx] = 100.0 if avg_gain > 0 else 50.0
         else:
             rs = avg_gain / avg_loss
             result[idx] = 100.0 - (100.0 / (1.0 + rs))

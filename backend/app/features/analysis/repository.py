@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models.daily_price import DailyPrice
@@ -15,12 +15,16 @@ from app.db.models.finmind_extra import MonthlyRevenue, StockValuation
 from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from app.db.models.news_article import NewsArticle
+from app.db.models.news_version import NewsArticleVersion, NewsSourceDecision, NewsSourceSelection
 from app.db.models.stock_info import StockInfo
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.market.repository import financial_statements, symbol_range
 from app.features.news.repository import news_list
+from app.features.news.sentiment import company_catalog, extract_candidate_stocks
+from app.features.news.versions import source_identity
 from app.features.retrieval.common import parse_timestamp
 from .schemas import StockBehaviorTextBriefResponse
+from app.features.news.eligibility import contains_simulation
 from .evidence import (FINANCIAL_LOOKBACK_DAYS, LONG_TERM_LOOKBACK_DAYS,
                        REVENUE_LOOKBACK_DAYS, TIMELINE_TRADING_DAYS,
                        VALUATION_RANK_LOOKBACK_DAYS)
@@ -100,7 +104,18 @@ def attach_article_ids(db: Session, sources: list[dict[str, Any]]) -> list[dict[
             for source in sources]
 
 
-def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None) -> str:
+def news_article_ids(value: Any) -> set[str]:
+    """Include supporting source_refs as well as the selected representative."""
+    if isinstance(value, dict):
+        own = {value["article_id"]} if isinstance(value.get("article_id"), str) and value["article_id"] else set()
+        return own.union(*(news_article_ids(child) for child in value.values()))
+    if isinstance(value, list):
+        return set().union(*(news_article_ids(child) for child in value))
+    return set()
+
+
+def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
+                      referenced_article_ids: set[str] | None = None) -> str:
     """Detect same-day additions, corrections and deletions without provider calls."""
     digest = hashlib.sha256()
 
@@ -117,17 +132,47 @@ def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None) -> st
     # Include a one-day SQL margin for timezone offsets, then check Taiwan dates.
     # ponytail: hash the bounded source content; add stored revisions if reads become a bottleneck.
     columns = [column for column in NewsArticle.__table__.columns if column.name != "created_at"]
-    statement = select(*columns).where(
-        or_(NewsArticle.stock_id.in_([symbol, "tw_stock"]), NewsArticle.tags.contains(symbol, autoescape=True)),
-        NewsArticle.pub_time >= (start - timedelta(days=1)).isoformat(),
-        NewsArticle.pub_time < (as_of + timedelta(days=2)).isoformat(),
-    ).order_by(NewsArticle.article_id)
+    catalog = company_catalog()
+    catalog = {**catalog, **{key: {**catalog.get(key, {}), "name": name} for key, name in stock_names(db).items()}}
+    referenced_article_ids = referenced_article_ids or set()
+    window = (NewsArticle.pub_time >= (start - timedelta(days=1)).isoformat()) & (
+        NewsArticle.pub_time < (as_of + timedelta(days=2)).isoformat())
+    statement = select(*columns).where(or_(window, NewsArticle.article_id.in_(referenced_article_ids)))
+    statement = statement.order_by(NewsArticle.article_id)
     update("news")
+    update(sorted(referenced_article_ids))
+    source_keys = set()
     with db.execute(statement.execution_options(yield_per=100)).mappings() as articles:
         for article in articles:
+            if article["article_id"] in referenced_article_ids:
+                update(dict(article))
+                source_keys.add(source_identity(dict(article))[0])
+                continue
             timestamp = parse_timestamp(article["pub_time"])
             if timestamp is not None and start <= timestamp.date() <= as_of:
-                update(dict(article))
+                mentioned = extract_candidate_stocks(article["stock_id"], article["tags"],
+                    article["title"], article["content"], catalog)
+                if article["stock_id"] == "tw_stock" or symbol in mentioned:
+                    update(dict(article))
+                    source_keys.add(source_identity(dict(article))[0])
+    # Source decisions concern the canonical group, including other article IDs
+    # outside this stock/date selection. A rollback is a new decision, not reuse
+    # of a previously cached interpretation of the same body text.
+    update("news_publication_time_eligibility_v1")
+    update("news_source_decisions_v1")
+    if source_keys:
+        for row in db.scalars(select(NewsSourceSelection).where(
+                NewsSourceSelection.source_key.in_(source_keys)).order_by(NewsSourceSelection.source_key)):
+            update({column.name: getattr(row, column.name) for column in row.__table__.columns})
+        for row in db.execute(select(NewsSourceDecision.source_key, func.max(NewsSourceDecision.id)).where(
+                NewsSourceDecision.source_key.in_(source_keys)).group_by(NewsSourceDecision.source_key)
+                .order_by(NewsSourceDecision.source_key)):
+            update(list(row))
+        for row in db.execute(select(NewsArticleVersion.source_key, NewsArticleVersion.revision_id,
+                NewsArticleVersion.article_id, NewsArticleVersion.observed_at).where(
+                NewsArticleVersion.source_key.in_(source_keys)).order_by(
+                NewsArticleVersion.source_key, NewsArticleVersion.revision_id)):
+            update(list(row))
     return digest.hexdigest()
 
 
@@ -140,9 +185,12 @@ def saved_brief(row: LlmResponse) -> StockBehaviorTextBriefResponse | None:
             or response.symbol != row.symbol or response.as_of_date != row.as_of_date.isoformat()):
         return None
     try:
-        revision = json.loads(row.config_json or "{}").get("revision")
+        config = json.loads(row.config_json or "{}")
+        if config.get("purpose") != "production" or contains_simulation(response.model_dump(mode="python")):
+            return None
+        revision = config.get("revision")
     except (ValueError, AttributeError):
-        revision = None
+        return None
     response.snapshot_id = row.id
     response.generated_at = row.created_at.isoformat() if row.created_at else None
     response.analysis_revision = str(revision) if revision is not None else None
@@ -168,8 +216,7 @@ def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
         LlmResponse.is_fallback.is_(False),
         LlmResponse.as_of_date <= as_of if latest else LlmResponse.as_of_date == as_of,
     ).order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc())
-    if not latest:
-        statement = statement.where(LlmResponse.config_hash == config_hash)
+    statement = statement.where(LlmResponse.config_hash == config_hash)
     fingerprints = source_fingerprints if source_fingerprints is not None else {}
     # Read snapshot rows together and compute current inputs once per candidate date.
     # Use a buffered result: freshness checks issue queries on this same connection.
@@ -178,9 +225,6 @@ def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
             response = saved_brief(row)
             if response is None:
                 continue
-            # Read-only pages display saved snapshots even after inputs or settings change.
-            if latest:
-                return response
             try:
                 config = json.loads(row.config_json or "{}")
             except (ValueError, TypeError):
@@ -189,8 +233,12 @@ def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
                 continue
             if evidence_fingerprint is not None and config.get("evidence_fingerprint") != evidence_fingerprint:
                 continue
-            if row.as_of_date not in fingerprints:
-                fingerprints[row.as_of_date] = input_fingerprint(db, symbol=symbol, as_of=row.as_of_date)
-            if config["input_fingerprint"] == fingerprints[row.as_of_date]:
+            referenced = news_article_ids([item.model_dump(mode="python") for item in response.evidence_catalog
+                                          if item.field == "news"])
+            key = (row.as_of_date, tuple(sorted(referenced))) if referenced else row.as_of_date
+            if key not in fingerprints:
+                fingerprints[key] = input_fingerprint(db, symbol=symbol, as_of=row.as_of_date,
+                                                       referenced_article_ids=referenced)
+            if config["input_fingerprint"] == fingerprints[key]:
                 return response
     return None

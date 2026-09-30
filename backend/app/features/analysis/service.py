@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import math
+import re
 from datetime import date, datetime
 from functools import lru_cache
 from time import perf_counter
@@ -17,9 +18,10 @@ from sqlalchemy.orm import Session
 from app.clients.llm import LlmClient
 from app.features.retrieval.service import RetrievalService
 from app.features.retrieval.common import STOCK_OPTIONS, TAIPEI
-from app.core.errors import AppError
+from app.core.errors import AppError, ServiceUnavailable
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from . import repository, validation as gate
+from app.features.news.eligibility import contains_simulation
 from .compliance import compliance_rules_signature
 from .evidence import FIELD_GLOSSARY, TIMELINE_TRADING_DAYS, build_evidence_bundle
 from .prompts import TEXT_BRIEF_SYSTEM_PROMPT, few_shot_examples, select_examples
@@ -56,11 +58,11 @@ def text_brief_revision() -> str:
                                 "glossary": FIELD_GLOSSARY,
                                 "compliance": compliance_rules_signature(),
                                 "schema": StockBehaviorTextBrief.model_json_schema(),
-                                "pipeline": "backend-v2-grounded-price-conditions-4"})[:12]
+                                "pipeline": "backend-v1-news-support-1"})[:12]
 
 
 def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
-    return {"rag_lookback_days": gate.RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
+    return {"purpose": "production", "rag_lookback_days": gate.RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
             "rag_max_events": gate.RAG_DEFAULT_MAX_NEWS_EVENTS,
             "max_llm_news_sources": gate.MAX_LLM_NEWS_SOURCES,
             "model_name": model_name, "temperature": settings.LLM_TEMPERATURE,
@@ -102,13 +104,17 @@ def _validate_symbol(symbol: str, allowed_symbols=ALLOWED_SYMBOLS) -> str:
 
 class AnalysisService:
     def __init__(self, *, db: Session, settings: Any, http: httpx.AsyncClient,
-                 llm: LlmClient | None = None, rag: RetrievalService | None = None):
+                 llm: LlmClient | None = None, rag: RetrievalService | None = None,
+                 session_factory=None):
+        if rag is None and session_factory is None:
+            raise ValueError("Analysis retrieval requires an independent session factory")
         self.db, self.settings = db, settings
         self.stock_options = dict(STOCK_OPTIONS)
         if db is not None:
             self.stock_options.update(repository.stock_names(db))
         self.llm = llm or LlmClient(settings, http)
-        self.rag = rag or RetrievalService(http, settings, stock_options=self.stock_options)
+        self.rag = rag if rag is not None else RetrievalService(
+            http, settings, stock_options=self.stock_options, session_factory=session_factory)
 
     def _validate_symbol(self, symbol: str) -> str:
         return _validate_symbol(symbol, self.stock_options)
@@ -120,6 +126,8 @@ class AnalysisService:
         symbol = self._validate_symbol(symbols[0])
         result = await self.rag.collect(symbol=symbol, lookback_days=req.lookback_days or 60,
                                         as_of=req.as_of_date)
+        if result.status == "unavailable":
+            raise ServiceUnavailable("新聞來源或版本核對暫時無法使用，無法確認是否有相關新聞。")
         sources = [{**item, "kind": "guidance" if item.get("kind") == "guidance" else "general"}
                    for item in result.news_sources]
         return StockBehaviorRagResponse(news_sources=sources, fallback_mode=result.fallback_mode)
@@ -195,6 +203,9 @@ class AnalysisService:
             news_desc = "\n".join(f"- {title}" for title in news_titles) if news_titles else "（無近期新聞）"
             yield {
                 "type": "init", "stock_id": symbol, "stock_name": self.stock_options[symbol],
+                "change_basis": "cumulative_from_last_price",
+                "calendar_basis": "weekdays_without_exchange_holidays",
+                "return_basis": "unadjusted_price",
                 "last_price": closes[-1], **{key: history[key] for key in (
                     "history_dates", "regression_history", "regression_upper",
                     "regression_lower", "future_dates", "regression_future")},
@@ -212,8 +223,9 @@ class AnalysisService:
                     weekly = WeeklyPredictionOutput.model_validate(result.payload)
                     pct, reason = weekly.pct, weekly.reason
                 except (AppError, ValidationError, TypeError, ValueError):
-                    pct, reason = 0.0, "預測服務暫時無法使用。"
-                base_price = nodes[-1]["price"] if nodes else closes[-1]
+                    yield {"type": "error", "message": "預測服務暫時無法提供有效結果。"}
+                    return
+                base_price = closes[-1]
                 node = {"week": week, "day_idx": min(week * trading_days_per_week - 1, strategy.horizon_days - 1),
                         "price": round(base_price * (1 + pct / 100), 2), "pct": pct, "reason": reason}
                 nodes.append(node)
@@ -221,7 +233,7 @@ class AnalysisService:
             target_price = nodes[-1]["price"] if nodes else closes[-1]
             total_pct = round((target_price - closes[-1]) / closes[-1] * 100, 2)
             yield {"type": "done", "total_pct": total_pct,
-                   "direction": "up" if total_pct > 0 else "down",
+                   "direction": "up" if total_pct > 0 else "down" if total_pct < 0 else "neutral",
                    "target_price": target_price, "nodes": nodes}
         except AppError as exc:
             detail = exc.detail.get("message", "預測服務暫時無法使用") if isinstance(exc.detail, dict) else str(exc.detail)
@@ -247,13 +259,19 @@ class AnalysisService:
         if not refresh_sources or req.force_refresh:
             self.llm.require_enabled()
         rows = await _db_work(repository.collect_rows, self.db, symbol=symbol, as_of=as_of)
-        source_fingerprint = await _db_work(repository.input_fingerprint, self.db,
-            symbol=symbol, as_of=as_of, rows=rows)
         rag = await self.rag.collect(symbol=symbol, as_of=as_of,
                                      max_events=gate.RAG_DEFAULT_MAX_NEWS_EVENTS, enforce_window=True)
         sources = await _db_work(repository.attach_article_ids, self.db, rag.news_sources)
+        excluded_sources = [source for source in sources if contains_simulation(source)]
+        sources = [source for source in sources if not contains_simulation(source)]
+        source_fingerprint = await _db_work(repository.input_fingerprint, self.db,
+            symbol=symbol, as_of=as_of, rows=rows, referenced_article_ids=repository.news_article_ids(sources))
         bundle = build_evidence_bundle(symbol=symbol, as_of_date=as_of, rows=rows,
                                         news_sources=sources, rag_fallback_mode=rag.fallback_mode)
+        if rag.status == "unavailable":
+            bundle.missing_fields.append("新聞來源或版本核對失敗；本次不能判定無相關新聞。")
+        if excluded_sources:
+            bundle.missing_fields.append("已排除模擬測試新聞")
         task_packet = {"task": {"type": "stock_behavior_text_brief", "symbol": symbol,
                       "as_of_date": as_of.isoformat(), "timeline_trading_days": TIMELINE_TRADING_DAYS,
                       "analysis_language": "zh-TW"}, **bundle.as_payload_sections()}
@@ -283,7 +301,8 @@ class AnalysisService:
                 payload = brief.model_dump(mode="python")
                 gate._backfill_key_days(payload, bundle=bundle, as_of_date=as_of, discarded=discarded,
                                         future_dated=verification.future_dated_items)
-                verification.unverified_numbers = gate._check_key_day_numbers(payload, known_percentages=bundle.known_percentages())
+                verification.unverified_numbers = [f"{item['id']}: {issue}" for item in payload["key_days"]
+                    for issue in gate._grounding_issues(item, bundle)]
                 verification.undercount_sections = gate._undercount_sections(payload)
                 removed, hard, soft, blocked = gate._apply_text_brief_compliance_gate(
                     payload, bundle=bundle, allow_partial_forward_views=attempt == 1)
@@ -319,18 +338,36 @@ class AnalysisService:
         }
         latency_ms = round((perf_counter() - started) * 1000)
         signals = verification.model_dump(exclude={"jargon_hits", "simplified_chars"})
-        limited = bool(discarded or any(signals.values()) or rag.fallback_mode)
+        limited = bool(discarded or any(signals.values()) or rag.fallback_mode or bundle.missing_fields)
         status = "unavailable" if brief is None else "limited" if limited else "verified"
         limitations = [fallback_message] if brief is None else []
+        if brief is not None:
+            empty_sections = [label for key, label in {
+                "key_days": "關鍵交易日", "current_status": "目前狀況", "positive_factors": "支持因素",
+                "negative_factors": "反向因素", "risks": "風險", "watch_points": "後續觀察",
+            }.items() if not getattr(brief, key)]
+            if empty_sections:
+                status = "limited"
+                limitations.append("下列段落沒有通過檢查的依據，已留空：" + "、".join(empty_sections) + "。")
         if brief is not None and any(item.startswith("forward_views.") for item in verification.removed_item_ids):
             limitations.append("部分期間展望重試後仍未通過內容檢查，已標示為無法判讀；其餘分析保留。")
         if rag.fallback_mode:
             limitations.append(f"新聞服務降級，分析僅使用可取得資料（{rag.reason or rag.status}）。")
         if not any(item.get("kind") == "guidance" for item in bundle.news):
             limitations.append(gate.TEXT_BRIEF_NO_GUIDANCE_LIMITATION)
-        referenced = gate._text_brief_referenced_ids(brief.model_dump()) if brief else set()
-        catalog = [item for item in bundle.catalog() if item["id"] in referenced]
+        limitations.extend(f"缺少：{field}" for field in bundle.missing_fields)
+        limitations.append("僅檢查結構、引用及部分可核對數值；未完整核實語義或校準預測信心。")
+        if any(re.search(r"FVOCI|\d+家金控", str(item.get("value", ""))) for item in bundle.news):
+            limitations.append("新聞包含金控獲利或 FVOCI 等財務口徑；公司與產業合計、當期損益與保留盈餘的比較尚未完整自動核對。")
+        limitations.append("行情為未還原價格；財報公布與修訂時間未完整保存。")
+        if brief is not None and brief.confidence == "high":
+            brief.confidence = "medium" if not limited else "low"
+            brief.confidence_reason = "信心未經預測校準；資料缺項與檢查限制請見分析限制。"
+        catalog = bundle.catalog() if brief is not None else []
         response = self._response(symbol, as_of, status, brief, evidence_catalog=catalog, limitations=limitations)
+        response.price_as_of_date = bundle.daily_timeline[-1]["date"] if bundle.daily_timeline else None
+        response.news_cutoff_date = as_of.isoformat()
+        response.verification = {key: len(value) for key, value in verification.model_dump().items()}
         response.analysis_mode = "historical_reanalysis" if as_of < today else "current_analysis" if as_of == today else None
         response.analysis_revision, response.config_hash = config["revision"], config_hash
         await _db_work(self._save_snapshot, response, config, output.raw_text,
@@ -344,6 +381,8 @@ class AnalysisService:
                                            text=gate.TEXT_BRIEF_DISCLAIMER_TEXT), **fields)
 
     def _save_snapshot(self, response, config, raw_text, news_count, latency_ms, metadata):
+        if config.get("purpose") != "production" or contains_simulation(response.model_dump(mode="python")):
+            raise ValueError("Ineligible sources cannot be saved as a production analysis")
         safe_payload = response.brief.model_dump(mode="json") if response.brief else {"limitations": response.limitations}
         row = LlmResponse(symbol=response.symbol, as_of_date=date.fromisoformat(response.as_of_date),
             kind=LLM_RESPONSE_KIND_TEXT_BRIEF, config_hash=response.config_hash,

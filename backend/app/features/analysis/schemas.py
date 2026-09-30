@@ -46,6 +46,7 @@ class StockBehaviorRagRequest(BaseModel):
     )
 
 class AnalyzeNewsSourceItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
     id: str = Field(default="", description="新聞唯一識別碼。")
     title: str = Field(default="", description="新聞標題。")
     summary: str = Field(default="", description="新聞摘要或內容節錄。")
@@ -119,6 +120,13 @@ class StockBehaviorTextBriefRequest(BaseModel):
 EvidenceId = Annotated[str, Field(max_length=16, pattern=r"^(d|ch|lt|fd|nw)_[0-9]+$")]
 
 
+class TextBriefNewsSupport(BaseModel):
+    evidence_id: EvidenceId
+    quote: str = Field(min_length=4, max_length=100)
+    use: Literal["reported_fact", "attributed_view", "retrospective", "price_reaction"]
+    event_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 class TextBriefClaim(BaseModel):
     id: str
     claim_type: Literal["observation", "inference", "conflict", "limitation"]
@@ -126,6 +134,7 @@ class TextBriefClaim(BaseModel):
     direction: ClaimDirection
     evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
     importance: Literal["high", "medium"] = "medium"
+    news_support: list[TextBriefNewsSupport] = Field(default_factory=list, max_length=3)
 
 class TextBriefKeyDay(BaseModel):
 
@@ -136,6 +145,7 @@ class TextBriefKeyDay(BaseModel):
     evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
     move_pct: Optional[float] = None
     volume_ratio: Optional[float] = None
+    news_support: list[TextBriefNewsSupport] = Field(default_factory=list, max_length=1)
 
 class TextBriefRisk(BaseModel):
     id: str
@@ -143,6 +153,7 @@ class TextBriefRisk(BaseModel):
     description: str = Field(max_length=160)
     trigger: str = Field(max_length=120)
     evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
+    news_support: list[TextBriefNewsSupport] = Field(default_factory=list, max_length=3)
 
 class TextBriefWatchPoint(BaseModel):
     id: str
@@ -150,12 +161,14 @@ class TextBriefWatchPoint(BaseModel):
     why_it_matters: str = Field(max_length=160)
     when: str = Field(max_length=40)
     evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
+    news_support: list[TextBriefNewsSupport] = Field(default_factory=list, max_length=3)
 
 class TextBriefForwardView(BaseModel):
     stance: StanceLevel
     reason: str = Field(max_length=160)
     invalidation: str = Field(max_length=120)
     evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=6)
+    news_support: list[TextBriefNewsSupport] = Field(default_factory=list, max_length=3)
     validation_status: SkipJsonSchema[Literal["rejected"] | None] = None
 
 class TextBriefForwardViews(BaseModel):
@@ -164,14 +177,14 @@ class TextBriefForwardViews(BaseModel):
     medium_21_40: TextBriefForwardView
 
 class StockBehaviorTextBrief(BaseModel):
-    key_days: list[TextBriefKeyDay] = Field(min_length=1, max_length=5)
+    key_days: list[TextBriefKeyDay] = Field(max_length=5)
     headline: str = Field(max_length=80)
-    current_status: list[TextBriefClaim] = Field(min_length=1, max_length=3)
-    positive_factors: list[TextBriefClaim] = Field(min_length=1, max_length=3)
-    negative_factors: list[TextBriefClaim] = Field(min_length=1, max_length=3)
+    current_status: list[TextBriefClaim] = Field(max_length=3)
+    positive_factors: list[TextBriefClaim] = Field(max_length=3)
+    negative_factors: list[TextBriefClaim] = Field(max_length=3)
     source_divergences: list[TextBriefClaim] = Field(default_factory=list, max_length=3)
-    risks: list[TextBriefRisk] = Field(min_length=1, max_length=3)
-    watch_points: list[TextBriefWatchPoint] = Field(min_length=1, max_length=4)
+    risks: list[TextBriefRisk] = Field(max_length=3)
+    watch_points: list[TextBriefWatchPoint] = Field(max_length=4)
     forward_views: TextBriefForwardViews
     overall_stance: StanceLevel
     confidence: ConfidenceLevel
@@ -204,7 +217,7 @@ class StockBehaviorEvidenceItem(BaseModel):
     value: Any = None
 
 class StockBehaviorTextBriefResponse(BaseModel):
-    schema_version: str = "text-first-v2"
+    schema_version: str = "text-first-v1"
     symbol: str
     as_of_date: str
     generated_by: str
@@ -215,6 +228,10 @@ class StockBehaviorTextBriefResponse(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     cached: bool = False
     analysis_mode: Literal["current_analysis", "historical_reanalysis"] | None = None
+    price_as_of_date: str | None = None
+    news_cutoff_date: str | None = None
+    verification: dict[str, int] = Field(default_factory=dict)
+    verification_scope: str = "structure_citations_and_selected_numbers"
     snapshot_id: int | None = None
     generated_at: str | None = None
     analysis_revision: str | None = None
@@ -226,6 +243,7 @@ class RawTextBriefClaim(BaseModel):
     text: Any = None
     direction: Any = None
     evidence_ids: Any = Field(default_factory=list)
+    news_support: Any = Field(default_factory=list)
     importance: Any = "medium"
 
 class RawTextBriefKeyDay(BaseModel):
@@ -234,6 +252,7 @@ class RawTextBriefKeyDay(BaseModel):
     ref: Any = None
     what: Any = None
     evidence_ids: Any = Field(default_factory=list)
+    news_support: Any = Field(default_factory=list)
 
 class RawTextBriefRisk(BaseModel):
     id: Any = None
@@ -241,6 +260,7 @@ class RawTextBriefRisk(BaseModel):
     description: Any = None
     trigger: Any = None
     evidence_ids: Any = Field(default_factory=list)
+    news_support: Any = Field(default_factory=list)
 
 class RawTextBriefWatchPoint(BaseModel):
     id: Any = None
@@ -248,12 +268,14 @@ class RawTextBriefWatchPoint(BaseModel):
     why_it_matters: Any = None
     when: Any = None
     evidence_ids: Any = Field(default_factory=list)
+    news_support: Any = Field(default_factory=list)
 
 class RawTextBriefForwardView(BaseModel):
     stance: Any = None
     reason: Any = None
     invalidation: Any = None
     evidence_ids: Any = Field(default_factory=list)
+    news_support: Any = Field(default_factory=list)
 
 class RawStockBehaviorTextBrief(BaseModel):
     key_days: Any = Field(default_factory=list)

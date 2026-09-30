@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+import re
 from typing import Any, Iterable, Sequence
 
 TIMELINE_TRADING_DAYS = 40
@@ -87,14 +88,29 @@ def _financial_is_published(period_end: date, as_of: date) -> bool:
     lag = ANNUAL_PUBLISH_LAG_DAYS if period_end.month == 12 else FINANCIAL_PUBLISH_LAG_DAYS
     return period_end + timedelta(days=lag) <= as_of
 
-def _revenue_is_published(row_date: date, as_of: date) -> bool:
+def revenue_availability(row: Any) -> tuple[date | None, str]:
+    """Use the revenue period, not the provider-specific row date, as the anchor."""
     try:
-        deadline = row_date.replace(day=REVENUE_PUBLISH_DAY)
-    except ValueError:  # pragma: no cover - day=10 對任何月份都合法
-        return False
-    return deadline <= as_of
+        year, month = int(row.revenue_year), int(row.revenue_month)
+        period = date(year, month, 1)
+    except (AttributeError, TypeError, ValueError):
+        return None, "營收月份不明，無法判定可用日"
+    following = (period.replace(day=28) + timedelta(days=4)).replace(day=REVENUE_PUBLISH_DAY)
+    raw = str(getattr(row, "create_time", "") or "")
+    try:
+        issued = date.fromisoformat(raw[:10])
+    except ValueError:
+        issued = None
+    # A table issue date is an availability bound, not a verified first-publication time.
+    available = max(following, issued) if issued else following
+    return available, ("依營收次月公告期限與出表日較晚者保守判定，非首次公布時間"
+                       if issued else "依營收次月公告期限估計；未取得實際公布與修訂時間")
 
-_NEWS_META_KEYS = frozenset({"url", "publisher", "published_at", "publication_basis"})
+
+def _revenue_is_published(row: Any, as_of: date) -> bool:
+    available, _ = revenue_availability(row)
+    return available is not None and available <= as_of
+
 
 class _IdGen:
     def __init__(self, prefix: str) -> None:
@@ -124,11 +140,10 @@ class EvidenceBundle:
             "chip_summary": self.chip_summary,
             "long_term_anchor": self.long_term_anchor,
             "fundamental": self.fundamental,
-            "news": [
-                {key: value for key, value in item.items() if key not in _NEWS_META_KEYS}
-                for item in self.news
-            ],
+            "news": self.news,
             "missing_fields": self.missing_fields,
+            "data_limitations": ["價格為未還原收盤價，報酬未排除除權息與拆股影響",
+                                 "財報可用日為估計；原始累計財報不等於單季 EPS"],
         }
 
     def evidence_ids(self) -> set[str]:
@@ -156,14 +171,15 @@ class EvidenceBundle:
                     "date": row.get("date"),
                     "value": {
                         key: row.get(key)
-                        for key in ("close", "chg_pct", "vol_lots", "vol_vs_ma5_pct", "foreign_net_lots")
+                        for key in ("close", "chg_pct", "vol_lots", "vol_vs_ma5_pct", "foreign_net_lots",
+                                    "trust_net_lots", "dealer_net_lots", "rsi5", "kd_k", "macd_hist", "vs_ma20_pct")
                         if row.get(key) is not None
                     },
                 }
             )
         catalog.extend(self.chip_summary)
         catalog.extend(self.long_term_anchor)
-        catalog.extend({**item, "publication_basis": (
+        catalog.extend({**item, "publication_basis": item.get("publication_basis") or (
             "依財報期間與固定公告延遲推定可用日，未取得實際公告時間"
             if item.get("field") in {"eps", "gross_margin_pct", "operating_margin_pct"}
             else "依月營收公告期限推定可用日，未取得實際公告時間"
@@ -185,7 +201,7 @@ class EvidenceBundle:
         def add(value: Any) -> None:
             number = _f(value)
             if number is not None:
-                values.add(round(abs(number), 2))
+                values.add(round(number, 2))
 
         for row in self.daily_timeline:
             for key in ("chg_pct", "vol_vs_ma5_pct", "vs_ma20_pct"):
@@ -340,14 +356,14 @@ def build_long_term_anchor(
                 {
                     "id": ids.next(),
                     "field": "close_pos_in_1y_pct",
-                    "date": as_of_date.isoformat(),
+                    "date": price_rows[-1].date.isoformat(),
                     "value": _round(position, 1),
                 }
             )
     else:
         missing.append("近一年高低點")
 
-    latest_technical = technical_rows[-1] if technical_rows else None
+    latest_technical = next((row for row in reversed(technical_rows) if row.date == price_rows[-1].date), None)
     for public_field, source_field in (("vs_ma60_pct", "ma60"), ("vs_ma240_pct", "ma240")):
         base = _f(getattr(latest_technical, source_field, None)) if latest_technical else None
         deviation = _pct_change(latest_close, base)
@@ -431,7 +447,7 @@ def _revenue_items(rows: Sequence[Any], as_of_date: date, ids: _IdGen) -> list[d
     published = [
         row
         for row in rows
-        if _revenue_is_published(row.date, as_of_date) and (_f(row.revenue) or 0.0) > 0
+        if _revenue_is_published(row, as_of_date) and (_f(row.revenue) or 0.0) > 0
     ]
     if not published:
         return []
@@ -446,6 +462,9 @@ def _revenue_items(rows: Sequence[Any], as_of_date: date, ids: _IdGen) -> list[d
     periods = sorted(by_period)
     latest = periods[-1]
     latest_value = by_period[latest]
+    latest_row = next(row for row in reversed(published)
+                      if (int(row.revenue_year), int(row.revenue_month)) == latest)
+    available, basis = revenue_availability(latest_row)
 
     def yoy_for(period: tuple[int, int]) -> float | None:
         return _growth_pct(by_period.get(period), by_period.get((period[0] - 1, period[1])))
@@ -472,6 +491,8 @@ def _revenue_items(rows: Sequence[Any], as_of_date: date, ids: _IdGen) -> list[d
     item: dict[str, Any] = {
         "id": ids.next(),
         "field": "revenue_monthly",
+        "available_at": available.isoformat(),
+        "publication_basis": basis,
         "period": f"{latest[0]}-{latest[1]:02d}",
         "value": int(latest_value),
         "yoy_pct": _round(yoy_for(latest), 1),
@@ -488,6 +509,8 @@ def _revenue_items(rows: Sequence[Any], as_of_date: date, ids: _IdGen) -> list[d
             {
                 "id": ids.next(),
                 "field": "revenue_yoy_positive_streak",
+                "available_at": available.isoformat(),
+                "publication_basis": basis,
                 "period": f"{latest[0]}-{latest[1]:02d}",
                 "value": streak,
             }
@@ -523,7 +546,12 @@ def _valuation_items(rows: Sequence[Any], as_of_date: date, ids: _IdGen) -> list
             "field": public_field,
             "date": latest.date.isoformat(),
             "value": _round(value, 2),
-            "pct_rank_1y": _pct_rank(history, value),
+            "sample_count": len(history),
+            "window_start": window[0].date.isoformat() if window else None,
+            "window_end": latest.date.isoformat(),
+            # A full-year label requires broad coverage, not a single observation.
+            "pct_rank_1y": (_pct_rank(history, value) if len(history) >= 120
+                            and (latest.date - window[0].date).days >= 300 else None),
         }
         items.append({key: entry for key, entry in item.items() if entry is not None})
     return items
@@ -558,11 +586,18 @@ def build_news_items(
             "field": "news",
             "article_id": article_id,
             **{key: source[key] for key in ("chunk_id", "chunk_index", "char_start", "char_end",
-                                          "content_hash", "revision", "index_version", "embedding_model")
+                                          "content_hash", "revision", "index_version", "embedding_model",
+                                          "content_truncated", "content_kind", "retrieval_branch",
+                                          "shared_facts", "shared_fact_ids", "impact_context", "source_relationships",
+                                          "event_time", "first_public_at", "observed_at", "revised_at")
                if source.get(key) is not None},
             "date": timestamp.split("T", 1)[0] if timestamp else None,
             "published_at": timestamp if "T" in timestamp else None,
-            "publication_basis": "上游提供的新聞發布時間；未保存取得與修訂時間",
+            "published_time_precision": ("offset_datetime" if re.search(r"T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:\d{2})$", timestamp)
+                                         else "local_datetime" if "T" in timestamp
+                                         else "date" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", timestamp)
+                                         else "unknown"),
+            "publication_basis": "上游提供的報導發布時間；首次公開及完整修訂歷史仍未核實",
             "kind": kind if kind in {"general", "guidance", "market"} else "general",
             "title": title,
             "value": summary or title,
@@ -573,6 +608,9 @@ def build_news_items(
                 else None
             ),
         }
+        if isinstance(source.get("source_state"), dict):
+            item["source_state"] = {**source["source_state"], "limitation":
+                "新聞首次公開時間及完整修訂歷史未核實；僅能作回顧資料，不能宣稱精確還原當時可得資訊。"}
         items.append({key: value for key, value in item.items() if value is not None})
     return items
 
@@ -602,6 +640,8 @@ def build_evidence_bundle(*, symbol: str, as_of_date: date,
             fundamental_missing.append(missing)
     if not news:
         timeline_missing.append("近期新聞")
+    if any(item.get("source_state", {}).get("limitation") for item in news):
+        timeline_missing.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
     return EvidenceBundle(
         symbol=symbol, as_of_date=as_of_date, daily_timeline=timeline,
         chip_summary=chips, long_term_anchor=anchor, fundamental=fundamental, news=news,

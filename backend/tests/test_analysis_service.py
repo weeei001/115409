@@ -103,7 +103,7 @@ def test_analysis_pipeline_thread_boundary_backfill_snapshot_and_cache(db_sessio
         return original(*args, **kwargs)
     monkeypatch.setattr(repository, "collect_rows", collect)
     first = run_service(db_session, settings, llm, rag)
-    assert first.status == "verified" and not first.cached
+    assert first.status == "limited" and not first.cached
     assert first.snapshot_id is not None and first.analysis_revision and first.config_hash
     assert first.brief.key_days[-1].move_pct == pytest.approx(0.89)
     assert thread_ids and all(identifier != main_thread for identifier in thread_ids)
@@ -125,17 +125,240 @@ def test_cache_only_miss_skips_every_external_call_and_persistence(db_session, s
     assert db_session.scalars(select(LlmResponse)).all() == []
 
 
+def test_simulation_snapshot_is_skipped_and_generation_excludes_simulated_sources(db_session, settings):
+    seed_prices(db_session)
+    first = run_service(db_session, settings)
+    row = db_session.get(LlmResponse, first.snapshot_id)
+    fields = {column.name: getattr(row, column.name) for column in LlmResponse.__table__.columns
+              if column.name not in {"id", "created_at"}}
+    payload = json.loads(row.response_json)
+    payload["evidence_catalog"].append({"id": "nw_01", "field": "news", "value": "test",
+        "publisher": "simulation_test", "url": "https://example.invalid/simulation/sample"})
+    bad = LlmResponse(**{**fields, "response_json": json.dumps(payload)})
+    db_session.add(bad)
+    db_session.commit()
+    assert repository.saved_brief(bad) is None
+    assert run_service(db_session, settings, cache_only=True).snapshot_id == first.snapshot_id
+    config = json.loads(row.config_json)
+    config["purpose"] = "simulation"
+    row.config_json = json.dumps(config)
+    db_session.commit()
+    assert run_service(db_session, settings, cache_only=True).status == "unavailable"
+    llm = FakeLlm()
+    result = run_service(db_session, settings, llm, FakeRag(RagResult(news_sources=[
+        {"title": "【模擬測試・非真實新聞】衝突", "summary": "Fiction", "publisher": "simulation_test"},
+        {"title": "公司導入模擬設計軟體", "summary": "Real announcement", "publisher": "publisher"},
+    ])), force_refresh=True)
+    assert [source["title"] for source in llm.packet["news"]] == ["公司導入模擬設計軟體"]
+    assert any("模擬" in message for message in result.limitations)
+
+
+@pytest.mark.parametrize("text", ["EPS 999", "股價為 999 元", "股價上漲 +2.03%"])
+def test_unsupported_numeric_claim_is_not_published(db_session, settings, text):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["current_status"][0]["text"] = text
+    llm = FakeLlm(payload)
+    response = run_service(db_session, settings, llm)
+    assert llm.calls == 1
+    assert response.status == "limited" and response.brief.current_status == []
+    assert text not in response.model_dump_json()
+
+
+def test_empty_citation_direction_rejected_and_confidence_capped(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["confidence"] = "high"
+    for view in payload["forward_views"].values():
+        view.update(stance="bullish", evidence_ids=[])
+    result = run_service(db_session, settings, FakeLlm(payload))
+    assert result.status == "limited" and result.brief.confidence == "low"
+    assert all(view.stance == "uncertain" and view.validation_status == "rejected"
+               for view in (result.brief.forward_views.short_1_5, result.brief.forward_views.swing_6_20,
+                            result.brief.forward_views.medium_21_40))
+    assert "缺少" in " ".join(result.limitations)
+    # The complete catalog is independent of which rows the model cited.
+    assert {item.id for item in result.evidence_catalog} >= {"d_01", "d_02", "d_03", "d_04"}
+
+
+def test_snapshot_audit_reports_only_ids_and_reasons():
+    from app.features.analysis.audit import audit_snapshots
+    result = audit_snapshots([{"id": 1, "symbol": "2330", "config_json": {"purpose": "production"},
+        "response_json": {"evidence_catalog": [{"publisher": "simulation_test", "value": "private text"}]}},
+        {"id": 2, "config_json": {"purpose": "production"}, "response_json": {}},
+        {"id": 3, "response_json": "bad json"}])
+    assert [item["id"] for item in result] == [1, 3]
+    assert result[0]["reasons"] == ["simulation_source"]
+    assert "private text" not in json.dumps(result)
+
+
+def test_same_body_canonical_selection_and_rollback_invalidate_cached_brief(db_session, settings, monkeypatch):
+    from app.db.models.news_version import NewsSourceDecision
+    from app.features.news import versions
+    from app.jobs import news_versions
+
+    seed_prices(db_session)
+    # Hold timestamps fixed so rollback must invalidate through the decision ID,
+    # even though it restores exactly the original effective source and reason.
+    fixed_now = datetime(2026, 7, 13, 12)
+    monkeypatch.setattr(versions, "utc_now", lambda: fixed_now)
+    monkeypatch.setattr(news_versions, "utc_now", lambda: fixed_now)
+    first = NewsArticle(article_id="canonical-first", stock_id="2330", source="cnyes", title="台積電營收",
+        content="台積電公布本月營收。", pub_time="2026-07-13T09:00:00+08:00",
+        url="https://news.cnyes.com/news/id/6605885?utm_source=first")
+    outside = NewsArticle(article_id="canonical-outside-window", stock_id="2317", source="cnyes", title=first.title,
+        content=first.content, pub_time="2024-01-01T09:00:00+08:00",
+        url="https://news.cnyes.com/news/id/6605885?utm_source=second")
+    db_session.add_all([first, outside])
+    db_session.flush()
+    key, canonical = versions.source_identity(first)
+    assert key == versions.source_identity(outside)[0]
+    for article in (first, outside):
+        versions.record_version(db_session, article, observed_at=None)
+    versions.set_selection(db_session, key, canonical, first.article_id, "active", "original choice")
+    db_session.commit()
+    baseline = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
+    news_versions.choose(db_session, key, first.article_id, "original choice")
+    db_session.commit()
+    assert repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF) == baseline
+    response = run_service(db_session, settings)
+    def cached():
+        return repository.load_cached(db_session, symbol="2330", as_of=AS_OF, config_hash=response.config_hash)
+    assert cached() is not None
+    news_versions.choose(db_session, key, outside.article_id, "reviewed second source")
+    db_session.commit()
+    selected = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
+    assert selected != baseline and cached() is None
+    decision_id = db_session.scalar(select(NewsSourceDecision.id).order_by(NewsSourceDecision.id.desc()).limit(1))
+    news_versions.rollback_decision(db_session, decision_id, "restore original source")
+    db_session.commit()
+    restored = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
+    assert restored not in {baseline, selected}
+    assert cached() is None
+    assert first.content == outside.content == "台積電公布本月營收。"
+
+
+def test_cached_indirect_news_tracks_only_its_actual_sources_and_canonical_group(db_session, settings):
+    from app.features.news import versions
+    from app.jobs import news_versions
+    from app.db.models.news_version import NewsSourceDecision
+
+    seed_prices(db_session)
+    article = NewsArticle(article_id="industry-source", stock_id="9999", source="cnyes", title="供應鏈需求",
+        content="零組件產業需求放緩。", pub_time="2026-07-12T10:00:00+08:00",
+        url="https://news.cnyes.com/news/id/9990001")
+    alternative = NewsArticle(article_id="industry-alternative", stock_id="9999", source="cnyes", title=article.title,
+        content=article.content, pub_time=article.pub_time, url=article.url + "?utm_source=copy")
+    unrelated = NewsArticle(article_id="unrelated", stock_id="9998", source="cnyes", title="其他產業消息",
+        content="無關公司的近況。", pub_time=article.pub_time, url="https://news.cnyes.com/news/id/9990002")
+    db_session.add_all([article, alternative, unrelated])
+    db_session.flush()
+    key, canonical = versions.source_identity(article)
+    for item in (article, alternative):
+        versions.record_version(db_session, item, observed_at=None)
+    versions.set_selection(db_session, key, canonical, article.article_id, "active", "reviewed")
+    db_session.commit()
+    base = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
+    source = {"article_id": article.article_id, "title": article.title, "summary": article.content,
+              "timestamp": article.pub_time, "url": article.url}
+    result = run_service(db_session, settings, rag=FakeRag(RagResult(news_sources=[source])))
+    def cached():
+        return repository.load_cached(db_session, symbol="2330", as_of=AS_OF, config_hash=result.config_hash)
+    assert cached() is not None
+    unrelated.content = "無關公司更新內容。"
+    db_session.commit()
+    assert cached() is not None
+    original = article.content
+    article.content = "零組件產業更正需求預測。"
+    db_session.commit()
+    assert repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF) == base
+    assert cached() is None
+    article.content = original
+    db_session.commit()
+    assert cached() is not None
+    news_versions.choose(db_session, key, alternative.article_id, "confirmed alternative")
+    db_session.commit()
+    assert repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF) == base
+    assert cached() is None
+    decision_id = db_session.scalar(select(NewsSourceDecision.id).order_by(NewsSourceDecision.id.desc()).limit(1))
+    news_versions.rollback_decision(db_session, decision_id, "restore")
+    db_session.commit()
+    assert cached() is None
+
+
+def test_shared_fact_source_refs_are_included_in_snapshot_dependencies():
+    catalog = [{"article_id": "representative", "shared_facts": [{"source_refs": [
+        {"article_id": "second-source"}, {"article_id": "representative"}]}]}]
+    assert repository.news_article_ids(catalog) == {"representative", "second-source"}
+
+
+def test_grounding_rejects_wrong_period_sign_and_after_close_causality():
+    from app.features.analysis.evidence import EvidenceBundle
+    bundle = EvidenceBundle(symbol="2330", as_of_date=AS_OF,
+        daily_timeline=[{"id": "d_01", "date": AS_OF.isoformat(), "chg_pct": -2.03, "foreign_net_lots": 100}],
+        chip_summary=[{"id": "ch_01", "field": "foreign_net_10d_lots", "value": 5000}],
+        news=[{"id": "nw_01", "field": "news", "published_at": "2026-07-13T16:33:00+08:00"}])
+    for text, refs in [("上漲 +2.03%", ["d_01"]), ("外資單日買超 5000 張", ["ch_01"])]:
+        assert gate._grounding_issues({"text": text, "evidence_ids": refs}, bundle)
+    assert not gate._grounding_issues({"text": "下跌 2.03%", "evidence_ids": ["d_01"]}, bundle)
+    assert not gate._grounding_issues({"text": "外資近十日買超 5000 張", "evidence_ids": ["ch_01"]}, bundle)
+    assert gate._grounding_issues({"date": AS_OF.isoformat(), "what": "營收帶動股價上漲",
+                                   "evidence_ids": ["nw_01", "d_01"]}, bundle)
+    assert gate._grounding_issues({"stance": "uncertain", "reason": "EPS 999", "evidence_ids": []}, bundle)
+    assert gate._grounding_issues({"text": "成交量增加 -2.03%", "evidence_ids": ["d_01"]}, bundle)
+    bundle.news[0]["value"] = "營收增加 10%"
+    issues = gate._grounding_issues({"text": "營收增加 10%", "evidence_ids": ["nw_01"]}, bundle)
+    assert issues and all(issue.startswith("未核實") for issue in issues)
+    bundle.fundamental = [{"id": "fd_01", "field": "revenue_monthly", "yoy_pct": -10}]
+    assert not gate._grounding_issues({"text": "營收年減10%", "evidence_ids": ["fd_01"]}, bundle)
+    bundle.fundamental[0]["yoy_pct"] = 10
+    assert gate._grounding_issues({"text": "營收年減10%", "evidence_ids": ["fd_01"]}, bundle)
+
+
+def test_body_only_company_news_correction_invalidates_cache(db_session, settings):
+    seed_prices(db_session)
+    article = NewsArticle(article_id="body-only", stock_id="other", title="Operating news",
+                          content="台積電宣布營運消息", pub_time="2026-07-13T09:00:00")
+    db_session.add(article)
+    db_session.commit()
+    run_service(db_session, settings)
+    article.content = "台積電撤回營運展望"
+    db_session.commit()
+    assert run_service(db_session, settings, cache_only=True).status == "unavailable"
+
+
+def test_latest_weekend_analysis_is_independent_of_price_day_and_historical_cutoff(db_session, settings):
+    seed_prices(db_session)
+    llm, rag = FakeLlm(), FakeRag()
+    service = AnalysisService(db=db_session, settings=settings, http=None, llm=llm, rag=rag)
+    thursday = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
+        symbol="2330", as_of_date=date(2026, 9, 24))))
+    rag.result = RagResult(news_sources=[{"title": "Weekend announcement", "summary": "New information",
+        "timestamp": "2026-09-27T10:00:00+08:00", "article_id": "weekend"}])
+    sunday = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
+        symbol="2330", as_of_date=date(2026, 9, 27))))
+    current = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
+        symbol="2330", as_of_date=date(2026, 9, 27), cache_only=True)))
+    historical = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
+        symbol="2330", as_of_date=date(2026, 9, 24), cache_only=True)))
+    assert current.snapshot_id == sunday.snapshot_id
+    assert historical.snapshot_id == thursday.snapshot_id
+    assert current.price_as_of_date == "2026-07-14" and current.news_cutoff_date == "2026-09-27"
+    assert not any(item.field == "news" for item in historical.evidence_catalog)
+    assert llm.calls == rag.calls == 2
+
+
 def test_text_brief_accepts_symbols_from_stock_info(db_session, settings):
     db_session.add(StockInfo(symbol="1101", name="台泥"))
     db_session.add_all([DailyPrice(symbol="1101", date=date(2026, 7, day), close=Decimal(100 + day),
                                     volume_shares=1_000_000) for day in range(10, 15)])
     db_session.commit()
     result = run_service(db_session, settings, symbol="1101")
-    assert result.symbol == "1101" and result.status == "verified"
+    assert result.symbol == "1101" and result.status == "limited"
 
 
 @pytest.mark.parametrize("requested_date", [AS_OF, date(2026, 9, 12)])
-def test_cache_only_reads_latest_saved_response_after_settings_change(db_session, settings, monkeypatch, requested_date):
+def test_cache_only_rejects_saved_response_after_settings_change(db_session, settings, monkeypatch, requested_date):
     seed_prices(db_session)
     llm, rag = FakeLlm(), FakeRag()
     first = run_service(db_session, settings, llm, rag)
@@ -149,8 +372,8 @@ def test_cache_only_reads_latest_saved_response_after_settings_change(db_session
     service = AnalysisService(db=db_session, settings=updated_settings, http=None, llm=llm, rag=rag)
     result = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
         symbol="2330", as_of_date=requested_date, cache_only=True)))
-    assert result.cached and result.snapshot_id == latest.snapshot_id != first.snapshot_id
-    assert result.as_of_date == AS_OF.isoformat() and result.brief == latest.brief
+    assert result.status == "unavailable" and result.snapshot_id is None
+    assert result.as_of_date == requested_date.isoformat() and result.brief is None
     assert llm.calls == rag.calls == 2
     assert len(db_session.scalars(select(LlmResponse)).all()) == 2
 
@@ -176,7 +399,7 @@ def test_same_day_source_changes_invalidate_analysis_cache(db_session, settings,
         db_session.get(DailyPrice, {"symbol": "2330", "date": AS_OF}).close = Decimal("119")
     db_session.commit()
     cached_only = run_service(db_session, settings, llm, rag, cache_only=True)
-    assert cached_only.snapshot_id == first.snapshot_id and cached_only.cached
+    assert cached_only.snapshot_id is None and cached_only.status == "unavailable"
     assert llm.calls == rag.calls == 1
     refreshed = run_service(db_session, settings, llm, rag)
     assert not refreshed.cached and refreshed.snapshot_id != first.snapshot_id
@@ -335,7 +558,8 @@ def test_http_analysis_cache_only_disabled_and_policy_contract(client):
     invalid = client.post("/analyze/stock-behavior/rag", json={"symbols": ["invalid"]})
     assert invalid.status_code == 422 and invalid.json()["detail"]["code"] == "policy_violation"
     rag = client.post("/analyze/stock-behavior/rag", json={"symbols": ["", "2330", "invalid"]})
-    assert rag.status_code == 200 and rag.json() == {"news_sources": [], "fallback_mode": True}
+    assert rag.status_code == 503
+    assert "無法確認是否有相關新聞" in rag.json()["detail"]
 
 
 def test_snapshot_failure_rolls_back_transaction(db_session, settings, monkeypatch):
@@ -386,9 +610,34 @@ def test_repeated_invalid_output_stops_after_two_attempts(db_session, settings):
     assert result.status == "unavailable" and llm.calls == 2
 
 
+def test_empty_filtered_section_preserves_facts_without_direction(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload.update(overall_stance="mildly_bullish", confidence="medium")
+    payload["positive_factors"][0]["text"] = "EPS 99 元"
+    result = run_service(db_session, settings, FakeLlm(payload))
+    assert result.status == "limited" and result.brief.current_status
+    assert result.brief.positive_factors == []
+    assert result.brief.overall_stance == "uncertain" and result.brief.confidence == "low"
+    assert any("支持因素" in text and "留空" in text for text in result.limitations)
+
+
+def test_no_surviving_factual_sections_is_unavailable(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    for section in gate.TEXT_BRIEF_ITEM_SECTIONS:
+        payload[section] = []
+    payload["current_status"] = [{"id": "cs_01", "claim_type": "observation", "text": "EPS 99 元",
+                                  "direction": "positive", "importance": "high", "evidence_ids": ["d_04"]}]
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "unavailable" and result.brief is None and llm.calls == 2
+
+
 def test_invalid_forward_view_is_disclosed_after_retry_without_losing_history(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
+    payload.update(overall_stance="mildly_bullish", confidence="medium")
     payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
@@ -397,6 +646,8 @@ def test_invalid_forward_view_is_disclosed_after_retry_without_losing_history(db
     assert result.brief.forward_views.short_1_5.stance == "uncertain"
     assert result.brief.forward_views.short_1_5.validation_status == "rejected"
     assert result.brief.forward_views.swing_6_20.validation_status is None
+    assert result.brief.overall_stance == "uncertain" and result.brief.confidence == "low"
+    assert "部分期間展望" in result.brief.confidence_reason
     assert "2400" not in result.brief.model_dump_json()
     assert any("部分期間展望" in item for item in result.limitations)
     row = db_session.get(LlmResponse, result.snapshot_id)
