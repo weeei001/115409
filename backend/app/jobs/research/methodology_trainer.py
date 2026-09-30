@@ -326,7 +326,7 @@ def build_refine_prompt(methodology: dict, template: str,
 ## 目前 prompt_template
 {template}
 
-## 用它預測錯誤的案例（held-out，未參與歸納）
+## 用它預測錯誤的案例（validation，未參與歸納）
 {chr(10).join(miss_blocks)}
 
 任務：檢視這些錯誤，修正 methodology 的規則（可新增、刪除、調整 condition/expected_effect/confidence），
@@ -511,7 +511,7 @@ def collect_misses(cases: list[TrainingCase], evals: dict, horizon: int,
 # ══════════════════════════════════════════════════════════════════
 
 def split_batches(cases: list[TrainingCase]) -> tuple[list[TrainingCase], list[TrainingCase]]:
-    """batch_1（歸納用）= 偶數 index；batch_2（held-out）= 奇數 index。
+    """batch_1（歸納用）= 偶數 index；batch_2（validation）= 奇數 index。
 
     僅適用週頻：週頻錨點間隔 5 個交易日，h20 標籤雖仍有重疊但奇偶交錯尚可接受。
     日頻請改用 split_batches_temporal（見該函式說明）。
@@ -524,12 +524,12 @@ def split_batches(cases: list[TrainingCase]) -> tuple[list[TrainingCase], list[T
 def split_batches_temporal(cases: list[TrainingCase], heldout_frac: float = 0.4,
                            embargo: int = HORIZON_MAX
                            ) -> tuple[list[TrainingCase], list[TrainingCase]]:
-    """時間連續切分：前段歸納、後段 held-out，中間挖掉 embargo 個錨點。
+    """時間連續切分：前段歸納、後段 validation，中間挖掉 embargo 個錨點。
 
     為何需要：日頻錨點的 h20 標籤高度重疊（相鄰兩日的未來 20 交易日有 19 天相同）。
-    若用奇偶 index 切分，held-out 的每一筆在歸納批次裡幾乎都有一個「只差一天」的雙胞胎，
+    若用奇偶 index 切分，validation 的每一筆在歸納批次裡幾乎都有一個「只差一天」的雙胞胎，
     等於把答案洩漏給歸納階段。改成時間連續切分 + 20 錨點 embargo，可確保
-    歸納批次最後一筆的 h20 實現期完全早於 held-out 第一筆的 as_of。
+    歸納批次最後一筆的 h20 實現期完全早於 validation 第一筆的 as_of。
     """
     if not 0 < heldout_frac < 1 or embargo < 0:
         raise ValueError("heldout_frac must be between 0 and 1, and embargo nonnegative")
@@ -585,7 +585,8 @@ def run_iterations(client, model_name: str, args, stock_id: str,
     """跑一輪完整的「歸納 → 迭代修正」流程，回傳 (versions, rounds_log)。
 
     induction_pool：可供歸納的案例（會分層抽樣 n_induction_cases 筆送 LLM）。
-    heldout：評估用，不參與歸納。tag_prefix 讓學習曲線各檔位的 cache key 不互撞。
+    heldout is a validation set: its errors refine prompts and select versions.
+    Legacy heldout_* output keys remain for compatibility, not an untouched test claim.
     """
     if not induction_pool or not heldout or args.rounds < 0:
         raise ValueError("Training requires nonempty pools and nonnegative rounds")
@@ -620,6 +621,7 @@ def run_iterations(client, model_name: str, args, stock_id: str,
         misses20 = collect_misses(heldout, ev_b2, 20)
         misses5 = collect_misses(heldout, ev_b2, 5)
         rounds_log.append({
+            "evaluation_role": "validation_used_for_refinement_and_selection",
             "n_induction_cases": len(sampled),
             "k": k, "heldout_h5": hr_b2_h5, "heldout_h20": hr_b2_h20,
             "heldout_n_h5": n_b2_h5, "heldout_n_h20": n_b2_h20,
@@ -627,7 +629,7 @@ def run_iterations(client, model_name: str, args, stock_id: str,
             "always_up_h20_heldout": au_b2_h20, "always_up_h5_heldout": au_b2_h5,
             "n_misses_h20": len(misses20), "n_misses_h5": len(misses5),
         })
-        print(f"  v{k}｜held-out h20={hr_b2_h20}（n={n_b2_h20}, always_up={au_b2_h20}）"
+        print(f"  v{k}｜validation h20={hr_b2_h20}（n={n_b2_h20}, always_up={au_b2_h20}）"
               f"｜h5={hr_b2_h5}｜歸納批 h20={hr_b1_h20}（過擬合檢查）")
 
         if k == args.rounds:
@@ -692,17 +694,17 @@ def train(args) -> Path:
         b1, b2 = split_batches_temporal(cases, embargo=HORIZON_MAX)
         print(f"\n案例分批（時間連續 + embargo {HORIZON_MAX}）："
               f"歸納池={len(b1)}（~{b1[0].as_of}~{b1[-1].as_of}）、"
-              f"held-out={len(b2)}（{b2[0].as_of}~{b2[-1].as_of}）")
+              f"validation={len(b2)}（{b2[0].as_of}~{b2[-1].as_of}）")
     else:
         b1, b2 = split_batches(cases)
-        print(f"\n案例分批：歸納用 batch_1={len(b1)}、held-out batch_2={len(b2)}")
+        print(f"\n案例分批：歸納用 batch_1={len(b1)}、validation batch_2={len(b2)}")
 
     versions, rounds_log = run_iterations(
         client, model_name, args, stock_id, b1, b2,
         eval_cache, eval_cache_path, out_dir,
         tag_prefix="train", n_induction_cases=args.induction_cases)
 
-    # ── 選 best：held-out h20 最高 → h5 → 較小 k ──
+    # ── 選 best：validation h20 最高 → h5 → 較小 k ──
     def _score(entry):
         return (entry["heldout_h20"] if entry["heldout_h20"] is not None else -1, entry["heldout_h5"] if entry["heldout_h5"] is not None else -1, -entry["k"])
     best = max(rounds_log, key=_score)
@@ -721,6 +723,7 @@ def train(args) -> Path:
         "best": best_k,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "best.json").write_text(json.dumps({
+        "evaluation_role": "validation_used_for_refinement_and_selection",
         "version": best_k,
         "prompt": f"prompt_v{best_k}.txt",
         "methodology": f"methodology_v{best_k}.json",
@@ -728,7 +731,7 @@ def train(args) -> Path:
         "train_end": args.train_end, "stock": stock_id,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"\n{'='*60}\nbest = v{best_k}（held-out h20={best['heldout_h20']}、h5={best['heldout_h5']}）")
+    print(f"\n{'='*60}\nbest = v{best_k}（validation h20={best['heldout_h20']}、h5={best['heldout_h5']}）")
     print(f"輸出：{out_dir}")
     return out_dir
 
@@ -760,10 +763,10 @@ def parse_curve_spec(spec: str, pool_size: int) -> list[int]:
 
 
 def run_learning_curve(args) -> Path:
-    """學習曲線：在同一個 held-out 集合上，用遞增的歸納池大小各跑一次完整迭代。
+    """學習曲線：在同一個 validation 集合上，用遞增的歸納池大小各跑一次完整迭代。
 
-    核心設計：四個檔位共用同一個 held-out（時間連續 + embargo），否則曲線不可比。
-    歸納池取「最靠近 held-out 的 n 筆」（時間上最相關），而非隨機抽，
+    核心設計：四個檔位共用同一個 validation（時間連續 + embargo），否則曲線不可比。
+    歸納池取「最靠近 validation 的 n 筆」（時間上最相關），而非隨機抽，
     以免不同檔位的訓練資料落在不同市場狀態而混淆樣本量效應。
     """
     stock_id, out_dir, client, model_name, cases = _setup(args)
@@ -777,14 +780,14 @@ def run_learning_curve(args) -> Path:
     else:
         pool, heldout = split_batches(cases)
     sizes = parse_curve_spec(args.curve, len(pool))
-    print(f"\n學習曲線：歸納池={len(pool)}、held-out={len(heldout)}"
+    print(f"\n學習曲線：歸納池={len(pool)}、validation={len(heldout)}"
           f"（{heldout[0].as_of}~{heldout[-1].as_of}）｜檔位 {sizes}")
 
     curve_dir = out_dir / "curve"
     curve_dir.mkdir(parents=True, exist_ok=True)
     points = []
     for n in sizes:
-        sub = pool[-n:]  # 取時間上最靠近 held-out 的 n 筆
+        sub = pool[-n:]  # 取時間上最靠近 validation 的 n 筆
         print(f"\n{'='*60}\n檔位 n_train={n}（{sub[0].as_of}~{sub[-1].as_of}）")
         versions, rounds_log = run_iterations(
             client, model_name, args, stock_id, sub, heldout,
@@ -815,7 +818,7 @@ def run_learning_curve(args) -> Path:
             "embargo": HORIZON_MAX if args.period == "day" else 0, "model": model_name, "rounds": args.rounds,
             "points": points,
         }, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"  ✅ n={n}：held-out h20={best['heldout_h20']}（always_up={au}）")
+        print(f"  ✅ n={n}：validation h20={best['heldout_h20']}（always_up={au}）")
 
     print(f"\n{'='*60}\n學習曲線完成：{out_dir / 'learning_curve.json'}")
     for p in points:

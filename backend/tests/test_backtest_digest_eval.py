@@ -167,6 +167,7 @@ def test_compute_metrics_arm_names_and_mcnemar_counts(arms):
     assert m["verdict"] == {
         "cmp_arm": cmp_, "base_arm": base, "cond1_beats_always_up": False,
         "cond2_wins_ratio": True, "passed": False, "note": m["verdict"]["note"],
+        "exploratory_directional_signal": False, "evidence_status": "exploratory_only",
     }
 
 
@@ -180,7 +181,8 @@ def test_compute_metrics_verdict_passes_when_both_conditions_hold():
     m = bde.compute_metrics(decisions, arm_names=("A", "L"), band=3.0)
     assert m["baselines"]["always_up"]["hit_rate"] == 0.5
     assert m["relative_to_always_up"] == {"A": pytest.approx(-0.25), "L": pytest.approx(0.5)}
-    assert m["verdict"]["passed"] is True
+    assert m["verdict"]["passed"] is False
+    assert m["verdict"]["exploratory_directional_signal"] is True
     assert m["mcnemar_sign_test"]["b_wins"] == 3 and m["mcnemar_sign_test"]["a_wins"] == 0
 
 

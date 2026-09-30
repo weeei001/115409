@@ -59,7 +59,7 @@ def build_context_from_pit(analyst_items: list[dict], news_items: list[dict],
     return f"## 近期價格趨勢\n{price_trend_desc(technical)}\n\n## 近期新聞（完整內文）\n{news_block}"
 
 
-DEFAULT_PROMPT_VERSION = "A_v2"
+DEFAULT_PROMPT_VERSION = "A_v1"
 
 
 PROMPT_PLACEHOLDERS = ("as_of", "name", "stock_id", "horizon", "context_block", "magnitude_buckets")
@@ -169,7 +169,7 @@ def predict_change_pct(client, model_name: str, stock_id: str, as_of: str, horiz
                         prompt_template: str | None = None) -> float | None:
     """呼叫 LLM 預測未來 horizon 交易日的總漲跌幅（%）。失敗重試 1 次，仍失敗回 None。
 
-    prompt_template=None 時沿用現行 A_v2 prompt（DEFAULT_PROMPT_TEMPLATE）；
+    prompt_template=None 時沿用現行 A_v1 prompt（DEFAULT_PROMPT_TEMPLATE）；
     傳入學到的 template 時，只要它保留 PROMPT_OUTPUT_KEYS 的 JSON 輸出契約，
     這裡的解析與下游 classify()/decisions.csv 完全不用改。
     """
@@ -249,10 +249,10 @@ def compute_metrics(decisions: list[dict], arm_names: tuple[str, str] = ("A", "B
     arm_names=(基準臂, 對照臂)：基準臂通常是現行 prompt A，對照臂是 B（疊加摘要）或 L（學到的 prompt）。
     只統計「兩臂皆有效」的 as_of（成對排除，維持配對比較公平）。
 
-    verdict 區塊實作已拍板的「雙條件方向制」：對照臂要同時滿足
+    verdict records an exploratory directional screen, not a deployment gate:
       cond1：命中率 − always_up > 0（有比無腦猜漲好）
-      cond2：McNemar 成對比較中 對照臂勝次數 ≥ 1.5 × 基準臂勝次數（比現行 prompt 好，不是運氣）
-    不要求 p<0.05（52 樣本幾乎達不到），p 值照報。
+      cond2：McNemar 成對比較中 對照臂勝次數 ≥ 1.5 × 基準臂勝次數
+    Overlapping return windows are not independent; this function cannot certify robustness.
     """
     base_arm, cmp_arm = arm_names
     valid_as_of = set.intersection(*({d["as_of"] for d in decisions
@@ -322,9 +322,11 @@ def compute_metrics(decisions: list[dict], arm_names: tuple[str, str] = ("A", "B
         "cmp_arm": cmp_arm, "base_arm": base_arm,
         "cond1_beats_always_up": cond1,
         "cond2_wins_ratio": cond2,
-        "passed": bool(cond1 and cond2),
+        "passed": False,
+        "exploratory_directional_signal": bool(cond1 and cond2),
+        "evidence_status": "exploratory_only",
         "note": (f"cond1：{cmp_arm} 命中率 − always_up > 0；cond2：{cmp_arm} 勝 ≥ 1.5×{base_arm} 勝。"
-                 "不要求 p<0.05（樣本數不足以達到），p 值僅供參考。"),
+                 "此為探索性篩選；未驗證獨立樣本、重疊報酬視窗及多重選擇偏差，不能判定穩健改善。"),
     }
 
     metrics = {
@@ -334,7 +336,7 @@ def compute_metrics(decisions: list[dict], arm_names: tuple[str, str] = ("A", "B
         "relative_to_always_up": relative,
         "mcnemar_sign_test": {"b_wins": cmp_wins, "a_wins": base_wins, "p_value": mcnemar_p,
                               "cmp_arm": cmp_arm, "base_arm": base_arm,
-                              "note": f"雙尾符號檢定；b_wins={cmp_arm} 勝、a_wins={base_arm} 勝；p<0.05 表示配對命中差異顯著"},
+                              "note": f"雙尾符號檢定；b_wins={cmp_arm} 勝、a_wins={base_arm} 勝；p 值假設配對樣本彼此獨立，重疊報酬視窗可能違反假設"},
         "verdict": verdict,
         "band_sensitivity": band_sensitivity,
         "coverage": {
