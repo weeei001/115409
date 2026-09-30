@@ -21,7 +21,8 @@ prediction_router = APIRouter(tags=["AI prediction"])
 
 
 def get_service(request: Request, db: Session = Depends(get_db)) -> AnalysisService:
-    return AnalysisService(db=db, settings=request.app.state.settings, http=request.app.state.http)
+    return AnalysisService(db=db, settings=request.app.state.settings, http=request.app.state.http,
+                           session_factory=request.app.state.session_factory)
 
 
 @router.post("/rag", response_model=StockBehaviorRagResponse,

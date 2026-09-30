@@ -46,28 +46,15 @@ def test_backfill_runs_before_market_import_and_ai(tmp_path):
     assert commands[-1] == ["cache-warmup"]
 
 
-def test_incremental_sentiment_execution_and_preview_carry_budget(tmp_path):
-    for execute in (False, True):
-        commands = []
-        assert scheduler.run_pipeline("sentiment", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
-            sentiment_execute=execute, sentiment_limit=25, sentiment_max_cost_usd=0.2,
-            run=lambda command: commands.append(command) or 0) == 0
-        assert commands == [["sentiment-batch", "--incremental", "--limit", "25",
-                             "--max-cost-usd", "0.2", *(["--execute"] if execute else [])]]
-    commands = []
-    scheduler.run_pipeline("rag", start=date(2026, 7, 1), symbols="2330", output=tmp_path,
-        run=lambda command: commands.append(command) or 0)
-    assert [command[0] for command in commands] == ["migrate-news-impact-schema", "news-ingest",
-                                                   "news-impact-batch", "news-impact-sync", "cache-warmup"]
-
-
 @pytest.mark.parametrize("failures,expected,commands", [
-    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest"]),
+    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "cache-warmup"]),
+    ({"news-ingest": 7, "news-impact-batch": 9}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "cache-warmup"]),
+    ({"news-impact-sync": 8}, 8, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
     ({"cache-warmup": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
     ({"news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
     ({"cache-warmup": 7, "news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
 ])
-def test_warmup_and_sentiment_run_independently_after_ingestion(failures, expected, commands, tmp_path):
+def test_warmup_and_impact_run_independently_after_ingestion(failures, expected, commands, tmp_path):
     called = []
     def run(command):
         called.append(command[0])
@@ -77,7 +64,7 @@ def test_warmup_and_sentiment_run_independently_after_ingestion(failures, expect
     assert called == commands
 
 
-@pytest.mark.parametrize("failure", ["market-fetch", "market-import", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema", "news-ingest"])
+@pytest.mark.parametrize("failure", ["market-fetch", "market-import", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema"])
 def test_pipeline_stops_on_failure_before_warming_stale_cache(failure, tmp_path):
     commands = []
 
@@ -123,7 +110,7 @@ def test_daily_and_news_jobs_coalesce_one_followup(monkeypatch):
 
 
 @pytest.mark.parametrize("successful", [None, "ltn"])
-def test_failed_crawl_does_not_arm_followup(successful, monkeypatch):
+def test_failed_crawls_still_coalesce_followup_and_repeat(successful, monkeypatch, capsys):
     calls = []
     elapsed = [0]
     monkeypatch.setattr(scheduler.clock, "monotonic", lambda: elapsed[0])
@@ -136,10 +123,18 @@ def test_failed_crawl_does_not_arm_followup(successful, monkeypatch):
     worker = scheduler.Scheduler(run, now, 0, interval=1800, delay=600)
     elapsed[0] = 1800
     worker.tick(now + timedelta(minutes=30), 1800)
-    assert worker.followup == (2400 if successful else None)
+    assert worker.followup == 2400
     elapsed[0] = 2400
     worker.tick(now + timedelta(minutes=40), 2400)
-    assert ("rag" in calls) is bool(successful)
+    assert calls == ["cnyes", "ltn", "rag"]
+    assert worker.followup is None
+    assert "source=cnyes exit_code=1" in capsys.readouterr().out
+    elapsed[0] = 3600
+    worker.tick(now + timedelta(minutes=60), 3600)
+    assert worker.followup == 4200
+    elapsed[0] = 4200
+    worker.tick(now + timedelta(minutes=70), 4200)
+    assert calls == ["cnyes", "ltn", "rag", "cnyes", "ltn", "rag"]
 
 
 def test_followup_delay_starts_after_successful_crawl_finishes(monkeypatch):
@@ -224,7 +219,7 @@ def test_one_shot_cli_has_stop_handlers_and_restores_them(monkeypatch, tmp_path)
         assert callable(active.get(scheduler.signal.SIGINT))
         assert callable(active.get(scheduler.signal.SIGTERM))
         assert job == "rag" and kwargs == {"start": date(2026, 7, 1), "symbols": "2330,2317", "output": tmp_path,
-            "backfill": False, "sentiment_execute": True, "sentiment_limit": 100, "sentiment_max_cost_usd": 0.5}
+            "backfill": False, "impact_execute": True, "impact_limit": 100, "impact_max_cost_usd": 0.5, "impact_since": None}
         operations.append(("run", job))
         return 9
 
@@ -235,26 +230,23 @@ def test_one_shot_cli_has_stop_handlers_and_restores_them(monkeypatch, tmp_path)
     assert operations[0] == ("lock", "scheduler") and operations[-1] == ("unlock", "scheduler")
 
 
-@pytest.mark.parametrize("job", ["rag", "all", "sentiment"])
-@pytest.mark.parametrize("flags,execute", [([], True), (["--sentiment-execute"], True),
-                                         (["--no-sentiment-execute"], False)])
-def test_cli_sentiment_defaults_opt_out_and_compatible_flag(job, flags, execute, monkeypatch):
+@pytest.mark.parametrize("job", ["rag", "all", "impact"])
+@pytest.mark.parametrize("flags,execute", [([], True), (["--impact-execute"], True),
+                                         (["--no-impact-execute"], False)])
+def test_cli_impact_defaults_opt_out_and_compatible_flag(job, flags, execute, monkeypatch):
     commands = []
     _fake_lock(monkeypatch, [])
     monkeypatch.setattr(scheduler, "run_worker", lambda command: commands.append(command) or 0)
-    assert scheduler.main(["--job", job, "--symbols", "2330", "--sentiment-limit", "25",
-                           "--sentiment-max-cost-usd", "0.2", *flags]) == 0
-    sentiment = [command for command in commands if command[0] == "sentiment-batch"]
-    assert sentiment == ([["sentiment-batch", "--incremental", "--limit", "25",
-                           "--max-cost-usd", "0.2", *(["--execute"] if execute else [])]]
-                         if job == "sentiment" else [])
+    assert scheduler.main(["--job", job, "--symbols", "2330", "--impact-limit", "25",
+                           "--impact-max-cost-usd", "0.2", *flags]) == 0
     impact = [command for command in commands if command[0] == "news-impact-batch"]
-    assert impact == ([["news-impact-batch", "--limit", "25", "--max-cost-usd", "0.2", "--execute"]]
-                      if job in {"rag", "all"} and execute else [])
+    assert impact == ([["news-impact-batch", "--limit", "25", "--max-cost-usd", "0.2",
+                         *(["--execute"] if execute else [])]]
+                      if job == "impact" or execute else [])
 
 
-@pytest.mark.parametrize("flags,execute", [([], True), (["--no-sentiment-execute"], False)])
-def test_regular_scheduler_followup_honors_sentiment_setting(flags, execute, monkeypatch):
+@pytest.mark.parametrize("flags,execute", [([], True), (["--no-impact-execute"], False)])
+def test_regular_scheduler_followup_honors_impact_setting(flags, execute, monkeypatch):
     commands = []
     elapsed = [0]
     _fake_lock(monkeypatch, [])
@@ -310,8 +302,8 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
     ["--interval-minutes", "0"], ["--interval-minutes", "nan"], ["--interval-minutes", "inf"],
     ["--rag-delay-minutes", "-1"], ["--rag-delay-minutes", "nan"], ["--rag-delay-minutes", "inf"],
     ["--symbols", ","], ["--finmind-time", "17:00+01:00"],
-    ["--sentiment-limit", "0"], ["--sentiment-max-cost-usd", "-1"],
-    ["--sentiment-max-cost-usd", "nan"], ["--sentiment-max-cost-usd", "inf"],
+    ["--impact-limit", "0"], ["--impact-max-cost-usd", "-1"],
+    ["--impact-max-cost-usd", "nan"], ["--impact-max-cost-usd", "inf"],
 ])
 def test_cli_rejects_invalid_scheduling_arguments_before_lock(args, monkeypatch):
     def fail(name):
@@ -329,3 +321,25 @@ def test_scheduler_is_an_explicit_worker_without_asgi_dependencies():
                      else [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])]
     assert not any(name.startswith(("fastapi", "starlette", "app.main", "backend", "rag", "schedule.")) for name in imports)
     assert "subprocess" in imports
+
+
+@pytest.mark.parametrize("args", [
+    ["--job", "sentiment"], ["--sentiment-execute"], ["--no-sentiment-execute"],
+    ["--sentiment-limit", "25"], ["--sentiment-max-cost-usd", "0.2"],
+])
+def test_removed_sentiment_options_fail_before_any_worker(args, monkeypatch):
+    monkeypatch.setattr(scheduler, "run_worker", lambda *_: pytest.fail("No worker may run"))
+    with pytest.raises(SystemExit) as result:
+        scheduler.main(args)
+    assert result.value.code == 2
+
+
+def test_fixed_impact_start_reaches_worker_and_sync_without_changing_default(monkeypatch):
+    commands = []
+    _fake_lock(monkeypatch, [])
+    monkeypatch.setattr(scheduler, "run_worker", lambda command: commands.append(command) or 0)
+    assert scheduler.main(["--job", "rag", "--impact-since", "2026-01-01"]) == 0
+    batch = next(command for command in commands if command[0] == "news-impact-batch")
+    assert batch[batch.index("--since") + 1] == "2026-01-01"
+    sync = next(command for command in commands if command[0] == "news-impact-sync")
+    assert int(sync[sync.index("--backfill-days") + 1]) == max(1, (datetime.now(scheduler.TAIPEI).date() - date(2026, 1, 1)).days + 1)

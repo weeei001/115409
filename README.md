@@ -10,6 +10,8 @@
 - **模擬交易與回測**：管理模擬訂單並評估策略表現。
 - **資料處理**：以獨立 worker 執行行情匯入、新聞處理、向量索引與排程。
 
+目前服務範圍為 40 檔股票，涵蓋 20 個產業、每產業 2 檔；名單見[公司目錄範圍](docs/README.md#公司目錄範圍)。官方全市場目錄另供新聞公司辨識使用，避免把未納入服務的公司誤認成名稱相近的股票。
+
 ## 技術
 
 | 範圍 | 技術 |
@@ -26,7 +28,7 @@
 
 - Python 3.12。
 - Node.js 22.9 以上與 npm。
-- MySQL，以及適用的專案資料庫 schema。專案目前沒有完整的空白資料庫初始化命令。
+- MySQL 與已建立的專案資料庫；首次部署以 `python -m app.jobs init-schema --sync-catalog` 建立資料表與官方公司目錄，詳見[首次初始化](docs/README.md#首次初始化)。
 - 新聞向量檢索與 AI 功能另需 Qdrant、embedding 及 LLM 服務。
 
 後端依賴見 [requirements.txt](backend/requirements.txt)，前端使用 [package-lock.json](frontend/Topic/package-lock.json) 安裝。

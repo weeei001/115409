@@ -64,7 +64,7 @@ def test_financial_publish_lag_boundaries(period_end, as_of, published):
 )
 def test_revenue_publish_deadline_boundaries(row_date, as_of, published):
     assert (
-        _revenue_is_published(date.fromisoformat(row_date), date.fromisoformat(as_of))
+        _revenue_is_published(_revenue(row_date, 2026, 6, 100), date.fromisoformat(as_of))
         is published
     )
 
@@ -214,7 +214,7 @@ def test_known_percentages_only_collects_percentage_fields():
 
     values = bundle.known_percentages()
 
-    assert 2.03 in values  # 漲跌幅（比對絕對值）
+    assert -2.03 in values and 2.03 not in values  # Preserve direction.
     assert 91 in values  # 百分位
     assert 66.2 in values  # 欄位名以 _pct 結尾
     assert 32.8 not in values  # 本益比不是百分比
@@ -261,7 +261,7 @@ def test_same_day_news_with_subsecond_timestamp_is_kept():
     )
     assert not _is_on_or_before_as_of(datetime(2026, 7, 14, 0, 0, 0), date(2026, 7, 13))
 
-def test_news_source_metadata_reaches_the_catalog_but_not_the_llm_payload():
+def test_news_source_metadata_reaches_catalog_and_llm_payload():
     items = build_news_items(
         [
             {
@@ -292,7 +292,35 @@ def test_news_source_metadata_reaches_the_catalog_but_not_the_llm_payload():
     assert "publisher" not in catalog["nw_02"]
 
     payload_news = bundle.as_payload_sections()["news"]
-    assert all("url" not in row and "publisher" not in row for row in payload_news)
-    assert all("published_at" not in row and "collected_at" not in row for row in payload_news)
+    assert payload_news[0]["url"] == catalog["nw_01"]["url"]
+    assert payload_news[0]["publisher"] == catalog["nw_01"]["publisher"]
+    assert payload_news[0]["published_at"] == "2026-07-17T09:00:00"
     assert [row["id"] for row in payload_news] == ["nw_01", "nw_02"]
+
+
+def test_revenue_period_and_issue_date_prevent_lookahead():
+    from app.features.analysis.evidence import revenue_availability
+    official = _revenue("2026-08-01", 2026, 8, 100)
+    official.create_time = "2026-09-10"
+    assert _revenue_items([official], date(2026, 8, 10), _IdGen("fd")) == []
+    assert _revenue_items([official], date(2026, 9, 9), _IdGen("fd")) == []
+    item = _revenue_items([official], date(2026, 9, 10), _IdGen("fd"))[0]
+    assert item["period"] == "2026-08" and item["available_at"] == "2026-09-10"
+    finmind = _revenue("2026-09-01", 2026, 8, 100)
+    assert revenue_availability(finmind)[0] == date(2026, 9, 10)
+    official.create_time = "2026-09-15"
+    assert not _revenue_is_published(official, date(2026, 9, 14))
+    assert revenue_availability(_revenue("2025-12-01", 2025, 12, 100))[0] == date(2026, 1, 10)
+    assert not _revenue_is_published(SimpleNamespace(date=date(2026, 8, 1)), date(2026, 9, 10))
+
+
+def test_anchor_does_not_combine_new_close_with_old_moving_average():
+    from app.features.analysis.evidence import build_long_term_anchor, _valuation_items
+    items, missing = build_long_term_anchor(price_rows=[_price("2026-07-10", 100), _price("2026-07-13", 120)],
+        technical_rows=[_tech("2026-07-10", ma60=100, ma240=100)], as_of_date=date(2026, 7, 14))
+    assert "vs_ma60_pct" in missing
+    assert not any(item["field"] == "vs_ma60_pct" for item in items)
+    assert next(item for item in items if item["field"] == "close_pos_in_1y_pct")["date"] == "2026-07-13"
+    valuations = _valuation_items([SimpleNamespace(date=date(2026, 7, 13), per=10)], date(2026, 7, 13), _IdGen("fd"))
+    assert valuations[0]["sample_count"] == 1 and "pct_rank_1y" not in valuations[0]
 

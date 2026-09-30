@@ -25,6 +25,24 @@ from app.jobs.finmind.transforms import (
 )
 
 
+def test_institutional_foreign_dealer_is_excluded_without_hiding_unknown_names():
+    raw = pd.DataFrame([
+        {"date": "2026-01-02", "stock_id": "2330", "name": name, "buy": buy, "sell": 1}
+        for name, buy in [("Foreign_Investor", 10), ("Foreign_Dealer_Self", 999),
+                          ("Dealer_self", 20), ("Dealer_Hedging", 30), ("Investment_Trust", 40)]
+    ])
+    result, unknown, warnings = transforms.normalize_institutional_df(raw, "2330")
+    row = result.iloc[0]
+    assert row.foreign_buy == 10 and row.foreign_sell == 1
+    assert row.dealer_buy == 50 and row.dealer_sell == 2
+    assert row.total_institutional_buy == 100 and row.total_institutional_sell == 4
+    assert not unknown and not warnings
+    changed = raw.copy()
+    changed.loc[1, "name"] = "Unrecognized_Fund"
+    _, unknown, warnings = transforms.normalize_institutional_df(changed, "2330")
+    assert unknown == ["Unrecognized_Fund"] and warnings
+
+
 def test_statement_normalizer_adds_statement_and_renames_type():
     raw = pd.DataFrame(
         [

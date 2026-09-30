@@ -12,7 +12,11 @@ from app.clients.rag import RagResult
 from app.core.errors import AppError, NotFound, ServiceUnavailable
 from app.features.market.company_catalog import load_catalog
 from app.features.news.impact import config_hash
+from app.features.news.sentiment import extract_candidate_stocks, source_quote_span
+from app.features.news.eligibility import contains_simulation
+from app.features.news.versions import source_states
 from . import repository
+from .facts import group_shared_facts
 from .common import STOCK_OPTIONS, TAIPEI, article_identity, get_source_name, parse_timestamp, source_provenance
 from .impact_metadata import IMPACT_PAYLOAD_KEYS, current_analysis, current_chunk_ids
 from .schemas import NewsSource, QuestionSearchResult, RetrievalRequest, RetrievalResponse
@@ -53,7 +57,7 @@ class RetrievalService:
             vector = VectorClient(http, settings)
         self.vector = vector
         self.settings = settings
-        self.session_factory = session_factory if settings and settings.NEWS_INDEX_VERSION else None
+        self.session_factory = session_factory
         self.catalog = load_catalog()
         if stock_options is None and self.catalog:
             stock_options = {symbol: row.get("name") for symbol, row in self.catalog.items()
@@ -112,28 +116,71 @@ class RetrievalService:
 
     async def related_news(self, db: Session, *, symbol: str, relation: str = "direct",
                            lookback_days: int = 30, limit: int = 20,
-                           as_of: str | None = None) -> dict:
+                           as_of: str | None = None, start_time: str | None = None,
+                           end_time: str | None = None, direction: str | None = None,
+                           importance: str | None = None, scope: str | None = None,
+                           industry: str | None = None, topic: str | None = None,
+                           sort_by: str = "relevance",
+                           sort_order: str = "desc", page: int = 1) -> dict:
         symbol = symbol.strip().upper()
         if relation not in {"direct", "industry_context", "market_context"}:
             raise AppError("Invalid news relation")
         name, row = self._stock_descriptor(symbol)
         end = _time_bound(as_of, "as_of") or datetime.now(TAIPEI)
+        if end_time:
+            end = min(end, _time_bound(end_time, "end_time"))
         days = max(1, min(lookback_days, 120))
+        start = _time_bound(start_time, "start_time") or end - timedelta(days=days)
+        if start > end:
+            raise AppError("start_time 不得晚於 end_time")
+        if direction not in {None, "positive", "negative", "neutral", "mixed", "uncertain"} or importance not in {None, "high", "medium", "low"}:
+            raise AppError("Invalid impact filter")
+        if sort_by not in {"relevance", "pub_time", "created_at", "importance"} or sort_order not in {"asc", "desc"} or page < 1:
+            raise AppError("Invalid news ordering or page")
         limit = max(1, min(limit, 50))
         self.vector.require_enabled()
         vector = await self.vector.embed_query(self._related_query(symbol, name, row, relation))
-        candidate_limit = min(200, max(40, limit * 5))
-        hits = await self._query(vector, symbols=None, start=end - timedelta(days=days), end=end,
+        candidate_limit = 200
+        hits = await self._query(vector, symbols=None, start=start, end=end,
                                  limit=candidate_limit)
         hits = self._select_related_hits(hits, symbol=symbol, relation=relation, row=row,
                                          limit=candidate_limit)
-        articles = repository.articles_for_hits(db, hits)
+        articles = repository.articles_for_hits(db, hits, as_of=end)
         from app.features.news.service import attach_event_analysis
 
-        items = attach_event_analysis(db, articles[:limit], symbol, settings=self.settings)
-        return {"page": 1, "page_size": limit, "total": len(items), "items": items}
+        candidates = attach_event_analysis(db, articles, symbol, settings=self.settings)
+        items = []
+        importance_rank = {"high": 3, "medium": 2, "low": 1}
+        for item in candidates:
+            relevant = [impact for impact in item.event_analysis.impacts if (
+                relation == "direct" and impact.target_type == "company" and impact.target_id == symbol
+                or relation == "industry_context" and impact.target_type == "industry" and impact.target_id in item.target_industries
+                or relation == "market_context" and impact.target_type == "market" and impact.target_id == "TW")]
+            mentioned = symbol in extract_candidate_stocks(None, None, item.title, item.content,
+                self.catalog or {symbol: {"name": name}})
+            if not relevant and not (relation == "direct" and mentioned and not direction and not importance):
+                continue
+            if direction or importance or scope or industry or topic:
+                relevant = [impact for impact in relevant if (not direction or impact.direction == direction)
+                            and (not importance or impact.importance == importance)
+                            and (not scope or impact.target_type == scope)
+                            and (not industry or impact.target_type == "industry" and impact.target_id == industry)
+                            and (not topic or any(event.key == impact.event_key and topic in event.topics
+                                                 for event in item.event_analysis.events))]
+                if not relevant:
+                    continue
+            rank = max((importance_rank[impact.importance] for impact in relevant), default=0)
+            items.append((item, rank))
+        if sort_by != "relevance":
+            items.sort(key=lambda pair: (pair[1] if sort_by == "importance" else
+                (parse_timestamp(pair[0].created_at if sort_by == "created_at" else pair[0].pub_time) or datetime.min.replace(tzinfo=TAIPEI))), reverse=sort_order == "desc")
+        elif sort_order == "asc":
+            items.reverse()
+        total = len(items)
+        return {"page": page, "page_size": limit, "total": total, "total_is_exact": False,
+                "result_scope": "retrieved_candidates", "items": [item for item, _ in items[(page - 1) * limit:page * limit]]}
 
-    def _fresh_hits(self, hits: list[dict], symbols: list[str] | None) -> list[dict]:
+    def _fresh_hits(self, hits: list[dict], symbols: list[str] | None, end: datetime | None = None) -> list[dict]:
         if not self.session_factory or not hits:
             return hits
         ids = {str((hit.get("payload") or {}).get("chunk_id") or "") for hit in hits} - {""}
@@ -142,6 +189,7 @@ class RetrievalService:
                 db, ids, include_analyses=bool(self.impact_config))
             valid = {article_id: current_chunk_ids(article, self.settings)
                      for article_id, article in articles.items()}
+            states = source_states(db, list(articles.values()), as_of=end)
             result = []
             for hit in hits:
                 payload = hit.get("payload") or {}
@@ -156,6 +204,8 @@ class RetrievalService:
                         or payload.get("pub_time") != chunk["pub_time"]):
                     continue
                 article = articles[chunk["article_id"]]
+                if contains_simulation(vars(article)) or not states[article.article_id]["eligible"]:
+                    continue
                 analysis = analyses.get(article.article_id)
                 analysis_is_current = bool(self.impact_config and current_analysis(article, analysis, self.impact_config))
                 metadata_is_current = (analysis_is_current
@@ -164,20 +214,55 @@ class RetrievalService:
                     and all(key in payload for key in IMPACT_PAYLOAD_KEYS))
                 if not metadata_is_current:
                     payload = {key: value for key, value in payload.items() if key not in IMPACT_PAYLOAD_KEYS}
-                if symbols and analysis_is_current and not set(symbols).intersection(payload.get("impact_company_ids") or []):
-                    continue
+                    payload["analysis_status"] = "metadata_pending" if analysis_is_current else "pending"
+                if symbols:
+                    mentioned = extract_candidate_stocks(None, None, None, chunk["content_chunk"], self.catalog)
+                    # A mention elsewhere in the article cannot establish this passage's relevance.
+                    grounded = {item.get("target_id") for item in payload.get("impact_context") or []
+                        if item.get("target_type") == "company" and any(
+                            span.get("field") == "content" for span in item.get("quote_spans") or [])}
+                    related = set(mentioned) | grounded
+                    relationships = []
+                    if metadata_is_current and not extract_candidate_stocks(
+                            None, None, chunk["title"], chunk["content_chunk"], self.catalog):
+                        for item in payload.get("impact_context") or []:
+                            if item.get("target_type") != "industry":
+                                continue
+                            quote_matches = any(
+                                span.get("field") == "content" and quote
+                                and isinstance(span.get("start"), int) and isinstance(span.get("end"), int)
+                                and 0 <= span["start"] - chunk["char_start"] < span["end"] - chunk["char_start"] <= len(chunk["content_chunk"])
+                                and chunk["content_chunk"][span["start"] - chunk["char_start"]:span["end"] - chunk["char_start"]] == quote
+                                for quote, span in zip(item.get("quotes") or [], item.get("quote_spans") or []))
+                            if not quote_matches:
+                                continue
+                            for symbol in symbols:
+                                if item.get("target_id") and item["target_id"] == self.catalog.get(symbol, {}).get("industry"):
+                                    relationship = {"symbol": symbol, "scope": "industry",
+                                        "relationship": "industry_context", "target_id": item["target_id"]}
+                                    if relationship not in relationships:
+                                        relationships.append(relationship)
+                                    related.add(symbol)
+                    if not set(symbols).intersection(related):
+                        continue
+                    payload = {**payload, "source_relationships": relationships}
+                payload = {**payload, "content_kind": article.content_kind,
+                           "content_truncated": chunk["content_chunk"] != (article.content or ""),
+                           "source_state": states[article.article_id]}
                 result.append({**hit, "payload": payload})
             return result
 
     async def _query(self, vector: list[float], *, symbols: list[str] | None,
                      start: datetime | None, end: datetime, limit: int) -> list[dict]:
+        if self.session_factory and not self.settings.NEWS_INDEX_VERSION:
+            raise ServiceUnavailable("News index version unavailable")
         hits = await self.vector.query(vector, symbols=symbols, start=start, end=end, limit=limit)
         # The payload is independently checked even when the vector store applies a timestamp filter.
-        hits = [hit for hit in hits if _within_window(hit, start, end)]
+        hits = [hit for hit in hits if _within_window(hit, start, end) and not contains_simulation(hit.get("payload") or {})]
         if not self.session_factory:
             return hits
         try:
-            return await asyncio.to_thread(self._fresh_hits, hits, symbols)
+            return await asyncio.to_thread(self._fresh_hits, hits, symbols, end)
         except (SQLAlchemyError, ValueError, KeyError) as exc:
             raise ServiceUnavailable("News version check unavailable") from exc
 
@@ -215,6 +300,8 @@ class RetrievalService:
             vectors["market"], symbols=None, start=start, end=end, limit=fetch_limit),
             max(3, max_events // 3)))
         picked: dict[str, NewsSource] = {}
+        passage_counts: dict[str, int] = {}
+
         for kind, hits, cap in grouped:
             count = 0
             seen = set()
@@ -236,14 +323,30 @@ class RetrievalService:
                     continue
                 seen.add(key)
                 count += 1
-                if key in picked and kind != "guidance":
-                    continue
+                content_kind = "guidance" if payload.get("analysis_status") == "success" and any(
+                    context.get("statement_type") in {"forecast", "plan"}
+                    and context.get("target_type") == "company"
+                    and context.get("target_id") in symbols
+                    and "company_operations" in (context.get("topics") or [])
+                    and any(source_quote_span(content, quote) is not None for quote in context.get("quotes") or [])
+                    for context in payload.get("impact_context") or []) else ("market" if kind == "market" else "general")
+                article_key = key
+                if key in picked:
+                    if (content_kind != "guidance" or picked[key].kind == "guidance"
+                            or passage_counts[article_key] >= 2
+                            or picked[key].id == str(payload.get("chunk_id") or hit.get("id") or "")):
+                        continue
+                    # Keep both observations and outlook; scores from separate queries are not calibrated.
+                    key = f"{key}:{payload.get('chunk_id') or hit.get('id')}"
+                passage_counts[article_key] = passage_counts.get(article_key, 0) + 1
                 picked[key] = NewsSource(
                     id=str(payload.get("chunk_id") or hit.get("id") or ""), title=title, summary=content,
                     timestamp=str(payload["pub_time"]),
-                    url=str(payload.get("url") or ""), publisher=get_source_name(payload.get("source")), kind=kind,
+                    url=str(payload.get("url") or ""), publisher=get_source_name(payload.get("source")), kind=content_kind, retrieval_branch=kind,
                     **source_provenance(payload))
-        return RetrievalResponse(news_sources=list(picked.values()), no_recent_news=no_recent_news or not picked)
+        return RetrievalResponse(news_sources=[NewsSource.model_validate(item) for item in
+            group_shared_facts([source.model_dump() for source in picked.values()], self.catalog)],
+            no_recent_news=no_recent_news or not picked)
 
     async def collect(self, *, symbol: str, lookback_days: int = 60, max_events: int = 50,
                       as_of: date | None = None, enforce_window: bool = False) -> RagResult:
@@ -266,11 +369,12 @@ class RetrievalService:
                 continue
             seen.add(key)
             item = source.model_dump()
-            item.update(timestamp=timestamp.replace(tzinfo=None).isoformat(), url=source.url or None,
+            item.update(url=source.url or None,
                         publisher=source.publisher or None)
             sources.append(item)
             if len(sources) >= max_events:
                 break
+        sources = group_shared_facts(sources, self.catalog)
         return RagResult(sources, response.no_recent_news, "degraded" if response.no_recent_news else "available",
                          "no_recent_news" if response.no_recent_news else None)
 
@@ -312,9 +416,20 @@ class RetrievalService:
                 return selected
 
             selected = select(recent, per_group, in_range=True)
+            if len(selected) < per_group and len(recent) >= per_group * 4:
+                expanded = await self._query(vector, symbols=stock_filter, start=start, end=end,
+                                             limit=min(200, per_group * 12))
+                selected.extend(select(expanded, per_group - len(selected), in_range=True))
             hits.extend(selected)
         if not hits:
             raise NotFound("未找到相關新聞：指定時間範圍內沒有可用資料，未使用更早的新聞補足。")
+        grouped = group_shared_facts([{**hit.get("payload", {}),
+            "id": str((hit.get("payload") or {}).get("chunk_id") or hit.get("id") or ""),
+            "summary": (hit.get("payload") or {}).get("page_content"),
+            "timestamp": (hit.get("payload") or {}).get("pub_time")} for hit in hits], self.catalog)
+        hits = [{**hit, "payload": {**hit.get("payload", {}),
+                 "shared_fact_ids": source["shared_fact_ids"], "shared_facts": source["shared_facts"]}}
+                for hit, source in zip(hits, grouped)]
         return QuestionSearchResult(hits=hits,
             time_from=start.replace(tzinfo=None).isoformat(sep=" ") if start else None,
             time_to=end.replace(tzinfo=None).isoformat(sep=" "),

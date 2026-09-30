@@ -1,4 +1,4 @@
-"""Bob's weighted trend prediction core, adapted to the v2 backend clients."""
+"""Bob's weighted trend prediction core, adapted to the v1 backend clients."""
 from __future__ import annotations
 
 import math
@@ -6,17 +6,24 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.clients.llm import LlmClient
 from app.core.errors import AppError
 
 
 class PredictionOutput(BaseModel):
-    direction: Literal["up", "down"]
+    direction: Literal["up", "down", "neutral"]
     change_pct_total: float = Field(gt=-100, le=100, allow_inf_nan=False)
     confidence: int = Field(ge=1, le=5)
     summary: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def consistent_direction(self):
+        expected = "up" if self.change_pct_total > 0 else "down" if self.change_pct_total < 0 else "neutral"
+        if self.direction != expected:
+            raise ValueError("direction must match change_pct_total")
+        return self
 
 
 class WeeklyPredictionOutput(BaseModel):
@@ -34,13 +41,16 @@ class TrendPredictionResponse(BaseModel):
     future_dates: list[str]
     regression_future: list[float]
     ai_future: list[float]
-    ai_direction: Literal["up", "down"]
+    ai_direction: Literal["up", "down", "neutral"]
     ai_change_pct: float = Field(gt=-100, le=100, allow_inf_nan=False)
     ai_confidence: int = Field(ge=1, le=5)
     ai_summary: str
     last_price: float = Field(gt=0, allow_inf_nan=False)
     target_price: float = Field(gt=0, allow_inf_nan=False)
     daily_sigma_pct: float = Field(ge=0, allow_inf_nan=False)
+    ai_curve_method: Literal["linear_interpolation"] = "linear_interpolation"
+    calendar_basis: Literal["weekdays_without_exchange_holidays"] = "weekdays_without_exchange_holidays"
+    return_basis: Literal["unadjusted_price"] = "unadjusted_price"
 
 
 class AnalysisDigestResponse(BaseModel):
@@ -132,7 +142,7 @@ def build_prediction_prompt(stock_id: str, stock_name: str, price_trend_desc: st
 
 請以 JSON 格式回答，不要輸出其他文字：
 {{
-  "direction": "up 或 down",
+  "direction": "up、down 或 neutral，必須與 change_pct_total 的正、負、零一致",
   "change_pct_total": 預估期間總漲跌幅（數字，例如 2.5 表示漲 2.5%，-1.8 表示跌 1.8%），
   "confidence": 信心指數 1-5（整數），
   "summary": "兩到三句繁體中文分析理由"
@@ -140,15 +150,11 @@ def build_prediction_prompt(stock_id: str, stock_name: str, price_trend_desc: st
 
 
 async def call_llm_for_prediction(llm: LlmClient, prompt: str) -> dict:
-    fallback = {
-        "direction": "up", "change_pct_total": 0.0, "confidence": 1,
-        "summary": "AI 預測服務暫時無法使用。",
-    }
     try:
         result = await llm.generate(system_prompt=prompt, payload={}, schema=PredictionOutput)
         return PredictionOutput.model_validate(result.payload).model_dump(mode="json")
-    except (AppError, ValidationError, TypeError, ValueError):
-        return fallback
+    except (AppError, ValidationError, TypeError, ValueError) as exc:
+        raise AppError("AI 預測服務暫時無法提供有效結果。", status_code=503) from exc
 
 
 async def generate_prediction(
@@ -212,6 +218,9 @@ def build_chart_payload(records: list[dict], prediction: dict, strategy: Strateg
             closes, horizon, momentum_lambda=strategy.momentum_lambda,
             mean_reversion_decay=strategy.mean_reversion_decay),
         "ai_future": ai_future,
+        "ai_curve_method": "linear_interpolation",
+        "calendar_basis": "weekdays_without_exchange_holidays",
+        "return_basis": "unadjusted_price",
         "last_price": last_price,
         "target_price": target_price,
         "daily_sigma_pct": round(math.sqrt(variance) * 100, 2),
@@ -238,4 +247,4 @@ def weekly_prompt(stock_name: str, stock_id: str, last_price: float, trend: str,
 {news_desc}{prior}
 
 請只回答 JSON，不要其他文字：
-{{"pct": "漲跌幅數字（例如 1.5 或 -2.0）", "reason": "一句話說明本週關鍵判斷依據"}}"""
+{{"pct": "相對最新收盤價 {last_price} 元的累積漲跌幅（不是相對前一週；例如 1.5 或 -2.0）", "reason": "一句話說明本週關鍵判斷依據"}}"""

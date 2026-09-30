@@ -10,14 +10,15 @@ from .schemas import (RawStockBehaviorTextBrief, RawTextBriefClaim, RawTextBrief
     TextBriefClaim, TextBriefForwardView, TextBriefKeyDay, TextBriefRisk, TextBriefWatchPoint)
 from .compliance import ComplianceHit, scan_compliance_hits
 from .evidence import EvidenceBundle
-from datetime import date
+from app.features.retrieval.common import TAIPEI
+from datetime import date, datetime, timedelta
 
 MAX_LLM_NEWS_SOURCES = 20
 ANALYSIS_LANGUAGE = "zh-TW"
 RAG_DEFAULT_NEWS_LOOKBACK_DAYS = 60
 RAG_DEFAULT_MAX_NEWS_EVENTS = 20
 NEWS_SUMMARY_CHARS: int | None = None
-TEXT_BRIEF_SCHEMA_VERSION = "text-first-v2"
+TEXT_BRIEF_SCHEMA_VERSION = "text-first-v1"
 TEXT_BRIEF_TARGET_COUNTS = {"key_days": 3, "watch_points": 2}
 TEXT_BRIEF_MAX_COUNTS = {
     "key_days": 5,
@@ -45,7 +46,7 @@ TEXT_BRIEF_DISCLAIMER_TEXT = (
 )
 TEXT_BRIEF_UNAVAILABLE_MESSAGE = "模型輸出無法解析，本次無法提供簡報。"
 TEXT_BRIEF_COMPLIANCE_UNAVAILABLE_MESSAGE = "簡報內容未通過合規檢查，本次無法提供。"
-TEXT_BRIEF_CACHE_MISS_LIMITATION = "這檔還沒有產生過 AI 分析，排程更新後才會出現。"
+TEXT_BRIEF_CACHE_MISS_LIMITATION = "目前沒有符合設定、資料版本與用途的 AI 分析，排程更新後才會出現。"
 TEXT_BRIEF_ITEM_SECTIONS = (
     "key_days",
     "current_status",
@@ -74,7 +75,246 @@ TEXT_BRIEF_COMPLIANCE_TEXT_KEYS = frozenset(
         "invalidation",
     }
 )
-PERCENT_IN_TEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+PERCENT_IN_TEXT_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%")
+
+
+def _quote_covers_date(quote: str, event_date: str, published: str | None) -> bool:
+    try:
+        day = date.fromisoformat(event_date)
+        explicit = (event_date, f"{day.year}年{day.month}月{day.day}日")
+        if any(value in quote for value in explicit):
+            return True
+        published_day = date.fromisoformat((published or "")[:10])
+        return "昨日" in quote and published_day - timedelta(days=1) == day
+    except ValueError:
+        return False
+
+
+def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -> list[str]:
+    if not (item.get("id") or "what" in item or "stance" in item):
+        return []
+    if not news:
+        return ["新聞支持契約未列入同項證據引用"] if item.get("news_support") else []
+    by_id = {row["id"]: row for row in news}
+    support = item.get("news_support") or []
+    if not support or {entry.get("evidence_id") for entry in support} != set(by_id):
+        return ["新聞主張缺少同項原文支持契約"]
+    issues = []
+    for entry in support:
+        row = by_id.get(entry.get("evidence_id"))
+        quote = entry.get("quote", "")
+        if row is None or len(quote) < 4 or quote not in str(row.get("value", "")):
+            return ["新聞主張引文不存在於引用片段"]
+        event_date = entry.get("event_date")
+        if event_date and not _quote_covers_date(quote, event_date, row.get("published_at")):
+            return ["事件日期未獲同段原文支持"]
+        if entry.get("use") == "retrospective" and (
+                not event_date or item.get("date") and event_date != item["date"]):
+            return ["回顧引用未支持指定事件日期"]
+        if "what" in item:
+            if entry.get("use") == "price_reaction":
+                try:
+                    stamp = datetime.fromisoformat(str(row.get("published_at", "")).replace("Z", "+00:00"))
+                    timely = (stamp.tzinfo is not None
+                              and stamp.astimezone(TAIPEI).date().isoformat() == item["date"]
+                              and (stamp.astimezone(TAIPEI).hour, stamp.astimezone(TAIPEI).minute) < (13, 30)
+                              and event_date == item["date"])
+                except (ValueError, KeyError):
+                    timely = False
+                if not timely:
+                    entry["use"] = "reported_fact"
+                    issues.append("未核實消息與價格反應時間；已分列行情與報導")
+            # The model's free-form cause is replaced, regardless of its verbs.
+            # Exact source attribution retains facts without asserting market motives.
+            observation = bundle.timeline_by_id().get(item.get("ref"), {})
+            close = observation.get("close")
+            price = f"收盤 {close:g} 元。" if isinstance(close, (int, float)) else "當日行情見資料。"
+            published = row.get("published_at") or row.get("date") or "發布時間未知"
+            role = "回顧" if entry.get("use") == "retrospective" else "報導"
+            item["what"] = f"{price}{published} {role}：「{quote}」。報導與行情分列，未核實價格因果。"
+        else:
+            texts = " ".join(str(item.get(key, "")) for key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS)
+            quoted = " ".join(str(value.get("quote", "")) for value in support)
+            source_text = str(row.get("value", ""))
+            offset = source_text.index(quote)
+            paragraph_start = source_text.rfind("\n", 0, offset) + 1
+            paragraph_end = source_text.find("\n", offset + len(quote))
+            paragraph = source_text[paragraph_start:paragraph_end if paragraph_end >= 0 else len(source_text)]
+            aggregate = r"(?:\d+|多|各)家金控|金控(?:業|整體|合計)|整體金控|全體金控"
+            if (re.search(aggregate, paragraph) and re.search(r"獲利|盈餘", quote)
+                    and re.search(r"獲利|盈餘", texts) and not re.search(aggregate, texts)):
+                return ["金控合計獲利未保留產業主詞，不能當成單一公司獲利"]
+            # Product acronyms are literal identities, unlike complete entailment.
+            terms = set(re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", texts)) - {"EPS", "TWD", "RSI", "MACD"}
+            if any(term not in quoted for term in terms):
+                return ["主張的產品或實體名稱不在同項引文"]
+    return issues
+
+
+def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
+    """Reject known numeric/citation contradictions; this is not semantic verification."""
+    refs = set(item.get("evidence_ids") or [])
+    if item.get("ref"):
+        refs.add(item["ref"])
+    if not refs:
+        if item.get("claim_type") != "limitation" and item.get("stance") != "uncertain":
+            return ["缺少同項證據引用"]
+    rows = [row for row in bundle.catalog() if row["id"] in refs]
+    timeline = [row for row in bundle.daily_timeline if row["id"] in refs]
+    issues = []
+    news = [row for row in rows if row.get("field") == "news"]
+
+    def dated(candidates, text, offset):
+        dates = re.findall(r"\d{4}-\d{2}-\d{2}", text[:offset])
+        target = dates[-1] if dates else None
+        selected = []
+        for row in candidates:
+            row_target = target or (item.get("date") if row["id"].startswith("d_") else None)
+            if not row_target or row.get("date") == row_target:
+                selected.append(row)
+        return selected
+
+    issues.extend(_news_support_issues(item, news, bundle))
+    for key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS:
+        text = item.get(key)
+        if not isinstance(text, str):
+            continue
+        if (re.search(r"(?:基本面|盤價|產品售價|出廠價|報價)[^。；;]{0,10}(?:調漲|調降)", text)
+                and not news):
+            issues.append("公司調價事件缺少同項新聞依據，行情與籌碼不能證明營運事件")
+        if any(row.get("field") in {"per", "pbr", "dividend_yield"} for row in rows):
+            for clause in re.split(r"[。；;，\n]", text):
+                strong = re.search(r"(?:強大|強勁|堅實|穩固|強力)(?:的)?(?:下行|下檔|股價)?(?:支撐|保護)"
+                                   r"|(?:下行|下檔)(?:支撐|保護)(?:穩固|強大|堅實)", clause)
+                if strong and not re.search(r"不能|無法|未能|不代表|尚未證明", clause[:strong.start()]):
+                    issues.append("估值與殖利率數值不能證明強大下行支撐，須保留有條件推論與限制")
+        if key not in FORWARD_CONDITION_KEYS:
+            for clause in re.split(r"[。；;\n]", text):
+                if not re.search(r"營收[^。；;]{0,12}(?:年增|年減|年成長|年衰退|較去年|比去年)", clause):
+                    continue
+                if re.search(r"缺少|未提供|未取得|無法確認|無法判斷|資料不足|仍待確認|是否", clause):
+                    continue
+                growth = [row.get("yoy_pct") for row in rows if row.get("field") == "revenue_monthly"]
+                for row in rows:
+                    if row.get("field") == "revenue_monthly":
+                        growth.extend(entry[1] for entry in row.get("yoy_last6", [])
+                                      if len(entry) == 2 and entry[0] == row.get("period"))
+                growth = [value for value in growth if isinstance(value, (int, float))]
+                supported = bool(growth)
+                if re.search(r"年增(?:率)?(?:強勁|亮眼)|年增(?:率)?(?:為|維持)?正|年成長", clause):
+                    supported = any(value > 0 for value in growth)
+                elif re.search(r"年減|年衰退|年增率(?:為|轉為)?負", clause):
+                    supported = any(value < 0 for value in growth)
+                quoted = any(re.search(r"營收[^。；;]{0,24}(?:年增|年減|年成長|年衰退|較去年|比去年)",
+                                      str(entry.get("quote", ""))) for entry in item.get("news_support", [])
+                             if entry.get("evidence_id") in {row["id"] for row in news})
+                if not supported and not quoted:
+                    issues.append("營收年增敘述缺少同項年增資料或原文，單月金額不能證明成長方向")
+        for match in PERCENT_IN_TEXT_RE.finditer(text):
+            number = float(match.group(1))
+            prefix = text[max(0, match.start() - 24):match.start()]
+            if not match.group(1).startswith(("+", "-")) and re.search(r"(?:下跌|下滑|減少|衰退|負成長|跌幅|重挫|年減|月減|季減)\s*$", prefix):
+                number = -number
+            metric_matches = [(found.end(), field) for pattern, field in (
+                (r"一年(?:高低)?區間|收盤價位置|年度高位", "close_pos_in_1y_pct"),
+                (r"二十日均線|月線", "vs_ma20_pct"), (r"六十日均線|季線", "vs_ma60_pct"),
+                (r"二百四十日均線|年線", "vs_ma240_pct"),
+                (r"量|均量", "vol_vs_ma5_pct"), (r"年增|年減", "yoy_pct"),
+                (r"月增|月減", "mom_pct"), (r"季增|季減|較前季|比上季", "qoq_pct"),
+                (r"毛利率", "gross_margin_pct"), (r"營業利益率", "operating_margin_pct"),
+                (r"殖利率", "dividend_yield"), (r"漲|跌", "chg_pct"),
+            ) for found in re.finditer(pattern, prefix)]
+            metric = max(metric_matches, default=(0, None), key=lambda match: match[0])[1]
+            if metric is None and re.search(r"年度高位|年(?:度)?區間位置", text[match.end():match.end() + 12]):
+                metric = "close_pos_in_1y_pct"
+            if re.search(r"分佈|百分位|排名", prefix):
+                metric = "pct_rank_1y"
+            if metric in {"chg_pct", "vol_vs_ma5_pct", "vs_ma20_pct"}:
+                candidates = [row.get(metric) for row in dated(timeline, text, match.start())]
+            else:
+                candidates = []
+                for row in dated(rows, text, match.start()):
+                    if metric in {"yoy_pct", "mom_pct", "qoq_pct"}:
+                        if re.search(r"EPS|每股盈餘", prefix, re.I) and row.get("field") != "eps":
+                            continue
+                        if "營收" in prefix and row.get("field") != "revenue_monthly":
+                            continue
+                    if metric in {"yoy_pct", "mom_pct", "qoq_pct", "pct_rank_1y"}:
+                        candidates.append(row.get(metric))
+                    elif metric and row.get("field") == metric:
+                        candidates.append(row.get("value"))
+            if not any(isinstance(value, (int, float)) and abs(number - value) <= 0.1 for value in candidates):
+                quoted = any(any(abs(float(found.group(1)) - float(match.group(1))) <= TEXT_BRIEF_NUMBER_TOLERANCE_PP
+                                 for found in PERCENT_IN_TEXT_RE.finditer(str(row.get("value", "")))) for row in news)
+                if quoted:
+                    issues.append(f"未核實新聞百分比語義：{match.group(0)}")
+                else:
+                    issues.append(f"百分比未獲同項證據支持：{match.group(0)}")
+        for match in re.finditer(r"(?:EPS|每股盈餘)\s*(?:為|是|達|[:：])?\s*([+-]?\d+(?:\.\d+)?)", text, re.I):
+            number = float(match.group(1))
+            if not any(row.get("field") == "eps" and isinstance(row.get("value"), (int, float))
+                       and abs(row["value"] - number) <= 0.01 for row in dated(rows, text, match.start())):
+                issues.append("EPS 未獲同項證據支持")
+        for match in FORWARD_PRICE_RE.finditer(text):
+            clause_start = max(text.rfind(char, 0, match.start()) for char in "。；;\n") + 1
+            clause_end = min((pos for char in "。；;\n" if (pos := text.find(char, match.end())) >= 0), default=len(text))
+            clause = text[clause_start:clause_end]
+            if not re.search(r"收盤|股價|價格|價位|支撐|壓力|跌破|站上", clause):
+                continue
+            candidates = [row.get("close") for row in dated(timeline, text, match.start())]
+            candidates += [row.get("value") for row in dated(rows, text, match.start())
+                           if row.get("field") in {"high_1y", "low_1y"}]
+            for amount in re.findall(r"[\d,]+(?:\.\d+)?", match.group(1)):
+                number = float(amount.replace(",", ""))
+                supported = any(isinstance(value, (int, float)) and abs(value - number) <= 0.01 for value in candidates)
+                prefix = text[max(clause_start, match.start() - 8):match.start()]
+                if key not in FORWARD_CONDITION_KEYS and not re.search(r"若|如果|將|預期|未來", clause):
+                    closes = [row.get("close") for row in dated(timeline, text, match.start())]
+                    if re.search(r"突破|站上", prefix):
+                        supported |= any(isinstance(value, (int, float)) and value > number for value in closes)
+                    elif "跌破" in prefix:
+                        supported |= any(isinstance(value, (int, float)) and value < number for value in closes)
+                if not supported:
+                    issues.append("價格未獲同項證據支持")
+        for match in re.finditer(r"(?:本益比|PER|P/E|股價淨值比|PBR|P/B)[^。；;\d]{0,16}([\d,]+(?:\.\d+)?)\s*倍", text, re.I):
+            metric = "pbr" if re.match(r"股價淨值比|PBR|P/B", match.group(), re.I) else "per"
+            number = float(match.group(1).replace(",", ""))
+            metric_rows = [row for row in dated(rows, text, match.start()) if row.get("field") == metric]
+            supported = any(isinstance(row.get("value"), (int, float)) and abs(row["value"] - number) <= 0.01
+                            for row in metric_rows)
+            quote_pattern = (r"(?:本益比|PER|P/E)" if metric == "per" else r"(?:股價淨值比|PBR|P/B)")
+            supported |= any(any(float(found.group(1).replace(",", "")) == number for found in re.finditer(
+                quote_pattern + r"[^。；;\d]{0,16}([\d,]+(?:\.\d+)?)\s*倍", str(entry.get("quote", "")), re.I))
+                for entry in item.get("news_support", []) if entry.get("evidence_id") in refs)
+            # A labeled scenario is a model assumption, not an observed valuation.
+            prefix = re.split(r"[。；;\n]", text[:match.start()])[-1]
+            scenario = (key in FORWARD_CONDITION_KEYS or item.get("claim_type") == "inference") and bool(
+                re.search(r"情境假設|假設門檻", prefix)) and bool(metric_rows)
+            if not supported and not scenario:
+                issues.append("估值倍數未獲同項證據支持，情境門檻須明示為假設")
+        if re.search(r"MACD|柱狀體", text, re.I):
+            values = [row["macd_hist"] for row in sorted(timeline, key=lambda row: str(row.get("date", "")))
+                      if isinstance(row.get("macd_hist"), (int, float))]
+            checks = ((r"由負轉正", len(values) >= 2 and values[0] < 0 < values[-1]),
+                      (r"由正轉負", len(values) >= 2 and values[0] > 0 > values[-1]),
+                      (r"持續(?:擴大|增加|走高)", len(values) >= 2 and all(b > a for a, b in zip(values, values[1:]))),
+                      (r"持續(?:縮小|下降|走低)", len(values) >= 2 and all(b < a for a, b in zip(values, values[1:]))))
+            for pattern, supported in checks:
+                indicator_clauses = [clause for clause in re.split(r"[。；;，\n]", text)
+                                     if re.search(r"MACD|柱狀體", clause, re.I)]
+                if any(re.search(pattern, clause) for clause in indicator_clauses) and not supported:
+                    issues.append("MACD 趨勢未獲同項日期序列支持")
+        for match in re.finditer(r"([+-]?\d[\d,]*(?:\.\d+)?)\s*張", text):
+            number = float(match.group(1).replace(",", ""))
+            prefix = text[max(0, match.start() - 18):match.start()]
+            if "賣超" in prefix and not match.group(1).startswith(("+", "-")):
+                number = -number
+            ten_days = bool(re.search(r"十|10", prefix))
+            candidates = ([row.get("value") for row in dated(rows, text, match.start()) if row.get("field") == "foreign_net_10d_lots"]
+                          if ten_days else [row.get("foreign_net_lots") for row in dated(timeline, text, match.start())])
+            if not any(isinstance(value, (int, float)) and abs(number - value) <= 0.5 for value in candidates):
+                issues.append("法人張數或統計期間未獲同項證據支持")
+    return list(dict.fromkeys(issues))
 
 
 
@@ -327,6 +567,9 @@ def _apply_text_brief_compliance_gate(
         kept = []
         for item in brief_payload[section]:
             hits = _scan_text_brief_compliance(item, prices=prices)
+            if bundle is not None:
+                hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
+                            for issue in _grounding_issues(item, bundle))
             hard = [hit for hit in hits if hit.severity == "hard"]
             hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
             soft_hits.extend(
@@ -343,6 +586,9 @@ def _apply_text_brief_compliance_gate(
     if allow_partial_forward_views:
         for horizon, view in brief_payload["forward_views"].items():
             hits = _scan_text_brief_compliance(view, prices=prices)
+            if bundle is not None:
+                hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
+                            for issue in _grounding_issues(view, bundle))
             hard = [hit for hit in hits if hit.severity == "hard"]
             if hard:
                 hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
@@ -355,6 +601,11 @@ def _apply_text_brief_compliance_gate(
                     "validation_status": "rejected",
                 }
 
+        if any(item.startswith("forward_views.") for item in removed_ids):
+            brief_payload["overall_stance"] = "uncertain"
+            brief_payload["confidence"] = "low"
+            brief_payload["confidence_reason"] = "部分期間展望未通過證據檢查，無法保留原有總體方向；請分別參考仍有效的觀察。"
+
     core_payload = {
         "headline": brief_payload["headline"],
         "confidence_reason": brief_payload["confidence_reason"],
@@ -362,6 +613,14 @@ def _apply_text_brief_compliance_gate(
         "forward_views": brief_payload["forward_views"],
     }
     core_hits = _scan_text_brief_compliance(core_payload, prices=prices)
+    if bundle is not None:
+        summary = {"headline": brief_payload["headline"], "confidence_reason": brief_payload["confidence_reason"],
+                   "evidence_ids": list(_text_brief_referenced_ids(brief_payload))}
+        core_hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
+                         for issue in _grounding_issues(summary, bundle))
+        for view in brief_payload["forward_views"].values():
+            core_hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
+                             for issue in _grounding_issues(view, bundle))
     hard_violations.extend(
         f"{hit.rule}: {hit.snippet}"
         for hit in core_hits
@@ -372,11 +631,15 @@ def _apply_text_brief_compliance_gate(
         for hit in core_hits
         if hit.severity == "soft"
     )
+    if any(not brief_payload[section] for section in TEXT_BRIEF_ITEM_SECTIONS if section != "source_divergences"):
+        brief_payload["overall_stance"] = "uncertain"
+        brief_payload["confidence"] = "low"
+        brief_payload["confidence_reason"] = "部分段落沒有通過檢查的依據，僅保留可核對的內容，無法據此提供總體方向。"
     return (
         removed_ids,
         hard_violations,
         soft_hits,
-        any(hit.severity == "hard" for hit in core_hits),
+        any(hit.severity == "hard" for hit in core_hits) or not any(brief_payload[section] for section in TEXT_BRIEF_ITEM_SECTIONS),
     )
 
 def _text_brief_referenced_ids(value: Any) -> set[str]:

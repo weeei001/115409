@@ -21,6 +21,7 @@ from app.features.retrieval.common import (STOCK_KEYWORDS, STOCK_OPTIONS, get_so
                                             normalize_source_url, source_provenance)
 from app.features.retrieval.service import RetrievalService
 
+from .claims import numeric_claims_supported
 from .comparison_context import collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
@@ -29,8 +30,7 @@ from .stock_context import collect_stock_sources
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
                       INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER,
                       NO_NEWS_MESSAGE, TIME_FALLBACK_WARNING)
-from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, DashboardMetrics,
-                      DashboardTable, Intent, SourceChunk)
+from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
 
 
 def _is_forward_outlook(query: str) -> bool:
@@ -43,68 +43,6 @@ def _is_forward_outlook(query: str) -> bool:
 def _is_insufficient_only(raw_text: str) -> bool:
     without_citations = re.sub(r"\s*\[S[1-9][0-9]*\]", "", raw_text).strip()
     return without_citations == INSUFFICIENT_EVIDENCE_ANSWER
-
-
-def _directional_evidence_available(response: AskResponse) -> bool:
-    return any(source.category in {"market_technical", "institutional", "fundamental", "comparison", "news"}
-               and source.content.strip() for source in response.sources)
-
-
-def _citation_suffix(ids: list[str]) -> str:
-    unique = list(dict.fromkeys(value for value in ids if value))
-    return "".join(f"[{value}]" for value in unique)
-
-
-def _forward_outlook_fallback(response: AskResponse) -> str:
-    """Give a cited, conditional answer if the model abstains despite usable evidence."""
-    dashboard = response.dashboard
-    metrics = next((block for block in (dashboard.blocks if dashboard else [])
-                    if isinstance(block, DashboardMetrics) and "價量" in block.title), None)
-    price_items = {item.label: item for item in metrics.items} if metrics else {}
-    price_ids = metrics.source_ids if metrics else []
-    close = price_items.get("收盤價")
-    change = price_items.get("漲跌幅")
-    date = (close.date if close else None) or (change.date if change else None)
-    name = STOCK_OPTIONS.get(response.detected_stocks[0], response.detected_stocks[0]) \
-        if response.detected_stocks else "這檔股票"
-
-    institutional = next((block for block in (dashboard.blocks if dashboard else [])
-                          if isinstance(block, DashboardTable) and block.title == "法人買賣超"), None)
-    foreign = None
-    institutional_ids = institutional.source_ids if institutional else []
-    if institutional and institutional.rows and len(institutional.rows[0]) > 2:
-        try:
-            foreign = float(institutional.rows[0][2].replace(",", ""))
-        except (AttributeError, ValueError):
-            pass
-
-    if isinstance(change.value if change else None, (int, float)) and foreign is not None:
-        if change.value > 0 and foreign > 0:
-            stance = "短線偏多"
-        elif change.value < 0 and foreign < 0:
-            stance = "短線偏空"
-        else:
-            stance = "震盪／訊號分歧"
-    else:
-        stance = "方向不明"
-
-    details = []
-    if close and isinstance(close.value, (int, float)):
-        details.append(f"最新收盤 {close.value:g} 元")
-    if change and isinstance(change.value, (int, float)):
-        details.append(f"最新一日漲跌幅 {change.value:g}%")
-    dated = f"（資料日期 {date}）" if date else ""
-    price_sentence = (f"目前不能把{name}下週一定會漲當成確定結果；就現有資料，最新觀察為"
-                      f"{'、'.join(details) if details else '近期價量資料'}{dated}，這是已發生的行情，不是下週預測。"
-                      f"{_citation_suffix(price_ids or [source.citation_id for source in response.sources[:1]])}")
-
-    signal_parts = [f"若只看目前可取得的價量與法人訊號，初步判讀為「{stance}」"]
-    if foreign is not None:
-        signal_parts.append(f"最新外資買賣超為 {foreign:g} 股")
-    signal_sentence = "；".join(signal_parts) + "。這是條件式推論，不代表保證；下週仍要觀察收盤、成交量與法人方向是否延續。"
-    signal_sentence += _citation_suffix(price_ids + institutional_ids or
-                                        [source.citation_id for source in response.sources[:1]])
-    return f"{price_sentence}\n\n{signal_sentence}"
 
 
 def taipei_now() -> datetime:
@@ -184,8 +122,8 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
     answer = raw_text.strip()
     if not answer:
         raise ServiceUnavailable("模型服務未回傳有效內容，請稍後重試")
-    if answer == INSUFFICIENT_EVIDENCE_ANSWER:
-        return answer + warning
+    if _is_insufficient_only(answer):
+        return INSUFFICIENT_EVIDENCE_ANSWER + warning
 
     # Normalize citation typography only; every resulting ID is still checked below.
     answer = re.sub(
@@ -219,6 +157,12 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
                 and not is_structural_list_intro
                 and not re.search(citation_pattern, paragraph)):
             raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
+
+    for paragraph in paragraphs:
+        paragraph_sources = [available[citation] for citation in re.findall(citation_pattern, paragraph)
+                             if citation in available]
+        if paragraph_sources and not numeric_claims_supported(paragraph, paragraph_sources):
+            raise CitationValidationError("回答的數值與所引用資料無法核對，請稍後重試。")
 
     references = []
     for citation in cited:
@@ -356,6 +300,10 @@ class ChatService:
             response.time_range = {"from": time_from, "to": time_to}
         warning = ""
         unavailable = []
+        if "market" in needs:
+            unsupported = [symbol for symbol in symbols if symbol not in market_symbols]
+            if unsupported:
+                unavailable.append("以下股票不支援行情與基本面查詢：" + "、".join(unsupported) + "；不能據此完成全體比較。")
         news_error = None
         if "news" in needs:
             try:
@@ -396,11 +344,18 @@ class ChatService:
                 unavailable.append("指定區間內沒有可採用的完整日資料。")
             else:
                 try:
-                    response.sources.extend(await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date))
+                    market_sources = await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date)
+                    response.sources.extend(market_sources)
+                    missing = [symbol for symbol in market_symbols if not any(
+                        source.stock_id == symbol and source.category == "market_technical" for source in market_sources)]
+                    if missing:
+                        unavailable.append("以下股票缺少指定區間的價量資料：" + "、".join(missing) + "；不能據此完成全體比較。")
                 except (SQLAlchemyError, ServiceUnavailable) as exc:
                     logging.getLogger(__name__).warning("Chat market source unavailable: %s", type(exc).__name__)
                     unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
 
+        if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
+            unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
         response.sources.extend(collect_knowledge_sources(
             query, include_help="help" in needs, include_knowledge=bool(needs & {"market", "knowledge"})))
         if news_error and needs == {"news"}:
@@ -418,6 +373,10 @@ class ChatService:
             star = "★ " if item.category == "news" and item.in_time_range else ""
             impact_context = ("\n事件影響判讀（AI 推論；須以原文核對，不等於股價預測）："
                               + json.dumps(item.impact_context, ensure_ascii=False)) if item.impact_context else ""
+            if item.shared_facts:
+                impact_context += "\n共同事實（相同 fact_id 非獨立佐證）：" + json.dumps(item.shared_facts, ensure_ascii=False)
+            if item.source_relationships:
+                impact_context += "\n來源與目標關係（industry_context 為產業背景，非該公司已發生事實）：" + json.dumps(item.source_relationships, ensure_ascii=False)
             context_parts.append(f"[{star}片段{number}] [{item.citation_id}] 標題：{item.title}\n"
                                  f"類別：{item.category} | 股票：{item.stock_id}\n"
                                  f"來源：{item.source_name} | 時間：{item.pub_time or '參考定義／無發布時間'}\n"
@@ -433,9 +392,9 @@ class ChatService:
                            "common window; without an explicit range the price comparison uses the last 30 calendar "
                            "days. Individual technical timelines contain at most 40 observations. State actual dates.")
         if forward_outlook:
-            time_focus += ("\nThis is a future direction question. Give a conditional directional assessment from the "
-                           "latest supplied evidence; do not answer only with the insufficient-evidence sentence "
-                           "when relevant evidence exists, and do not present the assessment as certain.")
+            time_focus += ("\nThis is a future direction question. Distinguish observations from predictions. "
+                           "Abstain when the evidence cannot support a direction; source availability alone "
+                           "does not establish predictive evidence.")
         time_focus += "\n本輪介面呈現的資料面板：" + json.dumps(
             [block.model_dump(include={"kind", "title", "description", "source_ids"})
              for block in response.dashboard.blocks] if response.dashboard else [], ensure_ascii=False)
@@ -446,9 +405,6 @@ class ChatService:
 
     async def _validate_response(self, raw_text, metadata, response, request, prompt, warning):
         try:
-            if (_is_forward_outlook(request.query) and _directional_evidence_available(response)
-                    and _is_insufficient_only(raw_text)):
-                raise CitationValidationError("未提供未來方向的條件式判讀。")
             response.answer = _checked_answer(raw_text, metadata, response.sources, warning)
         except CitationValidationError:
             # Retry once from the same evidence; never publish or attach citations to rejected prose.
@@ -459,25 +415,15 @@ class ChatService:
                     "and bullet, including uncertainty and limitations, must end with a supporting "
                      "[S1] style citation from the supplied sources. Use [S1][S2] for multiple sources. "
                      "If the evidence cannot answer the question, use the exact insufficient-evidence reply. "
-                     "For a future direction question with relevant evidence, give a conditional direction "
-                     "(偏多、偏空、震盪 or 方向不明) and do not answer only with insufficient evidence."
                 ),
                 prompt=prompt,
             )
             try:
-                if (_is_forward_outlook(request.query) and _directional_evidence_available(response)
-                        and _is_insufficient_only(result.raw_text)):
-                    raise CitationValidationError("模型仍未提供未來方向的條件式判讀。")
                 response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning)
             except CitationValidationError:
-                if not (_is_forward_outlook(request.query) and _directional_evidence_available(response)):
+                if not _is_forward_outlook(request.query):
                     raise
-                response.answer = _checked_answer(
-                    _forward_outlook_fallback(response),
-                    {"finish_reason": "stop"},
-                    response.sources,
-                    warning,
-                )
+                response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
             metadata = {key: (metadata.get(key) or 0) + (result.metadata.get(key) or 0)
                         if metadata.get(key) is not None or result.metadata.get(key) is not None else None
                         for key in ("prompt_tokens", "completion_tokens", "thinking_tokens")}

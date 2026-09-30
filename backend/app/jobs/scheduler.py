@@ -1,4 +1,4 @@
-"""Standalone serial scheduler. It runs only v2 CLI commands and owns no ASGI app."""
+"""Standalone serial scheduler. It runs only v1 CLI commands and owns no ASGI app."""
 import argparse
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -31,8 +31,8 @@ def run_worker(command: list[str]) -> int:
 
 
 def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, run=None,
-                 sentiment_execute=True, sentiment_limit=100, sentiment_max_cost_usd=0.50,
-                 backfill=False) -> int:
+                 impact_execute=True, impact_limit=100, impact_max_cost_usd=0.50,
+                 backfill=False, impact_since: date | None = None) -> int:
     run = run or run_worker
     commands = []
     if job in {"market", "all"}:
@@ -57,26 +57,30 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
         commands.append(["migrate-news-impact-schema"])
     if job in {"rag", "all"}:
         commands.append(["news-ingest"])
-    if job == "impact" or sentiment_execute and job in {"rag", "all"}:
-        commands.append(["news-impact-batch", "--limit", str(sentiment_limit),
-                         "--max-cost-usd", str(sentiment_max_cost_usd),
-                         *(["--execute"] if sentiment_execute else [])])
-        if sentiment_execute:
-            commands.append(["news-impact-sync", "--execute"])
+    if job == "impact" or impact_execute and job in {"rag", "all"}:
+        commands.append(["news-impact-batch", "--limit", str(impact_limit),
+                         "--max-cost-usd", str(impact_max_cost_usd),
+                         *(["--since", impact_since.isoformat()] if impact_since else []),
+                         *(["--execute"] if impact_execute else [])])
+        if impact_execute:
+            commands.append(["news-impact-sync", "--execute",
+                *(["--backfill-days", str(max(1, (datetime.now(TAIPEI).date() - impact_since).days + 1))]
+                  if impact_since else [])])
     if job in {"rag", "text-brief", "all"}:
         commands.append(["cache-warmup", *(["--symbols", symbols] if symbols else [])])
-    if job == "sentiment":
-        commands.append(["sentiment-batch", "--incremental",
-                         "--limit", str(sentiment_limit), "--max-cost-usd", str(sentiment_max_cost_usd),
-                         *(["--execute"] if sentiment_execute else [])])
     exit_code = 0
+    ingestion_failed = False
     for command in commands:
+        if command[0] == "news-impact-sync" and ingestion_failed:
+            print(f"job={command[0]} skipped=upstream_failure", flush=True)
+            continue
         result = run(command)
         print(f"job={command[0]} exit_code={result}", flush=True)
         if result:
-            if command[0] not in {"cache-warmup", "sentiment-batch", "news-impact-batch", "news-impact-sync"}:
+            if command[0] not in {"cache-warmup", "news-impact-batch", "news-impact-sync", "news-ingest"}:
                 return result
             exit_code = exit_code or result
+            ingestion_failed = ingestion_failed or command[0] == "news-ingest"
     return exit_code
 
 
@@ -109,7 +113,10 @@ class Scheduler:
             if monotonic >= self.next_news[name]:
                 result = self.run(name)
                 self.next_news[name] = finished_at() + self.interval
-                if result == 0 and self.followup is None:
+                if result:
+                    print(f"source={name} exit_code={result} followup=use_available_data", flush=True)
+                # A page failure can coexist with committed articles and pending SQL analysis.
+                if self.followup is None:
                     self.followup = finished_at() + self.delay
         if self.followup is not None and finished_at() >= self.followup:
             self.followup = None
@@ -117,33 +124,35 @@ class Scheduler:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Standalone v2 scheduler, independent of FastAPI lifecycle")
+    parser = argparse.ArgumentParser(description="Standalone v1 scheduler, independent of FastAPI lifecycle")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2021, 1, 1))
     parser.add_argument("--symbols", help="Limit market processing to these codes; default is all listed/OTC companies")
     parser.add_argument("--out", type=Path, default=state_directory() / "market")
     parser.add_argument("--run-now", action="store_true")
     parser.add_argument("--backfill", action="store_true",
                         help="Backfill all historical stock_info data before the first market/AI run")
-    parser.add_argument("--job", choices=["market", "finmind", "cnyes", "ltn", "rag", "text-brief", "sentiment", "impact", "all"])
+    parser.add_argument("--job", choices=["market", "finmind", "cnyes", "ltn", "rag", "text-brief", "impact", "all"])
     parser.add_argument("--interval-minutes", type=float, default=30)
     parser.add_argument("--rag-delay-minutes", type=float, default=10)
     parser.add_argument("--market-time", "--finmind-time", dest="market_time", type=time.fromisoformat, default=time(17))
-    parser.add_argument("--impact-execute", "--sentiment-execute", dest="sentiment_execute",
+    parser.add_argument("--impact-execute", dest="impact_execute",
                         action=argparse.BooleanOptionalAction, default=True,
                         help="Execute event impact analysis in rag/all pipelines (default: enabled)")
-    parser.add_argument("--impact-limit", "--sentiment-limit", dest="sentiment_limit",
+    parser.add_argument("--impact-limit", dest="impact_limit",
                         type=int, default=100, help="Maximum articles per event impact run")
-    parser.add_argument("--impact-max-cost-usd", "--sentiment-max-cost-usd",
-                        dest="sentiment_max_cost_usd", type=float, default=0.50,
+    parser.add_argument("--impact-max-cost-usd",
+                        dest="impact_max_cost_usd", type=float, default=0.50,
                         help="Estimated model budget per event impact run")
+    parser.add_argument("--impact-since", type=date.fromisoformat,
+                        help="Fixed publication start date for incremental event analysis; default is the last 30 days")
     args = parser.parse_args(argv)
     if not math.isfinite(args.interval_minutes) or not math.isfinite(args.rag_delay_minutes) or args.interval_minutes <= 0 or args.rag_delay_minutes < 0:
         parser.error("interval must be positive and delay must not be negative")
     if args.market_time.tzinfo is not None:
         parser.error("--market-time is a Taiwan local time without a timezone suffix")
-    if (args.sentiment_limit < 1 or not math.isfinite(args.sentiment_max_cost_usd)
-            or args.sentiment_max_cost_usd < 0):
-        parser.error("sentiment limit must be positive and budget must be finite and nonnegative")
+    if (args.impact_limit < 1 or not math.isfinite(args.impact_max_cost_usd)
+            or args.impact_max_cost_usd < 0):
+        parser.error("impact limit must be positive and budget must be finite and nonnegative")
     symbols = ",".join(dict.fromkeys(s.strip() for s in args.symbols.split(",") if s.strip())) if args.symbols else None
     if args.symbols is not None and not symbols:
         parser.error("symbols must not be empty")
@@ -158,8 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         use_backfill = backfill and job in {"market", "all"}
         result = run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
                             backfill=use_backfill,
-                            sentiment_execute=args.sentiment_execute, sentiment_limit=args.sentiment_limit,
-                            sentiment_max_cost_usd=args.sentiment_max_cost_usd)
+                            impact_execute=args.impact_execute, impact_limit=args.impact_limit,
+                            impact_max_cost_usd=args.impact_max_cost_usd, impact_since=args.impact_since)
         if use_backfill and result == 0:
             backfill = False
         return result

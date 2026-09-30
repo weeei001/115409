@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { EvidenceDetail } from '../../features/brief/EvidenceDetail';
+import { KeyPointsTab, ScenarioTab } from '../../features/brief/BriefSections';
 import type { Brief, EvidenceItem } from '../types/textBrief';
 import { buildEvidenceIndex, resolveEvidenceItem } from './textBriefEvidence';
 import { buildClaimIndex, claimsUsingEvidence } from './textBriefClaims';
@@ -210,11 +214,11 @@ const AS_OF = '2026-09-03';
     ['資料不足', '資料不足', '資料不足', '資料不足', '未列出']
   );
 
-  // 證據缺均線時退回本站價量計算，並在規則裡說清楚
+  // Chart selection must not supply evidence for a separately dated snapshot.
   const fallback = buildFacets([], { maStructureLabel: '偏多' });
   const momentum = fallback.find((facet) => facet.key === 'momentum')!;
-  assert.equal(momentum.levelLabel, '強');
-  assert.ok(momentum.rule.includes('本頁價量資料'));
+  assert.equal(momentum.levelLabel, '資料不足');
+  assert.equal(momentum.evidenceIds.length, 0);
 
   // 日期晚於基準日的證據不參與分級
   const excluded = buildFacets(
@@ -224,4 +228,43 @@ const AS_OF = '2026-09-03';
   assert.equal(excluded.find((facet) => facet.key === 'chips')!.levelLabel, '資料不足');
 }
 
+{
+  const source: EvidenceItem = { id: 'nw_shared', field: 'news', value: 'Monthly revenue', shared_fact_ids: ['revenue_1'] };
+  assert.match(resolveEvidenceItem(source).publicationBasis ?? '', /不代表多份獨立證據/);
+  assert.equal(resolveEvidenceItem({ ...source, shared_fact_ids: [] }).publicationBasis, null);
+}
+
+{
+  const source: EvidenceItem = {
+    id: 'nw_saved', field: 'news', value: 'Saved article', article_id: 'article-123', url: 'https://example.com/original',
+    source_state: { eligible: true, status: 'active', revision_id: 'a'.repeat(64) },
+  };
+  const resolved = resolveEvidenceItem(source);
+  assert.equal(resolved.url, source.url);
+  assert.equal(resolved.savedVersionUrl, `/news/article-123?revision_id=${'a'.repeat(64)}`);
+  const html = renderToStaticMarkup(React.createElement(EvidenceDetail, { item: resolved, usedBy: [] }));
+  assert.ok(html.includes('href="https://example.com/original"'));
+  assert.ok(html.includes(`href="/news/article-123?revision_id=${'a'.repeat(64)}"`));
+  assert.equal(resolveEvidenceItem({ ...source, source_state: undefined }).savedVersionUrl, null);
+  assert.equal(resolveEvidenceItem({ ...source, article_id: '../other' }).savedVersionUrl, null);
+  assert.equal(resolveEvidenceItem({ ...source, source_state: { eligible: true, status: 'active', revision_id: 'invalid' } }).savedVersionUrl, null);
+}
+
 console.log('textBrief evidence / claims / facets tests passed');
+
+{
+  const item = resolveEvidenceItem({ id: 'd_40', field: 'daily_timeline', value: { close: 2475, macd: 12, macd_signal: 6.19, macd_hist: 5.81 } });
+  assert.ok(item.metrics.some(metric => metric.name === 'MACD 柱狀體' && metric.value === '5.81'));
+  assert.ok(item.metrics.some(metric => metric.name === 'MACD 訊號線' && metric.value === '6.19'));
+  assert.ok(item.metrics.some(metric => metric.name === '收盤價' && metric.value === '2475 元'));
+  const empty = {} as Brief;
+  const scenario = renderToStaticMarkup(React.createElement(ScenarioTab, { brief: empty }));
+  const points = renderToStaticMarkup(React.createElement(KeyPointsTab, { brief: empty }));
+  assert.ok(scenario.includes('沒有通過檢查的依據'));
+  assert.ok(scenario.includes('這不代表沒有風險'));
+  assert.ok(scenario.includes('觀察點判讀'));
+  assert.ok(points.includes('這不代表沒有風險'));
+  const industry = resolveEvidenceItem({ id: 'nw_industry', field: 'news', value: 'Shipping demand',
+    source_relationships: [{ symbol: '2603', scope: 'industry', relationship: 'industry_context', target_id: 'TWSE:15' }] });
+  assert.ok(industry.publicationBasis?.includes('產業背景，不代表這家公司已發生相同事件'));
+}

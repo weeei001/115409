@@ -8,6 +8,10 @@ import httpx
 from app.core.config import Settings
 from app.db.engine import make_session_factory
 from app.db.session import get_db
+from app.db.models.news_article import NewsArticle
+from app.db.models.news_chunk import chunk_metadata
+from app.features.retrieval.chunking import article_chunks
+from app.jobs.ingestion.repository import insert_article_chunks
 from app.main import create_app
 from test_analysis_service import brief_payload, seed_prices
 
@@ -20,6 +24,7 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
         "LLM_BASE_URL": "https://model.test/v1", "LLM_MAX_RETRIES": 0,
         "LLM_MODEL": "shared-model",
         "EMBED_MODEL": "embedding-model",
+        "NEWS_INDEX_VERSION": "news-v1",
         "LLM_STREAMING": True,
         "RAG_API_URL": "http://forbidden-legacy.test/api/analyze",
         "NIM_API_KEY": "obsolete-key", "ADVISOR_LLM_MODEL": "obsolete-model",
@@ -29,6 +34,18 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
         monkeypatch.setenv(name, str(value))
     configured = Settings(_env_file=None, JWT_SECRET=settings.JWT_SECRET)
     seed_prices(db_session)
+    article = NewsArticle(article_id="integration-article", title="TSMC quarterly revenue",
+        content="TSMC public revenue report.", content_kind="full_text", pub_time="2026-07-12 12:00:00",
+        stock_id="2330", source="cnyes", url=None)
+    db_session.add(article)
+    db_session.flush()
+    chunk_metadata.create_all(db_session.get_bind())
+    source_chunk = article_chunks(vars(article), index_version=configured.NEWS_INDEX_VERSION,
+        embedding_model=configured.EMBED_MODEL, max_chars=configured.NEWS_CHUNK_MAX_CHARS,
+        overlap_chars=configured.NEWS_CHUNK_OVERLAP_CHARS)[0]
+    insert_article_chunks(db_session, [source_chunk])
+    db_session.commit()
+    monkeypatch.setattr("app.features.retrieval.service.load_catalog", lambda: {"2330": {"name": "TSMC"}})
     requests = []
 
     def provider(request):
@@ -41,9 +58,7 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
             return httpx.Response(200, json={"data": [{"embedding": [0.1, 0.2]}]})
         if request.url.host == "vector.test":
             assert request.url.path.endswith("/points/query")
-            payload = {"title": "TSMC quarterly revenue", "page_content": "Public revenue report.",
-                       "pub_time": "2026-07-12 12:00:00", "stock_id": "2330",
-                       "source": "cnyes", "url": None}
+            payload = {**source_chunk, "page_content": source_chunk["content_chunk"]}
             return httpx.Response(200, json={"result": {"points": [
                 {"id": 1, "score": 0.8, "payload": payload},
                 {"id": 2, "score": 0.99, "payload": {**payload, "title": "Future news", "pub_time": "2999-01-01"}},
@@ -70,7 +85,7 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
         app.state.session_factory = make_session_factory(db_session.get_bind())
         async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as upstream:
             app.state.http = upstream
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://v2.test") as client:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://v1.test") as client:
                 for path, body in (
                     ("/api/analyze", {"symbols": ["2330"], "as_of": "2026-07-13"}),
                     ("/analyze/stock-behavior/rag", {"symbols": ["2330"], "as_of_date": "2026-07-13"}),
@@ -81,15 +96,17 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
                     assert len(sources) == 1 and sources[0]["title"] == "TSMC quarterly revenue"
                 response = await client.post("/api/ask", json={"query": "TSMC revenue"})
                 assert response.status_code == 200, response.text
-                expected_answer = "Public revenue answer.[S1]\n\n【引用來源】\n- [S1] TSMC quarterly revenue"
-                assert response.json()["answer"] == expected_answer
+                expected_answer = response.json()["answer"]
+                assert expected_answer.startswith("Public revenue answer.[S1]")
+                assert expected_answer.endswith("【引用來源】\n- [S1] TSMC quarterly revenue：/news/integration-article")
+                assert "新聞首次公開時間及完整修訂歷史未核實" in expected_answer
                 assert response.json()["sources"][0]["url"] == ""
-                assert len(response.json()["sources"]) == 1
+                assert [source["category"] for source in response.json()["sources"]] == ["news", "availability"]
                 response = await client.post("/api/ask", json={"query": "TSMC revenue", "stream": True})
                 events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
                 assert events[-1]["type"] == "done", response.text
                 assert "".join(e["content"] for e in events if e["type"] == "text") == expected_answer
-                assert len(events[-1]["sources"]) == 1
+                assert [source["category"] for source in events[-1]["sources"]] == ["news", "availability"]
                 response = await client.post("/analyze/stock-behavior/text-brief", json={
                     "symbol": "2330", "as_of_date": "2026-07-13", "force_refresh": True})
                 assert response.status_code == 200, response.text

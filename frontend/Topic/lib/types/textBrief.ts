@@ -1,5 +1,5 @@
 /**
- * `POST /analyze/stock-behavior/text-brief`（schema `text-first-v2`）的回應型別。
+ * `POST /analyze/stock-behavior/text-brief`（schema `text-first-v1`）的回應型別。
  *
  * evidence_catalog 的額外欄位（period、kind、yoy_pct…）在 openapi 只以 additionalProperties 允許、沒有命名，
  * 依後端 analysis/evidence.py 保留（決議 D5）。
@@ -7,6 +7,8 @@
  * 後端隨時可能多回欄位，所以這裡只把畫面真正會讀到的部分寫死，
  * 其餘一律 optional，避免多一個欄位就整頁編不過。
  */
+
+import type { NewsSourceState } from './api';
 
 export type Direction =
   | 'positive'
@@ -26,8 +28,15 @@ export type Stance =
 
 export type Confidence = 'low' | 'medium' | 'high';
 
-/** 後端稽核後的整體狀態；`verified` 代表模型輸出一個字都沒被動過 */
+/** Automated validation status; this is not independent factual verification. */
 export type BriefStatus = 'verified' | 'limited' | 'unavailable';
+
+export interface NewsSupport {
+  evidence_id: string;
+  quote: string;
+  use: 'reported_fact' | 'attributed_view' | 'retrospective' | 'price_reaction';
+  event_date?: string | null;
+}
 
 /**
  * 結論的性質。畫面必須據此區分「有證據支撐的觀察」與「模型自己推的」：
@@ -35,7 +44,7 @@ export type BriefStatus = 'verified' | 'limited' | 'unavailable';
  */
 export type ClaimType = 'observation' | 'inference' | 'conflict' | 'limitation';
 
-/** 一句結論。所有結論都帶 `evidence_ids`，這是 v2 可回溯的基礎 */
+/** 一句結論。所有結論都帶 `evidence_ids`，這是 v1 可回溯的基礎 */
 export interface Claim {
   id: string;
   /** 後端列舉是 ClaimType，但舊快照／未知值仍要能顯示，所以維持寬型別 */
@@ -44,6 +53,7 @@ export interface Claim {
   direction?: Direction;
   evidence_ids?: string[];
   importance?: string;
+  news_support?: NewsSupport[];
 }
 
 /** 關鍵交易日。`move_pct` 與 `volume_ratio` 由後端依 `ref` 回填，不是模型寫的 */
@@ -55,6 +65,7 @@ export interface KeyDay {
   evidence_ids?: string[];
   move_pct?: number | null;
   volume_ratio?: number | null;
+  news_support?: NewsSupport[];
 }
 
 export interface Risk {
@@ -63,6 +74,7 @@ export interface Risk {
   description: string;
   trigger: string;
   evidence_ids?: string[];
+  news_support?: NewsSupport[];
 }
 
 export interface WatchPoint {
@@ -71,6 +83,7 @@ export interface WatchPoint {
   why_it_matters: string;
   when: string;
   evidence_ids?: string[];
+  news_support?: NewsSupport[];
 }
 
 export interface ForwardView {
@@ -79,6 +92,7 @@ export interface ForwardView {
   reason: string;
   invalidation: string;
   evidence_ids?: string[];
+  news_support?: NewsSupport[];
 }
 
 export type ForwardViewKey = 'short_1_5' | 'swing_6_20' | 'medium_21_40';
@@ -108,6 +122,9 @@ export interface DailyEvidenceValue {
   vol_lots?: number;
   vol_vs_ma5_pct?: number;
   foreign_net_lots?: number;
+  macd?: number;
+  macd_signal?: number;
+  macd_hist?: number;
 }
 
 export interface EvidenceItem {
@@ -122,11 +139,21 @@ export interface EvidenceItem {
   mom_pct?: number;
   qoq_pct?: number;
   pct_rank_1y?: number;
+  sample_count?: number;
+  window_start?: string | null;
+  window_end?: string | null;
+  available_at?: string | null;
+  content_truncated?: boolean;
+  retrieval_branch?: string;
+  shared_fact_ids?: string[];
+  article_id?: string;
+  source_state?: NewsSourceState;
+  source_relationships?: { symbol: string; scope: string; relationship: string; target_id: string }[];
   last4q?: [string, number][];
   yoy_last6?: [string, number][];
   /**
    * 以下三個是新聞的出處 metadata，只有 `field === 'news'` 會有，而且一律來自
-   * 資料擷取階段（RAG payload），不是 LLM 寫的——LLM 的 payload 裡看不到這些欄位。
+   * 資料擷取階段（RAG payload），不是 LLM 寫的；分析輸入保留這些欄位以便判斷時序與來源。
    * 舊快照沒有這些欄位，所以全部 optional，缺少時畫面顯示「系統彙整資料」。
    */
   url?: string | null;
@@ -154,6 +181,9 @@ export interface TextBriefResponse {
   limitations?: string[];
   cached?: boolean;
   analysis_mode?: 'current_analysis' | 'historical_reanalysis' | null;
+  price_as_of_date?: string | null;
+  news_cutoff_date?: string | null;
+  verification_scope?: string;
   snapshot_id?: number | null;
   generated_at?: string | null;
   analysis_revision?: string | null;

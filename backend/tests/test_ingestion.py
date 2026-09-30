@@ -10,6 +10,7 @@ from sqlalchemy.schema import CreateTable
 
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
+from app.db.models.news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDecision
 from app.jobs.ingestion import cli, repository
 from app.db.models.news_chunk import chunk_metadata
 from app.features.retrieval.chunking import article_chunks, embedding_text, split_spans, split_text
@@ -22,6 +23,8 @@ def ingestion_db():
     with engine.begin() as connection:
         connection.execute(CreateTable(NewsArticle.__table__))
     chunk_metadata.create_all(engine)
+    for model in (NewsArticleVersion, NewsSourceSelection, NewsSourceDecision):
+        model.__table__.create(engine)
     yield engine, sessionmaker(engine, expire_on_commit=False)
     engine.dispose()
 
@@ -145,6 +148,48 @@ def test_chunk_scope_includes_secondary_company_and_exact_timezone(ingestion_db)
     assert _stored(factory)[0]["article_id"] == "a"
 
 
+def test_simulation_is_excluded_from_chunking_and_existing_chunk_vectorization(ingestion_db):
+    _, factory = ingestion_db
+    simulated = {**_article("simulated"), "source": "simulation_test"}
+    _seed(factory, [simulated, _article("real")])
+    result = chunk_news(factory)
+    assert result.skipped == 1 and result.written == 1
+    assert [row["article_id"] for row in _stored(factory)] == ["real"]
+    with factory() as db:
+        repository.insert_article_chunks(db, article_chunks(simulated))
+        db.commit()
+    writer = FakeWriter()
+    result = asyncio.run(vectorize_news(factory, writer, retry_delay=0))
+    assert result.skipped == 1 and result.written == 1
+    real_ids = {row["chunk_id"] for row in _stored(factory) if row["article_id"] == "real"}
+    assert writer.existing == real_ids
+
+
+@pytest.mark.parametrize("status", ["conflict", "superseded"])
+def test_source_selection_blocks_chunking_and_existing_chunk_vectorization(ingestion_db, status):
+    from app.features.news.versions import set_selection, source_identity
+    _, factory = ingestion_db
+    excluded, active = _article("excluded"), _article("active")
+    if status == "superseded":
+        active["url"] = excluded["url"]
+    _seed(factory, [excluded, active])
+    with factory() as db:
+        key, canonical = source_identity(excluded)
+        set_selection(db, key, canonical, "active" if status == "superseded" else None,
+                      "active" if status == "superseded" else "conflict", "Fixed source review")
+        db.commit()
+    result = chunk_news(factory)
+    assert result.skipped == 1 and result.written == 1
+    assert [row["article_id"] for row in _stored(factory)] == ["active"]
+    with factory() as db:
+        repository.insert_article_chunks(db, article_chunks(excluded))
+        db.commit()
+    writer = FakeWriter()
+    result = asyncio.run(vectorize_news(factory, writer, retry_delay=0))
+    assert result.skipped == 1 and result.written == 1
+    assert {chunk["article_id"] for chunk in writer.written} == {"active"}
+
+
 def test_chunk_dry_run_respects_limit_and_keeps_database_empty(ingestion_db):
     _, factory = ingestion_db
     _seed(factory, [_article(str(index), content="x" * 900) for index in range(8)])
@@ -198,7 +243,7 @@ def test_vectorization_completes_whole_article_before_cleanup_and_resumes(ingest
     report = asyncio.run(vectorize_news(factory, writer, page_size=1, retry_delay=0))
     assert (report.read, report.written, report.skipped, report.failed, report.retries) == (2, 2, 1, 1, 1)
     assert all(len(batch) == 1 and batch[0].startswith("Article a\n") for batch in writer.embedding_calls)
-    assert writer.deleted == [("a", "news-v2", ids)]
+    assert writer.deleted == [("a", "news-v1", ids)]
     resumed = asyncio.run(vectorize_news(factory, writer, page_size=1, retry_delay=0))
     assert resumed.written == 0 and resumed.skipped == 3 and resumed.failed == 1
 
@@ -239,7 +284,7 @@ def test_vector_version_isolation_and_dry_run_no_external_calls(ingestion_db):
 def test_cli_dry_run_and_chunk_failure_stops_combined_job(ingestion_db, settings, monkeypatch, capsys):
     engine, factory = ingestion_db
     _seed(factory, [_article("a")])
-    configured = settings.model_copy(update={"NEWS_INDEX_VERSION": "news-v2", "QDRANT_COLLECTION": "news_chunks_v2"})
+    configured = settings.model_copy(update={"NEWS_INDEX_VERSION": "news-v1", "QDRANT_COLLECTION": "news_chunks_v1"})
     monkeypatch.setattr(cli, "get_settings", lambda: configured)
     monkeypatch.setattr(cli, "make_engine", lambda _: engine)
     monkeypatch.setattr(engine, "dispose", lambda: None)

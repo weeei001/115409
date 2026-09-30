@@ -40,7 +40,7 @@ class VectorWriter:
 
     async def require_collection(self, create=False):
         if not self.settings.NEWS_INDEX_VERSION or self.settings.QDRANT_COLLECTION == "news_chunks":
-            raise AppError("Select an explicit index version and a new collection for v2 ingestion", 409)
+            raise AppError("Select an explicit index version and a new collection for v1 ingestion", 409)
         if self.settings.EMBED_TRUNCATE != "NONE":
             raise AppError("News indexing requires EMBED_TRUNCATE=NONE to preserve evidence", 409)
         info = await self._request("GET", allow_missing=True)

@@ -65,6 +65,11 @@ class SourceChunk(BaseModel):
     impact_importance: list[str] = Field(default_factory=list)
     impact_topics: list[str] = Field(default_factory=list)
     impact_context: list[dict] = Field(default_factory=list)
+    retrieval_branch: str | None = None
+    shared_fact_ids: list[str] = Field(default_factory=list)
+    shared_facts: list[dict] = Field(default_factory=list)
+    source_relationships: list[dict] = Field(default_factory=list)
+    source_state: dict | None = None
     in_time_range: bool = True
 
     @model_validator(mode="before")

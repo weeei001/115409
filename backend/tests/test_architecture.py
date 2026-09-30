@@ -29,7 +29,7 @@ def test_runtime_dependency_boundaries():
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 method = node.func.attr
-                if method == "create_all":
+                if method == "create_all" and relative != "app/jobs/schema.py":
                     errors.append(f"{relative}: runtime creates schema")
                 if path.name == "repository.py" and method in {"commit", "rollback"}:
                     errors.append(f"{relative}: repository owns a transaction")
@@ -109,7 +109,7 @@ sys.path.insert(0, sys.argv[1])
 class NoRuntimeDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split('.')[0] in {'backend', 'rag', 'rag_deploy', 'fastapi', 'starlette', 'database', 'crawler'}:
-            raise AssertionError('Worker dependency outside v2: ' + fullname)
+            raise AssertionError('Worker dependency outside v1: ' + fullname)
 sys.meta_path.insert(0, NoRuntimeDependencies())
 def fail(*args, **kwargs):
     raise AssertionError('Worker import created an external resource or process')

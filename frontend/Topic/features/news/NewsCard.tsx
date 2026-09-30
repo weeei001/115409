@@ -43,9 +43,13 @@ function ImpactBadge({ impact }: { impact: NewsImpact }) {
 
 export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct' }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const sourceStatus = news.source_state?.status;
+  const sourceLabel = sourceStatus === 'conflict' ? '來源版本衝突，尚未確認有效內容'
+    : sourceStatus === 'superseded' ? '已被同來源其他版本取代'
+      : sourceStatus === 'historical' ? '保存的歷史原文，並非現行版本' : null;
   const stocks = Array.from(
     new Set([
-      ...(news.event_analysis?.status === 'success'
+      ...(!sourceLabel && news.event_analysis?.status === 'success'
         ? news.event_analysis.impacts.filter((impact) => impact.target_type === 'company').map((impact) => impact.target_id)
         : []),
       ...parseRelatedStocks(news),
@@ -54,9 +58,11 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   const hasContent = Boolean(news.content?.trim());
   const originUrl = safeHttpUrl(news.url);
   const panelId = `news-content-${news.article_id}`;
-  const impacts = visibleImpacts(news, targetStock, relation);
-  const allImpacts = visibleImpacts(news).slice(0, 3);
-  const href = newsHref(news.article_id, targetStock);
+  const impacts = sourceLabel ? [] : visibleImpacts(news, targetStock, relation);
+  const allImpacts = sourceLabel ? [] : visibleImpacts(news).slice(0, 3);
+  const baseHref = newsHref(news.article_id, targetStock);
+  const href = sourceStatus === 'historical' && /^[0-9a-f]{64}$/.test(news.source_state?.revision_id ?? '')
+    ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}revision_id=${news.source_state!.revision_id}` : baseHref;
 
   return (
     <article className="group relative border-b py-4 pl-4 last:border-b-0 first:pt-0">
@@ -83,6 +89,10 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
               {news.title}
             </Link>
           </h3>
+          {sourceLabel ? <p className="mb-1 text-xs font-medium text-muted-foreground">{sourceLabel}；不套用現行 AI 影響。</p> : null}
+          {news.event_analysis?.content_truncated ? (
+            <p className="text-xs text-muted-foreground">分析僅使用部分內文，可能未涵蓋後段資訊。</p>
+          ) : null}
 
           {targetStock ? (
             <div className="my-2 rounded-lg border bg-muted/60 p-2.5 text-xs">
@@ -124,7 +134,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
 
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
             <Link href={href} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-text hover:underline">
-              查看事件影響分析
+              {sourceLabel ? '查看原文與版本狀態' : '查看事件影響分析'}
               <ArrowUpRight size={12} aria-hidden />
             </Link>
             {originUrl ? (

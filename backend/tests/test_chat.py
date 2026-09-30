@@ -394,15 +394,14 @@ def test_insufficient_evidence_can_abstain_without_inventing_citations(chat, str
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_forward_outlook_with_evidence_returns_conditional_assessment(chat, stream):
+def test_forward_outlook_can_abstain_despite_available_sources(chat, stream):
     client, _, llm, _ = chat
     llm.answer = chat_module.INSUFFICIENT_EVIDENCE_ANSWER + "[S1]"
     response = client.post("/api/ask", json={"query": "台積電下周會漲嗎", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert response.status_code == 200
-    assert "目前不能把" in data["answer"]
-    assert "條件式推論" in data["answer"]
-    assert data["answer"] != llm.answer
+    assert data["answer"].startswith(chat_module.INSUFFICIENT_EVIDENCE_ANSWER)
+    assert "偏多" not in data["answer"] and "下週" not in data["answer"]
 
 
 def test_multiple_citations_list_only_used_sources_once_in_citation_order(chat):

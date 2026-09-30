@@ -5,11 +5,13 @@ import sys
 
 
 COMMANDS = (
-    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import", "sentiment-batch",
+    "init-schema",
+    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
+    "news-source-versions",
 )
 
 
@@ -33,6 +35,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "init-schema":
+        from app.jobs.schema import main as initialize
+        return initialize(argv)
+    if job == "news-source-versions":
+        from app.jobs.news_versions import main as versions
+        return versions(argv)
     if job == "methodology-train":
         from app.jobs.research.methodology_trainer import main as train
         return train(argv)
@@ -60,9 +68,6 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job == "finmind-import":
         from app.jobs.finmind.import_csv import main as import_csv
         return import_csv(argv)
-    if job == "sentiment-batch":
-        from app.jobs.sentiment.cli import main as sentiment
-        return sentiment(argv)
     if job == "news-impact-batch":
         from app.jobs.impact.cli import main as impact
 

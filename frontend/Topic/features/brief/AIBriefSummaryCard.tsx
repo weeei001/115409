@@ -291,8 +291,8 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
       <Divider />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {factorBlock('正面', positives, '這次沒有列出正面因素。', 'text-up-emphasis')}
-        {factorBlock('風險', negatives, '這次沒有列出風險因素。', 'text-warning')}
+        {factorBlock('正面', positives, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
+        {factorBlock('風險', negatives, '沒有通過檢查的依據，不代表沒有風險。', 'text-warning')}
       </div>
 
       <Divider />

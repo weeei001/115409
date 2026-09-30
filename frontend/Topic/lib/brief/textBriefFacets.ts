@@ -109,7 +109,7 @@ function valuationFacet(items: EvidenceItem[]): Facet {
   };
 }
 
-function momentumFacet(items: EvidenceItem[], maStructureLabel?: string): Facet {
+function momentumFacet(items: EvidenceItem[]): Facet {
   const rule = `收盤價相對季線 ≥ +${FACET_RULES.momentumStrongPct}% 為強，≤ ${FACET_RULES.momentumWeakPct}% 為弱，其餘普通。`;
   const vsMa60 = pick(items, 'vs_ma60_pct');
   const position = pick(items, 'close_pos_in_1y_pct');
@@ -137,20 +137,6 @@ function momentumFacet(items: EvidenceItem[], maStructureLabel?: string): Facet 
     };
   }
 
-  // 證據目錄沒有均線資料時，退回儀表板價量資料自己算的均線結構（同樣不是 AI 產生的）
-  if (maStructureLabel && maStructureLabel !== '無資料') {
-    const tone: FacetTone =
-      maStructureLabel === '偏多' ? 'good' : maStructureLabel === '偏空' ? 'caution' : 'neutral';
-    return {
-      key: 'momentum',
-      label: '技術動能',
-      tone,
-      levelLabel: tone === 'good' ? '強' : tone === 'caution' ? '弱' : '普通',
-      basis: `收盤價相對 20／60 日均線：${maStructureLabel}`,
-      rule: '證據目錄沒有均線數字，改用本頁價量資料計算收盤價與 20／60 日均線的相對位置。',
-      evidenceIds: [],
-    };
-  }
   return unknown('momentum', '技術動能', rule);
 }
 
@@ -205,12 +191,12 @@ export function buildFacets(
   catalog: EvidenceItem[] | null | undefined,
   options: { brief?: Brief | null; asOfDate?: string | null; maStructureLabel?: string } = {}
 ): Facet[] {
-  const { brief, asOfDate, maStructureLabel } = options;
+  const { brief, asOfDate } = options;
   const items = (catalog ?? []).filter((item) => !(asOfDate && item.date && item.date > asOfDate));
   return [
     fundamentalFacet(items),
     valuationFacet(items),
-    momentumFacet(items, maStructureLabel),
+    momentumFacet(items),
     chipsFacet(items),
     riskFacet(brief),
   ];

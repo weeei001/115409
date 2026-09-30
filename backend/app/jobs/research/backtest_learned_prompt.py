@@ -156,6 +156,8 @@ def run(args) -> Path:
     metrics = compute_metrics(
         decisions, arm_names=("A", "L"), band=band, seed=args.seed,
         config={"stock": stock_id, "period": period, "start": args.start, "end": args.end,
+                "comparison_scope": "prompt_only_shared_retrieval",
+                "quality_scope": "historical_direction_not_online_answer_quality",
                 "horizon": args.horizon, "provider": args.provider, "model": model_name,
                 "methodology_dir": str(methodology_dir), "prompt_version": prompt_version,
                 "train_end": train_end, "window_days": args.window_days},

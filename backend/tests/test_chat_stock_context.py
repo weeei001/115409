@@ -117,6 +117,8 @@ def test_financials_without_prices_use_existing_publication_lags_and_keep_raw_ze
 
 
 def test_saved_analysis_skips_invalid_fallback_future_and_later_generated_snapshots(db_session):
+    from app.features.analysis import repository
+    from app.features.analysis.service import text_brief_revision
     def snapshot(day, created, headline="Usable saved interpretation", **changes):
         response = StockBehaviorTextBriefResponse(
             symbol="2330", as_of_date=day.isoformat(), generated_by="test", status="verified",
@@ -124,7 +126,9 @@ def test_saved_analysis_skips_invalid_fallback_future_and_later_generated_snapsh
             disclaimer={"version": "test", "text": "Stored interpretation"},
         )
         fields = {"symbol": "2330", "as_of_date": day, "created_at": created,
-                  "kind": "text_brief", "config_hash": "test", "config_json": "{}",
+                  "kind": "text_brief", "config_hash": "test", "config_json": json.dumps({"purpose": "production",
+                      "revision": text_brief_revision(), "input_fingerprint": repository.input_fingerprint(
+                          db_session, symbol="2330", as_of=day)}),
                   "response_json": response.model_dump_json(), "is_fallback": False}
         return LlmResponse(**{**fields, **changes})
 
@@ -143,6 +147,18 @@ def test_saved_analysis_skips_invalid_fallback_future_and_later_generated_snapsh
     assert saved["interpretation"]["headline"] == "Usable saved interpretation"
     assert saved["analysis_as_of"] == past.isoformat()
     assert "not independent market evidence" in saved["evidence_basis"]
+
+    valid = db_session.query(LlmResponse).filter(LlmResponse.as_of_date == past).one()
+    current_config = json.loads(valid.config_json)
+    for change in ({"input_fingerprint": None}, {"input_fingerprint": "stale"}, {"revision": "old-pipeline"}):
+        valid.config_json = json.dumps({**current_config, **change})
+        db_session.commit()
+        assert not any(source.category == "analysis_snapshot" for source in collect_stock_sources(db_session, ["2330"], AS_OF))
+        # Removing it from active context does not erase or prevent audit reading.
+        assert repository.saved_brief(valid) is not None
+    valid.config_json = json.dumps(current_config)
+    db_session.commit()
+    assert any(source.category == "analysis_snapshot" for source in collect_stock_sources(db_session, ["2330"], AS_OF))
 
 
 def test_missing_data_is_a_limitation_and_invalid_date_order_is_rejected(db_session):

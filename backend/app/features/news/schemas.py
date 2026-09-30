@@ -35,6 +35,9 @@ class EventAnalysisResponse(BaseModel):
     events: list[NewsEvent] = Field(default_factory=list)
     impacts: list[EventImpact] = Field(default_factory=list)
     analyzed_at: datetime | None = None
+    content_truncated: bool = False
+    content_kind: str | None = None
+    validation_scope: str = "structure_and_quotes"
 
 
 class News(BaseModel):
@@ -49,6 +52,8 @@ class News(BaseModel):
     content: str | None = None
     content_kind: str | None = None
     created_at: datetime | None = None
+    target_industries: list[str] = Field(default_factory=list)
+    source_state: dict = Field(default_factory=dict)
     event_analysis: EventAnalysisResponse = Field(default_factory=EventAnalysisResponse)
 
     model_config = ConfigDict(from_attributes=True)
@@ -58,4 +63,6 @@ class PaginatedNewsResponse(BaseModel):
     page: int
     page_size: int
     total: int
+    total_is_exact: bool = True
+    result_scope: str = "all_matching_articles"
     items: list[News]

@@ -55,7 +55,7 @@ def main(mode: str, argv: list[str] | None = None) -> int:
     if getattr(args, "collection", None):
         overrides["QDRANT_COLLECTION"] = args.collection
     settings = settings.model_copy(update=overrides)
-    version = settings.NEWS_INDEX_VERSION or "news-v2"
+    version = settings.NEWS_INDEX_VERSION or "news-v1"
     if mode != "chunk-news" and not args.dry_run:
         if not settings.NEWS_INDEX_VERSION or settings.QDRANT_COLLECTION == "news_chunks":
             parser.error("Set an explicit index version and a new collection before vectorization")

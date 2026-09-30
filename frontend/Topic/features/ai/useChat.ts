@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { appendCompletedChatTurn, ragAskStream, type RagHistoryMessage } from '@/lib/api/ragAsk';
-import type { ChatAction, ChatMessage } from '@/lib/types/chat';
+import type { ChatAction, ChatMessage, ChatSource } from '@/lib/types/chat';
 import type { ChatDashboard } from '@/lib/types/chatDashboard';
 
 const newId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -41,6 +41,7 @@ export function useChat() {
     let answer = '';
     let actions: ChatAction[] = [];
     let dashboard: ChatDashboard | undefined;
+    let sources: ChatSource[] = [];
     try {
       let completed = false;
       let frame: number | null = null;
@@ -83,6 +84,7 @@ export function useChat() {
               if (ctrl.signal.aborted) return;
               actions = result.actions;
               dashboard = result.dashboard ?? dashboard;
+              sources = result.sources ?? [];
             },
           },
           { signal: ctrl.signal },
@@ -100,7 +102,7 @@ export function useChat() {
 
       if (ctrl.signal.aborted) return;
       if (completed) completedHistory.current = appendCompletedChatTurn(history, text, answer);
-      update(() => ({ content: answer.trim() ? answer : '（無回覆內容）', streamStatus: undefined, actions, dashboard }));
+      update(() => ({ content: answer.trim() ? answer : '（無回覆內容）', streamStatus: undefined, actions, dashboard, sources }));
     } catch (err) {
       if (ctrl.signal.aborted) return;
       // 後端串流的 error 訊息多半是英文（例如 Model failed），只顯示中文訊息（決議 D13）

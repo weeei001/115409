@@ -22,10 +22,11 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
         <div className="flex items-center gap-2">
           <Newspaper size={18} className="text-brand" aria-hidden />
           <h3 className="text-lg font-bold tracking-tight">相關新聞</h3>
-          {newsList.data ? <span className="text-xs text-muted-foreground tabular-nums">共 {newsList.data.total.toLocaleString()} 則</span> : null}
+          {newsList.data ? <span className="text-xs text-muted-foreground tabular-nums">{newsList.data.total_is_exact === false ? '檢索結果' : '共'} {newsList.data.total.toLocaleString()} 則</span> : null}
         </div>
         <div className="flex items-center gap-2">
           <NewsFilters
+            fixedRelation
             draft={newsList.draft}
             setDraft={newsList.setDraft}
             onApply={() => newsList.applyFilters()}
@@ -46,7 +47,7 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
 
       <p className="mb-4 flex items-center gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5 text-[11px] text-muted-foreground">
         <Info size={12} className="shrink-0 text-brand" aria-hidden />
-        事件影響反映新聞訊息，不代表股價預測。
+        事件影響不代表股價預測。此處僅列出檢索範圍內的相關結果，查無結果不代表沒有新聞。
       </p>
 
       <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="新聞關聯範圍">

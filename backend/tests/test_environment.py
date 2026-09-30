@@ -16,7 +16,6 @@ from app.features.market import company_catalog
 from app.jobs import locking, market_history, scheduler
 from app.jobs.finmind import fetch
 from app.jobs.impact import cli as impact
-from app.jobs.sentiment import cli as sentiment
 
 
 @pytest.fixture(autouse=True)
@@ -138,11 +137,11 @@ def test_catalog_locks_simulation_and_worker_defaults_are_isolated(tmp_path, mon
         raise ParsedDefaults
 
     monkeypatch.setattr(argparse.ArgumentParser, "parse_args", capture)
-    for entry in (scheduler.main, impact.main, sentiment.main, market_history.main):
+    for entry in (scheduler.main, impact.main, market_history.main):
         with pytest.raises(ParsedDefaults):
             entry([])
     historical = selected if environment == "development" else Path(".state")
-    assert defaults == [(selected / "market", None), (None, selected), (None, selected),
+    assert defaults == [(selected / "market", None), (None, selected),
                         (historical / "market" / "history_2y.json", None)]
 
     legacy_usage = tmp_path / "app" / ".state" / "finmind_api_usage.json"

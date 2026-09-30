@@ -52,11 +52,80 @@ def test_invalid_citation_is_regenerated_once_before_publication(chat, stream):
 def test_failed_repair_does_not_loop_or_publish_unsupported_claims(chat, stream):
     client, _, llm, _ = chat
     llm.answer = "無來源的保證上漲。[S99]"
-    response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
+    response = client.post("/api/ask", json={"query": "台積電明天會漲嗎", "stream": stream})
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 2
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "error"
-        assert not any(event["type"] in {"text", "done"} for event in result)
-    else:
-        assert response.status_code == 503
+    data = events(response)[-1] if stream else response.json()
+    assert response.status_code == 200
+    assert data["answer"].startswith("目前提供的資料不足以回答此問題。")
+    assert "保證上漲" not in response.text
+
+
+@pytest.mark.parametrize("claim", ["收盤價 999 元", "漲跌幅 +2.03%", "EPS 999 元", "2026-09-10 收盤價 100 元", "股票2317收盤價100元"])
+def test_numeric_claims_use_cited_metric_date_symbol_and_sign(claim):
+    source = SourceChunk(citation_id="S1", title="2330 observations", source="system_market",
+                         source_name="Test", pub_time="2026-09-11", url="", stock_id="2330", score=1,
+                         category="market_technical",
+                         content='{"columns":["date","close","chg_pct"],"rows":[["2026-09-11",100,-2.03]]}')
+    with pytest.raises(ServiceUnavailable):
+        _checked_answer(claim + "。[S1]", {"finish_reason": "stop"}, [source])
+    assert "收盤價 100" in _checked_answer("2026-09-11 收盤價 100 元、漲跌幅 -2.03%。[S1]",
+                                          {"finish_reason": "stop"}, [source])
+
+
+@pytest.mark.parametrize("news", ["接單成長", "工廠停工並取消財測"])
+def test_failed_outlook_does_not_invent_direction_or_misattribute_prices(chat, news):
+    client, service, llm, retrieval = chat
+    retrieval.hits[0]["payload"]["page_content"] = news
+    llm.intent = {"is_finance": True, "stocks": ["2330", "2317"], "data_needs": ["market", "news"]}
+    service._market_sources = lambda *_: [SourceChunk(citation_id="", title="2317 price", source="system_market",
+        source_name="Test", pub_time="2026-09-11", url="", stock_id="2317", score=1,
+        category="market_technical", content='{"columns":["date","close"],"rows":[["2026-09-11",50]]}')]
+    llm.answer = "保證上漲。[S99]"
+    answer = client.post("/api/ask", json={"query": "台積電跟鴻海明天會漲嗎"}).json()["answer"]
+    assert answer.startswith("目前提供的資料不足")
+    assert "2330" in answer and "缺少" in answer
+    assert not any(word in answer for word in ["偏多", "50", "下週", "最新一日"])
+
+
+def test_mixed_supported_stocks_disclose_partial_market_coverage(chat, monkeypatch):
+    from app.features.chat import service as chat_module
+    client, service, llm, _ = chat
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2330": "台積電", "2603": "長榮"})
+    llm.intent = {"is_finance": True, "stocks": ["2330", "2603"], "data_needs": ["market", "news"]}
+    service._market_sources = lambda *_: []
+    answer = client.post("/api/ask", json={"query": "比較台積電與長榮"}).json()["answer"]
+    assert "2603" in answer and "不支援行情" in answer
+    assert "2330" in answer and "缺少指定區間" in answer
+    assert "不能據此完成全體比較" in answer
+
+
+@pytest.mark.parametrize("claim,supported", [
+    ("外資買賣超100張", True), ("外資買賣超100000股", True),
+    ("外資買賣超100000張", False), ("外資買賣超100股", False),
+    ("外資買賣超100000", False), ("外資買賣超-100張", False),
+])
+def test_institutional_claims_convert_explicit_lots_to_stored_shares(claim, supported):
+    from app.features.chat.claims import numeric_claims_supported
+    source = SourceChunk(citation_id="S1", title="Institutional", source="system_market",
+        source_name="Test", pub_time="2026-09-01", url="", stock_id="2330", score=1,
+        category="institutional", content='{"columns":["date","foreign_net"],'
+        '"rows":[["2026-09-01",100000]],"unit":"shares"}')
+    assert numeric_claims_supported(claim, [source]) is supported
+
+
+@pytest.mark.parametrize("claim,supported", [
+    ("2026-09-01收盤價100元，2026-09-02收盤價200元", True),
+    ("2026-09-01收盤價200元，2026-09-02收盤價100元", False),
+    ("股票2330收盤價100元，股票2317收盤價300元", True),
+    ("股票2330收盤價300元，股票2317收盤價100元", False),
+    ("2026-09-01股票2330收盤價100元，股票2317收盤價300元", True),
+])
+def test_date_and_symbol_are_bound_to_each_claim_not_the_paragraph(claim, supported):
+    from app.features.chat.claims import numeric_claims_supported
+    sources = [SourceChunk(citation_id="S1", title="Price", source="system_market",
+        source_name="Test", pub_time="2026-09-02", url="", stock_id=symbol, score=1,
+        category="market_technical", content=content) for symbol, content in [
+            ("2330", '{"columns":["date","close"],"rows":[["2026-09-01",100],["2026-09-02",200]]}'),
+            ("2317", '{"columns":["date","close"],"rows":[["2026-09-01",300]]}'),
+        ]]
+    assert numeric_claims_supported(claim, sources) is supported

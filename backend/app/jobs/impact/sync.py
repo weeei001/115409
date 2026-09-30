@@ -18,6 +18,8 @@ from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.market.company_catalog import load_catalog
 from app.features.news.impact import config_hash
+from app.features.news.eligibility import contains_simulation
+from app.features.news.versions import source_states
 from app.features.retrieval.impact_metadata import (
     IMPACT_PAYLOAD_KEYS, current_analysis, current_chunk_ids, impact_payload,
 )
@@ -28,13 +30,15 @@ from .migrate import migrate_news_impact
 
 
 async def sync_impact_payloads(session_factory, writer, settings, *, backfill_days=30,
-                               limit=None, page_size=50, execute=False) -> dict:
+                               limit=None, page_size=50, execute=False,
+                               article_ids: list[str] | None = None) -> dict:
     if backfill_days < 1 or (limit is not None and limit < 1) or not 1 <= page_size <= 1000:
         raise ValueError("Invalid sync window or batch size")
     catalog = load_catalog()
     if not catalog:
         raise ValueError("Official company catalog is unavailable")
     expected_config = config_hash(settings, catalog)
+    selected_ids = list(dict.fromkeys(article_ids)) if article_ids is not None else None
     report = {"job": "news-impact-sync", "dry_run": not execute, "read": 0,
               "eligible_chunks": 0, "updated": 0, "unchanged": 0, "missing_vectors": 0,
               "unavailable_vectors": 0, "stale_chunks": 0}
@@ -45,13 +49,15 @@ async def sync_impact_payloads(session_factory, writer, settings, *, backfill_da
         size = min(page_size, limit - report["read"]) if limit is not None else page_size
         with session_factory() as db:
             chunks = chunk_page(db, after=after, page_size=size,
-                                start=datetime.now(TAIPEI).date() - timedelta(days=backfill_days),
-                                index_version=settings.NEWS_INDEX_VERSION)
+                                start=(datetime.now(TAIPEI).date() - timedelta(days=backfill_days)
+                                       if selected_ids is None else None),
+                                index_version=settings.NEWS_INDEX_VERSION, article_ids=selected_ids)
             if not chunks:
                 break
             article_ids = list(dict.fromkeys(chunk["article_id"] for chunk in chunks))
             articles = {row.article_id: row for row in db.scalars(select(NewsArticle).where(
                 NewsArticle.article_id.in_(article_ids)))}
+            states = source_states(db, list(articles.values()))
             analyses = {row.article_id: row for row in db.scalars(select(NewsEventAnalysis).where(
                 NewsEventAnalysis.article_id.in_(article_ids)))}
             impacts_by_article = defaultdict(list)
@@ -69,7 +75,8 @@ async def sync_impact_payloads(session_factory, writer, settings, *, backfill_da
                     continue
                 valid_ids = current_chunk_ids(article, settings)
                 analysis = analyses.get(article_id)
-                if not current_analysis(article, analysis, expected_config):
+                if (not states[article_id]["eligible"] or contains_simulation(vars(article))
+                        or not current_analysis(article, analysis, expected_config)):
                     analysis = None
                 for chunk in chunks_by_article[article_id]:
                     if chunk["chunk_id"] not in valid_ids:
@@ -107,7 +114,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backfill-days", type=int, default=30)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--batch-size", type=int, default=50)
+    parser.add_argument("--article-id", action="append",
+                        help="Only these article IDs; repeat or comma-separate. Overrides the backfill window.")
     args = parser.parse_args(argv)
+    article_ids = None
+    if args.article_id is not None:
+        article_ids = list(dict.fromkeys(value.strip() for group in args.article_id
+                                        for value in group.split(",") if value.strip()))
+        if not article_ids:
+            parser.error("--article-id requires at least one non-empty ID")
     settings = get_settings()
     if not settings.NEWS_INDEX_VERSION or settings.QDRANT_COLLECTION == "news_chunks":
         parser.error("Set a versioned news index and collection")
@@ -120,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
                 async with httpx.AsyncClient() as http:
                     return await sync_impact_payloads(make_session_factory(engine),
                         VectorWriter(http, settings), settings, backfill_days=args.backfill_days,
-                        limit=args.limit, page_size=args.batch_size, execute=args.execute)
+                        limit=args.limit, page_size=args.batch_size, execute=args.execute,
+                        article_ids=article_ids)
             print(json.dumps(asyncio.run(run()), ensure_ascii=False))
             return 0
     except Exception as exc:

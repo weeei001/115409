@@ -42,7 +42,7 @@ export function resolveAppliedNewsFilters(
   return next;
 }
 
-function buildFetchParams(
+export function buildFetchParams(
   page: number,
   pageSize: number,
   filters: NewsListFilters,
@@ -121,8 +121,8 @@ export function useNewsList(options: UseNewsListOptions = {}) {
 
       const request = optionsRef.current.retrieval && optionsRef.current.fixedStock
         ? fetchRelatedNews({
+            ...params,
             symbol: optionsRef.current.fixedStock,
-            relation: optionsRef.current.fixedRelation,
             limit: pageSize,
           })
         : fetchNews(params);

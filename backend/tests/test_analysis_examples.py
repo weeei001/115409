@@ -18,6 +18,20 @@ def test_examples_match_their_own_evidence_and_schema(example):
     for day in answer.key_days:
         assert day.ref in day.evidence_ids
         assert day.date == timeline[day.ref]["date"] <= payload["task"]["as_of_date"]
+    news = {item["id"]: item for item in payload.get("news", [])}
+    def check_support(value):
+        if isinstance(value, dict):
+            refs = set(value.get("evidence_ids", [])) & news.keys()
+            if refs:
+                assert {item["evidence_id"] for item in value["news_support"]} == refs
+                for item in value["news_support"]:
+                    assert item["quote"] in news[item["evidence_id"]]["value"]
+            for child in value.values():
+                check_support(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_support(child)
+    check_support(answer.model_dump())
     assert all(item.claim_type == "conflict" for item in answer.source_divergences)
 
 

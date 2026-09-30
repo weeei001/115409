@@ -162,10 +162,10 @@ def test_embedding_credentials_are_independent_of_llm_credentials(settings, llm_
 
 
 def test_versioned_reads_require_the_exact_pipeline_fingerprint(settings):
-    config = configured(settings, NEWS_INDEX_VERSION="news-v2")
+    config = configured(settings, NEWS_INDEX_VERSION="news-v1")
     def handler(request):
         must = json.loads(request.content)["filter"]["must"]
-        assert {"key": "index_version", "match": {"value": "news-v2"}} in must
+        assert {"key": "index_version", "match": {"value": "news-v1"}} in must
         assert {"key": "embedding_model", "match": {"value": config.EMBED_MODEL}} in must
         assert {"key": "index_fingerprint", "match": {"value": config.news_index_fingerprint}} in must
         return httpx.Response(200, json={"result": {"points": []}})
