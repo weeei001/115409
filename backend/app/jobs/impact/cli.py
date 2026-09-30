@@ -1,7 +1,7 @@
 """Standalone, preview-first event impact worker."""
 import argparse
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import json
 import math
 from pathlib import Path
@@ -23,7 +23,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Analyze article-level news events; preview unless --execute")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--limit", type=int, default=100)
-    parser.add_argument("--backfill-days", type=int, default=30)
+    window = parser.add_mutually_exclusive_group()
+    window.add_argument("--backfill-days", type=int, default=30)
+    window.add_argument("--since", type=date.fromisoformat,
+                        help="Fixed Taiwan-local publication start date; overrides the default 30-day window")
     parser.add_argument("--max-cost-usd", type=float, default=0.50)
     parser.add_argument("--model")
     parser.add_argument("--work-dir", type=Path, default=state_directory())
@@ -48,11 +51,12 @@ def main(argv: list[str] | None = None) -> int:
                             runner = ImpactBatchRunner(db_session=db, settings=settings, catalog=catalog, http=http,
                                 limit=args.limit, max_cost_usd=args.max_cost_usd,
                                 execute=args.execute, work_dir=args.work_dir)
-                            since = datetime.now(TAIPEI_TZ).replace(tzinfo=None) - timedelta(days=args.backfill_days)
+                            since = (datetime.combine(args.since, time.min) if args.since else
+                                     datetime.now(TAIPEI_TZ).replace(tzinfo=None) - timedelta(days=args.backfill_days))
                             return await runner.run(since=since)
                     summary = asyncio.run(run())
                     print(json.dumps(summary, ensure_ascii=False, indent=2))
-                    return 1 if summary["stopped_reason"] else 0
+                    return 1 if summary["stopped_reason"] or summary["failed"] else 0
             finally:
                 engine.dispose()
     except (OSError, ValueError, JobAlreadyRunning, AppError, SQLAlchemyError) as exc:

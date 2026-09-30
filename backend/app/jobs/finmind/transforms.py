@@ -428,6 +428,10 @@ def compute_technical_indicators(price_df: pd.DataFrame, partial_ma: bool = Fals
 
 def detect_institutional_category(name: str) -> str | None:
     value = str(name).strip().lower()
+    # Official T86 excludes foreign dealers from foreign-investor totals.
+    # Dealer_self / Dealer_Hedging already contain the dealer totals.
+    if value == "foreign_dealer_self":
+        return None
 
     trust_keys = ["investment_trust", "investment trust", "投信", "trust"]
     foreign_keys = ["foreign", "foreign_investor", "外資", "外陸資", "外資及陸資"]
@@ -499,8 +503,9 @@ def normalize_institutional_df(df: pd.DataFrame, symbol: str) -> tuple[pd.DataFr
     if "name" in raw.columns:
         raw["category"] = raw["name"].map(detect_institutional_category)
 
-        unknown = sorted(raw.loc[raw["category"].isna(
-        ), "name"].dropna().astype(str).unique().tolist())
+        excluded = raw["name"].astype(str).str.strip().str.lower().eq("foreign_dealer_self")
+        unknown = sorted(raw.loc[raw["category"].isna() & ~excluded,
+                                 "name"].dropna().astype(str).unique().tolist())
         unknown_names.extend(unknown)
         if unknown:
             warnings.append(
