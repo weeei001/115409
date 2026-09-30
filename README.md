@@ -145,7 +145,13 @@ Windows PowerShell 可使用 `npm.cmd` 取代 `npm`。前端與後端各自保�
 | OpenAPI schema | [http://127.0.0.1:8002/openapi.json](http://127.0.0.1:8002/openapi.json) |
 | 健康檢查 | [http://127.0.0.1:8002/health](http://127.0.0.1:8002/health) |
 
-`/health` 僅確認 API 程序正常；資料庫連線、資料是否齊全與外部服務可用性需另外確認。
+**啟動後檢查**
+
+1. 開啟 [後端健康檢查](http://127.0.0.1:8002/health)，確認回傳 `{"status":"healthy"}`。
+2. 開啟 [前端首頁](http://127.0.0.1:3000)，確認首頁可載入。
+3. 確認 `frontend/Topic/.env.development.local` 的 `NEXT_PUBLIC_API_URL` 指向實際後端位址（預設 `http://127.0.0.1:8002`）；修改後停止前端程序，再執行 `npm run dev`。
+
+`/health` 僅確認 API 程序正常；上述檢查不代表資料庫可連線、資料齊全或 AI 等外部服務可用，這些需另外確認。
 
 ## 環境變數
 
