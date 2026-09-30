@@ -20,6 +20,7 @@ from .password_reset_token import PasswordResetToken
 from .llm_response import LlmResponse
 from .news_sentiment import NewsSentiment
 from .news_impact import NewsEventAnalysis, NewsEventImpact
+from .admin import AdminAccount, AdminJobControl, AdminJobRun, AdminAuditLog
 
 __all__ = [
     "DailyPrice",
@@ -45,4 +46,8 @@ __all__ = [
     "User",
     "PasswordResetToken",
     "LlmResponse",
+    "AdminAccount",
+    "AdminJobControl",
+    "AdminJobRun",
+    "AdminAuditLog",
 ]

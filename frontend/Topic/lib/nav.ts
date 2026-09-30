@@ -46,6 +46,7 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/forgot-password': '忘記密碼',
   '/reset-password': '重設密碼',
   '/me': '個人中心',
+  '/admin': '管理後台',
 };
 
 export interface BreadcrumbItem {

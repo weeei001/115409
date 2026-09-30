@@ -22,7 +22,8 @@ def test_runtime_dependency_boundaries():
                 errors.append(f"{relative}: LangChain escaped the client boundary")
             if "/features/" in relative and path.name != "router.py" and name.startswith("fastapi"):
                 errors.append(f"{relative}: domain imports HTTP framework")
-            if "/jobs/" not in relative and (name == "app.jobs" or name.startswith("app.jobs.")):
+            if ("/jobs/" not in relative and (name == "app.jobs" or name.startswith("app.jobs."))
+                    and not (relative == "app/main.py" and name == "app.jobs.runtime")):
                 errors.append(f"{relative}: application imports a background worker")
             if "/clients/" in relative and name.startswith("app.features.") and name.endswith(("service", "router")):
                 errors.append(f"{relative}: client imports a feature service/router")
@@ -89,6 +90,7 @@ class NoHttpFramework(importlib.abc.MetaPathFinder):
             raise AssertionError('Domain imports background worker: ' + fullname)
 sys.meta_path.insert(0, NoHttpFramework())
 from app.features.auth import service
+from app.features.admin import service
 from app.features.market import service
 from app.features.news import service
 from app.features.orders import service

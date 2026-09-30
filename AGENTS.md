@@ -20,7 +20,7 @@ Apply SOLID, DRY, and YAGNI to the problem at hand. Trace affected callers befor
 
 - Routers handle HTTP validation and dependency injection. Services coordinate use cases and transactions. Repositories execute SQL without committing or rolling back.
 - Domain services remain independent of FastAPI. API features and clients do not import `app.jobs`; workers use shared feature logic and database mappings.
-- Use FastAPI dependencies and existing constructor injection for substitutions. `app/main.py` owns resource lifespan. API startup must not create tables or start jobs; imports must not establish external connections.
+- Use FastAPI dependencies and existing constructor injection for substitutions. `app/main.py` owns resource lifespan, including the serial scheduler in `app.jobs.runtime`. API startup must not create tables; imports must not establish external connections or start jobs. Only the lifespan imports the job runtime; API features and clients remain independent of workers.
 - News recognition lives in `features/news/sentiment.py`, chunking in `features/retrieval/chunking.py`, and the shared chunk table in `db/models/news_chunk.py`. The old worker chunking import remains a compatibility export for offline scripts.
 - Reuse `core/streaming.py` for SSE. Preserve endpoint frames, headers, number policies, and iterator cleanup when changing streaming paths.
 

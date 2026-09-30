@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShoppingCart, UserRound, type LucideIcon } from 'lucide-react';
+import { Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShieldCheck, ShoppingCart, UserRound, type LucideIcon } from 'lucide-react';
 import { FlaskConical } from 'lucide-react'; // DEMO: ai-trade-demo
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from './ThemeToggle';
-import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser } from '@/lib/auth/storage';
+import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken } from '@/lib/auth/storage';
+import { adminMe } from '@/lib/api/admin';
 import type { UserPublic } from '@/lib/types/api';
 import { PRIMARY_NAV } from '@/lib/nav';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
@@ -43,13 +44,35 @@ export function AppNavDrawer() {
   const reduce = usePrefersReducedMotion();
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<UserPublic | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const sync = () => setUser(getStoredUser());
+    let active = true;
+    let controller: AbortController | null = null;
+    const sync = () => {
+      setUser(getStoredUser());
+      setIsAdmin(false);
+      controller?.abort();
+      const token = getToken();
+      if (!token) return;
+      controller = new AbortController();
+      const signal = controller.signal;
+      void adminMe(signal).then(() => {
+        if (active && !signal.aborted && token === getToken()) setIsAdmin(true);
+      }).catch(() => {
+        if (active && !signal.aborted) setIsAdmin(false);
+      });
+    };
     sync();
     window.addEventListener(AUTH_CHANGE_EVENT, sync);
-    return () => window.removeEventListener(AUTH_CHANGE_EVENT, sync);
-  }, []);
+    window.addEventListener('focus', sync);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.removeEventListener(AUTH_CHANGE_EVENT, sync);
+      window.removeEventListener('focus', sync);
+    };
+  }, [open]);
 
   const loginHref = useMemo(() => {
     if (router.pathname === '/login' || router.pathname === '/register') return '/login';
@@ -143,6 +166,10 @@ export function AppNavDrawer() {
                   </span>
                   個人中心
                 </motion.button>
+                {isAdmin ? <motion.button type="button" {...enter(2)} onClick={() => go('/admin')} aria-current={isActive('/admin') ? 'page' : undefined} className={cn(itemClass, isActive('/admin') ? 'bg-accent text-accent-foreground' : 'text-subtle hover:bg-muted')}>
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground group-hover:bg-accent group-hover:text-accent-foreground"><ShieldCheck size={16} aria-hidden /></span>
+                  管理後台
+                </motion.button> : null}
                 <motion.button
                   type="button"
                   {...enter(2)}

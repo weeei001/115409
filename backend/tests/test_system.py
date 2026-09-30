@@ -13,7 +13,7 @@ def test_factory_and_health_do_not_connect_to_external_services(monkeypatch):
 
     monkeypatch.setattr(socket, "create_connection", fail)
     monkeypatch.setattr(sqlalchemy.engine.Engine, "connect", fail)
-    app = create_app(Settings(_env_file=None))
+    app = create_app(Settings(_env_file=None, JOBS_ENABLED=False))
     with TestClient(app) as client:
         assert client.get("/health").json() == {"status": "healthy"}
         assert client.get("/").json()["docs"] == "/docs"

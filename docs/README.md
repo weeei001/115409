@@ -12,9 +12,9 @@
 | `features/*/repository.py` | 查詢與資料持久化操作，不自行 commit／rollback |
 | `app/clients/` | LLM、向量、郵件與其他外部服務介接 |
 | `app/db/` | 連線、session 與資料表定義 |
-| `app/jobs/` | 獨立執行的匯入、排程與研究工作 |
+| `app/jobs/` | 匯入、排程與研究工作；FastAPI lifespan 管理後台排程器 |
 
-API 與 worker 共用 feature／db 層；API 不反向依賴 jobs。`features/retrieval/chunking.py` 提供新聞切段，`features/news/sentiment.py` 提供股票辨識，`db/models/news_chunk.py` 保留獨立 metadata。API 啟動不建立資料表。
+API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載入 `app.jobs.runtime` 管理排程，feature／client 不反向依賴 jobs。`features/retrieval/chunking.py` 提供新聞切段，`features/news/sentiment.py` 提供股票辨識，`db/models/news_chunk.py` 保留獨立 metadata。API 啟動不建立資料表。
 
 `core/streaming.py` 統一 SSE 編碼與來源 iterator 關閉；各 router 保留自己的 headers 與數值序列化政策。架構邊界與串流行為的可執行檢查分別位於 [test_architecture.py](../backend/tests/test_architecture.py) 與 [test_streaming.py](../backend/tests/test_streaming.py)。
 
@@ -28,7 +28,7 @@ API 與 worker 共用 feature／db 層；API 不反向依賴 jobs。`features/re
 python -m app.jobs init-schema --sync-catalog
 ```
 
-此命令建立缺少的 23 張現行資料表，包含獨立 metadata 的 `news_chunks` 與三張新聞版本表。新 MySQL 表使用 InnoDB／utf8mb4。命令不清除資料、不修改既有表結構、不建立資料庫，也不建立舊 `news_sentiments` 或 `analysis_digests` 表。既有表需要升級時仍使用對應遷移，不能以重跑初始化代替。`--help` 與不支援的參數不會連線。
+此命令建立缺少的 27 張現行資料表，包含獨立 metadata 的 `news_chunks`、三張新聞版本表與四張後台管理表。新 MySQL 表使用 InnoDB／utf8mb4。命令不清除資料、不修改既有表結構、不建立資料庫，也不建立舊 `news_sentiments` 或 `analysis_digests` 表。既有表需要升級時仍使用對應遷移，不能以重跑初始化代替。`--help` 與不支援的參數不會連線。
 
 `--sync-catalog` 會重新取得 TWSE／TPEx 官方全市場公司目錄、儲存該環境的公司目錄快取，再將下列 40 檔同步到 `stock_info`。省略此旗標只建立資料表；不建立預設使用者，不呼叫 embedding 或 LLM。官方目錄失敗或缺少指定公司時命令失敗，已建立的資料表保留，可重跑。
 
@@ -79,7 +79,7 @@ python -m app.jobs init-schema --sync-catalog
 
 新聞來源版本使用三張額外資料表；升級既有資料庫前先執行唯讀盤點，再明確套用遷移，API 不會自行建表。指令、選版與回復步驟見 [新聞來源版本](news-source-versions.md)。本輪品質變更與驗證界線見 [新聞品質實作報告](../reports/news-quality-implementation.md)。
 
-Worker 與 API 各自啟動。從 `backend/` 使用已安裝依賴的 Python 查看工作清單；開發時先設定程序環境 `APP_ENV=development`：
+FastAPI 啟動時管理後台排程；單次資料工作仍可使用 CLI 獨立執行。從 `backend/` 使用已安裝依賴的 Python 查看工作清單；開發時先設定程序環境 `APP_ENV=development`：
 
 ```bash
 python -m app.jobs --help

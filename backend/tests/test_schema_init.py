@@ -20,6 +20,7 @@ def test_fresh_schema_includes_chunks_and_preserves_existing_rows():
             "market_foreign_shareholdings", "market_holding_share_levels", "news_articles",
             "news_chunks", "news_event_analyses", "news_event_impacts", "news_article_versions",
             "news_source_selections", "news_source_decisions",
+            "admin_accounts", "admin_job_controls", "admin_job_runs", "admin_audit_logs",
         }
         assert "news_chunks" in metadata.tables
         assert {"news_article_versions", "news_source_selections", "news_source_decisions"} <= set(metadata.tables)
