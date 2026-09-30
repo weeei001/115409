@@ -24,7 +24,6 @@ const Cursor = () => <span className="ml-0.5 inline-block h-4 w-0.5 bg-brand ali
 export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, followUpDisabled }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
-  const hasNewsDashboard = message.dashboard?.blocks.some((block) => block.kind === 'news') ?? false;
   const structured = !isUser && isStructuredRagReply(message.content);
   const cursor = !isUser && streamActive;
   const navActions = !isUser && (!streamActive || message.dashboard) ? (message.actions ?? []).filter(isChatNavigationAction) : [];
@@ -68,7 +67,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
               </p>
             ) : null}
             {structured ? (
-              <RagStructuredReply content={message.content} showCursor={cursor} showSources={!hasNewsDashboard} />
+              <RagStructuredReply content={message.content} showCursor={cursor} />
             ) : (
               <>
                 <MarkdownBlock text={message.content} />
@@ -87,6 +86,19 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
             </button>
           ) : null}
         </div>
+
+        {!isUser && message.sources?.length ? (
+          <details className="mt-3 border-t pt-3 text-sm">
+            <summary className="cursor-pointer text-brand-text">本輪引用原始資料</summary>
+            {message.sources.map((source) => (
+              <details key={source.citation_id} className="mt-2 rounded-lg border p-3">
+                <summary className="cursor-pointer">[{source.citation_id}] {source.title}</summary>
+                <p className="mt-2 text-xs text-muted-foreground">{source.stock_id} · {source.pub_time || '無發布日期'}</p>
+                <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-xs">{source.content}</pre>
+              </details>
+            ))}
+          </details>
+        ) : null}
 
         {followUps.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="建議追問">

@@ -1,7 +1,7 @@
 import { API_BASE } from '../apiBase';
 import { getToken } from '../auth/storage';
 import { isChatAction } from '../nav';
-import type { ChatAction } from '../types/chat';
+import { parseChatSources, type ChatSource, type ChatAction } from '../types/chat';
 import { parseChatDashboard, type ChatDashboard } from '../types/chatDashboard';
 import { ApiRequestError } from './client';
 import { genericMessageForStatus, pickDetailMessage } from './errorDetail';
@@ -43,6 +43,7 @@ export function appendCompletedChatTurn(history: RagHistoryMessage[], query: str
 export interface RagAskDone {
   actions: ChatAction[];
   dashboard?: ChatDashboard;
+  sources?: ChatSource[];
 }
 
 export interface RagAskStreamHandlers {
@@ -63,6 +64,7 @@ interface StreamEvent {
   answer?: unknown;
   actions?: unknown;
   dashboard?: unknown;
+  sources?: unknown;
 }
 
 /** 接受 `data: {...}` 或整行 JSON；`[DONE]` 與註解行忽略 */
@@ -142,7 +144,7 @@ export async function ragAskStream(
         handlers.onText(event.answer);
       }
       completed = true;
-      handlers.onDone?.({ actions: safeActions(event.actions), dashboard: parseChatDashboard(event.dashboard) });
+      handlers.onDone?.({ actions: safeActions(event.actions), dashboard: parseChatDashboard(event.dashboard), sources: parseChatSources(event.sources) });
     };
 
     const processLine = (line: string): boolean => {

@@ -16,20 +16,20 @@ export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDe
   return (
     <CardShell
       icon={Newspaper}
-      title="最新新聞"
+      title="相關新聞"
       rightSlot={
         <div className="flex items-center gap-2">
           <span className="hidden items-center gap-1 rounded-full border border-brand/20 bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground sm:inline-flex">
             <Sparkles size={10} aria-hidden />
             AI 事件影響
           </span>
-          {newsList.data ? <span className="text-[11px] text-muted-foreground tabular-nums">共 {newsList.data.total.toLocaleString()} 則</span> : null}
+          {newsList.data ? <span className="text-[11px] text-muted-foreground tabular-nums">檢索結果 {newsList.data.total.toLocaleString()} 則</span> : null}
         </div>
       }
       loading={newsList.loading}
       isEmpty={!newsList.loading && !hasError && items.length === 0}
       emptyText="暫無相關新聞"
-      action={{ label: '全部新聞', onClick: onOpenDetail }}
+      action={{ label: '更多相關新聞', onClick: onOpenDetail }}
       className="min-h-0"
     >
       {hasError ? (

@@ -20,7 +20,7 @@ export interface FetchNewsParams {
   sort_order?: 'asc' | 'desc';
 }
 
-export interface FetchRelatedNewsParams {
+export interface FetchRelatedNewsParams extends Omit<FetchNewsParams, 'stock' | 'page_size' | 'source'> {
   symbol: string;
   relation?: 'direct' | 'market_context' | 'industry_context';
   lookback_days?: number;
@@ -48,10 +48,11 @@ export async function fetchRelatedNews(params: FetchRelatedNewsParams): Promise<
 }
 
 /** openapi: GET /news/{article_id} */
-export async function fetchNewsDetail(articleId: string, stock?: string): Promise<News> {
-  return dedupeFetch(`GET /news/${articleId} ${stock ?? ''}`, async () => {
+export async function fetchNewsDetail(articleId: string, stock?: string, revisionId?: string): Promise<News> {
+  const params = { ...(stock ? { stock } : {}), ...(revisionId ? { revision_id: revisionId } : {}) };
+  return dedupeFetch(`GET /news/${articleId} ${JSON.stringify(params)}`, async () => {
     const { data } = await apiClient.get<News>(`/news/${encodeURIComponent(articleId)}`, {
-      params: stock ? { stock } : undefined,
+      params,
     });
     return data;
   });

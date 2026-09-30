@@ -40,11 +40,11 @@ export const STANCE_TONE: Record<string, BriefTone> = {
  */
 export const CONF: Record<string, string> = { low: '低', medium: '中', high: '高' };
 
-export const CONF_HINT = 'AI 對這份判斷的信心程度，不代表資料完整度、事實已證實或預測準確率。';
+export const CONF_HINT = '模型自評經資料與內容限制調整，未經預測校準；不代表事實已證實或投資勝率。';
 
 /** 只在「沒有產出簡報」時用來補一句原因；verified 一定帶簡報，不會走到這裡。 */
 export const STATUS: Record<string, [BriefTone, string]> = {
-  limited: ['warn', '有幾項被系統修正過'],
+  limited: ['warn', '資料或內容檢查有限制'],
   unavailable: ['bad', '這次沒有產出結果'],
 };
 

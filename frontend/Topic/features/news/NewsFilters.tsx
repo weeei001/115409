@@ -11,6 +11,7 @@ interface Props {
   onApply: () => void;
   onClearAdvanced: () => void;
   disabled?: boolean;
+  fixedRelation?: boolean;
 }
 
 const inputClass =
@@ -24,7 +25,7 @@ const advancedFields = [
 ] as const;
 
 /** 依發布時間篩選新聞（含起迄） */
-export function NewsFilters({ draft, setDraft, onApply, onClearAdvanced, disabled }: Props) {
+export function NewsFilters({ draft, setDraft, onApply, onClearAdvanced, disabled, fixedRelation }: Props) {
   const [open, setOpen] = useState(false);
   const active = Boolean(
     draft.start_time?.trim() || draft.end_time?.trim() || draft.scope || draft.industry?.trim() || draft.topic?.trim() || draft.direction || draft.importance || draft.relation,
@@ -59,7 +60,7 @@ export function NewsFilters({ draft, setDraft, onApply, onClearAdvanced, disable
             className={inputClass}
           />
         </label>
-        {advancedFields.map((field) => (
+        {advancedFields.filter((field) => !(fixedRelation && field.key === 'relation')).map((field) => (
           <label key={field.key} className="flex flex-col gap-1 text-xs">
             <span className="text-muted-foreground">{field.label}</span>
             <select
@@ -79,7 +80,7 @@ export function NewsFilters({ draft, setDraft, onApply, onClearAdvanced, disable
             onChange={(e) => setDraft((prev) => ({ ...prev, industry: e.target.value }))}
             disabled={disabled}
             className={inputClass}
-            placeholder="例如 24"
+            placeholder="例如 TWSE:24"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs">
@@ -124,7 +125,7 @@ export function NewsFilters({ draft, setDraft, onApply, onClearAdvanced, disable
             }}
             className="min-h-11"
           >
-            清除時間條件
+            清除篩選條件
           </Button>
         </div>
       </PopoverContent>

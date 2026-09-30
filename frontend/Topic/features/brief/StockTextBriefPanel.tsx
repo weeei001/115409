@@ -233,6 +233,10 @@ export const StockTextBriefPanel: React.FC<Props> = ({
           </Notice>
         ) : null}
 
+        <p className="text-xs text-muted-foreground">
+          行情截至 {data.price_as_of_date ?? '未提供'}；新聞截止 {data.news_cutoff_date ?? data.as_of_date}；
+          產生時間 {data.generated_at ?? '未提供'}。檢查涵蓋結構、引用及部分數值，未完整核實語義或預測準確率。
+        </p>
         {/* 整體結論 */}
         <section
           aria-label="整體結論"

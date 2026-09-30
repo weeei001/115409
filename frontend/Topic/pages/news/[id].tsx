@@ -28,6 +28,7 @@ export default function NewsDetailPage() {
   const router = useRouter();
   const articleId = firstQuery(router.query.id);
   const stockParam = firstQuery(router.query.stock);
+  const revisionId = firstQuery(router.query.revision_id);
   const [news, setNews] = useState<News | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,16 +36,20 @@ export default function NewsDetailPage() {
 
   useEffect(() => {
     if (!router.isReady || !articleId) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchNewsDetail(articleId)
+    setNews(null);
+    fetchNewsDetail(articleId, stockParam || undefined, revisionId || undefined)
       .then((data) => {
+        if (cancelled) return;
         setNews(data);
         setSelectedStock(pickStock(data, stockParam));
       })
-      .catch((err) => setError(userFacingMessage(err, '無法載入新聞文章')))
-      .finally(() => setLoading(false));
-  }, [router.isReady, articleId, stockParam]);
+      .catch((err) => { if (!cancelled) setError(userFacingMessage(err, '無法載入新聞文章')); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [router.isReady, articleId, stockParam, revisionId]);
 
   const analysis = news?.event_analysis;
   const quotes = useMemo(() => {
@@ -98,6 +103,19 @@ export default function NewsDetailPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+            {news.source_state && (
+              <div role="status" className="space-y-2 rounded-xl border bg-card p-4 text-sm lg:col-span-12">
+                <p>{news.source_state.status === 'historical'
+                  ? '目前顯示保存的歷史原文，並非現行有效版本；此頁不套用目前的 AI 事件分析。'
+                  : news.source_state.status === 'conflict'
+                    ? '此來源有內容互相矛盾的版本，尚未確認有效版本；暫不提供 AI 事件影響。'
+                    : news.source_state.status === 'superseded'
+                      ? '此文章已由同來源的其他版本取代，保留原文供追溯；暫不提供 AI 事件影響。'
+                      : '來源首次發布與完整修訂歷史可能不明，不能據此保證重建當時可得資訊。'}</p>
+                {news.source_state.observed_at && <p className="text-xs text-muted-foreground">此版本觀察時間（台灣）：{new Date(news.source_state.observed_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}</p>}
+                {revisionId && <a className="underline" href={`/news/${encodeURIComponent(articleId)}${stockParam ? `?stock=${encodeURIComponent(stockParam)}` : ''}`}>查看目前文章與來源狀態</a>}
+              </div>
+            )}
             <NewsArticle news={news} stockCodes={stockCodes} selectedStock={selectedStock} quotes={quotes} />
             <aside className="space-y-4 rounded-xl border bg-card p-5 shadow-card lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4" aria-label="新聞事件影響分析">
               <div className="flex items-center justify-between gap-2 border-b pb-3">

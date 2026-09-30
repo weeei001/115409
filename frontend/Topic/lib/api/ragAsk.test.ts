@@ -3,10 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ChatMessage } from '../../features/ai/ChatMessage';
 import { RagStructuredReply } from '../../features/ai/RagStructuredReply';
 import { parseSourceItems } from '../utils/parseRagStructuredReply';
 import type { RagHistoryMessage } from './ragAsk';
-import type { ChatAction } from '../types/chat';
+import { parseChatSources, type ChatAction } from '../types/chat';
 import { parseChatDashboard, type ChatDashboard } from '../types/chatDashboard';
 
 async function check() {
@@ -155,10 +156,34 @@ async function check() {
 
   const dashboardSourceMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
     content: `Readable answer\n\n【引用來源】\n${mixedSources}`,
-    showSources: false,
   }));
   assert.match(dashboardSourceMarkup, /Readable answer/);
-  assert.doesNotMatch(dashboardSourceMarkup, /引用來源|Market snapshot|News/);
+  assert.match(dashboardSourceMarkup, /引用來源/);
+  assert.match(dashboardSourceMarkup, /Market snapshot/);
+
+  for (const body of ['並非利空', '沒有證據支持看漲', '不知道偏空或偏多']) {
+    const sentimentMarkup = renderToStaticMarkup(createElement(RagStructuredReply, { content: `【市場情緒】\n${body}` }));
+    assert.ok(sentimentMarkup.includes(body));
+    assert.doesNotMatch(sentimentMarkup, /rounded-full|border-up|border-down/);
+  }
+  const sourceRecords = [1, 2].map((id) => ({ citation_id: `S${id}`, title: 'Same article', content: `Passage ${id}`,
+    pub_time: '2026-09-11', stock_id: '2330' }));
+  assert.deepEqual(parseChatSources([...sourceRecords, null, { citation_id: 'S99' }]), sourceRecords);
+  const messageMarkup = (id: string, content: string) => renderToStaticMarkup(createElement(ChatMessage, {
+    message: { id, role: 'assistant', content, timestamp: '', sources: sourceRecords,
+      dashboard: { title: 'News', blocks: [] } }, reducedMotion: true, streamActive: false, followUpDisabled: false,
+  }));
+  const earlierTurn = messageMarkup('first', 'First answer[S2]\n【引用來源】\n- [S2] Same article: /news/one');
+  const laterTurn = messageMarkup('second', 'Second answer[S1]');
+  assert.match(earlierTurn, /Passage 2/);
+  assert.match(earlierTurn, /href="\/news\/one"/);
+  assert.match(laterTurn, /Passage 1/);
+  assert.match(earlierTurn, /\[S2\]/);
+
+  responseBody = `data: ${JSON.stringify({ type: 'done', answer: 'Answer[S2]', sources: sourceRecords })}\n\n`;
+  await ragAskStream({ query: expectedQuery }, {
+    onText: () => {}, onDone: (reply) => assert.deepEqual(reply.sources, sourceRecords),
+  });
 
   const dashboard: ChatDashboard = {
     title: 'Test stock data',

@@ -9,16 +9,8 @@ interface Params {
   asOfDate?: string;
 }
 
-/**
- * 個股頁唯一的 AI 分析來源：`POST /analyze/stock-behavior/text-brief`。
- * 摘要卡與完整分析共用同一個實例，全頁只會打一次。
- *
- * 何時發動由呼叫端決定（目前是儀表板基準日就緒時）；同一組 symbol＋as_of_date 只打一次。
- * 一律 `cache_only`：只讀排程產好的快取，不在頁面上等 LLM，也不會寫入新的快照
- * （畫面上沒有重新分析入口，重跑交給排程）；查無當日快照時後端會退回該檔最近一次的分析。
- *
- * 基準日固定為資料最後一天（決議 D9-c20），同一檔成功後就不會再打，
- * 所以沒有「已有舊結果、正在更新」這種狀態（決議 c58）。
+/** Read eligible saved analysis. Omit asOfDate for the current news cutoff;
+ * explicit dates are historical cutoffs and must never include newer evidence.
  */
 export function useStockTextBrief({ symbol, asOfDate }: Params) {
   const requestSeq = useRef(0);

@@ -239,13 +239,28 @@ export interface NewsImpact {
 }
 
 export interface NewsEventAnalysis {
+  content_truncated?: boolean;
+  content_kind?: string;
+  validation_scope?: string;
   status: 'pending' | 'success' | 'failed' | 'skipped';
   events: NewsEvent[];
   impacts: NewsImpact[];
   analyzed_at?: string | null;
 }
 
+export interface NewsSourceState {
+  eligible: boolean;
+  status: 'active' | 'untracked' | 'conflict' | 'superseded' | 'historical';
+  canonical_key?: string;
+  canonical_url?: string;
+  revision_id?: string | null;
+  observed_at?: string | null;
+  limitation?: string;
+}
+
 export interface News {
+  source_state?: NewsSourceState;
+  target_industries?: string[];
   article_id: string;
   source: string | null;
   source_group: string | null;
@@ -261,6 +276,8 @@ export interface News {
 }
 
 export interface PaginatedNewsResponse {
+  total_is_exact?: boolean;
+  result_scope?: string;
   page: number;
   page_size: number;
   total: number;

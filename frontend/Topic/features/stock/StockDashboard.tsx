@@ -26,8 +26,8 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
   const { symbol, latest, loading, baseDate, priceChart, chipsLoading, institutionalLatest, indicators, indicatorLatest } = dashboard;
   const stockDisplayName = useStockDisplayName(symbol);
   const stockName = stockDisplayName === symbol ? null : stockDisplayName;
-  // 全頁只有一份 AI 分析：摘要卡與抽屜共用；基準日固定為資料最後一天（決議 D9-c20）
-  const textBrief = useStockTextBrief({ symbol, asOfDate: baseDate ?? undefined });
+  // The latest analysis cutoff is independent of the last trading day.
+  const textBrief = useStockTextBrief({ symbol });
   const maStructureLabel = useMemo(() => getMaStructureLabel(summarizePricePosition(priceChart)), [priceChart]);
 
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);

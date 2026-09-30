@@ -7,8 +7,6 @@ export interface RagStructuredReply {
   sections: RagReplySection[];
 }
 
-export type RagSentiment = 'bullish' | 'bearish' | 'neutral';
-
 export interface RagSourceItem {
   index?: string;
   title: string;
@@ -52,13 +50,6 @@ export function parseRagStructuredReply(text: string): RagStructuredReply | null
   }
 
   return { sections };
-}
-
-export function detectSentiment(body: string): RagSentiment {
-  const head = body.slice(0, 120);
-  if (/看跌|📉|偏空|悲觀|看空|利空/.test(head)) return 'bearish';
-  if (/看漲|📈|偏多|樂觀|看多|利多/.test(head)) return 'bullish';
-  return 'neutral';
 }
 
 export function parseBulletList(body: string): string[] {

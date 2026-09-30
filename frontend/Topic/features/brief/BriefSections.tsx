@@ -26,7 +26,7 @@ function ItemGroup<T>({
   render: (item: T) => React.ReactNode;
   label: string;
 }) {
-  if (!items.length) return <Empty />;
+  if (!items.length) return <Empty>本節沒有通過檢查的依據，暫無法提供{label}判讀。{label === '風險' || label === '負面因素' ? '這不代表沒有風險。' : ''}</Empty>;
   const preview = items.slice(0, SECTION_PREVIEW);
   const rest = items.slice(SECTION_PREVIEW);
   return (

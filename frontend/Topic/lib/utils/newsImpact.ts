@@ -43,6 +43,7 @@ export function visibleImpacts(
   const impacts = news.event_analysis?.status === 'success' ? news.event_analysis.impacts : [];
   if (!stock) return impacts;
   if (relation === 'market_context') return impacts.filter((impact) => impact.target_type === 'market');
-  if (relation === 'industry_context') return impacts.filter((impact) => impact.target_type === 'industry');
+  if (relation === 'industry_context') return impacts.filter((impact) => impact.target_type === 'industry'
+    && news.target_industries?.includes(impact.target_id));
   return impacts.filter((impact) => impact.target_type === 'company' && impact.target_id === stock);
 }

@@ -76,6 +76,8 @@ export interface ResolvedEvidence {
   title: string | null;
   excerpt: string | null;
   url: string | null;
+  /** Immutable local article revision, separate from the publisher's mutable page. */
+  savedVersionUrl: string | null;
   /** 新聞性質；guidance 要另外標示「非已實現數據」 */
   kind: string | null;
   /** 日期晚於 as_of_date：資料有問題，不可當成可點擊來源 */
@@ -186,6 +188,9 @@ function dailyMetrics(value: DailyEvidenceValue): EvidenceMetric[] {
       value: `${value.foreign_net_lots > 0 ? '+' : ''}${fmtNum(value.foreign_net_lots)} 張`,
     });
   }
+  for (const [field, name] of [['macd', 'MACD'], ['macd_signal', 'MACD 訊號線'], ['macd_hist', 'MACD 柱狀體']] as const) {
+    if (value[field] != null) metrics.push({ name, value: String(value[field]) });
+  }
   return metrics;
 }
 
@@ -213,6 +218,10 @@ function scalarMetrics(item: EvidenceItem, meta: FieldMeta): EvidenceMetric[] {
   if (item.pct_rank_1y != null) {
     metrics.push({ name: '近一年位階', value: `第 ${item.pct_rank_1y} 百分位` });
   }
+  if (item.sample_count != null) {
+    metrics.push({ name: '估值樣本', value: `${item.sample_count} 筆（${item.window_start ?? '未知'} 至 ${item.window_end ?? '未知'}）` });
+  }
+  if (item.available_at) metrics.push({ name: '保守可用日', value: item.available_at });
   if (item.last4q?.length) {
     metrics.push({
       name: '近四季',
@@ -266,7 +275,14 @@ export function resolveEvidenceItem(item: EvidenceItem, asOfDate?: string | null
     calculation: item.calculation,
     publishedAt: item.published_at,
     collectedAt: item.collected_at,
-    publicationBasis: item.publication_basis,
+    publicationBasis: [
+      item.publication_basis,
+      item.content_truncated ? '僅使用部分內文，可能漏掉其他段落' : null,
+      item.shared_fact_ids?.length ? '與其他報導包含相同事實，不代表多份獨立證據' : null,
+      item.source_state?.limitation ? '依新聞發布時間回顧，使用目前有效原文版本' : null,
+      item.source_relationships?.some((relation) => relation.relationship === 'industry_context')
+        ? '產業背景，不代表這家公司已發生相同事件或股價影響' : null,
+    ].filter(Boolean).join('；') || null,
     dateText,
     publisher,
     summary,
@@ -274,6 +290,9 @@ export function resolveEvidenceItem(item: EvidenceItem, asOfDate?: string | null
     title: isNews ? (item.title ?? null) : null,
     excerpt,
     url: safeHttpUrl(item.url),
+    savedVersionUrl: isNews && /^[A-Za-z0-9_-]{1,64}$/.test(item.article_id ?? '')
+      && /^[0-9a-f]{64}$/.test(item.source_state?.revision_id ?? '')
+      ? `/news/${encodeURIComponent(item.article_id!)}?revision_id=${item.source_state!.revision_id}` : null,
     kind,
     futureDated: Boolean(asOfDate && item.date && item.date > asOfDate),
   };

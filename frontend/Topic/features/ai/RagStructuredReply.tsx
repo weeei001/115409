@@ -1,13 +1,11 @@
 import React from 'react';
-import { BookOpen, ExternalLink, FileText, Lightbulb, List, Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { BookOpen, ExternalLink, FileText, Lightbulb, List, TrendingUp } from 'lucide-react';
 import {
-  detectSentiment,
   parseBulletList,
   parseRagStructuredReply,
   parseSourceItems,
   sectionKind,
   type RagReplySection,
-  type RagSentiment,
 } from '@/lib/utils/parseRagStructuredReply';
 import { MarkdownBlock, MarkdownText } from '@/lib/utils/markdown';
 import { cn } from '@/lib/cn';
@@ -15,16 +13,7 @@ import { cn } from '@/lib/cn';
 interface Props {
   content: string;
   showCursor?: boolean;
-  /** 有新聞資料面板時隱藏「引用來源」段，避免重複 */
-  showSources?: boolean;
 }
-
-/** 市場情緒徽章：依 AI 在該段自己寫的字判斷（決議 c49），看漲用漲色、看跌用跌色 */
-const SENTIMENT: Record<RagSentiment, { label: string; icon: React.ReactNode; className: string }> = {
-  bullish: { label: '看漲', icon: <TrendingUp size={14} aria-hidden />, className: 'border-up/25 bg-up-muted text-up-emphasis' },
-  bearish: { label: '看跌', icon: <TrendingDown size={14} aria-hidden />, className: 'border-down/25 bg-down-muted text-down-emphasis' },
-  neutral: { label: '中性', icon: <Minus size={14} aria-hidden />, className: 'border-border bg-muted text-subtle' },
-};
 
 function SectionIcon({ kind }: { kind: string }) {
   const Icon = { summary: FileText, sentiment: TrendingUp, events: List, tips: Lightbulb, sources: BookOpen }[kind] ?? FileText;
@@ -32,19 +21,7 @@ function SectionIcon({ kind }: { kind: string }) {
 }
 
 function SentimentSection({ body }: { body: string }) {
-  const config = SENTIMENT[detectSentiment(body)];
-  const detail = body.replace(/^(看漲|看跌|中性)\s*[📈📉]?\s*[，,]?\s*/u, '').trim();
-  return (
-    <>
-      <div className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold', config.className)}>
-        {config.icon}
-        <span>{config.label}</span>
-      </div>
-      <p className="mt-2.5 text-sm leading-relaxed text-subtle">
-        <MarkdownText text={detail || body} />
-      </p>
-    </>
-  );
+  return <MarkdownBlock text={body} />;
 }
 
 function EventsSection({ body }: { body: string }) {
@@ -149,10 +126,10 @@ function SectionBody({ section }: { section: RagReplySection }) {
 }
 
 /** 含【標題】的 AI 回覆：依標題切段，開頭文字自成「重點」段 */
-export function RagStructuredReply({ content, showCursor, showSources = true }: Props) {
+export function RagStructuredReply({ content, showCursor }: Props) {
   const parsed = parseRagStructuredReply(content);
   if (!parsed) return null;
-  const sections = showSources ? parsed.sections : parsed.sections.filter((section) => sectionKind(section.title) !== 'sources');
+  const sections = parsed.sections;
   return (
     <div>
       {sections.map((section, i) => (

@@ -1,4 +1,4 @@
-/** All frontend APIs are served by the v2 backend. */
+/** All frontend APIs are served by the v1 backend. */
 const strip = (v: string) => v.replace(/\/+$/, '');
 const defaultApiBase = process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:8002' : 'http://127.0.0.1:8003';
 
