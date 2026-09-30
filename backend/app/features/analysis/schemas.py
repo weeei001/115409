@@ -97,13 +97,13 @@ class StockBehaviorTextBriefRequest(BaseModel):
     )
     force_refresh: bool = Field(
         default=False,
-        description="略過相同 symbol／as_of_date／設定的既有快照，強制重新呼叫 LLM。",
+        description="略過既有快照，強制重新呼叫 LLM；cache_only 為 true 時不生效。",
     )
     cache_only: bool = Field(
         default=False,
         description=(
-            "只讀快取，不呼叫 LLM：查無當日快照時退回同一檔最近一次的快照，"
-            "再查無則回 `status=unavailable`。個股頁自動載入用，實際產生交給排程。"
+            "只讀 llm_responses 中基準日以前（含當日）最新有效快照，不核對目前模型設定或來源版本，"
+            "不呼叫 LLM；查無則回 `status=unavailable`。優先於 force_refresh，實際產生交給排程。"
         ),
     )
 

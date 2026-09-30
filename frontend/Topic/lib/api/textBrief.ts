@@ -6,7 +6,7 @@ export const AI_TIMEOUT_MS = 600_000;
 
 /**
  * openapi: POST /analyze/stock-behavior/text-brief
- * 後端依 symbol／as_of_date／設定做快取（`cached=true`），同一天第二次進頁面通常是秒回。
+ * With cache_only, read the latest eligible saved response through the cutoff without generating analysis.
  */
 export async function postStockBehaviorTextBrief(body: TextBriefRequest): Promise<TextBriefResponse> {
   const { data } = await apiClient.post<TextBriefResponse>('/analyze/stock-behavior/text-brief', body, {

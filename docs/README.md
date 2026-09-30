@@ -14,7 +14,7 @@
 | `app/db/` | 連線、session 與資料表定義 |
 | `app/jobs/` | 匯入、排程與研究工作；FastAPI lifespan 管理後台排程器 |
 
-API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載入 `app.jobs.runtime` 管理排程，feature／client 不反向依賴 jobs。`features/retrieval/chunking.py` 提供新聞切段，`features/news/sentiment.py` 提供股票辨識，`db/models/news_chunk.py` 保留獨立 metadata。API 啟動不建立資料表。
+API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載入 `app.jobs.runtime` 管理排程，feature／client 不反向依賴 jobs。`features/retrieval/chunking.py` 提供新聞切段，`features/news/sentiment.py` 提供股票辨識，`db/models/news_chunk.py` 保留獨立 metadata。API 啟動不建立資料表。後台設定與授權見[管理後台](admin.md)。
 
 `core/streaming.py` 統一 SSE 編碼與來源 iterator 關閉；各 router 保留自己的 headers 與數值序列化政策。架構邊界與串流行為的可執行檢查分別位於 [test_architecture.py](../backend/tests/test_architecture.py) 與 [test_streaming.py](../backend/tests/test_streaming.py)。
 

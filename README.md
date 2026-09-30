@@ -1,48 +1,69 @@
-# 股海明燈 · G115409
+# 股海明燈（StockBeacon）
 
-台股資料與 AI 分析平台，整合行情、財務、籌碼與新聞，提供多股比較、具來源引用的 AI 對話，以及模擬下單與回測。
+[![CI](https://github.com/weeei001/115409/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/weeei001/115409/actions/workflows/ci-cd.yml)
 
-## 功能
+台股資料查詢與 AI 分析平台，整合股價、財報、籌碼與財經新聞，提供個股分析、多股比較、附來源的 AI 對話及模擬下單。
 
-- **行情與基本面**：查詢歷史股價、技術指標、財報、月營收與籌碼資料。
-- **多股比較**：比較走勢、報酬、相關性與基本面，並以大盤作為參考。
-- **新聞與 AI 分析**：檢索相關新聞、分析事件影響，透過串流對話呈現答案與引用來源。
-- **模擬交易與回測**：管理模擬訂單並評估策略表現。
-- **資料處理**：FastAPI 管理排程生命週期，worker 執行行情匯入、新聞處理與向量索引。
+目前支援 **40 檔股票、20 個產業，每產業 2 檔**。完整名單與資料範圍見[公司目錄範圍](docs/README.md#公司目錄範圍)。
 
-目前服務範圍為 40 檔股票，涵蓋 20 個產業、每產業 2 檔；名單見[公司目錄範圍](docs/README.md#公司目錄範圍)。官方全市場目錄另供新聞公司辨識使用，避免把未納入服務的公司誤認成名稱相近的股票。
+## 目錄
 
-## 技術
+- [主要功能](#主要功能)
+- [技術架構](#技術架構)
+- [快速開始](#快速開始)
+- [環境變數](#環境變數)
+- [專案結構](#專案結構)
+- [開發與測試](#開發與測試)
+- [相關文件](#相關文件)
+- [參與貢獻](#參與貢獻)
 
-| 範圍 | 技術 |
+## 主要功能
+
+| 功能 | 說明 |
 | --- | --- |
-| 前端 | Next.js Pages Router、React、TypeScript、Tailwind CSS |
+| 個股儀表板 | 查看 K 線、技術指標、財報、月營收、法人籌碼與相關新聞 |
+| 多股比較 | 比較股價走勢、報酬、相關性與基本面，並以大盤作為參考 |
+| AI 分析與對話 | 結合市場資料與新聞檢索，以串流回覆呈現分析及引用來源 |
+| 模擬下單 | 記錄買賣、查詢歷史委託、持股與損益 |
+| 會員功能 | 註冊、登入、Google 登入、重設密碼與個人資料管理 |
+| 背景資料處理 | FastAPI 管理排程生命週期，worker 匯入行情、處理新聞與建立向量索引 |
+
+另提供 [AI 模擬下單 Demo](frontend/Topic/features/ai-trade-demo/README.md)，展示 AI 逐日決策的回測結果；此頁使用獨立 API，需另設 `NEXT_PUBLIC_AI_TRADE_DEMO_API_URL`。
+
+## 技術架構
+
+| 層級 | 技術 |
+| --- | --- |
+| 前端 | Next.js 16（Pages Router）、React 19、TypeScript、Tailwind CSS |
+| 圖表 | ECharts、Lightweight Charts |
 | 後端 | FastAPI、Pydantic、SQLAlchemy |
 | 資料儲存 | MySQL、Qdrant |
-| AI 服務 | 外部 LLM 與 embedding API、SSE 串流 |
-| 驗證 | pytest、TypeScript 型別檢查、tsx |
+| AI 與檢索 | 外部 LLM、embedding API、新聞向量檢索、SSE 串流 |
+| 驗證與 CI | pytest、TypeScript 型別檢查、tsx、GitHub Actions |
+
+前端透過 HTTP API 存取後端。FastAPI 提供查詢與應用功能，並管理 jobs 排程的啟動與關閉；工作以子程序串行執行，不阻塞 HTTP。API 啟動時不建立資料表。[管理後台](docs/admin.md)沿用現有登入，可查看服務與執行紀錄、控制 jobs 及管理單一管理員資格。
 
 ## 快速開始
 
 ### 環境需求
 
-- Python 3.12。
-- Node.js 22.9 以上與 npm。
-- MySQL 與已建立的專案資料庫；首次部署以 `python -m app.jobs init-schema --sync-catalog` 建立資料表與官方公司目錄，詳見[首次初始化](docs/README.md#首次初始化)。
-- 新聞向量檢索與 AI 功能另需 Qdrant、embedding 及 LLM 服務。
+- Python **3.12**。
+- Node.js **22.9 以上**與 npm。
+- MySQL，以及已建立的開發資料庫與帳號。
+- 新聞向量檢索需 Qdrant 與 embedding 服務；AI 分析與對話需 LLM 服務。
 
-後端依賴見 [requirements.txt](backend/requirements.txt)，前端使用 [package-lock.json](frontend/Topic/package-lock.json) 安裝。
+後端依賴見 [requirements.txt](backend/requirements.txt)；前端版本以 [package-lock.json](frontend/Topic/package-lock.json) 為準。
+
+### 1. 取得專案
 
 ```bash
 git clone https://github.com/weeei001/115409.git
 cd 115409
 ```
 
-### 後端
+### 2. 安裝後端
 
-將 [backend/.env.development.example](backend/.env.development.example) 複製為 `backend/.env.development`，填入開發資料庫連線與獨立的 `JWT_SECRET`。資料庫名稱、帳號與 Qdrant collection 必須以 `_dev` 結尾。可選服務的設定見下方說明。
-
-首次安裝依賴後，直接啟動後端；後續啟動不需重建虛擬環境。
+從專案根目錄執行對應平台的指令：
 
 <details>
 <summary>Windows PowerShell</summary>
@@ -51,13 +72,7 @@ cd 115409
 cd backend
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-在 `backend/` 啟動：
-
-```powershell
-$env:APP_ENV = 'development'
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8002 --reload
+Copy-Item .env.development.example .env.development
 ```
 
 </details>
@@ -69,69 +84,116 @@ $env:APP_ENV = 'development'
 cd backend
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-```
-
-在 `backend/` 啟動：
-
-```bash
-APP_ENV=development .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8002 --reload
+cp .env.development.example .env.development
 ```
 
 </details>
 
-啟動後可開啟 [Swagger UI](http://127.0.0.1:8002/docs)、[OpenAPI](http://127.0.0.1:8002/openapi.json) 與 [健康檢查](http://127.0.0.1:8002/health)。API 不會自動建立資料表；FastAPI 管理 jobs 排程的啟動與關閉，工作以子程序串行執行，不阻塞 HTTP。`/health` 僅確認 HTTP 程序正常。
+編輯 `backend/.env.development`，填入 MySQL 連線資訊與獨立的 `JWT_SECRET`。開發資料庫名稱、帳號及 Qdrant collection 名稱必須以 `_dev` 結尾，範例使用 `topic_stock_dev` 與 `news_chunks_v1_dev`。
 
-### 前端
+### 3. 初始化並啟動後端
 
-將 [frontend/Topic/.env.development.example](frontend/Topic/.env.development.example) 複製為 `frontend/Topic/.env.development.local`。`NEXT_PUBLIC_API_URL` 預設對應後端的 `http://127.0.0.1:8002`。
+先建立 `.env.development` 指定的 MySQL 資料庫與帳號，再於 `backend/` 執行。`init-schema --sync-catalog` 僅在首次安裝時需要：它會建立缺少的資料表、取得官方公司目錄並同步 40 檔服務股票。
 
-另開終端機，從專案根目錄執行；Windows PowerShell 可使用 `npm.cmd` 取代 `npm`：
+<details>
+<summary>Windows PowerShell</summary>
+
+```powershell
+$env:APP_ENV = 'development'
+.\.venv\Scripts\python.exe -m app.jobs init-schema --sync-catalog
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8002 --reload
+```
+
+</details>
+
+<details>
+<summary>macOS / Linux</summary>
+
+```bash
+export APP_ENV=development
+.venv/bin/python -m app.jobs init-schema --sync-catalog
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8002 --reload
+```
+
+</details>
+
+初始化不會匯入歷史行情、新聞或向量資料；資料匯入與首次索引步驟見[首次初始化](docs/README.md#首次初始化)。既有資料表的升級需使用對應遷移。
+
+### 4. 安裝並啟動前端
+
+另開終端機，從專案根目錄執行：
 
 ```bash
 cd frontend/Topic
 npm ci
 ```
 
-安裝完成後，在 `frontend/Topic/` 啟動：
+將 [frontend/Topic/.env.development.example](frontend/Topic/.env.development.example) 複製為 `frontend/Topic/.env.development.local`，確認 `NEXT_PUBLIC_API_URL=http://127.0.0.1:8002`，再於同一目錄啟動：
 
 ```bash
 npm run dev
 ```
 
-開啟 [http://127.0.0.1:3000](http://127.0.0.1:3000)。前端與後端各自在自己的終端機執行，使用 `Ctrl+C` 停止對應程序。
+Windows PowerShell 可使用 `npm.cmd` 取代 `npm`。前端與後端各自保留一個終端機，使用 `Ctrl+C` 停止對應程序。
 
-## 設定
+### 5. 開啟服務
 
-| 功能 | 主要環境變數 |
+| 服務 | 本機網址 |
 | --- | --- |
-| 資料庫 | `DATABASE_HOST`、`DATABASE_PORT`、`DATABASE_USER`、`DATABASE_PASSWORD`、`DATABASE_NAME` |
+| 前端 | [http://127.0.0.1:3000](http://127.0.0.1:3000) |
+| API 文件（Swagger UI） | [http://127.0.0.1:8002/docs](http://127.0.0.1:8002/docs) |
+| OpenAPI schema | [http://127.0.0.1:8002/openapi.json](http://127.0.0.1:8002/openapi.json) |
+| 健康檢查 | [http://127.0.0.1:8002/health](http://127.0.0.1:8002/health) |
+
+`/health` 僅確認 API 程序正常；資料庫連線、資料是否齊全與外部服務可用性需另外確認。
+
+## 環境變數
+
+後端開發設定使用 `backend/.env.development`；前端使用 `frontend/Topic/.env.development.local`。範例檔分別為[後端範例](backend/.env.development.example)與[前端範例](frontend/Topic/.env.development.example)。
+
+| 用途 | 主要變數 |
+| --- | --- |
+| 後端開發模式 | `APP_ENV=development` |
+| MySQL | `DATABASE_HOST`、`DATABASE_PORT`、`DATABASE_USER`、`DATABASE_PASSWORD`、`DATABASE_NAME` |
 | 登入與跨來源請求 | `JWT_SECRET`、`CORS_ALLOW_ORIGINS` |
-| 個股分析 | `ANALYSIS_LLM_API_KEY`、`ANALYSIS_LLM_BASE_URL`、`ANALYSIS_LLM_MODEL` |
+| 個股 AI 分析 | `ANALYSIS_LLM_API_KEY`、`ANALYSIS_LLM_BASE_URL`、`ANALYSIS_LLM_MODEL` |
 | 串流模型覆寫 | `STREAM_LLM_API_KEY`、`STREAM_LLM_BASE_URL`、`STREAM_LLM_MODEL` |
-| 新聞向量檢索 | `QDRANT_URL`、`QDRANT_COLLECTION`、`QDRANT_API_KEY`、`EMBED_*`、`NEWS_INDEX_VERSION` |
-| Google 登入與重設密碼 | `GOOGLE_CLIENT_ID`、`FRONTEND_PASSWORD_RESET_URL`、`SMTP_*` |
+| 新聞向量檢索 | `QDRANT_URL`、`QDRANT_COLLECTION`、`QDRANT_API_KEY`、`EMBED_API_URL`、`EMBED_API_KEY`、`EMBED_MODEL`、`NEWS_INDEX_VERSION` |
 | 行情匯入 | `FINMIND_API_TOKEN` |
+| Google 登入與重設密碼 | `GOOGLE_CLIENT_ID`、`FRONTEND_PASSWORD_RESET_URL`、`SMTP_*` |
+| 前端 API 與 Google 登入 | `NEXT_PUBLIC_API_URL`、`NEXT_PUBLIC_GOOGLE_CLIENT_ID` |
+| AI 模擬下單 Demo | `NEXT_PUBLIC_AI_TRADE_DEMO_API_URL` |
 
-完整欄位、別名與預設值以 [Settings](backend/app/core/config.py) 為準。開發模式使用 `APP_ENV=development`，只讀取 `.env.development`；缺檔時會停止。開發狀態檔位於 `backend/.state/development/`。
+`STREAM_LLM_*` 三個欄位皆有值時才套用覆寫，否則沿用個股分析的模型設定。完整欄位、別名與預設值見 [Settings](backend/app/core/config.py)。
 
-前端的 `NEXT_PUBLIC_*` 會送至瀏覽器，並在建置時寫入 bundle，不應放入私密金鑰。`.env`、憑證、資料庫檔案與產生的輸出不納入版本控制。
+在後端程序設定 `APP_ENV=development` 時，後端只讀取 `.env.development`，缺檔會停止；開發狀態檔存放於 `backend/.state/development/`。`NEXT_PUBLIC_*` 會公開至瀏覽器並在建置時寫入 bundle，僅放公開設定。私密金鑰、實際 `.env`、本機資料與產生的輸出均不納入版本控制。
 
 ## 專案結構
 
-| 路徑 | 用途 |
-| --- | --- |
-| [backend/app/main.py](backend/app/main.py) | API 入口、路由組裝與資源生命週期 |
-| [backend/app/features/](backend/app/features/) | auth、market、news、orders、analysis、chat、retrieval、simulation |
-| [backend/app/clients/](backend/app/clients/) | 外部服務介接 |
-| [backend/app/db/](backend/app/db/) | 資料庫連線、session 與資料表定義 |
-| [backend/app/jobs/](backend/app/jobs/) | 匯入、索引、分析與排程工作 |
-| [backend/tests/](backend/tests/) | 後端測試 |
-| [frontend/Topic/](frontend/Topic/) | 目前使用的前端應用程式 |
-| [docs/](docs/) | 架構、資料操作與歷史設計文件 |
+```text
+115409/
+├── .github/workflows/       # CI and deployment workflow
+├── backend/
+│   ├── app/
+│   │   ├── main.py          # FastAPI entry point
+│   │   ├── core/           # Configuration and shared infrastructure
+│   │   ├── features/       # Routers, services, and repositories
+│   │   ├── clients/        # External service clients
+│   │   ├── db/             # Database sessions and models
+│   │   └── jobs/           # Independent data workers
+│   ├── tests/
+│   └── requirements.txt
+├── frontend/
+│   └── Topic/              # Active Next.js application
+├── docs/                   # Architecture and operations documentation
+└── AGENTS.md               # Coding agent instructions
+```
 
-`frontend/topictest/` 為歷史目錄，開發請使用 `frontend/Topic/`。
+`frontend/topictest/` 為歷史目錄；前端開發使用 `frontend/Topic/`。
 
-## 測試
+## 開發與測試
+
+### 後端
 
 從專案根目錄使用已安裝依賴的 Python 執行：
 
@@ -139,25 +201,35 @@ npm run dev
 python -m pytest backend/tests/test_architecture.py backend/tests/test_system.py backend/tests/test_streaming.py -q
 ```
 
-測試使用一次性的 SQLite 並停用本機 `.env` 載入。Windows 可將 `python` 換成 `backend/.venv/Scripts/python.exe`，macOS／Linux 換成 `backend/.venv/bin/python`。
+Windows 可將 `python` 換成 `backend/.venv/Scripts/python.exe`；macOS / Linux 可換成 `backend/.venv/bin/python`。本機測試使用一次性 SQLite 並停用 `.env` 載入。
 
-前端檢查從 `frontend/Topic/` 執行：
+需要完整回歸時執行 `python -m pytest backend/tests -q`，並參考[已知驗證限制](docs/README.md#已知驗證限制)判讀結果。
+
+### 前端
+
+在 `frontend/Topic/` 執行：
 
 ```bash
-npm run lint -- --incremental false
 npm run test:chat
 npm run test:compare
+npm run build
+npm run lint -- --incremental false
 ```
 
-`lint` 執行 TypeScript 型別檢查。完整測試命令與目前限制見 [驗證說明](docs/README.md#已知驗證限制)。
+`lint` 執行 TypeScript 型別檢查。先建置可在全新 checkout 產生 Next.js 所需型別。`npm test`、`test:all` 與 `sync:openapi` 的現有限制見[驗證說明](docs/README.md#已知驗證限制)。
 
-## 文件與協作
+[GitHub Actions](.github/workflows/ci-cd.yml) 執行後端架構、啟動與串流測試，以及前端對話、比較、建置和型別檢查。
 
-- [GitHub CI/CD](docs/ci-cd.md)：自動測試、前端建置與 Windows 部署設定。
-- [開發與操作文件](docs/README.md)：後端邊界、背景工作與資料匯入。
-- [AGENTS.md](AGENTS.md)：程式代理的專案協作指引。
+## 相關文件
+
+- [開發與操作文件](docs/README.md)：後端分層、資料庫初始化、背景工作與資料匯入。
+- [AI 模擬下單 Demo](frontend/Topic/features/ai-trade-demo/README.md)：獨立 API、串流格式與回測指標。
 - [Android 建置腳本](frontend/Topic/build-capacitor-release.ps1)：Capacitor APK 匯出。
-- [Issues](https://github.com/weeei001/115409/issues)：回報問題或提出功能需求，請附重現步驟、使用版本與移除敏感資訊後的錯誤訊息。
-- [Contributors](https://github.com/weeei001/115409/graphs/contributors)：專案貢獻紀錄。
+- [歷史設計文件](docs/圖檔/)與[學期進度](docs/上學期進度/)：專題設計與開發紀錄。
+- [AGENTS.md](AGENTS.md)：程式代理的專案協作指引。
 
-提交 Pull Request 時，說明變更目的與驗證結果。修改 API 時同步檢查前端呼叫者、回應 schema 與受影響測試。
+## 參與貢獻
+
+歡迎透過 [Issues](https://github.com/weeei001/115409/issues) 回報問題或提出功能需求。回報問題時，請附上重現步驟、預期與實際結果，以及移除敏感資訊後的錯誤訊息。
+
+提交 Pull Request 時，說明變更目的與驗證結果。修改 API 時，請同步檢查前端呼叫者、回應 schema 與受影響測試。專案貢獻紀錄見 [Contributors](https://github.com/weeei001/115409/graphs/contributors)。

@@ -208,13 +208,26 @@ def saved_brief(row: LlmResponse) -> StockBehaviorTextBriefResponse | None:
     return response
 
 
+def load_latest_saved(db: Session, *, symbol: str, as_of: date) -> StockBehaviorTextBriefResponse | None:
+    statement = select(LlmResponse).where(
+        LlmResponse.symbol == symbol, LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF,
+        LlmResponse.is_fallback.is_(False), LlmResponse.as_of_date <= as_of,
+    ).order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc())
+    with db.scalars(statement) as rows:
+        for row in rows:
+            response = saved_brief(row)
+            if response is not None:
+                return response
+    return None
+
+
 def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
-                latest: bool = False, source_fingerprints: dict[date, str] | None = None,
+                source_fingerprints: dict[date, str] | None = None,
                 evidence_fingerprint: str | None = None) -> StockBehaviorTextBriefResponse | None:
     statement = select(LlmResponse).where(
         LlmResponse.symbol == symbol, LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF,
         LlmResponse.is_fallback.is_(False),
-        LlmResponse.as_of_date <= as_of if latest else LlmResponse.as_of_date == as_of,
+        LlmResponse.as_of_date == as_of,
     ).order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc())
     statement = statement.where(LlmResponse.config_hash == config_hash)
     fingerprints = source_fingerprints if source_fingerprints is not None else {}

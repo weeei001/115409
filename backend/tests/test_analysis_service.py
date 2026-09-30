@@ -112,14 +112,30 @@ def test_analysis_pipeline_thread_boundary_backfill_snapshot_and_cache(db_sessio
     cached = run_service(db_session, settings, llm, rag)
     assert cached.cached and cached.snapshot_id == first.snapshot_id
     assert cached.brief == first.brief and llm.calls == rag.calls == 1
-    refreshed = run_service(db_session, settings, llm, rag, cache_only=True, force_refresh=True)
+    cached = run_service(db_session, settings, llm, rag, cache_only=True, force_refresh=True)
+    assert cached.cached and cached.snapshot_id == first.snapshot_id
+    assert llm.calls == rag.calls == 1
+    refreshed = run_service(db_session, settings, llm, rag, force_refresh=True)
     assert not refreshed.cached and refreshed.snapshot_id > first.snapshot_id
     assert llm.calls == rag.calls == 2
 
 
-def test_cache_only_miss_skips_every_external_call_and_persistence(db_session, settings):
+@pytest.mark.parametrize("force_refresh", [False, True])
+@pytest.mark.parametrize("refresh_sources", [False, True])
+def test_cache_only_miss_skips_every_external_call_and_persistence(
+        db_session, settings, monkeypatch, force_refresh, refresh_sources):
     llm, rag = FakeLlm(), FakeRag()
-    result = run_service(db_session, settings, llm, rag, cache_only=True)
+
+    def unexpected_work(*args, **kwargs):
+        pytest.fail("Reading a saved snapshot must not prepare or generate an analysis")
+
+    monkeypatch.setattr(repository, "collect_rows", unexpected_work)
+    monkeypatch.setattr(llm, "require_enabled", unexpected_work)
+    monkeypatch.setattr("app.features.analysis.service.build_llm_runtime_config", unexpected_work)
+    service = AnalysisService(db=db_session, settings=settings, http=None, llm=llm, rag=rag)
+    result = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
+        symbol="2330", as_of_date=AS_OF, cache_only=True, force_refresh=force_refresh),
+        refresh_sources=refresh_sources))
     assert result.status == "unavailable" and result.brief is None
     assert llm.calls == rag.calls == 0
     assert db_session.scalars(select(LlmResponse)).all() == []
@@ -315,16 +331,17 @@ def test_grounding_rejects_wrong_period_sign_and_after_close_causality():
     assert gate._grounding_issues({"text": "營收年減10%", "evidence_ids": ["fd_01"]}, bundle)
 
 
-def test_body_only_company_news_correction_invalidates_cache(db_session, settings):
+def test_body_only_company_news_correction_preserves_saved_read_but_invalidates_generation_cache(db_session, settings):
     seed_prices(db_session)
     article = NewsArticle(article_id="body-only", stock_id="other", title="Operating news",
                           content="台積電宣布營運消息", pub_time="2026-07-13T09:00:00")
     db_session.add(article)
     db_session.commit()
-    run_service(db_session, settings)
+    first = run_service(db_session, settings)
     article.content = "台積電撤回營運展望"
     db_session.commit()
-    assert run_service(db_session, settings, cache_only=True).status == "unavailable"
+    assert run_service(db_session, settings, cache_only=True).snapshot_id == first.snapshot_id
+    assert repository.load_cached(db_session, symbol="2330", as_of=AS_OF, config_hash=first.config_hash) is None
 
 
 def test_latest_weekend_analysis_is_independent_of_price_day_and_historical_cutoff(db_session, settings):
@@ -337,15 +354,19 @@ def test_latest_weekend_analysis_is_independent_of_price_day_and_historical_cuto
         "timestamp": "2026-09-27T10:00:00+08:00", "article_id": "weekend"}])
     sunday = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
         symbol="2330", as_of_date=date(2026, 9, 27))))
+    rag.result = RagResult()
+    historical_update = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
+        symbol="2330", as_of_date=date(2026, 9, 24), force_refresh=True)))
+    assert historical_update.snapshot_id > sunday.snapshot_id > thursday.snapshot_id
     current = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
         symbol="2330", as_of_date=date(2026, 9, 27), cache_only=True)))
     historical = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
         symbol="2330", as_of_date=date(2026, 9, 24), cache_only=True)))
     assert current.snapshot_id == sunday.snapshot_id
-    assert historical.snapshot_id == thursday.snapshot_id
+    assert historical.snapshot_id == historical_update.snapshot_id
     assert current.price_as_of_date == "2026-07-14" and current.news_cutoff_date == "2026-09-27"
     assert not any(item.field == "news" for item in historical.evidence_catalog)
-    assert llm.calls == rag.calls == 2
+    assert llm.calls == rag.calls == 3
 
 
 def test_text_brief_accepts_symbols_from_stock_info(db_session, settings):
@@ -358,7 +379,7 @@ def test_text_brief_accepts_symbols_from_stock_info(db_session, settings):
 
 
 @pytest.mark.parametrize("requested_date", [AS_OF, date(2026, 9, 12)])
-def test_cache_only_rejects_saved_response_after_settings_change(db_session, settings, monkeypatch, requested_date):
+def test_cache_only_reads_latest_saved_response_after_settings_change(db_session, settings, monkeypatch, requested_date):
     seed_prices(db_session)
     llm, rag = FakeLlm(), FakeRag()
     first = run_service(db_session, settings, llm, rag)
@@ -369,11 +390,16 @@ def test_cache_only_rejects_saved_response_after_settings_change(db_session, set
         pytest.fail("Reading a saved snapshot must not revalidate current inputs")
 
     monkeypatch.setattr(repository, "input_fingerprint", unexpected_fingerprint)
+    monkeypatch.setattr(repository, "collect_rows", unexpected_fingerprint)
+    monkeypatch.setattr(llm, "require_enabled", unexpected_fingerprint)
+    monkeypatch.setattr("app.features.analysis.service.build_llm_runtime_config", unexpected_fingerprint)
     service = AnalysisService(db=db_session, settings=updated_settings, http=None, llm=llm, rag=rag)
     result = asyncio.run(service.generate_text_brief(StockBehaviorTextBriefRequest(
-        symbol="2330", as_of_date=requested_date, cache_only=True)))
-    assert result.status == "unavailable" and result.snapshot_id is None
-    assert result.as_of_date == requested_date.isoformat() and result.brief is None
+        symbol="2330", as_of_date=requested_date, cache_only=True, force_refresh=True), refresh_sources=True))
+    assert latest.snapshot_id > first.snapshot_id
+    assert result.cached and result.snapshot_id == latest.snapshot_id
+    assert result.brief == latest.brief and result.config_hash == latest.config_hash
+    assert result.as_of_date == AS_OF.isoformat()
     assert llm.calls == rag.calls == 2
     assert len(db_session.scalars(select(LlmResponse)).all()) == 2
 
@@ -399,7 +425,9 @@ def test_same_day_source_changes_invalidate_analysis_cache(db_session, settings,
         db_session.get(DailyPrice, {"symbol": "2330", "date": AS_OF}).close = Decimal("119")
     db_session.commit()
     cached_only = run_service(db_session, settings, llm, rag, cache_only=True)
-    assert cached_only.snapshot_id is None and cached_only.status == "unavailable"
+    assert cached_only.cached and cached_only.snapshot_id == first.snapshot_id
+    assert cached_only.brief == first.brief
+    assert repository.load_cached(db_session, symbol="2330", as_of=AS_OF, config_hash=first.config_hash) is None
     assert llm.calls == rag.calls == 1
     refreshed = run_service(db_session, settings, llm, rag)
     assert not refreshed.cached and refreshed.snapshot_id != first.snapshot_id
@@ -457,8 +485,7 @@ def test_latest_valid_snapshot_skips_malformed_future_and_blocked_rows(db_sessio
         LlmResponse(**{**fields, "is_fallback": True, "raw_llm_text": "blocked output"}),
     ])
     db_session.commit()
-    cached = repository.load_cached(db_session, symbol="2330", config_hash=first.config_hash,
-                                    as_of=date(2026, 7, 14), latest=True)
+    cached = repository.load_latest_saved(db_session, symbol="2330", as_of=date(2026, 7, 14))
     assert cached.snapshot_id == first.snapshot_id
     assert cached.as_of_date == "2026-07-13"
     assert "blocked output" not in cached.model_dump_json()

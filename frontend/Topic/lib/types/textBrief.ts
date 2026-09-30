@@ -194,6 +194,6 @@ export interface TextBriefRequest {
   symbol: string;
   as_of_date?: string;
   force_refresh?: boolean;
-  /** 只讀快取、不呼叫 LLM；查無當日快照就退回該檔最近一次，產生交給排程 */
+  /** Read the latest eligible saved response through the cutoff; overrides force_refresh. */
   cache_only?: boolean;
 }

@@ -244,16 +244,20 @@ class AnalysisService:
         symbol = req.symbol.strip().upper()
         today = datetime.now(TAIPEI).date()
         as_of = req.as_of_date or today
-        config = build_llm_runtime_config(self.settings, self.llm.model_name)
-        config_hash = compute_config_hash(config)
-        if not req.force_refresh and (not refresh_sources or req.cache_only):
-            cached = await _db_work(repository.load_cached, self.db, symbol=symbol,
-                                    as_of=as_of, config_hash=config_hash, latest=req.cache_only)
+        if req.cache_only:
+            cached = await _db_work(repository.load_latest_saved, self.db, symbol=symbol, as_of=as_of)
             if cached is not None:
                 return cached
-            if req.cache_only:
-                return self._response(symbol, as_of, "unavailable", None,
-                    limitations=[gate.TEXT_BRIEF_CACHE_MISS_LIMITATION])
+            return self._response(symbol, as_of, "unavailable", None,
+                limitations=[gate.TEXT_BRIEF_CACHE_MISS_LIMITATION])
+
+        config = build_llm_runtime_config(self.settings, self.llm.model_name)
+        config_hash = compute_config_hash(config)
+        if not req.force_refresh and not refresh_sources:
+            cached = await _db_work(repository.load_cached, self.db, symbol=symbol,
+                                    as_of=as_of, config_hash=config_hash)
+            if cached is not None:
+                return cached
 
         self._validate_symbol(symbol)
         if not refresh_sources or req.force_refresh:
