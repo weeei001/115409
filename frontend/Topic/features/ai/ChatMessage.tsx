@@ -87,6 +87,10 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
       >
         <div className="flex flex-col items-start justify-between gap-2 sm:flex-row">
           <div className="w-full min-w-0 flex-1 text-left text-sm leading-relaxed">
+            {!isUser && message.status ? <p className="mb-2 text-xs text-muted-foreground" aria-live="polite">
+              {{ streaming: '生成中', completed: '已完成', failed: '回覆失敗', interrupted: '回覆已中斷；可重新提問。' }[message.status]}
+              {message.status === 'failed' && message.error ? `：${message.error}` : ''}
+            </p> : null}
             {!isUser && message.dashboard ? <h4 className="mb-2 text-sm font-semibold">AI 解讀</h4> : null}
             {!isUser && message.streamStatus ? (
               <p className="mb-2 text-xs whitespace-pre-wrap text-muted-foreground" aria-live="polite">

@@ -45,4 +45,10 @@ const twoMessages = renderToStaticMarkup(<><ChatMessage message={{ id: 'one', ro
   <ChatMessage message={{ id: 'two', role: 'assistant', content: '[S1]', timestamp: '', sources }} reducedMotion streamActive={false} followUpDisabled={false} /></>);
 const ids = [...twoMessages.matchAll(/id="(chat-source-[^"]+)"/g)].map((match) => match[1]);
 assert.equal(new Set(ids).size, 4);
+for (const [status, label] of [['completed', '已完成'], ['failed', '回覆失敗'], ['interrupted', '回覆已中斷']] as const) {
+  const terminal = renderToStaticMarkup(<ChatMessage message={{ id: status, role: 'assistant', content: 'preserved answer', timestamp: '', status, error: status === 'failed' ? 'safe failure' : undefined }} reducedMotion streamActive={false} followUpDisabled={false} />);
+  assert.ok(terminal.includes(label));
+  assert.ok(terminal.includes('preserved answer'));
+  if (status === 'failed') assert.ok(terminal.includes('safe failure'));
+}
 console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, and per-message targets.');

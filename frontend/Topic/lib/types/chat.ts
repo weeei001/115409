@@ -35,11 +35,15 @@ export function parseChatSources(value: unknown): ChatSource[] {
   });
 }
 
+export type ChatMessageStatus = 'streaming' | 'completed' | 'failed' | 'interrupted';
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  status?: ChatMessageStatus;
+  error?: string;
   /** 串流中後端 `type: "status"` 的狀態文字 */
   streamStatus?: string;
   actions?: ChatAction[];

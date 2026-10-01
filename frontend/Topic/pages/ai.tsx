@@ -28,6 +28,11 @@ export default function AiPage() {
       <main aria-label="AI 對話" className="mx-auto flex w-full max-w-7xl flex-col px-4 py-3 sm:px-6 sm:py-6 lg:min-h-0 lg:flex-1 lg:px-8">
         <div className="mx-auto flex w-full max-w-6xl flex-col lg:min-h-0 lg:flex-1">
           <div className="flex w-full flex-col overflow-visible rounded-xl border bg-card shadow-raised lg:max-h-[calc(100dvh-var(--app-header-height)-4rem-var(--app-safe-area-bottom))] lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2 text-xs text-muted-foreground">
+              <p role="status">{chat.cacheNotice ?? '對話保留於本分頁；登出或切換帳號會清除。'}</p>
+              <button type="button" onClick={chat.clear} disabled={!chat.ready || !chat.messages.length}
+                className="min-h-11 shrink-0 rounded-lg border px-3 text-sm text-subtle hover:bg-accent disabled:opacity-50">清除對話</button>
+            </div>
             <ChatArea
               messages={chat.messages}
               loading={chat.loading}
@@ -36,7 +41,7 @@ export default function AiPage() {
               onSend={chat.send}
             />
             <div className="shrink-0">
-              <ChatInput onSend={chat.send} disabled={chat.loading} />
+              <ChatInput onSend={chat.send} disabled={chat.loading || !chat.ready} />
             </div>
           </div>
         </div>
