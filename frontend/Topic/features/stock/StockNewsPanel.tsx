@@ -1,23 +1,53 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
 import { Info, Newspaper, RefreshCw } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { NewsCard, type NewsRelation } from '@/features/news/NewsCard';
-import { NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
+import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
+import { loadStockNewsPosition, saveStockNewsPosition, stockNewsViewHref, type StockNewsView } from '@/lib/news/stockNewsView';
 
 const PAGE_SIZE = 8;
 
 /** 「相關新聞」抽屜：股票固定、可依發布時間篩選、分頁 */
-export function StockNewsPanel({ symbol }: { symbol: string }) {
-  const [relation, setRelation] = useState<NewsRelation>('direct');
-  const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol, fixedRelation: relation, retrieval: true });
+export function StockNewsPanel({ symbol, initialView }: { symbol: string; initialView?: StockNewsView }) {
+  const router = useRouter();
+  const sectionRef = useRef<HTMLElement>(null);
+  const filterTrigger = useRef<HTMLButtonElement>(null);
+  const restoredRef = useRef(false);
+  const [relation, setRelation] = useState<NewsRelation>(initialView?.relation ?? 'direct');
+  const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol, fixedRelation: relation, retrieval: true, initialState: initialView });
   const hydrated = useHydrated();
   const totalPages = newsList.totalPages;
+  const returnTo = stockNewsViewHref(router.asPath, {
+    version: 1, symbol, relation, page: newsList.page, filters: newsList.filters,
+  });
+
+  useEffect(() => {
+    if (newsList.loading || newsList.error || !newsList.data) return;
+    if (router.asPath !== returnTo) void router.replace(returnTo, undefined, { shallow: true, scroll: false });
+  }, [newsList.loading, newsList.error, newsList.data, router, returnTo]);
+
+  useEffect(() => {
+    if (newsList.loading || newsList.error || !newsList.data) return;
+    if (restoredRef.current) return;
+    const position = loadStockNewsPosition(returnTo);
+    if (!position) { restoredRef.current = true; return; }
+    const frame = requestAnimationFrame(() => {
+      restoredRef.current = true;
+      const container = sectionRef.current?.closest<HTMLElement>('[data-detail-scroll]');
+      if (container) container.scrollTop = position.scrollTop;
+      const article = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>('[data-news-article]') ?? [])
+        .find((node) => node.dataset.newsArticle === position.articleId);
+      article?.querySelector<HTMLAnchorElement>('h3 a')?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [newsList.loading, newsList.error, newsList.data, router, returnTo]);
 
   return (
-    <section className="rounded-xl border bg-card p-4 shadow-card sm:p-5">
+    <section ref={sectionRef} className="rounded-xl border bg-card p-4 shadow-card sm:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Newspaper size={18} className="text-brand" aria-hidden />
@@ -26,6 +56,8 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
         </div>
         <div className="flex items-center gap-2">
           <NewsFilters
+            applied={newsList.filters}
+            triggerRef={filterTrigger}
             fixedRelation
             draft={newsList.draft}
             setDraft={newsList.setDraft}
@@ -44,6 +76,8 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
           </button>
         </div>
       </div>
+
+      <AppliedNewsFilters applied={newsList.filters} fixedRelation disabled={newsList.loading} triggerRef={filterTrigger} onClearAdvanced={newsList.clearAdvanced} />
 
       <p className="mb-4 flex items-center gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5 text-[11px] text-muted-foreground">
         <Info size={12} className="shrink-0 text-brand" aria-hidden />
@@ -76,7 +110,8 @@ export function StockNewsPanel({ symbol }: { symbol: string }) {
         <>
           <div>
             {newsList.data.items.map((n) => (
-                <NewsCard key={n.article_id} news={n} targetStock={symbol} relation={relation} />
+                <NewsCard key={n.article_id} news={n} targetStock={symbol} relation={relation} returnTo={returnTo}
+                  onNavigate={() => saveStockNewsPosition(returnTo, n.article_id, sectionRef.current?.closest<HTMLElement>('[data-detail-scroll]')?.scrollTop ?? 0)} />
             ))}
           </div>
           {totalPages > 1 ? (

@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/router';
+import { parseStockNewsView, stockNewsViewHref, STOCK_NEWS_VIEW_PARAM } from '@/lib/news/stockNewsView';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
 import { getMaStructureLabel, summarizePricePosition } from '@/lib/utils/technicalSignals';
@@ -23,6 +25,7 @@ type DrawerKey = 'chart' | 'institutional' | 'indicators' | 'ai' | 'news';
 const Hairline = () => <div aria-hidden className="h-px w-full bg-border" />;
 
 export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResult }) {
+  const router = useRouter();
   const { symbol, latest, loading, baseDate, priceChart, chipsLoading, institutionalLatest, indicators, indicatorLatest } = dashboard;
   const stockDisplayName = useStockDisplayName(symbol);
   const stockName = stockDisplayName === symbol ? null : stockDisplayName;
@@ -31,9 +34,19 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
   const maStructureLabel = useMemo(() => getMaStructureLabel(summarizePricePosition(priceChart)), [priceChart]);
 
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
+  const newsView = parseStockNewsView(router.query[STOCK_NEWS_VIEW_PARAM], symbol);
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null);
   const [focusClaimKey, setFocusClaimKey] = useState<string | null>(null);
-  const close = () => setDrawer(null);
+  const close = () => {
+    setDrawer(null);
+    if (newsView) void router.replace(stockNewsViewHref(router.asPath, null), undefined, { shallow: true, scroll: false });
+  };
+  const openNews = () => {
+    setDrawer(null);
+    void router.replace(stockNewsViewHref(router.asPath, {
+      version: 1, symbol, relation: 'direct', page: 1, filters: {},
+    }), undefined, { shallow: true, scroll: false });
+  };
   const openAI = (evidenceId?: string, claimKey?: string) => {
     setFocusClaimKey(claimKey ?? null);
     setFocusEvidenceId(evidenceId ?? null);
@@ -84,7 +97,7 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
             <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} onOpenDetail={() => setDrawer('indicators')} />
           </div>
           <div className="h-full md:col-span-2 lg:col-span-12">
-            <TopNewsCard symbol={symbol} onOpenDetail={() => setDrawer('news')} />
+            <TopNewsCard symbol={symbol} onOpenDetail={openNews} />
           </div>
         </div>
       </AnimatedSection>
@@ -108,8 +121,8 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
           latestTradeDate={latest.date}
         />
       </DetailDrawer>
-      <DetailDrawer open={drawer === 'news'} onClose={close} title="相關新聞" subtitle={subtitle}>
-        <StockNewsPanel symbol={symbol} />
+      <DetailDrawer open={Boolean(newsView)} onClose={close} title="相關新聞" subtitle={subtitle}>
+        {newsView && <StockNewsPanel symbol={symbol} initialView={newsView} />}
       </DetailDrawer>
     </div>
   );

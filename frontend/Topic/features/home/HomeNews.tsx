@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Newspaper, RefreshCw, Search } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { NewsCard } from '@/features/news/NewsCard';
-import { NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
+import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 
@@ -14,6 +14,7 @@ export function HomeNews() {
   const newsList = useNewsList({ pageSize: PAGE_SIZE });
   const hydrated = useHydrated();
   const [keyword, setKeyword] = useState('');
+  const filterTrigger = useRef<HTMLButtonElement>(null);
   const search = () => newsList.applyFilters({ keyword });
   const { data, totalPages } = newsList;
 
@@ -28,6 +29,8 @@ export function HomeNews() {
 
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <NewsFilters
+            applied={newsList.filters}
+            triggerRef={filterTrigger}
             draft={newsList.draft}
             setDraft={newsList.setDraft}
             onApply={search}
@@ -58,6 +61,8 @@ export function HomeNews() {
           </button>
         </div>
       </div>
+
+      <AppliedNewsFilters applied={newsList.filters} disabled={newsList.loading} triggerRef={filterTrigger} onClearAdvanced={newsList.clearAdvanced} />
 
       <div className="min-h-0 flex-1">
         {!hydrated || newsList.loading ? (

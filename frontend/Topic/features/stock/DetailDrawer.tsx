@@ -38,7 +38,7 @@ export function DetailDrawer({ open, onClose, title, subtitle, children }: Props
           <SheetTitle className="truncate text-lg font-bold">{title}</SheetTitle>
           <SheetDescription className={subtitle ? 'text-xs text-muted-foreground' : 'sr-only'}>{subtitle ?? title}</SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-[calc(1.25rem+var(--app-safe-area-bottom))] sm:px-6">
+        <div data-detail-scroll className="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-[calc(1.25rem+var(--app-safe-area-bottom))] sm:px-6">
           {open ? children : null}
         </div>
       </SheetContent>

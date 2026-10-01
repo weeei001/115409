@@ -10,6 +10,7 @@
     "test": "tsx scripts/openapiMapper.test.ts",
     "test:chat": "tsx lib/api/ragAsk.test.ts && tsx lib/utils/markdown.test.tsx && tsx features/ai/ChatMessage.test.tsx && tsx lib/chat/session.test.ts",
     "test:volume": "tsx lib/charts/volumeInsight.test.ts",
+    "test:news": "tsx lib/hooks/useNewsList.test.ts && tsx lib/news/stockNewsView.test.ts && tsx features/news/NewsCard.test.ts && tsx features/news/NewsFilters.test.tsx",
     "test:admin": "tsx features/admin/AdminDashboard.test.tsx",
     "test:compare": "tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx components/common/IndustrySearch.test.ts && tsx features/compare/MetricsTable.test.tsx",
     "test:all": "npm run test && npm run test:chat && tsx features/ai/ChatDashboard.test.tsx && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx lib/brief/textBriefEvidence.test.ts && tsx lib/charts/chartAdapters.test.ts && tsx lib/charts/priceChartVisibility.test.ts && tsx lib/hooks/useStockDashboard.test.ts && tsx lib/news/highlight.test.ts && tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx lib/utils/markdown.test.tsx && tsx lib/utils/returnUrl.test.ts",
