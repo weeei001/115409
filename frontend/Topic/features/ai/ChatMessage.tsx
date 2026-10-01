@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import { Bot, Check, Copy, User } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
+import { parseChatSources } from '@/lib/types/chat';
 import { isChatFollowUpAction, isChatNavigationAction } from '@/lib/nav';
 import { MarkdownBlock } from '@/lib/utils/markdown';
 import { isStructuredRagReply } from '@/lib/utils/parseRagStructuredReply';
+import { CHAT_CITATION_RE, chatAnswerBody, newsCitationPath } from '@/lib/utils/chatCitations';
 import { cn } from '@/lib/cn';
 import { RagStructuredReply } from './RagStructuredReply';
 
@@ -24,7 +26,32 @@ const Cursor = () => <span className="ml-0.5 inline-block h-4 w-0.5 bg-brand ali
 export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, followUpDisabled }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
-  const structured = !isUser && isStructuredRagReply(message.content);
+  const sourceScope = useId();
+  const rawSourcesRef = useRef<HTMLDetailsElement>(null);
+  const content = isUser ? message.content : chatAnswerBody(message.content);
+  const sources = parseChatSources(message.sources);
+  const sourceMap = new Map(sources.map((source) => [source.citation_id, source]));
+  const citedIds = [...new Set([...content.matchAll(CHAT_CITATION_RE)].map((match) => match[1]))];
+  const sourceId = (id: string) => `chat-source-${sourceScope}-${id}`;
+  const renderCitation = (id: string) => {
+    const source = sourceMap.get(id);
+    if (!source) return <span className="text-muted-foreground">[{id}]（來源無法使用）</span>;
+    const path = newsCitationPath(source);
+    return <a href={path ?? `#${sourceId(id)}`}
+      aria-label={`引用 ${id}：${source.title}${path ? '，查看本站新聞' : '，查看原始資料'}`}
+      className="text-brand-text underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2"
+      onClick={path ? undefined : (event) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        const details = document.getElementById(sourceId(id)) as HTMLDetailsElement | null;
+        if (!details) return;
+        event.preventDefault();
+        if (rawSourcesRef.current) rawSourcesRef.current.open = true;
+        details.open = true;
+        details.querySelector('summary')?.focus();
+        details.scrollIntoView({ block: 'nearest' });
+      }}>[{id}]</a>;
+  };
+  const structured = !isUser && isStructuredRagReply(content);
   const cursor = !isUser && streamActive;
   const navActions = !isUser && (!streamActive || message.dashboard) ? (message.actions ?? []).filter(isChatNavigationAction) : [];
   const followUps = !isUser && !streamActive && onFollowUp ? (message.actions ?? []).filter(isChatFollowUpAction) : [];
@@ -67,10 +94,10 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
               </p>
             ) : null}
             {structured ? (
-              <RagStructuredReply content={message.content} showCursor={cursor} />
+              <RagStructuredReply content={content} showCursor={cursor} renderCitation={renderCitation} />
             ) : (
               <>
-                <MarkdownBlock text={message.content} />
+                <MarkdownBlock text={content} renderCitation={isUser ? undefined : renderCitation} />
                 {cursor ? <Cursor /> : null}
               </>
             )}
@@ -87,12 +114,23 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
           ) : null}
         </div>
 
-        {!isUser && message.sources?.length ? (
-          <details className="mt-3 border-t pt-3 text-sm">
+        {!isUser && citedIds.length ? (
+          <section className="mt-3 border-t pt-3 text-sm" aria-label="引用來源">
+            <h3 className="mb-2 text-xs font-semibold">引用來源</h3>
+            <ul className="space-y-2">
+              {citedIds.map((id) => <li key={id} className="break-words whitespace-pre-wrap">
+                {renderCitation(id)} {sourceMap.get(id)?.title}
+              </li>)}
+            </ul>
+          </section>
+        ) : null}
+
+        {!isUser && sources.length ? (
+          <details ref={rawSourcesRef} className="mt-3 border-t pt-3 text-sm">
             <summary className="cursor-pointer text-brand-text">本輪引用原始資料</summary>
-            {message.sources.map((source) => (
-              <details key={source.citation_id} className="mt-2 rounded-lg border p-3">
-                <summary className="cursor-pointer">[{source.citation_id}] {source.title}</summary>
+            {sources.map((source) => (
+              <details key={source.citation_id} id={sourceId(source.citation_id)} className="mt-2 rounded-lg border p-3">
+                <summary className="cursor-pointer break-words whitespace-pre-wrap">[{source.citation_id}] {source.title}</summary>
                 <p className="mt-2 text-xs text-muted-foreground">{source.stock_id} · {source.pub_time || '無發布日期'}</p>
                 <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-xs">{source.content}</pre>
               </details>
