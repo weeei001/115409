@@ -33,6 +33,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
     historyPage,
     setHistoryPage,
     historyError,
+    historyLoading,
     historyPageSize,
   } = dashboard;
 
@@ -97,7 +98,9 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
       {statistics ? <StatisticsPanel stats={statistics} /> : null}
 
       <section className="rounded-xl border bg-card p-4 shadow-card sm:p-5">
-        {historyError ? (
+        {historyLoading ? (
+          <p className="text-sm text-muted-foreground" role="status">載入歷史股價…</p>
+        ) : historyError ? (
           <Notice tone="danger">{historyError}</Notice>
         ) : history ? (
           <HistoryTable data={history} page={historyPage} pageSize={historyPageSize} onPageChange={setHistoryPage} />
