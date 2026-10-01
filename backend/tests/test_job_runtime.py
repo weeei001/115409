@@ -320,3 +320,46 @@ def test_exception_and_service_stop_have_safe_distinct_diagnostics(tmp_path, set
         assert jobs.snapshot()["run_activity"] == {}
     finally:
         engine.dispose()
+
+
+def test_cnyes_only_policy_uses_durable_pause_without_duplicate_followup(tmp_path, settings, monkeypatch):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    with factory() as db:
+        db.add(AdminJobControl(job_name="ltn", paused=True))
+        old = AdminJobRun(job_name="ltn", status="failed", trigger="scheduled", exit_code=1)
+        db.add(old)
+        db.commit()
+        old_id = old.id
+    calls = []
+
+    @contextmanager
+    def lock(name):
+        yield
+
+    monkeypatch.setattr(runtime, "worker_lock", lock)
+    monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: calls.append(name) or 0)
+    jobs.scheduler.next_news = {"cnyes": 0, "ltn": 0}
+    jobs.scheduler.delay = 0
+    jobs.start()
+    try:
+        wait_until(lambda: calls == ["cnyes", "rag"] and not jobs.active)
+        snapshot = jobs.snapshot()
+        ltn = next(item for item in snapshot["jobs"] if item["name"] == "ltn")
+        cnyes = next(item for item in snapshot["jobs"] if item["name"] == "cnyes")
+        assert ltn["paused"] and ltn["next_run_at"] is None
+        assert not cnyes["paused"] and cnyes["next_run_at"] is not None
+        with factory() as db:
+            assert db.get(AdminJobRun, old_id).status == "failed"
+            names = [row.job_name for row in db.scalars(select(AdminJobRun).order_by(AdminJobRun.id))]
+            assert names == ["ltn", "cnyes", "rag"]
+    finally:
+        jobs.stop()
+    restarted = runtime.JobRuntime(settings, factory)
+    restarted.start()
+    try:
+        wait_until(lambda: restarted.status == "running")
+        assert "ltn" in restarted.paused and not restarted._enabled("ltn")
+        assert restarted._enabled("cnyes") and calls == ["cnyes", "rag"]
+    finally:
+        restarted.stop()
+        engine.dispose()

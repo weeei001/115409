@@ -37,3 +37,30 @@ Live stage-start activity is an execution boundary, not a child-progress heartbe
 Actual worker progress remains unknown. Finished runs retain the existing safe
 stage/exit-code error summary; successful stage history is in controlled logs.
 The first nonzero pipeline result and independently continuing stages are unchanged.
+
+## Cnyes-only source policy (#88)
+
+The API lifespan owns `JobRuntime`, whose scheduler reads persisted
+`AdminJobControl.paused` before scheduling sources. Existing LTN pause is sufficient;
+no second toggle, crawler change, or configuration migration is needed. Production
+deployment keeps the separate standalone jobs service stopped. This investigation
+does not change that service or any persisted production control.
+
+When the owner applies the policy through the existing authorized operations flow:
+
+1. Read the environment and scheduler status in Admin; confirm it is the intended
+   API-managed runtime. If controls are unavailable, do not bypass them with a CLI.
+2. Use the existing **Pause Liberty Times schedule** control for `ltn` only.
+   Pause affects future scheduled runs; it does not kill an active run or forbid
+   an explicitly requested manual run/retry.
+3. Read back `ltn.paused=true`, no LTN next time, and unchanged Cnyes enabled status.
+   Preserve past LTN news, citations, and run history.
+4. At the next naturally scheduled cycle, verify Cnyes's new run and the existing
+   single coalesced analysis follow-up. After the next independently authorized
+   restart, read back the persisted LTN pause again. No test triggers these events.
+
+Offline fixtures cover durable LTN-only pause, no new scheduled LTN run, preserved
+LTN failure history, enabled Cnyes, exactly one follow-up, and restart persistence.
+The standalone scheduler/`--job all` pipeline does not read admin pause controls;
+manual CLI runs must not be used to enact or silently bypass this source policy.
+Pausing LTN does not establish data freshness or repair impact/warmup failures.
