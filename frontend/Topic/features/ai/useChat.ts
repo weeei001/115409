@@ -35,6 +35,7 @@ export function useChat() {
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const [cacheNotice, setCacheNotice] = useState<string | null>(null);
+  const [stopNotice, setStopNotice] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const ownerRef = useRef<string | null>(null);
@@ -81,9 +82,16 @@ export function useChat() {
     setMessages([]);
     setLoading(false);
     setStreamingMessageId(null);
+    setStopNotice(false);
     setCacheNotice(ownerRef.current === null ? cacheUnavailable : null);
     clearChatSession();
   }, []);
+
+  const stop = useCallback(() => {
+    if (!activeRef.current) return;
+    interrupt();
+    setStopNotice(true);
+  }, [interrupt]);
 
   useEffect(() => {
     ownerRef.current = sessionOwner();
@@ -118,6 +126,7 @@ export function useChat() {
     if (!readyRef.current) return;
     if (sessionOwner() !== ownerRef.current) clear();
     interrupt();
+    setStopNotice(false);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const history = completedHistory.current;
@@ -201,5 +210,5 @@ export function useChat() {
     }
   }, [changeMessages, clear, interrupt, persistNow]);
 
-  return { messages, loading, ready, cacheNotice, streamingMessageId, send, clear };
+  return { messages, loading, ready, cacheNotice, stopNotice, streamingMessageId, send, clear, stop };
 }
