@@ -69,6 +69,7 @@ export default function ComparePage() {
               <IndustrySearch
                 stockInfos={stockInfos}
                 availableSymbols={availableSymbols}
+                selectedSymbols={c.selected}
                 onSelect={(symbols) => c.handleBulkSelect(symbols.join(','))}
               />
               <DateRangePicker
