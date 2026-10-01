@@ -19,6 +19,8 @@ export interface UseNewsListOptions {
   fixedStock?: string;
   fixedRelation?: FetchNewsParams['relation'];
   retrieval?: boolean;
+  /** Applied route state; draft edits are deliberately excluded. */
+  initialState?: { page: number; filters: NewsListFilters };
 }
 
 type NewsListFilterOverride =
@@ -89,16 +91,21 @@ export function useNewsList(options: UseNewsListOptions = {}) {
   const [data, setData] = useState<PaginatedNewsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<NewsListFilters>({
+  const initialFilters: NewsListFilters = { ...options.initialState?.filters,
     stock: options.fixedStock,
     relation: options.fixedRelation,
-  });
-  const [draft, setDraft] = useState<NewsListFilters>({
-    stock: options.fixedStock,
-    relation: options.fixedRelation,
-  });
+  };
+  const [page, setPage] = useState(options.initialState?.page ?? 1);
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const [filters, setFilters] = useState<NewsListFilters>(initialFilters);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const [draft, setDraft] = useState<NewsListFilters>(initialFilters);
   const requestIdRef = useRef(0);
+  const lastStockRef = useRef(options.fixedStock);
+  const initializedRef = useRef(false);
+  const contextRef = useRef<string | null>(null);
 
   const load = useCallback(
     (targetPage: number, activeFilters: NewsListFilters) => {
@@ -118,21 +125,29 @@ export function useNewsList(options: UseNewsListOptions = {}) {
 
       setLoading(true);
       setError(null);
+      setData(null);
 
-      const request = optionsRef.current.retrieval && optionsRef.current.fixedStock
-        ? fetchRelatedNews({
-            ...params,
-            symbol: optionsRef.current.fixedStock,
-            limit: pageSize,
-          })
-        : fetchNews(params);
-
-      request
-        .then((res) => {
+      const currentOptions = optionsRef.current;
+      const requestPage = async () => {
+        let requestedPage = Math.max(1, targetPage);
+        while (id === requestIdRef.current) {
+          const pageParams = { ...params, page: requestedPage };
+          const res = currentOptions.retrieval && currentOptions.fixedStock
+            ? await fetchRelatedNews({ ...pageParams, symbol: currentOptions.fixedStock, limit: pageSize })
+            : await fetchNews(pageParams);
           if (id !== requestIdRef.current) return;
+          const lastPage = Math.max(1, Math.ceil(res.total / pageSize));
+          if (requestedPage > lastPage) {
+            requestedPage = lastPage;
+            continue;
+          }
           setData(res);
-          setPage(targetPage);
-        })
+          setPage(requestedPage);
+          return;
+        }
+      };
+
+      void requestPage()
         .catch((err) => {
           if (id !== requestIdRef.current) return;
           setError(userFacingMessage(err, '無法載入新聞'));
@@ -153,11 +168,23 @@ export function useNewsList(options: UseNewsListOptions = {}) {
   }, [draft, load, options.fixedStock]);
 
   useEffect(() => {
-    const initial: NewsListFilters = { stock: options.fixedStock, relation: options.fixedRelation };
+    const firstLoad = !initializedRef.current;
+    const context = JSON.stringify([options.fixedStock, options.fixedRelation, options.defaultSort?.sort_by, options.retrieval]);
+    const initialPage = firstLoad ? options.initialState?.page ?? 1 : contextRef.current === context ? pageRef.current : 1;
+    const sameStock = lastStockRef.current === options.fixedStock;
+    const initial: NewsListFilters = {
+      ...(firstLoad ? options.initialState?.filters : sameStock ? filtersRef.current : {}),
+      stock: options.fixedStock, relation: options.fixedRelation,
+    };
+    initializedRef.current = true;
+    contextRef.current = context;
+    lastStockRef.current = options.fixedStock;
     setFilters(initial);
     setDraft(initial);
-    load(1, initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial fetch only
+    setPage(initialPage);
+    load(initialPage, initial);
+    return () => { requestIdRef.current += 1; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- route state initializes once; relation changes preserve applied filters
   }, [options.fixedStock, options.fixedRelation, options.defaultSort?.sort_by, options.retrieval]);
 
   const reload = useCallback(() => {

@@ -21,6 +21,8 @@ interface Props {
   news: News;
   targetStock?: string;
   relation?: NewsRelation;
+  returnTo?: string;
+  onNavigate?: () => void;
 }
 
 function snippet(content: string | null, maxLen = 120): string {
@@ -41,7 +43,7 @@ function ImpactBadge({ impact }: { impact: NewsImpact }) {
   );
 }
 
-export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct' }: Props) {
+export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct', returnTo, onNavigate }: Props) {
   const [expanded, setExpanded] = useState(false);
   const sourceStatus = news.source_state?.status;
   const sourceLabel = sourceStatus === 'conflict' ? '來源版本衝突，尚未確認有效內容'
@@ -61,11 +63,12 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   const impacts = sourceLabel ? [] : visibleImpacts(news, targetStock, relation);
   const allImpacts = sourceLabel ? [] : visibleImpacts(news).slice(0, 3);
   const baseHref = newsHref(news.article_id, targetStock);
-  const href = sourceStatus === 'historical' && /^[0-9a-f]{64}$/.test(news.source_state?.revision_id ?? '')
+  const versionHref = sourceStatus === 'historical' && /^[0-9a-f]{64}$/.test(news.source_state?.revision_id ?? '')
     ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}revision_id=${news.source_state!.revision_id}` : baseHref;
+  const href = returnTo ? `${versionHref}${versionHref.includes('?') ? '&' : '?'}returnTo=${encodeURIComponent(returnTo)}` : versionHref;
 
   return (
-    <article className="group relative border-b py-4 pl-4 last:border-b-0 first:pt-0">
+    <article data-news-article={news.article_id} className="group relative border-b py-4 pl-4 last:border-b-0 first:pt-0">
       <span className="absolute top-4 bottom-4 left-0 w-0.5 rounded-full bg-gradient-to-b from-brand to-brand-light opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -85,7 +88,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
           </div>
 
           <h3 className="mb-1 line-clamp-2 text-sm leading-snug font-semibold transition-colors group-hover:text-brand-text">
-            <Link href={href} className="hover:underline">
+            <Link href={href} onNavigate={onNavigate} className="hover:underline">
               {news.title}
             </Link>
           </h3>
@@ -133,7 +136,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
           {hasContent && expanded ? <p id={panelId} className="mt-1 text-xs leading-relaxed whitespace-pre-line text-subtle">{stripHtml(news.content ?? '').trim()}</p> : null}
 
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <Link href={href} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-text hover:underline">
+            <Link href={href} onNavigate={onNavigate} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-text hover:underline">
               {sourceLabel ? '查看原文與版本狀態' : '查看事件影響分析'}
               <ArrowUpRight size={12} aria-hidden />
             </Link>

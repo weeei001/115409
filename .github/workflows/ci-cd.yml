@@ -55,6 +55,7 @@ jobs:
       - run: npm ci
       - run: npm run test:chat
       - run: npm run test:volume
+      - run: npm run test:news
       - run: npm run test:compare
       # Next generates next-env.d.ts and route types on a fresh checkout.
       - run: npm run build
