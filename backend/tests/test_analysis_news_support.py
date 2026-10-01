@@ -5,6 +5,7 @@ import pytest
 
 from app.features.analysis.evidence import EvidenceBundle, build_news_items
 from app.features.analysis.validation import _grounding_issues
+from app.features.analysis import validation as gate
 from app.features.analysis.service import AnalysisService
 from app.features.analysis.router import get_service
 
@@ -90,6 +91,102 @@ def test_macd_reversal_is_not_continuous_expansion_and_catalog_keeps_indicator()
     item.update(text="MACD 柱狀體由負轉正並持續擴大。", evidence_ids=["d_40", "d_32", "d_39"])
     assert not _grounding_issues(item, bundle)
     assert [row["value"]["macd_hist"] for row in bundle.catalog()] == [-2.39, 6.14, 7.0]
+
+
+def test_single_day_foreign_trades_are_not_confused_with_volume_percentage():
+    bundle = EvidenceBundle(symbol="2014", as_of_date=date(2026, 10, 1), daily_timeline=[
+        {"id": "d_40", "date": "2026-09-24", "chg_pct": 1.5,
+         "vol_vs_ma5_pct": 106.0, "foreign_net_lots": 1927}],
+        chip_summary=[{"id": "ch_01", "field": "foreign_net_10d_lots", "value": -229}])
+    item = {"id": "kd_04", "date": "2026-09-24", "ref": "d_40", "evidence_ids": ["d_40"],
+            "what": "股價上漲 1.5% 且成交量較五日均量放大 106%，外資單日買超 1927 張。"}
+    assert not _grounding_issues(item, bundle)
+    item["what"] = "外資單日買超 1928 張。"
+    assert _grounding_issues(item, bundle)
+    item.update(what="外資近十日買超 1927 張。", evidence_ids=["d_40", "ch_01"])
+    assert _grounding_issues(item, bundle)
+
+
+def test_historical_revenue_signs_do_not_override_the_latest_month():
+    bundle = EvidenceBundle(symbol="2014", as_of_date=date(2026, 10, 1), fundamental=[
+        {"id": "fd_04", "field": "revenue_monthly", "period": "2026-08", "yoy_pct": -29.3,
+         "yoy_last6": [["2026-02", -24.5], ["2026-03", -24.7], ["2026-04", -10.0],
+                       ["2026-05", 4.3], ["2026-06", 47.9], ["2026-08", -29.3]]}])
+    item = {"id": "neg_01", "evidence_ids": ["fd_04"],
+            "text": "8 月營收年增率衰退 29.3%，近六筆已提供月份中有兩筆年增為正。"}
+    assert not _grounding_issues(item, bundle)
+    item["text"] = "2026-05 月營收年增 4.3%；2026-08 月營收年減 29.3%。"
+    assert not _grounding_issues(item, bundle)
+    item["text"] = "8 月營收年增為正。"
+    assert _grounding_issues(item, bundle)
+    item["text"] = "8 月營收年減 47.9%。"
+    assert _grounding_issues(item, bundle)
+
+
+def test_eps_condition_is_checked_as_earnings_instead_of_stock_price():
+    bundle = EvidenceBundle(symbol="2727", as_of_date=date(2026, 10, 1),
+        daily_timeline=[{"id": "d_40", "date": "2026-09-24", "close": 232}],
+        fundamental=[{"id": "fd_01", "field": "eps", "period": "2026Q2",
+                      "date": "2026-06-30", "value": 4.82}])
+    item = {"stance": "mildly_bullish", "reason": "已公告單季 EPS 4.82 元，後續獲利仍待觀察。",
+            "invalidation": "單季 EPS 較 2026Q2 (4.82元) 顯著衰退", "evidence_ids": ["fd_01"]}
+    assert not _grounding_issues(item, bundle)
+    assert not any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(
+        item, prices=gate._historical_prices(bundle)))
+    item["invalidation"] = "單季 EPS 為 999 元。"
+    assert _grounding_issues(item, bundle)
+    item.update(reason="後續獲利仍待觀察。", invalidation="單季 EPS 為 4.82 元。", evidence_ids=["d_40"])
+    assert _grounding_issues(item, bundle)
+    item.update(invalidation="股價跌破 4.82 元", evidence_ids=["fd_01"])
+    assert any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(
+        item, prices=gate._historical_prices(bundle)))
+
+
+@pytest.mark.parametrize("eps,refs,allowed", [
+    ("4.82", ["fd_01"], True),
+    ("999", ["fd_01"], False),
+    ("4.82", ["d_40"], False),
+    ("4.82", [], False),
+])
+def test_parenthesized_eps_condition_requires_the_actual_cited_earnings(eps, refs, allowed):
+    bundle = EvidenceBundle(symbol="2727", as_of_date=date(2026, 10, 1),
+        daily_timeline=[{"id": "d_40", "date": "2026-09-24", "close": 232}],
+        fundamental=[{"id": "fd_01", "field": "eps", "period": "2026Q2",
+                      "date": "2026-06-30", "value": 4.82}])
+    item = {"stance": "mildly_bullish", "reason": "後續獲利仍待觀察。",
+            "invalidation": f"單季 EPS 較 2026Q2 ({eps}元) 顯著衰退", "evidence_ids": refs}
+    issues = _grounding_issues(item, bundle)
+    assert (not any(not issue.startswith("未核實") for issue in issues)) == allowed
+    if allowed:
+        assert not any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(
+            item, prices=gate._historical_prices(bundle)))
+
+
+@pytest.mark.parametrize("field", ["trigger", "invalidation"])
+def test_price_scenario_cannot_authorize_a_fabricated_observed_close(field):
+    bundle = EvidenceBundle(symbol="2727", as_of_date=date(2026, 10, 1),
+        daily_timeline=[{"id": "d_40", "date": "2026-09-24", "close": 232}])
+    item = {field: "情境假設：若股價跌破230元則失效", "evidence_ids": ["d_40"]}
+    prices = gate._historical_prices(bundle)
+    assert not any(not issue.startswith("未核實") for issue in _grounding_issues(item, bundle))
+    hits = gate._scan_text_brief_compliance(item, prices=prices)
+    assert not any(hit.severity == "hard" for hit in hits)
+    assert any(hit.severity == "soft" for hit in hits)
+
+    item[field] = "2026-09-24 已收盤 999 元，情境假設：若股價跌破230元則失效"
+    assert any(not issue.startswith("未核實") for issue in _grounding_issues(item, bundle))
+
+
+def test_historical_support_wording_keeps_local_price_evidence():
+    bundle = EvidenceBundle(symbol="2727", as_of_date=date(2026, 10, 1),
+        daily_timeline=[{"id": "d_40", "date": "2026-09-24", "close": 232}])
+    item = {"id": "cs_01", "text": "2026-09-24 歷史收盤支撐 232 元，是否守住仍待觀察。",
+            "evidence_ids": ["d_40"]}
+    assert not _grounding_issues(item, bundle)
+    assert not any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(
+        item, prices=gate._historical_prices(bundle)))
+    item["text"] = "歷史收盤支撐 233 元。"
+    assert _grounding_issues(item, bundle)
 
 
 def test_provided_price_position_and_moving_average_metrics_are_not_rejected():
@@ -209,6 +306,37 @@ def test_retrospective_cannot_invent_event_date_and_product_needs_its_quote():
     quote = "MLCC 產品漲價，公司表示將持續觀察需求。"
     bundle.news[0]["value"] = item["news_support"][0]["quote"] = quote
     assert not _grounding_issues(item, bundle)
+
+
+@pytest.mark.parametrize("use", ["reported_fact", "attributed_view"])
+def test_unused_unsupported_news_event_date_is_removed_with_a_limitation(use):
+    quote = "公司公布最新營收，並表示需求仍待觀察。"
+    bundle, item = fixture("2026-09-01T10:00:00+08:00", quote, use, "2026-07-31")
+    item.pop("what")
+    item.pop("date")
+    item["text"] = quote
+    issues = _grounding_issues(item, bundle)
+    assert issues and all(issue.startswith("未核實") for issue in issues)
+    assert item["news_support"][0]["event_date"] is None
+    assert item["news_support"][0]["quote"] == quote
+
+
+@pytest.mark.parametrize("use", ["reported_fact", "attributed_view"])
+@pytest.mark.parametrize("date_text", ["7/31", "07/31", "2026/07/31", "2026-7-31", "2026-07-31"])
+def test_news_body_cannot_claim_an_unsupported_event_date(use, date_text):
+    bundle, item = fixture("2026-09-01T10:00:00+08:00", use=use, event_date="2026-07-31")
+    item.pop("what")
+    item.pop("date")
+    item["text"] = f"公司於{date_text}公布最新營收。"
+    issues = _grounding_issues(item, bundle)
+    assert issues and any(not issue.startswith("未核實") for issue in issues)
+
+
+def test_news_quote_must_still_exist_in_the_cited_source():
+    bundle, item = fixture("2026-09-01T10:00:00+08:00")
+    item["news_support"][0]["quote"] = "公司公布獲利創歷史新高。"
+    issues = _grounding_issues(item, bundle)
+    assert issues and any(not issue.startswith("未核實") for issue in issues)
 
 
 def test_unknown_time_and_fact_groups_survive_evidence_packet():

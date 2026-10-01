@@ -35,7 +35,7 @@ JARGON_TERMS_RE = re.compile(
     r"隨機指標|相對強弱|指數平滑異同"
 )
 FORWARD_CONDITION_KEYS = frozenset({"trigger", "invalidation"})
-FORWARD_PRICE_RE = re.compile(r"(?<![\d.,])([\d.,]+(?:\s*(?:至|到|[-~～、/]|及|與|和|或)\s*[\d.,]+)*)\s*(?:元|塊)")
+FORWARD_PRICE_RE = re.compile(r"(?<![\d.,])([\d.,]+(?:\s*(?:至|到|[-–—~～、/]|及|與|和|或)\s*[\d.,]+)*)\s*(?:元|塊)")
 TEXT_BRIEF_NUMBER_TOLERANCE_PP = 0.1
 TEXT_BRIEF_NO_GUIDANCE_LIMITATION = "本分析未涵蓋公司自提財測，展望類資訊僅來自媒體報導。"
 TEXT_BRIEF_DISCLAIMER_VERSION = "v1"
@@ -78,6 +78,52 @@ TEXT_BRIEF_COMPLIANCE_TEXT_KEYS = frozenset(
 PERCENT_IN_TEXT_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%")
 
 
+def _price_mentions(text: str, *, condition: bool = False):
+    """Keep monetary facts such as EPS out of stock-price checks."""
+    for match in FORWARD_PRICE_RE.finditer(text):
+        start = max(text.rfind(char, 0, match.start()) for char in "。；;，,\n") + 1
+        prefix = text[start:match.start()]
+        end = min((pos for char in "。；;，,\n" if (pos := text.find(char, match.end())) >= 0), default=len(text))
+        suffix = text[match.end():end]
+        subjects = list(re.finditer(
+            r"(?P<financial>EPS|每股盈餘|營收|獲利|盈餘|股利|盤價|產品售價)"
+            r"|(?P<market>股價|收盤|價位|支撐|壓力|防守|買點|賣點|高點|低點)", prefix, re.I))
+        if subjects:
+            if subjects[-1].lastgroup == "market":
+                yield match
+        elif (condition or re.search(r"價格|突破|站上|跌破|守住|失守", prefix)
+              or re.search(r"股價|收盤|價位|支撐|壓力|防守|買點|賣點", suffix)):
+            yield match
+
+
+def _is_price_scenario(text: str, match: re.Match) -> bool:
+    start = max(text.rfind(char, 0, match.start()) for char in "。；;，,\n") + 1
+    prefix = text[start:match.start()]
+    return bool(re.search(r"情境假設|假設門檻", prefix)) and not re.search(
+        r"已(?:收盤|成交|突破|站上|跌破)|實際(?:收盤|成交)|收盤|歷史(?:高點|低點)", prefix)
+
+
+def _revenue_growth_values(row: dict, context: str) -> list[float]:
+    history = {period: value for period, value in row.get("yoy_last6", [])
+               if isinstance(value, (int, float))}
+    months = list(re.finditer(r"(?:(\d{4})[-/年](\d{1,2})(?:月)?|(?<!\d)(\d{1,2})月)", context))
+    if months:
+        match = months[-1]
+        year, month = match.group(1), int(match.group(2) or match.group(3))
+        values = [value for period, value in history.items()
+                  if period.endswith(f"-{month:02d}") and (not year or period.startswith(year + "-"))]
+        if values:
+            return values
+        if row.get("period") != f"{year or str(row.get('period', ''))[:4]}-{month:02d}":
+            return []
+    elif re.search(r"(?:近|最近|過去|提供|資料|歷史)[^。；;]{0,12}(?:月份|月|筆)", context):
+        return list(history.values())
+    value = row.get("yoy_pct")
+    if value is None:
+        value = history.get(row.get("period"))
+    return [value] if isinstance(value, (int, float)) else []
+
+
 def _quote_covers_date(quote: str, event_date: str, published: str | None) -> bool:
     try:
         day = date.fromisoformat(event_date)
@@ -107,7 +153,18 @@ def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -
             return ["新聞主張引文不存在於引用片段"]
         event_date = entry.get("event_date")
         if event_date and not _quote_covers_date(quote, event_date, row.get("published_at")):
-            return ["事件日期未獲同段原文支持"]
+            texts = " ".join(str(item.get(key, "")) for key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS)
+            try:
+                day = date.fromisoformat(event_date)
+            except ValueError:
+                return ["事件日期未獲同段原文支持"]
+            mentions_date = bool(re.search(
+                rf"(?<!\d)(?:{day.year}[-/年])?0?{day.month}(?:[-/]|月)0?{day.day}(?:日)?(?!\d)", texts))
+            if entry.get("use") == "retrospective" or mentions_date:
+                return ["事件日期未獲同段原文支持"]
+            entry["event_date"] = None
+            event_date = None
+            issues.append("未核實事件日期；已省略非必要的事件日期")
         if entry.get("use") == "retrospective" and (
                 not event_date or item.get("date") and event_date != item["date"]):
             return ["回顧引用未支持指定事件日期"]
@@ -189,17 +246,13 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                 if strong and not re.search(r"不能|無法|未能|不代表|尚未證明", clause[:strong.start()]):
                     issues.append("估值與殖利率數值不能證明強大下行支撐，須保留有條件推論與限制")
         if key not in FORWARD_CONDITION_KEYS:
-            for clause in re.split(r"[。；;\n]", text):
-                if not re.search(r"營收[^。；;]{0,12}(?:年增|年減|年成長|年衰退|較去年|比去年)", clause):
+            for clause in re.split(r"[。；;，,\n]", text):
+                if not re.search(r"營收[^。；;]{0,32}(?:年增|年減|年成長|年衰退|較去年|比去年)", clause):
                     continue
                 if re.search(r"缺少|未提供|未取得|無法確認|無法判斷|資料不足|仍待確認|是否", clause):
                     continue
-                growth = [row.get("yoy_pct") for row in rows if row.get("field") == "revenue_monthly"]
-                for row in rows:
-                    if row.get("field") == "revenue_monthly":
-                        growth.extend(entry[1] for entry in row.get("yoy_last6", [])
-                                      if len(entry) == 2 and entry[0] == row.get("period"))
-                growth = [value for value in growth if isinstance(value, (int, float))]
+                growth = [value for row in rows if row.get("field") == "revenue_monthly"
+                          for value in _revenue_growth_values(row, clause)]
                 supported = bool(growth)
                 if re.search(r"年增(?:率)?(?:強勁|亮眼)|年增(?:率)?(?:為|維持)?正|年成長", clause):
                     supported = any(value > 0 for value in growth)
@@ -240,7 +293,10 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                         if "營收" in prefix and row.get("field") != "revenue_monthly":
                             continue
                     if metric in {"yoy_pct", "mom_pct", "qoq_pct", "pct_rank_1y"}:
-                        candidates.append(row.get(metric))
+                        if metric == "yoy_pct" and row.get("field") == "revenue_monthly":
+                            candidates.extend(_revenue_growth_values(row, prefix))
+                        else:
+                            candidates.append(row.get(metric))
                     elif metric and row.get("field") == metric:
                         candidates.append(row.get("value"))
             if not any(isinstance(value, (int, float)) and abs(number - value) <= 0.1 for value in candidates):
@@ -250,16 +306,19 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                     issues.append(f"未核實新聞百分比語義：{match.group(0)}")
                 else:
                     issues.append(f"百分比未獲同項證據支持：{match.group(0)}")
-        for match in re.finditer(r"(?:EPS|每股盈餘)\s*(?:為|是|達|[:：])?\s*([+-]?\d+(?:\.\d+)?)", text, re.I):
+        for match in re.finditer(
+                r"(?:EPS|每股盈餘)\s*(?:為|是|達|[:：]|較|比|低於|高於|跌破|超過)?\s*"
+                r"(?:\d{4}\s*Q[1-4]\s*)?[（(]?\s*([+-]?\d+(?:\.\d+)?)(?![\d.Q])", text, re.I):
             number = float(match.group(1))
             if not any(row.get("field") == "eps" and isinstance(row.get("value"), (int, float))
                        and abs(row["value"] - number) <= 0.01 for row in dated(rows, text, match.start())):
                 issues.append("EPS 未獲同項證據支持")
-        for match in FORWARD_PRICE_RE.finditer(text):
+        for match in _price_mentions(text, condition=key in FORWARD_CONDITION_KEYS):
             clause_start = max(text.rfind(char, 0, match.start()) for char in "。；;\n") + 1
             clause_end = min((pos for char in "。；;\n" if (pos := text.find(char, match.end())) >= 0), default=len(text))
             clause = text[clause_start:clause_end]
-            if not re.search(r"收盤|股價|價格|價位|支撐|壓力|跌破|站上", clause):
+            scenario = key in FORWARD_CONDITION_KEYS and _is_price_scenario(text, match)
+            if scenario and any(ref in _historical_prices(bundle) for ref in refs):
                 continue
             candidates = [row.get("close") for row in dated(timeline, text, match.start())]
             candidates += [row.get("value") for row in dated(rows, text, match.start())
@@ -309,7 +368,7 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
             prefix = text[max(0, match.start() - 18):match.start()]
             if "賣超" in prefix and not match.group(1).startswith(("+", "-")):
                 number = -number
-            ten_days = bool(re.search(r"十|10", prefix))
+            ten_days = bool(re.search(r"(?:十|10)\s*(?:個)?(?:交易)?日", prefix))
             candidates = ([row.get("value") for row in dated(rows, text, match.start()) if row.get("field") == "foreign_net_10d_lots"]
                           if ten_days else [row.get("foreign_net_lots") for row in dated(timeline, text, match.start())])
             if not any(isinstance(value, (int, float)) and abs(number - value) <= 0.5 for value in candidates):
@@ -539,13 +598,22 @@ def _scan_text_brief_compliance(value: Any, *, prices: dict[str, Decimal] | None
         cited_prices = {(prices or {})[ref] for ref in value.get("evidence_ids", []) if ref in (prices or {})}
         for key, text in value.items():
             if key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS and isinstance(text, str):
-                matches = list(FORWARD_PRICE_RE.finditer(text)) if key in FORWARD_CONDITION_KEYS else []
+                condition = key in FORWARD_CONDITION_KEYS
+                matches = list(_price_mentions(text, condition=condition))
                 amounts = [amount for match in matches for amount in re.findall(r"[\d.,]+", match.group(1))]
-                grounded = bool(amounts) and all(
+                valid_amounts = bool(amounts) and all(
                     re.fullmatch(r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", amount)
-                    and Decimal(amount.replace(",", "")) in cited_prices for amount in amounts)
-                hits.extend(scan_compliance_hits(text, grounded_condition=grounded))
-                if amounts and not grounded:
+                    and Decimal(amount.replace(",", "")) > 0 for amount in amounts)
+                grounded = valid_amounts and all(Decimal(amount.replace(",", "")) in cited_prices for amount in amounts)
+                scenarios = [condition and bool(cited_prices) and _is_price_scenario(text, match) for match in matches]
+                supported = valid_amounts and all(scenario or all(
+                    Decimal(amount.replace(",", "")) in cited_prices
+                    for amount in re.findall(r"[\d.,]+", match.group(1)))
+                    for match, scenario in zip(matches, scenarios))
+                if any(scenarios) and valid_amounts and not grounded:
+                    hits.append(ComplianceHit("情境價位-soft", "soft", text))
+                hits.extend(scan_compliance_hits(text, grounded_condition=supported))
+                if condition and amounts and not supported:
                     hits.append(ComplianceHit("前瞻價位-hard", "hard", text))
             elif key == "limitations" and isinstance(text, list):
                 for entry in text:
@@ -563,35 +631,40 @@ def _apply_text_brief_compliance_gate(
     soft_hits: list[str] = []
     prices = _historical_prices(bundle) if bundle is not None else {}
 
+    def check(item):
+        hits = _scan_text_brief_compliance(item, prices=prices)
+        if bundle is not None:
+            hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
+                        for issue in _grounding_issues(item, bundle))
+        return hits
+
+    def record(hits):
+        hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hits if hit.severity == "hard")
+        soft_hits.extend(f"{hit.rule}: {hit.snippet}" for hit in hits if hit.severity == "soft")
+        return any(hit.severity == "hard" for hit in hits)
+
     for section in TEXT_BRIEF_ITEM_SECTIONS:
         kept = []
         for item in brief_payload[section]:
-            hits = _scan_text_brief_compliance(item, prices=prices)
-            if bundle is not None:
-                hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
-                            for issue in _grounding_issues(item, bundle))
-            hard = [hit for hit in hits if hit.severity == "hard"]
-            hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
-            soft_hits.extend(
-                f"{hit.rule}: {hit.snippet}"
-                for hit in hits
-                if hit.severity == "soft"
-            )
-            if hard:
+            if record(check(item)):
                 removed_ids.append(item["id"])
             else:
                 kept.append(item)
         brief_payload[section] = kept
 
-    if allow_partial_forward_views:
-        for horizon, view in brief_payload["forward_views"].items():
-            hits = _scan_text_brief_compliance(view, prices=prices)
-            if bundle is not None:
-                hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
-                            for issue in _grounding_issues(view, bundle))
-            hard = [hit for hit in hits if hit.severity == "hard"]
-            if hard:
-                hard_violations.extend(f"{hit.rule}: {hit.snippet}" for hit in hard)
+    blocked = False
+    for horizon, view in brief_payload["forward_views"].items():
+        if record(check(view)):
+            if not allow_partial_forward_views:
+                blocked = True
+                continue
+            # An invalid condition does not invalidate a supported explanation.
+            explanation = {key: value for key, value in view.items() if key != "invalidation"}
+            if not any(hit.severity == "hard" for hit in check(explanation)):
+                view["invalidation"] = "本次未提供可核對的失效條件。"
+                removed_ids.append(f"forward_views.{horizon}.invalidation")
+                brief_payload["confidence"] = "low"
+            else:
                 removed_ids.append(f"forward_views.{horizon}")
                 brief_payload["forward_views"][horizon] = {
                     "stance": "uncertain",
@@ -601,36 +674,34 @@ def _apply_text_brief_compliance_gate(
                     "validation_status": "rejected",
                 }
 
-        if any(item.startswith("forward_views.") for item in removed_ids):
-            brief_payload["overall_stance"] = "uncertain"
-            brief_payload["confidence"] = "low"
-            brief_payload["confidence_reason"] = "部分期間展望未通過證據檢查，無法保留原有總體方向；請分別參考仍有效的觀察。"
+    if any(f"forward_views.{horizon}" in removed_ids for horizon in brief_payload["forward_views"]):
+        brief_payload["overall_stance"] = "uncertain"
+        brief_payload["confidence"] = "low"
+        brief_payload["confidence_reason"] = "部分期間展望未通過證據檢查，無法保留原有總體方向；請分別參考仍有效的觀察。"
+    elif any(item.endswith(".invalidation") for item in removed_ids):
+        brief_payload["confidence_reason"] = "部分失效條件未通過檢查，已保留有依據的方向與理由，信心調降。"
 
-    core_payload = {
-        "headline": brief_payload["headline"],
-        "confidence_reason": brief_payload["confidence_reason"],
-        "limitations": brief_payload["limitations"],
-        "forward_views": brief_payload["forward_views"],
-    }
-    core_hits = _scan_text_brief_compliance(core_payload, prices=prices)
-    if bundle is not None:
-        summary = {"headline": brief_payload["headline"], "confidence_reason": brief_payload["confidence_reason"],
-                   "evidence_ids": list(_text_brief_referenced_ids(brief_payload))}
-        core_hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
-                         for issue in _grounding_issues(summary, bundle))
-        for view in brief_payload["forward_views"].values():
-            core_hits.extend(ComplianceHit("證據支持", "soft" if issue.startswith("未核實") else "hard", issue)
-                             for issue in _grounding_issues(view, bundle))
-    hard_violations.extend(
-        f"{hit.rule}: {hit.snippet}"
-        for hit in core_hits
-        if hit.severity == "hard"
-    )
-    soft_hits.extend(
-        f"{hit.rule}: {hit.snippet}"
-        for hit in core_hits
-        if hit.severity == "soft"
-    )
+    refs = list(_text_brief_referenced_ids(brief_payload))
+    replacements = {"headline": "依可核對資料整理個股現況與展望",
+                    "confidence_reason": "部分文字未通過檢查，僅保留有依據的分析，信心調降。"}
+    for key, replacement in replacements.items():
+        if record(check({key: brief_payload[key], "evidence_ids": refs})):
+            if allow_partial_forward_views:
+                brief_payload[key] = replacement
+                brief_payload["confidence"] = "low"
+                removed_ids.append(key)
+            else:
+                blocked = True
+    kept_limits = []
+    for index, text in enumerate(brief_payload["limitations"]):
+        if record(check({"text": text, "claim_type": "limitation", "evidence_ids": refs})):
+            if allow_partial_forward_views:
+                removed_ids.append(f"limitations[{index}]")
+                brief_payload["confidence"] = "low"
+                continue
+            blocked = True
+        kept_limits.append(text)
+    brief_payload["limitations"] = kept_limits
     if any(not brief_payload[section] for section in TEXT_BRIEF_ITEM_SECTIONS if section != "source_divergences"):
         brief_payload["overall_stance"] = "uncertain"
         brief_payload["confidence"] = "low"
@@ -639,7 +710,7 @@ def _apply_text_brief_compliance_gate(
         removed_ids,
         hard_violations,
         soft_hits,
-        any(hit.severity == "hard" for hit in core_hits) or not any(brief_payload[section] for section in TEXT_BRIEF_ITEM_SECTIONS),
+        blocked or not any(brief_payload[section] for section in TEXT_BRIEF_ITEM_SECTIONS),
     )
 
 def _text_brief_referenced_ids(value: Any) -> set[str]:

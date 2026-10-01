@@ -521,19 +521,24 @@ def test_source_disclaimer_in_limitations_keeps_analysis_available(db_session, s
     assert not row.is_fallback and repository.saved_brief(row) is not None
 
 
-def test_compliance_blocks_core_and_never_publishes_blocked_output(db_session, settings):
+@pytest.mark.parametrize("field", ["headline", "confidence_reason", "limitations"])
+def test_invalid_summary_is_sanitized_after_retry_without_losing_facts(db_session, settings, field):
     seed_prices(db_session)
     payload = brief_payload()
-    payload["headline"] = "建議買進，目標價 1500 元"
-    response = run_service(db_session, settings, FakeLlm(payload))
-    assert response.status == "unavailable" and response.brief is None and response.evidence_catalog == []
+    blocked_text = "建議買進，目標價 1500 元"
+    payload[field] = [blocked_text] if field == "limitations" else blocked_text
+    llm = FakeLlm(payload)
+    response = run_service(db_session, settings, llm)
+    assert response.status == "limited" and llm.calls == 2
+    assert response.brief.current_status and response.evidence_catalog
+    assert response.brief.confidence == "low"
     row = db_session.get(LlmResponse, response.snapshot_id)
-    assert row.is_fallback and payload["headline"] in row.raw_llm_text
-    assert payload["headline"] not in row.response_json
-    assert payload["headline"] not in row.normalized_json
-    assert payload["headline"] not in response.model_dump_json()
-    assert repository.saved_brief(row) is None
-    assert repository.load_cached(db_session, symbol="2330", config_hash=response.config_hash, as_of=AS_OF) is None
+    assert not row.is_fallback and blocked_text in row.raw_llm_text
+    assert blocked_text not in row.response_json
+    assert blocked_text not in row.normalized_json
+    assert blocked_text not in response.model_dump_json()
+    assert repository.saved_brief(row) is not None
+    assert repository.load_cached(db_session, symbol="2330", config_hash=response.config_hash, as_of=AS_OF) is not None
 
 
 def test_unknown_evidence_and_future_key_day_are_removed_and_status_limited(db_session, settings):
@@ -634,7 +639,9 @@ def test_repeated_invalid_output_stops_after_two_attempts(db_session, settings):
     payload["headline"] = "建議買進，目標價 1500 元"
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
-    assert result.status == "unavailable" and llm.calls == 2
+    assert result.status == "limited" and llm.calls == 2
+    assert result.brief.current_status
+    assert payload["headline"] not in result.model_dump_json()
 
 
 def test_empty_filtered_section_preserves_facts_without_direction(db_session, settings):
@@ -661,26 +668,83 @@ def test_no_surviving_factual_sections_is_unavailable(db_session, settings):
     assert result.status == "unavailable" and result.brief is None and llm.calls == 2
 
 
-def test_invalid_forward_view_is_disclosed_after_retry_without_losing_history(db_session, settings):
+def test_invalid_invalidation_is_removed_after_retry_without_losing_direction(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
     payload.update(overall_stance="mildly_bullish", confidence="medium")
-    payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
+    view = payload["forward_views"]["short_1_5"]
+    view.update(stance="mildly_bullish", reason="7/13 收盤 113 元，後續方向仍有不確定性。",
+                invalidation="跌破 2400 元")
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
     assert result.status == "limited" and llm.calls == 2
     assert result.brief.key_days
+    assert result.brief.forward_views.short_1_5.stance == "mildly_bullish"
+    assert result.brief.forward_views.short_1_5.reason == view["reason"]
+    assert result.brief.forward_views.short_1_5.invalidation == "本次未提供可核對的失效條件。"
+    assert result.brief.forward_views.short_1_5.validation_status is None
+    assert result.brief.forward_views.swing_6_20.validation_status is None
+    assert "2400" not in result.brief.model_dump_json()
+    row = db_session.get(LlmResponse, result.snapshot_id)
+    metadata = json.loads(row.normalized_json)["model_metadata"]
+    assert metadata["verification"]["compliance_rules"]
+    assert "forward_views.short_1_5.invalidation" in metadata["verification"]["removed_item_ids"]
+    assert "forward_views.short_1_5" not in metadata["verification"]["removed_item_ids"]
+    assert not row.is_fallback
+    restored = repository.saved_brief(row)
+    assert restored.brief.forward_views.short_1_5.stance == "mildly_bullish"
+    assert restored.brief.forward_views.short_1_5.validation_status is None
+
+
+def test_invalid_forward_reason_is_rejected_after_retry_without_losing_history(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload.update(overall_stance="mildly_bullish", confidence="medium")
+    payload["forward_views"]["short_1_5"].update(stance="mildly_bullish", reason="股價為 2400 元。")
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "limited" and llm.calls == 2
+    assert result.brief.key_days and result.brief.current_status
     assert result.brief.forward_views.short_1_5.stance == "uncertain"
     assert result.brief.forward_views.short_1_5.validation_status == "rejected"
     assert result.brief.forward_views.swing_6_20.validation_status is None
     assert result.brief.overall_stance == "uncertain" and result.brief.confidence == "low"
-    assert "部分期間展望" in result.brief.confidence_reason
     assert "2400" not in result.brief.model_dump_json()
-    assert any("部分期間展望" in item for item in result.limitations)
     row = db_session.get(LlmResponse, result.snapshot_id)
     metadata = json.loads(row.normalized_json)["model_metadata"]
-    assert metadata["verification"]["compliance_rules"]
-    assert not row.is_fallback
+    assert "forward_views.short_1_5" in metadata["verification"]["removed_item_ids"]
+
+
+@pytest.mark.parametrize("marker", ["情境假設", "假設門檻"])
+def test_labeled_price_scenario_preserves_direction_and_discloses_limitations(db_session, settings, marker):
+    seed_prices(db_session)
+    payload = brief_payload()
+    view = payload["forward_views"]["short_1_5"]
+    view.update(stance="mildly_bullish", reason="7/13 收盤 113 元，後續方向仍有不確定性。",
+                invalidation=f"{marker}：若股價跌破 111.5 元，原情境不成立。")
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "limited" and llm.calls == 1
+    assert result.brief.forward_views.short_1_5.invalidation == view["invalidation"]
+    assert result.brief.forward_views.short_1_5.stance == "mildly_bullish"
+    assert result.brief.forward_views.short_1_5.validation_status is None
+    assert result.verification["soft_compliance_hits"] > 0
+
+
+def test_invalid_summary_without_factual_evidence_remains_unavailable(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["headline"] = "建議買進，目標價 1500 元"
+    for section in gate.TEXT_BRIEF_ITEM_SECTIONS:
+        payload[section] = []
+    for view in payload["forward_views"].values():
+        view.update(stance="mildly_bullish", evidence_ids=[])
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "unavailable" and result.brief is None and llm.calls == 2
+    assert payload["headline"] not in result.model_dump_json()
+    row = db_session.get(LlmResponse, result.snapshot_id)
+    assert row.is_fallback and repository.saved_brief(row) is None
 
 
 @pytest.mark.parametrize("condition,refs,allowed", [
@@ -708,6 +772,12 @@ def test_invalid_forward_view_is_disclosed_after_retry_without_losing_history(db
     ("支撐113元，買點113元", ["d_04"], False),
     ("保證守住 113 元", ["d_04"], False),
     ("配置全部資金，守住 113 元", ["d_04"], False),
+    ("情境假設：股價跌破 111.5 元", ["d_04"], True),
+    ("假設門檻：股價跌破 111.5 元", ["lt_01"], True),
+    ("情境假設：股價跌破 111.5 元", [], False),
+    ("情境假設：股價跌破 111.5 元", ["fd_01", "nw_01", "ch_01"], False),
+    ("情境假設：股價跌破 111.5 元", ["d_05"], False),
+    ("情境假設：建議買進，買點 111.5 元", ["d_04"], False),
 ])
 @pytest.mark.parametrize("field", ["trigger", "invalidation"])
 def test_price_conditions_require_all_prices_in_same_items_historical_market_citations(condition, refs, allowed, field):
@@ -727,6 +797,8 @@ def test_price_conditions_require_all_prices_in_same_items_historical_market_cit
     item = {field: condition, "evidence_ids": refs}
     hits = gate._scan_text_brief_compliance(item, prices=gate._historical_prices(bundle))
     assert (not any(hit.severity == "hard" for hit in hits)) == allowed
+    if allowed and ("情境假設" in condition or "假設門檻" in condition):
+        assert any(hit.severity == "soft" for hit in hits)
     # A sibling item's citations must not authorize this item's price.
     if not allowed:
         assert any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(
@@ -752,7 +824,7 @@ def test_grounded_price_passes_service_without_retry_and_status_is_server_owned(
 def test_saved_snapshot_backfills_rejection_from_metadata_only(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
-    payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
+    payload["forward_views"]["short_1_5"]["reason"] = "股價為 2400 元。"
     result = run_service(db_session, settings, FakeLlm(payload))
     row = db_session.get(LlmResponse, result.snapshot_id)
     saved = json.loads(row.response_json)

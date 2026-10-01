@@ -81,3 +81,24 @@ def test_return_rules_do_not_join_separate_clauses(separator):
     for text in ("預期漲4.64%", f"預期{separator}將漲4.64%"):
         assert any(hit.rule == "前瞻報酬-hard" for hit in scan_compliance_hits(text))
     assert any(hit.rule == "前瞻報酬-soft" for hit in scan_compliance_hits("未來上漲4.64%"))
+
+
+@pytest.mark.parametrize("separator", ["，", ";"])
+def test_historical_price_range_is_not_a_forecast_from_a_separate_support_clause(separator):
+    from datetime import date
+
+    from app.features.analysis import validation as gate
+    from app.features.analysis.evidence import EvidenceBundle
+
+    bundle = EvidenceBundle(symbol="2727", as_of_date=date(2026, 10, 1), daily_timeline=[
+        {"id": "d_01", "date": "2026-09-01", "close": 227},
+        {"id": "d_02", "date": "2026-09-02", "close": 241},
+    ])
+    item = {"id": "cs_01", "evidence_ids": ["d_01", "d_02"],
+            "text": f"市場支撐因素仍待觀察{separator}股價在 227-241 元區間震盪後回升。"}
+    prices = gate._historical_prices(bundle)
+    assert not gate._grounding_issues(item, bundle)
+    assert not any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(item, prices=prices))
+
+    item["text"] = "股價可望挑戰 241 元。"
+    assert any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(item, prices=prices))
