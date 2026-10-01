@@ -133,12 +133,10 @@ async function check() {
   assert.match(markup, /Readable <strong>answer<\/strong>\[S1\]\[S2\]/);
   assert.match(markup, /<strong>營收創新高<\/strong>：受惠於 AI 需求/);
   assert.doesNotMatch(markup, /\*\*營收創新高\*\*/);
-  assert.equal((markup.match(/<li(?:\s|>)/g) ?? []).length, 5);
-  for (const id of ['S1', 'S2', 'S3', 'S4']) assert.ok(markup.includes(`[${id}]`));
-  assert.match(markup, /Market snapshot/);
-  assert.equal((markup.match(/<a /g) ?? []).length, 2);
-  assert.match(markup, /href="https:\/\/example.com\/news"/);
-  assert.match(markup, /href="\/news\/article-1"/);
+  assert.equal((markup.match(/<li(?:\s|>)/g) ?? []).length, 1);
+  for (const id of ['S1', 'S2']) assert.ok(markup.includes(`[${id}]`));
+  assert.doesNotMatch(markup, /Market snapshot/);
+  assert.equal((markup.match(/<a /g) ?? []).length, 0);
   assert.doesNotMatch(markup, /href="javascript:/);
 
   const defaultSectionMarkup = renderToStaticMarkup(createElement(RagStructuredReply, {
@@ -158,8 +156,7 @@ async function check() {
     content: `Readable answer\n\n【引用來源】\n${mixedSources}`,
   }));
   assert.match(dashboardSourceMarkup, /Readable answer/);
-  assert.match(dashboardSourceMarkup, /引用來源/);
-  assert.match(dashboardSourceMarkup, /Market snapshot/);
+  assert.doesNotMatch(dashboardSourceMarkup, /Market snapshot|href=/);
 
   for (const body of ['並非利空', '沒有證據支持看漲', '不知道偏空或偏多']) {
     const sentimentMarkup = renderToStaticMarkup(createElement(RagStructuredReply, { content: `【市場情緒】\n${body}` }));
@@ -167,7 +164,7 @@ async function check() {
     assert.doesNotMatch(sentimentMarkup, /rounded-full|border-up|border-down/);
   }
   const sourceRecords = [1, 2].map((id) => ({ citation_id: `S${id}`, title: 'Same article', content: `Passage ${id}`,
-    pub_time: '2026-09-11', stock_id: '2330' }));
+    pub_time: '2026-09-11', stock_id: '2330', ...(id === 2 ? { category: 'news', article_id: 'trusted/two' } : { category: 'market' }) }));
   assert.deepEqual(parseChatSources([...sourceRecords, null, { citation_id: 'S99' }]), sourceRecords);
   const messageMarkup = (id: string, content: string) => renderToStaticMarkup(createElement(ChatMessage, {
     message: { id, role: 'assistant', content, timestamp: '', sources: sourceRecords,
@@ -176,7 +173,8 @@ async function check() {
   const earlierTurn = messageMarkup('first', 'First answer[S2]\n【引用來源】\n- [S2] Same article: /news/one');
   const laterTurn = messageMarkup('second', 'Second answer[S1]');
   assert.match(earlierTurn, /Passage 2/);
-  assert.match(earlierTurn, /href="\/news\/one"/);
+  assert.match(earlierTurn, /href="\/news\/trusted%2Ftwo"/);
+  assert.doesNotMatch(earlierTurn, /href="\/news\/one"/);
   assert.match(laterTurn, /Passage 1/);
   assert.match(earlierTurn, /\[S2\]/);
 

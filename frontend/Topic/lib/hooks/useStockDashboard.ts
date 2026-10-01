@@ -23,12 +23,14 @@ import {
 import type {
   CandlestickWithMAResponse,
   ChipsVolumeData,
+  HistoricalPriceList,
   PriceChangeResponse,
   VolumeAnalysisResponse,
 } from '../types/api';
 import type { DailyQuote, InstitutionalDay, PriceStats, TechnicalDay } from '../types/view';
 import { getDefaultDateRange, shiftYmdMonths } from '../utils/date';
 import { isValidDailyPrice } from '../utils/stockValidation';
+import { buildVolumeInsight, type VolumeInsight } from '../charts/volumeInsight';
 
 export const HISTORY_PAGE_SIZE = 30;
 export const DEFAULT_MA_PERIODS = '5,10,20,60';
@@ -57,6 +59,7 @@ export function useStockDashboard(symbol: string) {
 
   const [candlestickMA, setCandlestickMA] = useState<CandlestickWithMAResponse | null>(null);
   const [volumeData, setVolumeData] = useState<VolumeAnalysisResponse | null>(null);
+  const [volumeInsight, setVolumeInsight] = useState<VolumeInsight | null>(null);
   const [priceChangeData, setPriceChangeData] = useState<PriceChangeResponse | null>(null);
   const [statistics, setStatistics] = useState<PriceStats | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
@@ -87,6 +90,7 @@ export function useStockDashboard(symbol: string) {
     setBaseDate(null);
     setCandlestickMA(null);
     setVolumeData(null);
+    setVolumeInsight(null);
     setPriceChangeData(null);
     setStatistics(null);
     setChartError(null);
@@ -162,23 +166,27 @@ export function useStockDashboard(symbol: string) {
     const id = ++chartReq.current;
     setChartError(null);
     setChartLoading(true);
+    setVolumeInsight(null);
     try {
       const tasks: Promise<unknown>[] = [
         fetchCandlestickMA(sym, sd, ed, ma),
         fetchVolume(sym, sd, ed),
         fetchStatistics(sym, sd, ed),
+        fetchHistory(sym, { end_date: ed, limit: 60 }),
       ];
       if (withChange) tasks.push(fetchPriceChange(sym, sd, ed));
-      const [kma, vol, stats, change] = await Promise.allSettled(tasks);
+      const [kma, vol, stats, volumeHistory, change] = await Promise.allSettled(tasks);
       if (id !== chartReq.current) return;
 
       setCandlestickMA(kma.status === 'fulfilled' ? (kma.value as CandlestickWithMAResponse) : null);
+      setVolumeInsight(volumeHistory.status === 'fulfilled'
+        ? buildVolumeInsight((volumeHistory.value as HistoricalPriceList).data, ed) : null);
       if (vol.status === 'fulfilled') setVolumeData(vol.value as VolumeAnalysisResponse);
       if (stats.status === 'fulfilled') setStatistics(toPriceStats(stats.value as Parameters<typeof toPriceStats>[0]));
       if (!withChange) setPriceChangeData(null);
       else if (change?.status === 'fulfilled') setPriceChangeData(change.value as PriceChangeResponse);
 
-      const results = [kma, vol, stats, change].filter(Boolean) as PromiseSettledResult<unknown>[];
+      const results = [kma, vol, stats, volumeHistory, change].filter(Boolean) as PromiseSettledResult<unknown>[];
       const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       if (rejected.length === results.length) {
         const msg = errorMessage(rejected[0]?.reason, '圖表資料載入失敗');
@@ -233,6 +241,7 @@ export function useStockDashboard(symbol: string) {
 
   useEffect(() => {
     if (ready) void loadChart(symbol, startDate, endDate, maPeriods, showPriceChange);
+    return () => { chartReq.current += 1; };
   }, [ready, symbol, startDate, endDate, maPeriods, showPriceChange, loadChart]);
 
   useEffect(() => {
@@ -273,6 +282,7 @@ export function useStockDashboard(symbol: string) {
     chartError,
     priceChart,
     volumeData,
+    volumeInsight,
     priceChangeData,
     statistics,
     chipsLoading,
