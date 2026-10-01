@@ -1,5 +1,6 @@
 import { formatStockLabel } from './utils/symbolNames';
 import type { ChatAction } from './types/chat';
+import { getDemoApiBase } from '../features/ai-trade-demo/config';
 
 /** 主選單／頁尾共用導覽（路徑與標籤唯一來源） */
 export const PRIMARY_NAV = [
@@ -7,7 +8,7 @@ export const PRIMARY_NAV = [
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬下單' },
   { path: '/compare', label: '多股比較' },
-  { path: '/ai-trade-demo', label: 'AI 模擬下單 Demo' }, // DEMO: ai-trade-demo
+  { path: '/ai-trade-demo', label: getDemoApiBase() ? 'AI 模擬下單 Demo' : 'AI Demo（尚未開放）' }, // DEMO: ai-trade-demo
 ] as const;
 
 export function isChatNavigationAction(value: unknown): value is Extract<ChatAction, { type: 'navigate' }> {

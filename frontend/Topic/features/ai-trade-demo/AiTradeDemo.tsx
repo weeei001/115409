@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { RotateCcw } from 'lucide-react';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,18 @@ const API_BASE = getDemoApiBase();
 
 /** AI 模擬下單 Demo 的整頁內容；pages/ai-trade-demo.tsx 只負責頁首與組裝 */
 export function AiTradeDemo() {
+  if (!API_BASE) return <main aria-label="AI 模擬下單 Demo" className="mx-auto w-full max-w-3xl flex-1 space-y-5 px-4 py-10 sm:px-6">
+    <h2 className="text-xl font-semibold">AI模擬下單Demo尚未開放</h2>
+    <p className="text-sm leading-relaxed text-muted-foreground">此獨立 Demo 目前尚未開放使用。您可以先使用本站的其他功能。</p>
+    <nav aria-label="其他功能" className="flex flex-wrap gap-3">
+      {[['/', '返回首頁'], ['/ai', 'AI 對話'], ['/order', '一般模擬下單']].map(([path, label]) => <Link key={path} href={path}
+        className="inline-flex min-h-11 items-center rounded-xl border px-4 text-sm text-brand-text hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2">{label}</Link>)}
+    </nav>
+  </main>;
+  return <ConfiguredDemo />;
+}
+
+function ConfiguredDemo() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const { state, start, cancel } = useSimulateTradingStream(API_BASE);
@@ -30,8 +43,6 @@ export function AiTradeDemo() {
       <Notice tone="info">
         這是 Demo：由大型語言模型（LLM）逐日決定買進或賣出，資料來自獨立的 Demo 後端，與本站其他功能無關。模擬回測，不構成投資建議。
       </Notice>
-
-      {API_BASE ? null : <Notice tone="warning">Demo 未設定 API 網址（NEXT_PUBLIC_AI_TRADE_DEMO_API_URL），目前無法執行模擬。</Notice>}
 
       <SimulateForm disabled={!API_BASE} running={running} onStart={(params) => void start(params)} />
 

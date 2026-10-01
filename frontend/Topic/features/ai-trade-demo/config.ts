@@ -4,7 +4,7 @@
  */
 const RAW_API_URL = process.env.NEXT_PUBLIC_AI_TRADE_DEMO_API_URL;
 
-/** 沒設定時回傳 null，由畫面顯示「Demo 未設定 API 網址」 */
+/** 沒設定時回傳 null，導覽與頁面共用尚未開放判斷。 */
 export function getDemoApiBase(): string | null {
   const url = RAW_API_URL?.trim().replace(/\/+$/, '');
   return url ? url : null;
