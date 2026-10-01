@@ -31,6 +31,16 @@ export interface AdminRun {
   exit_code: number | null;
   error: string | null;
   duration_seconds?: number | null;
+  diagnostics?: {
+    run_id: number;
+    error_category: string | null;
+    failed_stages: Array<{ stage: string; exit_code: number }>;
+    stage: string | null;
+    stage_started_at: string | null;
+    last_activity_at: string | null;
+    activity_kind: 'stage_started' | 'unknown';
+    worker_progress: 'unknown';
+  } | null;
 }
 
 export interface AdminAudit {

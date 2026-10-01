@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
 import type { AdminJob, AdminRun } from '../../lib/api/admin';
 import { AdminJobs, AdminRunHistory } from '../../pages/admin';
+import { AdminRunDiagnostics } from './RunDiagnostics';
 
 const job: AdminJob = {
   name: 'market', schedule: '每日 16:00', paused: true, next_run_at: null, active_run_id: null,
@@ -45,4 +46,13 @@ assert.match(historyMarkup, /2026\/9\/30\s10:00:00/);
 assert.match(historyMarkup, /5 秒/);
 assert.match(historyMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
 assert.doesNotMatch(historyMarkup, /<script>/);
+const diagnosticMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={{ ...run, diagnostics: {
+  run_id: 7, error_category: 'stage_nonzero', failed_stages: [{ stage: 'news-impact-batch', exit_code: 1 }],
+  stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',
+} }} />);
+assert.match(diagnosticMarkup, /根因待查/);
+assert.match(diagnosticMarkup, /子工作處理進度未知/);
+assert.match(diagnosticMarkup, /admin_run=7/);
+assert.match(diagnosticMarkup, /news-impact-batch/);
+assert.doesNotMatch(diagnosticMarkup, /死鎖|已恢復/);
 console.log('Admin checks passed: paused manual runs, overlap guards, completed retries, unavailable actions, manual-only jobs, Taipei timestamps, and escaped errors.');

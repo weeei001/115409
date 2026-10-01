@@ -9,6 +9,7 @@ from app.db.models.admin import AdminAccount, AdminAuditLog
 from app.db.models.user import User
 from app.features.admin import repository
 from app.features.admin.schemas import AuditPublic, RunPublic
+from app.features.admin.diagnostics import run_diagnostics
 
 
 # ponytail: one API process serializes membership changes; database row locks also protect separate processes.
@@ -146,15 +147,26 @@ def perform_job(db: Session, actor: User, runtime, job_name: str, action: str, r
     return {"message": "Job action accepted", "run_id": queued_id}
 
 
-def list_runs(db: Session, limit: int = 20, offset: int = 0, job_name: str | None = None) -> dict:
+def public_run(row, live=None) -> dict:
+    item = RunPublic.model_validate(row)
+    if item.started_at:
+        item.duration_seconds = max(0, ((item.finished_at or datetime.now(timezone.utc)) - item.started_at).total_seconds())
+    item.diagnostics = run_diagnostics(row, live)
+    return item.model_dump(mode="json")
+
+
+def get_run(db: Session, run_id: int, runtime=None) -> dict:
+    row = repository.run_by_id(db, run_id)
+    if row is None:
+        raise AppError("Job run not found", 404)
+    live = runtime.snapshot().get("run_activity", {}).get(row.job_name) if runtime else None
+    return public_run(row, live)
+
+
+def list_runs(db: Session, limit: int = 20, offset: int = 0, job_name: str | None = None, runtime=None) -> dict:
     rows, total = repository.runs(db, limit, offset, job_name)
-    items = []
-    now = datetime.now(timezone.utc)
-    for row in rows:
-        item = RunPublic.model_validate(row)
-        if item.started_at:
-            item.duration_seconds = max(0, ((item.finished_at or now) - item.started_at).total_seconds())
-        items.append(item.model_dump(mode="json"))
+    activity = runtime.snapshot().get("run_activity", {}) if runtime else {}
+    items = [public_run(row, activity.get(row.job_name)) for row in rows]
     return {"items": items, "total": total}
 
 
@@ -178,4 +190,4 @@ def overview(db: Session, runtime, environment: str) -> dict:
                 "jobs": snapshot["jobs"], "recent_runs": []}
     return {"environment": environment, "checked_at": datetime.now(timezone.utc), "services": services,
             "scheduler": {key: snapshot.get(key) for key in ("status", "heartbeat", "error")},
-            "jobs": snapshot["jobs"], "recent_runs": list_runs(db, 10)["items"]}
+            "jobs": snapshot["jobs"], "recent_runs": list_runs(db, 10, runtime=runtime)["items"]}

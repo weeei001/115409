@@ -29,6 +29,10 @@ def runs(db: Session, limit: int, offset: int = 0, job_name: str | None = None):
     return list(db.scalars(query.order_by(AdminJobRun.id.desc()).limit(limit).offset(offset))), db.scalar(count)
 
 
+def run_by_id(db: Session, run_id: int):
+    return db.get(AdminJobRun, run_id)
+
+
 def audit_logs(db: Session, limit: int, offset: int = 0):
     return (list(db.scalars(select(AdminAuditLog).order_by(AdminAuditLog.id.desc()).limit(limit).offset(offset))),
             db.scalar(select(func.count()).select_from(AdminAuditLog)))

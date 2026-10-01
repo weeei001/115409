@@ -196,3 +196,35 @@ def test_overview_uses_environment_local_qdrant_and_sanitizes_errors(client, app
 
         asyncio.run(app.state.http.aclose())
         app.state.http = original
+
+
+def test_run_diagnostics_are_whitelisted_and_detail_requires_admin(client, db_session, settings):
+    _, headers = account(db_session, settings, "manager@example.com", administrator=True)
+    _, member_headers = account(db_session, settings, "member@example.com")
+    rows = [AdminJobRun(job_name="rag", status="failed", trigger="scheduled", exit_code=1,
+        error="news-impact-batch exited with code 1; cache-warmup exited with code 2"),
+        AdminJobRun(job_name="rag", status="failed", trigger="manual", exit_code=1,
+        error="password=private-token https://private.test exception and article content"),
+        AdminJobRun(job_name="rag", status="interrupted", trigger="scheduled",
+        error="Service restarted before this run completed")]
+    db_session.add_all(rows)
+    db_session.commit()
+    response = client.get(f"/admin/runs/{rows[0].id}", headers=headers)
+    assert response.status_code == 200
+    diagnostics = response.json()["diagnostics"]
+    assert diagnostics["failed_stages"] == [{"stage": "news-impact-batch", "exit_code": 1},
+                                            {"stage": "cache-warmup", "exit_code": 2}]
+    assert diagnostics["error_category"] == "stage_nonzero"
+    assert diagnostics["worker_progress"] == "unknown"
+    assert diagnostics["last_activity_at"] is None
+    assert client.get(f"/admin/runs/{rows[0].id}", headers=member_headers).status_code == 403
+    assert client.get(f"/admin/runs/{rows[0].id}").status_code == 403
+    assert client.get("/admin/runs/999999", headers=headers).status_code == 404
+    data = client.get("/admin/runs", headers=headers).text
+    assert "private-token" not in data and "private.test" not in data and "article content" not in data
+    assert rows[1].error.startswith("password="), "Public diagnostics must not mutate retained history."
+    assert client.get(f"/admin/runs/{rows[2].id}", headers=headers).json()["diagnostics"]["error_category"] == "service_restart"
+    from app.features.admin.diagnostics import failure_stages, safe_error
+    assert failure_stages("news-ingest exited with code 1; password=private") == []
+    assert failure_stages("invented-stage exited with code 1") == []
+    assert "private" not in safe_error("private" * 10000)

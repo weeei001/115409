@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from app.features.admin.diagnostics import safe_error
 
 
 class GrantAdministratorRequest(BaseModel):
@@ -29,7 +30,13 @@ class RunPublic(BaseModel):
     exit_code: int | None
     error: str | None
     duration_seconds: float | None = None
+    diagnostics: dict | None = None
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("error")
+    @classmethod
+    def public_error(cls, value):
+        return safe_error(value)
 
     @field_validator("created_at", "started_at", "finished_at")
     @classmethod

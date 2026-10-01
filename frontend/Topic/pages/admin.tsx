@@ -13,6 +13,7 @@ import { adminMe, canRetryAdminRun, canStartAdminJob } from '@/lib/api/admin';
 import type { AdminAudit, AdminJob, AdminList, AdminOverview, AdminRun, Administrator } from '@/lib/api/admin';
 import { AUTH_CHANGE_EVENT, getToken } from '@/lib/auth/storage';
 import { cn } from '@/lib/cn';
+import { AdminRunDiagnostics } from '@/features/admin/RunDiagnostics';
 
 const PAGE_SIZE = 20;
 const LOGIN = { pathname: '/login', query: { returnUrl: '/admin' } };
@@ -107,7 +108,7 @@ export function AdminRunHistory({ runs, jobs, disabled, onRetry }: { runs: Admin
               <td className={cellClass}>{TRIGGER_LABELS[run.trigger] ?? run.trigger}</td>
               <td className={cellClass}><Button variant="outline" className="min-h-10" disabled={disabled || !canRetryAdminRun(run, jobs)} onClick={() => onRetry(run)} aria-label={`重跑${JOB_LABELS[run.job_name] ?? run.job_name}執行紀錄 ${run.id}`}><RotateCcw aria-hidden />重跑</Button></td>
             </tr>
-            {run.error ? <tr><td colSpan={6} className="px-4 pb-3"><details className="rounded-lg border border-danger-border bg-danger-muted px-3 py-2 text-xs text-danger"><summary className="cursor-pointer font-medium">錯誤資訊{run.exit_code != null ? ` · 結束碼 ${run.exit_code}` : ''}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono">{run.error}</pre></details></td></tr> : null}
+            <tr><td colSpan={6} className="px-4 pb-3"><AdminRunDiagnostics run={run} /></td></tr>
           </React.Fragment>)}
         </tbody>
       </table>
