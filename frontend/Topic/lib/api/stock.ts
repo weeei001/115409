@@ -70,8 +70,9 @@ export async function fetchDateRange(symbol: string) {
 export async function fetchHistory(
   symbol: string,
   params?: { start_date?: string; end_date?: string; skip?: number; limit?: number },
+  options?: { signal?: AbortSignal },
 ) {
-  const { data } = await apiClient.get<HistoricalPriceList>(`/stocks/${symbol}/history`, { params });
+  const { data } = await apiClient.get<HistoricalPriceList>(`/stocks/${symbol}/history`, { params, signal: options?.signal });
   return data;
 }
 

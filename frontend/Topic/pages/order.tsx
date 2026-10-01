@@ -6,6 +6,7 @@ import { ArrowDownCircle, ArrowUpCircle, Copy, Loader2, RefreshCw, ShoppingCart 
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { ConfirmOrderDialog } from '@/features/order/ConfirmOrderDialog';
+import { OrderEstimate } from '@/features/order/OrderEstimate';
 import { OrdersTable, ProfitSummaryTable } from '@/features/order/OrderTables';
 import { useSimulatedIdentity } from '@/features/order/useSimulatedIdentity';
 import { ApiRequestError } from '@/lib/api/client';
@@ -424,12 +425,7 @@ export default function OrderPage() {
               </div>
 
               <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-                <div className="min-w-0 flex-1 rounded-lg border bg-muted/50 px-4 py-2.5">
-                  <p className="mb-0.5 text-xs text-muted-foreground">預估金額與試算</p>
-                  <p className="text-sm leading-relaxed text-subtle max-sm:whitespace-normal sm:whitespace-nowrap">
-                    金額依<strong className="font-medium">成交日收盤</strong>試算；列表中的試算損益由後端標示依據（最新收盤、預計賣出日或賣出實現）。
-                  </p>
-                </div>
+                <OrderEstimate symbol={normalizedSymbol} tradeDate={tradeDate} quantity={quantity} today={today} />
                 <button
                   type="button"
                   disabled={submitting || !userId || (side === 'sell' && symbolValidForLots && (lotsLoading || availableLots === null || availableLots <= 0))}
