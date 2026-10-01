@@ -245,3 +245,121 @@ def test_fully_completed_job_is_successful_during_shutdown_grace(tmp_path, setti
         finish.set()
         thread.join(5)
         engine.dispose()
+
+
+def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknown(tmp_path, settings, monkeypatch, capsys):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    jobs.status = "running"
+    entered, finish = Event(), Event()
+    calls = []
+
+    def worker(command):
+        calls.append(command[0])
+        if command[0] == "cache-warmup":
+            entered.set()
+            assert finish.wait(5)
+        return 3 if command[0] == "news-impact-batch" else 0
+
+    monkeypatch.setattr(jobs, "_worker", worker)
+    with factory() as db:
+        run_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "run", None)["run_id"]
+    thread = Thread(target=jobs._execute, args=(run_id,))
+    try:
+        thread.start()
+        assert entered.wait(5)
+        with factory() as db:
+            live = service.get_run(db, run_id, jobs)["diagnostics"]
+            assert live["stage"] == "cache-warmup" and live["activity_kind"] == "stage_started"
+            assert live["last_activity_at"] == live["stage_started_at"]
+            assert live["worker_progress"] == "unknown"
+            jobs.heartbeat = "2026-10-01T13:00:00Z"
+            assert service.get_run(db, run_id, jobs)["diagnostics"]["last_activity_at"] == live["last_activity_at"]
+        finish.set()
+        thread.join(5)
+        assert not thread.is_alive()
+        assert calls == ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]
+        with factory() as db:
+            result = service.get_run(db, run_id, jobs)
+            assert result["status"] == "failed" and result["exit_code"] == 3
+            assert result["diagnostics"]["failed_stages"] == [{"stage": "news-impact-batch", "exit_code": 3}]
+            assert result["diagnostics"]["stage"] is None
+        output = capsys.readouterr().out
+        assert f"admin_run={run_id} stage=cache-warmup event=started" in output
+        assert f"admin_run={run_id} stage=news-impact-batch event=finished exit_code=3" in output
+        assert "--execute" not in output and "--max-cost-usd" not in output
+    finally:
+        finish.set()
+        thread.join(5)
+        engine.dispose()
+
+
+def test_exception_and_service_stop_have_safe_distinct_diagnostics(tmp_path, settings, monkeypatch):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    jobs.status = "running"
+    def fail(command):
+        raise ValueError("private-key private endpoint and content")
+    monkeypatch.setattr(jobs, "_worker", fail)
+    try:
+        with factory() as db:
+            run_id = service.perform_job(db, db.get(User, user_id), jobs, "cnyes", "run", None)["run_id"]
+        assert jobs._execute(run_id) == 1
+        with factory() as db:
+            data = service.get_run(db, run_id, jobs)
+            assert data["diagnostics"]["error_category"] == "execution_exception"
+            assert "private" not in str(data)
+            next_id = service.perform_job(db, db.get(User, user_id), jobs, "cnyes", "run", None)["run_id"]
+        def stopping(command):
+            jobs.stop_event.set()
+            return 1
+        monkeypatch.setattr(jobs, "_worker", stopping)
+        assert jobs._execute(next_id) == 1
+        with factory() as db:
+            data = service.get_run(db, next_id, jobs)
+            assert data["status"] == "interrupted"
+            assert data["diagnostics"]["error_category"] == "service_stop"
+        assert jobs.snapshot()["run_activity"] == {}
+    finally:
+        engine.dispose()
+
+
+def test_cnyes_only_policy_uses_durable_pause_without_duplicate_followup(tmp_path, settings, monkeypatch):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    with factory() as db:
+        db.add(AdminJobControl(job_name="ltn", paused=True))
+        old = AdminJobRun(job_name="ltn", status="failed", trigger="scheduled", exit_code=1)
+        db.add(old)
+        db.commit()
+        old_id = old.id
+    calls = []
+
+    @contextmanager
+    def lock(name):
+        yield
+
+    monkeypatch.setattr(runtime, "worker_lock", lock)
+    monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: calls.append(name) or 0)
+    jobs.scheduler.next_news = {"cnyes": 0, "ltn": 0}
+    jobs.scheduler.delay = 0
+    jobs.start()
+    try:
+        wait_until(lambda: calls == ["cnyes", "rag"] and not jobs.active)
+        snapshot = jobs.snapshot()
+        ltn = next(item for item in snapshot["jobs"] if item["name"] == "ltn")
+        cnyes = next(item for item in snapshot["jobs"] if item["name"] == "cnyes")
+        assert ltn["paused"] and ltn["next_run_at"] is None
+        assert not cnyes["paused"] and cnyes["next_run_at"] is not None
+        with factory() as db:
+            assert db.get(AdminJobRun, old_id).status == "failed"
+            names = [row.job_name for row in db.scalars(select(AdminJobRun).order_by(AdminJobRun.id))]
+            assert names == ["ltn", "cnyes", "rag"]
+    finally:
+        jobs.stop()
+    restarted = runtime.JobRuntime(settings, factory)
+    restarted.start()
+    try:
+        wait_until(lambda: restarted.status == "running")
+        assert "ltn" in restarted.paused and not restarted._enabled("ltn")
+        assert restarted._enabled("cnyes") and calls == ["cnyes", "rag"]
+    finally:
+        restarted.stop()
+        engine.dispose()

@@ -57,9 +57,14 @@ async def overview(request: Request, user: Administrator, db: Database):
 
 
 @router.get("/runs")
-def runs(user: Administrator, db: Database, limit: int = Query(20, ge=1, le=100),
+def runs(request: Request, user: Administrator, db: Database, limit: int = Query(20, ge=1, le=100),
          offset: int = Query(0, ge=0), job_name: str | None = Query(None, max_length=80)):
-    return service.list_runs(db, limit, offset, job_name)
+    return service.list_runs(db, limit, offset, job_name, getattr(request.app.state, "jobs", None))
+
+
+@router.get("/runs/{run_id}")
+def run(request: Request, user: Administrator, db: Database, run_id: int = Path(..., gt=0, le=2147483647)):
+    return service.get_run(db, run_id, getattr(request.app.state, "jobs", None))
 
 
 @router.get("/audit")

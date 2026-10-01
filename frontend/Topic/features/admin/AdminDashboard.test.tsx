@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
-import type { AdminJob, AdminRun } from '../../lib/api/admin';
-import { AdminJobs, AdminRunHistory } from '../../pages/admin';
+import { acceptedJobAudit, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
+import type { AdminAudit, AdminJob, AdminRun } from '../../lib/api/admin';
+import { AdminAuditResult, AdminJobs, AdminRunHistory } from '../../pages/admin';
+import { AdminRunDiagnostics } from './RunDiagnostics';
 
 const job: AdminJob = {
   name: 'market', schedule: '每日 16:00', paused: true, next_run_at: null, active_run_id: null,
@@ -45,4 +46,58 @@ assert.match(historyMarkup, /2026\/9\/30\s10:00:00/);
 assert.match(historyMarkup, /5 秒/);
 assert.match(historyMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
 assert.doesNotMatch(historyMarkup, /<script>/);
+const diagnosticMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={{ ...run, diagnostics: {
+  run_id: 7, error_category: 'stage_nonzero', failed_stages: [{ stage: 'news-impact-batch', exit_code: 1 }],
+  stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',
+} }} />);
+assert.match(diagnosticMarkup, /根因待查/);
+assert.match(diagnosticMarkup, /子工作處理進度未知/);
+assert.match(diagnosticMarkup, /admin_run=7/);
+assert.match(diagnosticMarkup, /news-impact-batch/);
+assert.doesNotMatch(diagnosticMarkup, /死鎖|已恢復/);
+const now = '2026-10-01T13:00:00Z';
+const future = { ...job, paused: false, next_run_at: '2026-10-01T13:30:00Z' };
+const due = { ...future, next_run_at: '2026-10-01T12:30:00Z' };
+assert.match(adminScheduleState(future, [future], now), /預定時間/);
+assert.match(adminScheduleState(due, [due], now), /已到期.*原因未知/);
+assert.match(adminScheduleState(due, [due, { ...job, active_run_id: 39 }], now), /已到期.*#39/);
+assert.match(adminScheduleState({ ...due, active_run_id: 7 }, [due], now), /正在執行 #7/);
+assert.match(adminScheduleState({ ...due, queued_run_id: 8 }, [due], now), /已排入等待 #8/);
+assert.match(adminScheduleState(job, [job], now), /已暫停/);
+assert.match(adminScheduleState({ ...future, schedule: 'Manual', next_run_at: null }, [], now), /僅手動/);
+assert.match(adminScheduleState({ ...future, name: 'rag', next_run_at: null }, [], now), /等待資料工作/);
+assert.match(adminScheduleState(future, [], now, 'stopped'), /排程器未運作/);
+const summaryMarkup = renderToStaticMarkup(<AdminJobs jobs={[{ ...due, result_summary: {
+  history_scope: 'all_stored_runs', terminal_runs: 41, last_success: { ...run, id: 1, status: 'succeeded' },
+  last_failure: run, consecutive_failed: 40,
+} }]} disabled={false} checkedAt={now} onAction={() => undefined} />);
+assert.match(summaryMarkup, /最近成功：.*執行紀錄 #1/);
+assert.match(summaryMarkup, /連續失敗 40 次/);
+assert.match(summaryMarkup, /統計全部已保存紀錄/);
+assert.match(summaryMarkup, /資料截至日：未知/);
+assert.match(summaryMarkup, /已到期/);
+assert.doesNotMatch(summaryMarkup, /資料已成功更新|死鎖/);
+const audit: AdminAudit = { id: 12, actor_email: 'operator@example.test', action: 'job.run', target: 'market',
+  status: 'succeeded', created_at: now, details: { run_id: 7 } };
+for (const action of ['job.run', 'job.retry']) {
+  assert.equal(acceptedJobAudit({ ...audit, action }), true);
+  const markup = renderToStaticMarkup(<AdminAuditResult item={{ ...audit, action }} />);
+  assert.match(markup, /執行請求已接受/);
+  assert.match(markup, /href="\/admin\?run=7#run-detail"/);
+  assert.doesNotMatch(markup, /工作結果成功/);
+}
+for (const action of ['job.pause', 'job.resume', 'administrator.grant', 'administrator.revoke']) {
+  assert.equal(acceptedJobAudit({ ...audit, action }), false);
+  assert.doesNotMatch(renderToStaticMarkup(<AdminAuditResult item={{ ...audit, action }} />), /執行請求已接受|run=7/);
+}
+for (const status of ['failed', 'rejected']) {
+  assert.doesNotMatch(renderToStaticMarkup(<AdminAuditResult item={{ ...audit, status }} />), /執行請求已接受|run=7/);
+}
+for (const details of [null, 'run_id=7', {}, { run_id: '7' }, { run_id: -1 }, { run_id: 7.5 }, { run_id: 2147483648 }]) {
+  assert.equal(auditRunId({ ...audit, details }), null);
+  assert.match(renderToStaticMarkup(<AdminAuditResult item={{ ...audit, details }} />), /工作結果未知/);
+}
+for (const value of ['0', '007', ['7'], '7#other', NaN, Infinity, 2147483648, undefined]) assert.equal(adminRunId(value), null);
+assert.equal(adminRunId('7'), 7);
+assert.equal(adminRunId(7), 7);
 console.log('Admin checks passed: paused manual runs, overlap guards, completed retries, unavailable actions, manual-only jobs, Taipei timestamps, and escaped errors.');
