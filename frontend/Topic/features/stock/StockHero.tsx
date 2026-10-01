@@ -40,7 +40,7 @@ export function StockHero({ symbol, stockName, latest, priceChart }: Props) {
   ];
 
   return (
-    <section data-stagger className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-card sm:p-5" aria-label="即時報價">
+    <section data-stagger className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-card sm:p-5" aria-label="最近儲存收盤行情">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xl font-bold sm:text-2xl">
@@ -48,6 +48,7 @@ export function StockHero({ symbol, stockName, latest, priceChart }: Props) {
             {stockName ? <span className="text-sm font-medium text-subtle sm:text-base">{stockName}</span> : null}
           </h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">收盤日 {latest.date}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">非即時行情；依已匯入資料顯示。</p>
         </div>
         <div className="sm:text-right">
           <p className="text-[11px] text-muted-foreground">收盤價</p>
