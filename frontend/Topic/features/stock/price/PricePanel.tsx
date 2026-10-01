@@ -26,6 +26,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
     showPriceChange,
     setShowPriceChange,
     volumeData,
+    volumeInsight,
     priceChangeData,
     statistics,
     history,
@@ -80,7 +81,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
             載入圖表中…
           </div>
         ) : priceChart ? (
-          <PriceChart data={priceChart} activeMa={activeMa} />
+          <PriceChart data={priceChart} activeMa={activeMa} volumeInsight={volumeInsight} />
         ) : (
           <EmptyState className="py-16">尚無 K 線資料</EmptyState>
         )}

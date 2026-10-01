@@ -27,11 +27,13 @@ import {
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { cn } from '@/lib/cn';
+import { buildVolumeInsight, type VolumeInsight } from '@/lib/charts/volumeInsight';
 
 interface Props {
   data: PriceChartData;
   /** 目前有向後端要資料的均線（MA 週期選擇器），圖例只列這些 */
   activeMa: MaKey[];
+  volumeInsight: VolumeInsight | null;
 }
 
 type ChangeLabel = '上漲日' | '下跌日' | '平盤';
@@ -85,8 +87,6 @@ function maStructureText(close: number | null, ma20: number | null, ma60: number
   return '股價與均線交錯';
 }
 
-const average = (nums: number[]) => (nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null);
-
 function volumeCompare(volume: number | null, ma20: number | null): string {
   if (volume === null || ma20 === null || ma20 <= 0) return '量能說明：無 20 日均量可比較';
   const pct = Math.abs(((volume - ma20) / ma20) * 100).toFixed(1);
@@ -102,7 +102,8 @@ function volumeInterpretation(state: string): string {
 
 const fmt2 = (v: number | null) => (v === null ? '--' : v.toFixed(2));
 
-export function PriceChart({ data, activeMa }: Props) {
+export function PriceChart({ data, activeMa, volumeInsight: loadedVolumeInsight }: Props) {
+  const volumeInsight = loadedVolumeInsight ?? buildVolumeInsight([], '');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -131,18 +132,6 @@ export function PriceChart({ data, activeMa }: Props) {
   }, [data]);
   const lookupsRef = useRef(lookups);
   lookupsRef.current = lookups;
-
-  const volumeInsight = useMemo(() => {
-    const values = data.volume.map((p) => p.value).filter((v) => Number.isFinite(v));
-    const latest = data.volume[data.volume.length - 1]?.value;
-    const latestVolume = Number.isFinite(latest) ? latest : null;
-    const ma20 = average(values.slice(-20));
-    const ma60 = average(values.slice(-60));
-    const vsMa20 = latestVolume !== null && ma20 ? ((latestVolume - ma20) / ma20) * 100 : null;
-    let state = '無資料';
-    if (vsMa20 !== null) state = Math.abs(vsMa20) <= 5 ? '接近均量' : vsMa20 > 0 ? '量增' : '量縮';
-    return { latestVolume, ma20, ma60, vsMa20, state };
-  }, [data.volume]);
 
   const buildOverlay = (time: string, ohlc: { open: number; high: number; low: number; close: number }): Overlay => {
     const l = lookupsRef.current;
@@ -323,14 +312,16 @@ export function PriceChart({ data, activeMa }: Props) {
         </div>
         <div className="rounded-lg border bg-muted/60 p-4 text-sm">
           <p className="text-xs font-semibold text-muted-foreground">輔助資訊｜成交量</p>
-          <p className="mt-2 text-subtle">今日成交量：{fmtVolume(volumeInsight.latestVolume, '無資料')}</p>
+          <p className="mt-2 text-subtle">基準日：{volumeInsight.date ?? '無資料'}（結束日前最後交易日）</p>
+          <p className="mt-1 text-subtle">基準日成交量：{fmtVolume(volumeInsight.latestVolume, '無資料')}</p>
           <p className="mt-1 text-subtle">
-            20 日均量：{fmtVolume(volumeInsight.ma20, '無資料')}
+            20 日均量：{fmtVolume(volumeInsight.ma20, `資料不足（有效 ${volumeInsight.count20}/20 個交易日）`)}
             {volumeInsight.vsMa20 === null
               ? ''
               : `（${volumeInsight.vsMa20 >= 0 ? '高於' : '低於'} ${Math.abs(volumeInsight.vsMa20).toFixed(1)}%）`}
           </p>
-          <p className="mt-1 text-subtle">60 日均量：{fmtVolume(volumeInsight.ma60, '無資料')}</p>
+          <p className="mt-1 text-subtle">60 日均量：{fmtVolume(volumeInsight.ma60, `資料不足（有效 ${volumeInsight.count60}/60 個交易日）`)}</p>
+          {volumeInsight.ma20 === 0 ? <p className="mt-1 text-subtle">20 日均量為零，無法計算量增減百分比。</p> : null}
           <p className="mt-1 font-medium">量能狀態：{volumeInsight.state}</p>
           <p className="mt-2 text-subtle">量能解讀：{volumeInterpretation(volumeInsight.state)}成交量用來輔助判斷趨勢強弱，不是直接買賣訊號。</p>
         </div>
