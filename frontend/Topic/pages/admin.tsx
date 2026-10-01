@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import apiClient, { ApiRequestError } from '@/lib/api/client';
 import { userFacingMessage } from '@/lib/api/errorDetail';
-import { adminMe, adminScheduleState, canRetryAdminRun, canStartAdminJob } from '@/lib/api/admin';
+import { acceptedJobAudit, adminMe, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '@/lib/api/admin';
 import type { AdminAudit, AdminJob, AdminList, AdminOverview, AdminRun, Administrator } from '@/lib/api/admin';
 import { AUTH_CHANGE_EVENT, getToken } from '@/lib/auth/storage';
 import { cn } from '@/lib/cn';
@@ -70,7 +70,7 @@ function Pagination({ offset, total, busy, onChange }: { offset: number; total: 
   );
 }
 
-export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus }: { jobs: AdminJob[]; disabled: boolean; onAction: (job: AdminJob, action: 'run' | 'pause' | 'resume') => void; checkedAt?: string; schedulerStatus?: string }) {
+export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus, onView }: { jobs: AdminJob[]; disabled: boolean; onAction: (job: AdminJob, action: 'run' | 'pause' | 'resume') => void; checkedAt?: string; schedulerStatus?: string; onView?: () => void }) {
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-4 sm:px-5"><h2 className="font-semibold">工作排程</h2><p className="text-xs text-muted-foreground">暫停只停止後續排程，執行中的工作會繼續完成。</p></div>
@@ -81,10 +81,11 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
               <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">{JOB_LABELS[job.name] || job.label || job.name}</h3><Status value={job.paused ? 'paused' : 'enabled'} />{job.active_run_id != null ? <Status value="running" /> : job.queued_run_id != null ? <Status value="queued" /> : null}</div>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">{scheduleText(job.schedule)}<span className="mx-2" aria-hidden>·</span>下次預定：{timeText(job.next_run_at)}</p>
               <p className="text-xs leading-5 text-muted-foreground">{adminScheduleState(job, jobs, checkedAt, schedulerStatus)}</p>
+              {job.active_run_id != null || job.queued_run_id != null ? <AdminRunLink id={job.active_run_id ?? job.queued_run_id!} onView={onView} /> : null}
               <div className="mt-2 text-xs leading-5">
                 {job.result_summary ? <>
-                  <p>最近成功：{job.result_summary.last_success ? `#${job.result_summary.last_success.id} · ${timeText(job.result_summary.last_success.finished_at)}` : '尚無成功紀錄'}</p>
-                  <p>最近失敗：{job.result_summary.last_failure ? `#${job.result_summary.last_failure.id} · ${timeText(job.result_summary.last_failure.finished_at)}` : '尚無失敗紀錄'} · 連續失敗 {job.result_summary.consecutive_failed} 次</p>
+                  <p>最近成功：{job.result_summary.last_success ? <><AdminRunLink id={job.result_summary.last_success.id} onView={onView} /> · {timeText(job.result_summary.last_success.finished_at)}</> : '尚無成功紀錄'}</p>
+                  <p>最近失敗：{job.result_summary.last_failure ? <><AdminRunLink id={job.result_summary.last_failure.id} onView={onView} /> · {timeText(job.result_summary.last_failure.finished_at)}</> : '尚無失敗紀錄'} · 連續失敗 {job.result_summary.consecutive_failed} 次</p>
                   <p className="text-muted-foreground">統計全部已保存紀錄（{job.result_summary.terminal_runs} 筆已結束）；中斷會結束失敗連續計數。</p>
                 </> : <p className="text-muted-foreground">工作結果摘要尚無法取得。</p>}
                 <p className="text-muted-foreground">資料截至日：未知；工作成功時間不代表資料已完整更新。</p>
@@ -99,6 +100,22 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
       </ul>}
     </div>
   );
+}
+
+function AdminRunLink({ id, onView }: { id: number; onView?: () => void }) {
+  return adminRunId(id) ? <Link href={`/admin?run=${id}#run-detail`} prefetch={false} onNavigate={onView} className="inline-block text-xs text-brand-text underline underline-offset-4">執行紀錄 #{id}</Link> : <span>執行紀錄編號未知</span>;
+}
+
+export function AdminAuditResult({ item, onView }: { item: AdminAudit; onView?: () => void }) {
+  const accepted = acceptedJobAudit(item);
+  const runId = auditRunId(item);
+  return <div className="space-y-2"><Status value={item.status} label={accepted ? '執行請求已接受' : undefined} />
+    {accepted ? <>
+      <p className="text-xs text-muted-foreground">請求結果與工作結果分開記錄。</p>
+      {runId ? <AdminRunLink id={runId} onView={onView} />
+        : <p className="text-xs text-muted-foreground">未提供可用的執行紀錄；工作結果未知。</p>}
+    </> : null}
+  </div>;
 }
 
 export function AdminRunHistory({ runs, jobs, disabled, onRetry }: { runs: AdminRun[]; jobs: AdminJob[]; disabled: boolean; onRetry: (run: AdminRun) => void }) {
@@ -144,6 +161,10 @@ export default function AdminPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [retryCheck, setRetryCheck] = useState(0);
+  const [selectedRun, setSelectedRun] = useState<AdminRun | null>(null);
+  const [runDetailError, setRunDetailError] = useState<string | null>(null);
+  const [runDetailLoading, setRunDetailLoading] = useState(false);
+  const runDetailHeading = useRef<HTMLHeadingElement | null>(null);
   const accessRef = useRef(access);
   accessRef.current = access;
   const readController = useRef<AbortController | null>(null);
@@ -161,6 +182,8 @@ export default function AdminPage() {
     setAudit({ items: [], total: 0 });
     setAdmins([]);
     setMe(null);
+    setSelectedRun(null);
+    setRunDetailError(null);
     setAccess('denied');
     window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
     if (err.status === 401) void routerRef.current.replace(LOGIN);
@@ -238,6 +261,8 @@ export default function AdminPage() {
       setRuns({ items: [], total: 0 });
       setAudit({ items: [], total: 0 });
       setAdmins([]);
+      setSelectedRun(null);
+      setRunDetailError(null);
       setAccess(nextToken ? 'loading' : 'denied');
       if (nextToken) setRetryCheck((value) => value + 1);
       else void routerRef.current.replace(LOGIN);
@@ -256,6 +281,48 @@ export default function AdminPage() {
       window.removeEventListener(AUTH_CHANGE_EVENT, onAuthChange);
     };
   }, [router.isReady, refresh, handleAccessError, retryCheck]);
+
+  useEffect(() => {
+    if (access === 'allowed' && router.query.run !== undefined) setTab('jobs');
+  }, [access, router.query.run]);
+
+  useEffect(() => {
+    setRunDetailError(null);
+    const runId = adminRunId(router.query.run);
+    if (access !== 'allowed' || router.query.run === undefined) {
+      setSelectedRun(null);
+      setRunDetailLoading(false);
+      return;
+    }
+    if (runId === null) {
+      setSelectedRun(null);
+      setRunDetailLoading(false);
+      setRunDetailError('執行紀錄編號無效，工作結果未知。');
+      return;
+    }
+    const controller = new AbortController();
+    const authToken = getToken();
+    setSelectedRun((previous) => previous?.id === runId ? previous : null);
+    setRunDetailLoading(true);
+    void apiClient.get<AdminRun>(`/admin/runs/${runId}`, { signal: controller.signal }).then(({ data }) => {
+      if (controller.signal.aborted || authToken !== getToken()) return;
+      if (data.id !== runId) throw new Error('Run identifier mismatch');
+      setSelectedRun(data);
+    }).catch((err: unknown) => {
+      if (controller.signal.aborted || authToken !== getToken() || handleAccessError(err)) return;
+      setSelectedRun(null);
+      setRunDetailError('執行紀錄不存在或目前無法讀取；工作結果未知。');
+    }).finally(() => {
+      if (!controller.signal.aborted && authToken === getToken()) setRunDetailLoading(false);
+    });
+    return () => controller.abort();
+  }, [access, router.query.run, overview?.checked_at, handleAccessError]);
+
+  useEffect(() => {
+    if (tab !== 'jobs' || !selectedRun) return;
+    runDetailHeading.current?.focus({ preventScroll: true });
+    runDetailHeading.current?.scrollIntoView({ block: 'nearest' });
+  }, [tab, selectedRun?.id]);
 
   const mutate = async (request: (signal: AbortSignal) => Promise<unknown>, message: string) => {
     if (acting.current) return;
@@ -329,8 +396,8 @@ export default function AdminPage() {
         {overview.scheduler.heartbeat || overview.scheduler.error ? <p className={cn('border-t px-4 py-3 text-xs leading-5 sm:px-5', overview.scheduler.error ? 'text-danger' : 'text-muted-foreground')}>排程器最後回報：{timeText(overview.scheduler.heartbeat)}{overview.scheduler.error ? ` · ${overview.scheduler.error}` : ''}</p> : null}
       </section>
       <nav aria-label="後台功能" className="flex gap-1 overflow-x-auto border-b">{TABS.map((item) => <button type="button" key={item.id} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)} className={cn('min-h-12 shrink-0 border-b-2 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring', tab === item.id ? 'border-brand text-brand-text' : 'border-transparent text-muted-foreground hover:text-foreground')}>{item.label}</button>)}</nav>
-      {tab === 'jobs' ? <div className="space-y-6">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} /><section aria-labelledby="runs-heading" className="overflow-hidden rounded-xl border bg-card"><h2 id="runs-heading" className="border-b px-4 py-4 font-semibold sm:px-5">執行紀錄</h2><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><Pagination offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></section></div> : null}
-      {tab === 'audit' ? <section aria-labelledby="audit-heading" className="overflow-hidden rounded-xl border bg-card"><h2 id="audit-heading" className="border-b px-4 py-4 font-semibold sm:px-5">操作紀錄</h2><div className="overflow-x-auto"><table className="w-full min-w-[660px] text-left text-sm"><caption className="sr-only">後台操作與管理員權限變更，時間為台北時間</caption><thead className="bg-muted/50 text-xs text-muted-foreground"><tr>{['時間', '操作者', '動作／對象', '結果'].map((heading) => <th key={heading} scope="col" className={cellClass}>{heading}</th>)}</tr></thead><tbody className="divide-y">{audit.items.map((item) => <tr key={item.id}><td className={cn(cellClass, 'whitespace-nowrap text-xs tabular-nums')}>{timeText(item.created_at)}</td><td className={cn(cellClass, 'break-all')}>{item.actor_email ?? '系統'}</td><td className={cellClass}>{ACTION_LABELS[item.action] ?? item.action}<span className="mt-1 block break-all text-xs text-muted-foreground">{item.target}</span>{item.details != null ? <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">詳細資訊</summary><pre className="mt-2 max-h-40 max-w-md overflow-auto whitespace-pre-wrap break-words">{typeof item.details === 'string' ? item.details : JSON.stringify(item.details, null, 2)}</pre></details> : null}</td><td className={cellClass}><Status value={item.status} /></td></tr>)}</tbody></table>{!audit.items.length ? <EmptyState>目前沒有後台操作紀錄。</EmptyState> : null}</div><Pagination offset={auditOffset} total={audit.total} busy={refreshing || pending} onChange={setAuditOffset} /></section> : null}
+      {tab === 'jobs' ? <div className="space-y-6">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <div className="space-y-3 rounded-xl border bg-card p-4"><h2 ref={runDetailHeading} tabIndex={-1} className="font-semibold">執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</h2>{runDetailLoading && !selectedRun ? <p role="status" className="text-sm text-muted-foreground">讀取執行紀錄中…</p> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="text-sm">{JOB_LABELS[selectedRun.job_name] ?? selectedRun.job_name} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 {timeText(selectedRun.started_at)} · 結束 {timeText(selectedRun.finished_at)}{selectedRun.duration_seconds != null ? ` · ${Math.round(selectedRun.duration_seconds)} 秒` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</div> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} /><section aria-labelledby="runs-heading" className="overflow-hidden rounded-xl border bg-card"><h2 id="runs-heading" className="border-b px-4 py-4 font-semibold sm:px-5">執行紀錄</h2><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><Pagination offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></section></div> : null}
+      {tab === 'audit' ? <section aria-labelledby="audit-heading" className="overflow-hidden rounded-xl border bg-card"><h2 id="audit-heading" className="border-b px-4 py-4 font-semibold sm:px-5">操作紀錄</h2><div className="overflow-x-auto"><table className="w-full min-w-[660px] text-left text-sm"><caption className="sr-only">後台操作與管理員權限變更，時間為台北時間</caption><thead className="bg-muted/50 text-xs text-muted-foreground"><tr>{['時間', '操作者', '動作／對象', '結果'].map((heading) => <th key={heading} scope="col" className={cellClass}>{heading}</th>)}</tr></thead><tbody className="divide-y">{audit.items.map((item) => <tr key={item.id}><td className={cn(cellClass, 'whitespace-nowrap text-xs tabular-nums')}>{timeText(item.created_at)}</td><td className={cn(cellClass, 'break-all')}>{item.actor_email ?? '系統'}</td><td className={cellClass}>{ACTION_LABELS[item.action] ?? item.action}<span className="mt-1 block break-all text-xs text-muted-foreground">{item.target}</span>{item.details != null ? <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">詳細資訊</summary><pre className="mt-2 max-h-40 max-w-md overflow-auto whitespace-pre-wrap break-words">{typeof item.details === 'string' ? item.details : JSON.stringify(item.details, null, 2)}</pre></details> : null}</td><td className={cellClass}><AdminAuditResult item={item} onView={() => setTab('jobs')} /></td></tr>)}</tbody></table>{!audit.items.length ? <EmptyState>目前沒有後台操作紀錄。</EmptyState> : null}</div><Pagination offset={auditOffset} total={audit.total} busy={refreshing || pending} onChange={setAuditOffset} /></section> : null}
       {tab === 'admins' ? <section aria-labelledby="admins-heading" className="overflow-hidden rounded-xl border bg-card"><div className="border-b px-4 py-4 sm:px-5"><h2 id="admins-heading" className="font-semibold">管理員權限</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">所有管理員權限相同，可控制工作與授予／撤銷管理員資格。</p></div><form onSubmit={grant} className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-end sm:p-5"><div className="flex-1"><label htmlFor="admin-email" className="mb-2 block text-sm font-medium">授予現有帳號管理員權限</label><Input id="admin-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" maxLength={320} placeholder="輸入帳號電子郵件" disabled={disabled} className="min-h-11" /></div><Button type="submit" className="min-h-11" disabled={disabled || !email.trim()}><ShieldCheck aria-hidden />授予權限</Button></form><ul className="divide-y">{admins.map((administrator) => <li key={administrator.user_id} className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5"><div className="min-w-0"><p className="break-all text-sm font-medium">{administrator.email}{administrator.user_id === me?.user_id ? <span className="ml-2 text-xs text-brand-text">目前帳號</span> : null}</p>{administrator.display_name ? <p className="mt-1 text-xs text-muted-foreground">{administrator.display_name}</p> : null}{administrator.is_active === false ? <p className="mt-1 text-xs text-danger">帳號已停用</p> : null}</div><Button variant="outline" className="min-h-11 border-danger-border text-danger hover:bg-danger-muted hover:text-danger" disabled={disabled || (activeAdmins <= 1 && administrator.is_active !== false)} onClick={() => revoke(administrator)} aria-label={`撤銷 ${administrator.email} 的管理員權限`}><Trash2 aria-hidden />撤銷權限</Button></li>)}</ul>{!admins.length ? <EmptyState>沒有管理員資料。</EmptyState> : null}{activeAdmins === 1 ? <p className="border-t px-4 py-3 text-xs text-muted-foreground sm:px-5">至少保留一位管理員；請先授予另一個帳號權限，才能撤銷目前管理員。</p> : null}</section> : null}
     </> : null}
     <p className="text-xs text-muted-foreground">後台操作與權限變更會留下紀錄。{pending ? <span role="status" className="ml-2 text-brand-text">操作處理中…</span> : null}</p>

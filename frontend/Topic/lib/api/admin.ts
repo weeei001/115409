@@ -105,3 +105,18 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
   return job.schedule === 'Manual' ? '僅手動執行，沒有下次排程' : job.name === 'rag'
     ? '目前沒有後續排程；等待資料工作完成後安排' : '尚無下次排程資訊';
 }
+
+export function adminRunId(value: unknown): number | null {
+  if (typeof value === 'string' && /^[1-9]\d{0,9}$/.test(value)) value = Number(value);
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 2147483647 ? value : null;
+}
+
+export function acceptedJobAudit(item: AdminAudit): boolean {
+  return item.status === 'succeeded' && ['job.run', 'job.retry'].includes(item.action);
+}
+
+export function auditRunId(item: AdminAudit): number | null {
+  if (!acceptedJobAudit(item) || !item.details || typeof item.details !== 'object') return null;
+  const value = (item.details as Record<string, unknown>).run_id;
+  return typeof value === 'number' ? adminRunId(value) : null;
+}

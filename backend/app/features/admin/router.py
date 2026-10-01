@@ -63,7 +63,7 @@ def runs(request: Request, user: Administrator, db: Database, limit: int = Query
 
 
 @router.get("/runs/{run_id}")
-def run(request: Request, user: Administrator, db: Database, run_id: int = Path(..., gt=0)):
+def run(request: Request, user: Administrator, db: Database, run_id: int = Path(..., gt=0, le=2147483647)):
     return service.get_run(db, run_id, getattr(request.app.state, "jobs", None))
 
 

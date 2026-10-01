@@ -258,3 +258,23 @@ def test_job_summary_uses_all_retained_history_and_never_confuses_liveness(db_se
     empty = service.overview(db_session, runtime, "development")["jobs"][0]["result_summary"]
     assert empty == {"history_scope": "all_stored_runs", "terminal_runs": 0,
                      "last_success": None, "last_failure": None, "consecutive_failed": 0}
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "succeeded", "failed", "interrupted"])
+def test_accepted_audit_can_read_exact_run_beyond_first_page_without_rewriting_result(client, db_session, settings, status):
+    manager, headers = account(db_session, settings, "manager@example.com", administrator=True)
+    original = AdminJobRun(job_name="impact", status=status, trigger="manual", actor_id=manager.id)
+    db_session.add(original)
+    db_session.flush()
+    service.audit(db_session, manager.id, manager.email, "job.run", "impact", "succeeded", {"run_id": original.id})
+    db_session.add_all([AdminJobRun(job_name="cnyes", status="succeeded", trigger="scheduled") for _ in range(25)])
+    db_session.commit()
+    assert original.id not in [item["id"] for item in client.get("/admin/runs", headers=headers).json()["items"]]
+    response = client.get(f"/admin/runs/{original.id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["id"] == original.id and response.json()["status"] == status
+    record = next(item for item in client.get("/admin/audit", headers=headers).json()["items"] if item["action"] == "job.run")
+    assert record["status"] == "succeeded" and record["details"]["run_id"] == original.id
+    assert client.get("/admin/runs/2147483648", headers=headers).status_code == 422
+    assert client.get("/admin/runs/999999", headers=headers).status_code == 404
+    assert service.list_runs(db_session)["total"] == 26, "Read-only navigation must not enqueue work."

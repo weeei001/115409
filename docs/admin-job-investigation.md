@@ -80,3 +80,16 @@ otherwise the waiting cause stays unknown. Manual-only, paused, queued, running,
 and no-follow-up states are explained without moving deadlines or changing locks.
 All display times use Asia/Taipei. Actual data watermarks are not available in this
 contract and remain unknown, even after a successful run.
+
+## Accepted requests and run navigation (#90)
+
+Only successful `job.run` and `job.retry` audits display **execution request
+accepted**. This is distinct from the referenced run's queued/running/succeeded/
+failed/interrupted result. Other operations retain their existing success/failure
+labels and stored actor, target, and details.
+
+Structured positive integer `details.run_id` links to `/admin?run=ID#run-detail`.
+The same navigation is used for active/queued and latest-result references. The
+authorized detail endpoint reads the exact ID independently of history pagination;
+it never submits work. Missing/invalid/unreadable IDs stay unknown. UI responses
+are checked against the requested ID and discarded after account/token changes.
