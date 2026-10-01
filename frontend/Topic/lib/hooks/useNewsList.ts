@@ -200,14 +200,14 @@ export function useNewsList(options: UseNewsListOptions = {}) {
 
   const clearAdvanced = useCallback(() => {
     const cleared: NewsListFilters = {
-      keyword: draft.keyword,
+      keyword: filters.keyword,
       stock: options.fixedStock,
       relation: options.fixedRelation,
     };
     setDraft(cleared);
     setFilters(cleared);
     load(1, cleared);
-  }, [draft.keyword, load, options.fixedStock, options.fixedRelation]);
+  }, [filters.keyword, load, options.fixedStock, options.fixedRelation]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
 

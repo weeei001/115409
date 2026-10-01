@@ -4,7 +4,7 @@ import { Info, Newspaper, RefreshCw } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { NewsCard, type NewsRelation } from '@/features/news/NewsCard';
-import { NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
+import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { loadStockNewsPosition, saveStockNewsPosition, stockNewsViewHref, type StockNewsView } from '@/lib/news/stockNewsView';
@@ -15,6 +15,7 @@ const PAGE_SIZE = 8;
 export function StockNewsPanel({ symbol, initialView }: { symbol: string; initialView?: StockNewsView }) {
   const router = useRouter();
   const sectionRef = useRef<HTMLElement>(null);
+  const filterTrigger = useRef<HTMLButtonElement>(null);
   const restoredRef = useRef(false);
   const [relation, setRelation] = useState<NewsRelation>(initialView?.relation ?? 'direct');
   const newsList = useNewsList({ pageSize: PAGE_SIZE, fixedStock: symbol, fixedRelation: relation, retrieval: true, initialState: initialView });
@@ -55,6 +56,8 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
         </div>
         <div className="flex items-center gap-2">
           <NewsFilters
+            applied={newsList.filters}
+            triggerRef={filterTrigger}
             fixedRelation
             draft={newsList.draft}
             setDraft={newsList.setDraft}
@@ -73,6 +76,8 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
           </button>
         </div>
       </div>
+
+      <AppliedNewsFilters applied={newsList.filters} fixedRelation disabled={newsList.loading} triggerRef={filterTrigger} onClearAdvanced={newsList.clearAdvanced} />
 
       <p className="mb-4 flex items-center gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5 text-[11px] text-muted-foreground">
         <Info size={12} className="shrink-0 text-brand" aria-hidden />
