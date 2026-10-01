@@ -11,7 +11,7 @@ export interface IndustryOption {
 
 interface Props {
   stockInfos: StockInfo[];
-  availableSymbols: string[];
+  supportedSymbols: string[];
   selectedSymbols: string[];
   onSelect: (symbols: string[]) => void;
   className?: string;
@@ -19,20 +19,20 @@ interface Props {
 
 const MAX_OPTIONS = 12;
 
-export function buildIndustryOptions(stockInfos: StockInfo[], availableSymbols: string[], selectedSymbols: string[] = []): IndustryOption[] {
-  const available = new Set(availableSymbols.map((symbol) => symbol.trim().toUpperCase()));
+export function buildIndustryOptions(stockInfos: StockInfo[], supportedSymbols: string[], selectedSymbols: string[] = []): IndustryOption[] {
+  const supported = new Set(supportedSymbols.map((symbol) => symbol.trim().toUpperCase()));
   const selected = new Set(selectedSymbols.map((symbol) => symbol.trim().toUpperCase()));
   const groups = new Map<string, Set<string>>();
   for (const stock of stockInfos) {
     const symbol = stock.symbol.trim().toUpperCase();
     const industry = stock.industry?.trim();
-    if (!industry || !symbol) continue;
+    if (!industry || !supported.has(symbol)) continue;
     const symbols = groups.get(industry) ?? new Set<string>();
     symbols.add(symbol);
     groups.set(industry, symbols);
   }
   return [...groups.entries()]
-    .map(([industry, symbols]) => ({ industry, symbols: [...symbols].filter((symbol) => available.has(symbol)).sort(), allAdded: [...symbols].every((symbol) => selected.has(symbol)) }))
+    .map(([industry, symbols]) => ({ industry, symbols: [...symbols].filter((symbol) => !selected.has(symbol)).sort(), allAdded: [...symbols].every((symbol) => selected.has(symbol)) }))
     .sort((a, b) => a.industry.localeCompare(b.industry, 'zh-Hant'));
 }
 
@@ -50,13 +50,13 @@ export function searchIndustryOptions(options: IndustryOption[], query: string, 
     .map((item) => item.option);
 }
 
-export function IndustrySearch({ stockInfos, availableSymbols, selectedSymbols, onSelect, className }: Props) {
+export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, onSelect, className }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
-  const options = useMemo(() => buildIndustryOptions(stockInfos, availableSymbols, selectedSymbols), [availableSymbols, selectedSymbols, stockInfos]);
+  const options = useMemo(() => buildIndustryOptions(stockInfos, supportedSymbols, selectedSymbols), [supportedSymbols, selectedSymbols, stockInfos]);
   const filtered = useMemo(() => searchIndustryOptions(options, query), [options, query]);
 
   useEffect(() => {
