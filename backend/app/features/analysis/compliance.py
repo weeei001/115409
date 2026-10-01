@@ -10,7 +10,8 @@ class ComplianceHit(NamedTuple):
 
 _HARD_RULES = (
     ("目標價型-hard", re.compile(r"目標價|上看\s*\d|下看\s*\d|挑戰\s*\d[\d,.]*\s*元")),
-    ("未來價位型-hard", re.compile(r"(支撐|壓力|防守|買點|賣點)[^。]{0,12}\d+(\.\d+)?\s*(元|塊)")),
+    ("未來價位型-hard", re.compile(
+        r"(支撐|壓力|防守|買點|賣點)[^。，,；;\r\n\d]{0,12}[\d,]+(?:\.\d+)?\s*(元|塊)")),
     (
         "操作指令-hard",
         re.compile(
