@@ -1,7 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Bot } from 'lucide-react';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
+import { parseChatSources } from '@/lib/types/chat';
+import { chatAnswerBody } from '@/lib/utils/chatCitations';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
 import { ChatDashboard } from './ChatDashboard';
@@ -42,12 +44,36 @@ function ThinkingDots() {
  */
 export function ChatArea({ messages, loading, streamingMessageId, exampleQuestions, onSend }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const targetScope = useId();
   const followRef = useRef(true);
   const reduce = usePrefersReducedMotion();
   const scrollKey = messages.map((m) => `${m.id}:${m.content.length}`).join('|');
   const latestUserId = [...messages].reverse().find((m) => m.role === 'user')?.id;
   const activeDashboard = [...messages].reverse().find((m) => m.dashboard)?.dashboard;
   const hasDashboard = Boolean(activeDashboard);
+  const latestAnswer = [...messages].reverse().find((m) => m.role === 'assistant' && chatAnswerBody(m.content).trim());
+  const hasSources = Boolean(latestAnswer && parseChatSources(latestAnswer.sources).length);
+  const showNavigation = hasDashboard || hasSources || Boolean(latestAnswer && chatAnswerBody(latestAnswer.content).length >= 600);
+  const answerId = `chat-answer-${targetScope}`;
+  const citationsId = `chat-citations-${targetScope}`;
+  const dataId = `chat-data-${targetScope}`;
+
+  const navigate = (id: string, answerColumn: boolean) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    if (answerColumn) followRef.current = false;
+    if (id === citationsId) {
+      const rawSources = target.querySelector('details');
+      if (rawSources) rawSources.open = true;
+    }
+    const container = getScrollContainer(target);
+    const toolbarHeight = container.contains(navigationRef.current) ? navigationRef.current?.offsetHeight ?? 0 : 0;
+    const top = target.getBoundingClientRect().top + container.scrollTop
+      - (container === document.documentElement ? 0 : container.getBoundingClientRect().top) - toolbarHeight;
+    target.focus({ preventScroll: true });
+    container.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+  };
 
   // 使用者送出新訊息就恢復跟隨
   useEffect(() => {
@@ -95,10 +121,20 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
     <div
       className={cn(
         'min-w-0 flex-none overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden',
-        hasDashboard ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.72fr)] lg:grid-rows-1' : 'lg:overflow-y-auto',
+        hasDashboard ? cn('lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.72fr)]', showNavigation ? 'lg:grid-rows-[auto_minmax(0,1fr)]' : 'lg:grid-rows-1') : 'lg:overflow-y-auto',
       )}
     >
+      {showNavigation ? <nav ref={navigationRef} aria-label="回答區塊導覽"
+        className="sticky top-0 z-10 flex flex-wrap gap-2 border-b bg-card px-4 py-2 lg:col-span-2">
+        {latestAnswer ? <button type="button" aria-controls={answerId} onClick={() => navigate(answerId, true)}
+          className="min-h-11 rounded-lg border px-3 text-sm text-brand-text hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2">回答</button> : null}
+        {hasSources ? <button type="button" aria-controls={citationsId} onClick={() => navigate(citationsId, true)}
+          className="min-h-11 rounded-lg border px-3 text-sm text-brand-text hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2">引用</button> : null}
+        {activeDashboard ? <button type="button" aria-controls={dataId} onClick={() => navigate(dataId, false)}
+          className="min-h-11 rounded-lg border px-3 text-sm text-brand-text hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2">資料</button> : null}
+      </nav> : null}
       <div className={cn('flex min-w-0 flex-col gap-4 px-4 py-3 sm:py-6', hasDashboard && 'lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain')}>
+        {showNavigation && latestAnswer ? <h2 className="text-sm font-semibold text-subtle">回答</h2> : null}
         {messages.length === 0 && !loading ? (
           <motion.div
             className="flex flex-1 flex-col items-center justify-center py-3 text-center sm:py-12"
@@ -134,6 +170,8 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
             onFollowUp={onSend}
             followUpDisabled={loading}
             streamActive={msg.role === 'assistant' && msg.id === streamingMessageId}
+            answerTargetId={msg.id === latestAnswer?.id ? answerId : undefined}
+            citationsTargetId={msg.id === latestAnswer?.id && hasSources ? citationsId : undefined}
           />
         ))}
 
@@ -163,6 +201,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
           aria-label="分析資料面板"
           className="min-w-0 border-t bg-card px-4 py-4 sm:px-5 sm:py-5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain lg:border-t-0 lg:border-l"
         >
+          <h2 id={dataId} tabIndex={-1} className="mb-3 rounded text-sm font-semibold text-subtle focus:outline-2 focus:outline-offset-2">資料</h2>
           <ChatDashboard dashboard={activeDashboard} />
         </aside>
       ) : null}

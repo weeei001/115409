@@ -41,7 +41,8 @@ export default function AiPage() {
               onSend={chat.send}
             />
             <div className="shrink-0">
-              <ChatInput onSend={chat.send} disabled={chat.loading || !chat.ready} />
+              <ChatInput onSend={chat.send} disabled={chat.loading || !chat.ready}
+                onStop={chat.loading ? chat.stop : undefined} stopNotice={chat.stopNotice} />
             </div>
           </div>
         </div>
