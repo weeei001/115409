@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
+import { adminScheduleState, canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
 import type { AdminJob, AdminRun } from '../../lib/api/admin';
 import { AdminJobs, AdminRunHistory } from '../../pages/admin';
 import { AdminRunDiagnostics } from './RunDiagnostics';
@@ -55,4 +55,26 @@ assert.match(diagnosticMarkup, /子工作處理進度未知/);
 assert.match(diagnosticMarkup, /admin_run=7/);
 assert.match(diagnosticMarkup, /news-impact-batch/);
 assert.doesNotMatch(diagnosticMarkup, /死鎖|已恢復/);
+const now = '2026-10-01T13:00:00Z';
+const future = { ...job, paused: false, next_run_at: '2026-10-01T13:30:00Z' };
+const due = { ...future, next_run_at: '2026-10-01T12:30:00Z' };
+assert.match(adminScheduleState(future, [future], now), /預定時間/);
+assert.match(adminScheduleState(due, [due], now), /已到期.*原因未知/);
+assert.match(adminScheduleState(due, [due, { ...job, active_run_id: 39 }], now), /已到期.*#39/);
+assert.match(adminScheduleState({ ...due, active_run_id: 7 }, [due], now), /正在執行 #7/);
+assert.match(adminScheduleState({ ...due, queued_run_id: 8 }, [due], now), /已排入等待 #8/);
+assert.match(adminScheduleState(job, [job], now), /已暫停/);
+assert.match(adminScheduleState({ ...future, schedule: 'Manual', next_run_at: null }, [], now), /僅手動/);
+assert.match(adminScheduleState({ ...future, name: 'rag', next_run_at: null }, [], now), /等待資料工作/);
+assert.match(adminScheduleState(future, [], now, 'stopped'), /排程器未運作/);
+const summaryMarkup = renderToStaticMarkup(<AdminJobs jobs={[{ ...due, result_summary: {
+  history_scope: 'all_stored_runs', terminal_runs: 41, last_success: { ...run, id: 1, status: 'succeeded' },
+  last_failure: run, consecutive_failed: 40,
+} }]} disabled={false} checkedAt={now} onAction={() => undefined} />);
+assert.match(summaryMarkup, /最近成功：#1/);
+assert.match(summaryMarkup, /連續失敗 40 次/);
+assert.match(summaryMarkup, /統計全部已保存紀錄/);
+assert.match(summaryMarkup, /資料截至日：未知/);
+assert.match(summaryMarkup, /已到期/);
+assert.doesNotMatch(summaryMarkup, /資料已成功更新|死鎖/);
 console.log('Admin checks passed: paused manual runs, overlap guards, completed retries, unavailable actions, manual-only jobs, Taipei timestamps, and escaped errors.');

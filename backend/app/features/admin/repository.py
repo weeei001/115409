@@ -33,6 +33,18 @@ def run_by_id(db: Session, run_id: int):
     return db.get(AdminJobRun, run_id)
 
 
+def job_results(db: Session, job_name: str):
+    terminal = select(AdminJobRun).where(AdminJobRun.job_name == job_name,
+        AdminJobRun.status.in_(["succeeded", "failed", "interrupted"]))
+    latest = lambda status: db.scalar(terminal.where(AdminJobRun.status == status).order_by(AdminJobRun.id.desc()).limit(1))
+    boundary = db.scalar(select(func.max(AdminJobRun.id)).where(AdminJobRun.job_name == job_name,
+        AdminJobRun.status.in_(["succeeded", "interrupted"]))) or 0
+    streak = db.scalar(select(func.count()).select_from(AdminJobRun).where(AdminJobRun.job_name == job_name,
+        AdminJobRun.status == "failed", AdminJobRun.id > boundary))
+    total = db.scalar(select(func.count()).select_from(terminal.subquery()))
+    return latest("succeeded"), latest("failed"), streak, total
+
+
 def audit_logs(db: Session, limit: int, offset: int = 0):
     return (list(db.scalars(select(AdminAuditLog).order_by(AdminAuditLog.id.desc()).limit(limit).offset(offset))),
             db.scalar(select(func.count()).select_from(AdminAuditLog)))

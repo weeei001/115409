@@ -188,6 +188,12 @@ def overview(db: Session, runtime, environment: str) -> dict:
         return {"environment": environment, "checked_at": datetime.now(timezone.utc), "services": services,
                 "scheduler": {key: snapshot.get(key) for key in ("status", "heartbeat", "error")},
                 "jobs": snapshot["jobs"], "recent_runs": []}
+    jobs = []
+    for job in snapshot["jobs"]:
+        succeeded, failed, streak, total = repository.job_results(db, job["name"])
+        jobs.append({**job, "result_summary": {"history_scope": "all_stored_runs", "terminal_runs": total,
+            "last_success": public_run(succeeded) if succeeded else None,
+            "last_failure": public_run(failed) if failed else None, "consecutive_failed": streak}})
     return {"environment": environment, "checked_at": datetime.now(timezone.utc), "services": services,
             "scheduler": {key: snapshot.get(key) for key in ("status", "heartbeat", "error")},
-            "jobs": snapshot["jobs"], "recent_runs": list_runs(db, 10, runtime=runtime)["items"]}
+            "jobs": jobs, "recent_runs": list_runs(db, 10, runtime=runtime)["items"]}

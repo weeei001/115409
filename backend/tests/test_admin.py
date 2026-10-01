@@ -228,3 +228,33 @@ def test_run_diagnostics_are_whitelisted_and_detail_requires_admin(client, db_se
     assert failure_stages("news-ingest exited with code 1; password=private") == []
     assert failure_stages("invented-stage exited with code 1") == []
     assert "private" not in safe_error("private" * 10000)
+
+
+def test_job_summary_uses_all_retained_history_and_never_confuses_liveness(db_session):
+    now = datetime(2026, 10, 1, 13)
+    old_success = AdminJobRun(job_name="sample", status="succeeded", trigger="scheduled", finished_at=now)
+    db_session.add(old_success)
+    db_session.flush()
+    db_session.add_all([AdminJobRun(job_name="sample", status="failed", trigger="scheduled",
+        finished_at=now + timedelta(minutes=n + 1), exit_code=1) for n in range(40)])
+    db_session.add(AdminJobRun(job_name="other", status="succeeded", trigger="scheduled", finished_at=now))
+    db_session.commit()
+    data = service.overview(db_session, FakeRuntime(), "development")
+    assert data["services"][1]["status"] == "running"
+    summary = data["jobs"][0]["result_summary"]
+    assert summary["history_scope"] == "all_stored_runs" and summary["terminal_runs"] == 41
+    assert summary["last_success"]["id"] == old_success.id
+    assert summary["consecutive_failed"] == 40
+    assert old_success.id not in [item["id"] for item in service.list_runs(db_session)["items"]]
+    db_session.add(AdminJobRun(job_name="sample", status="interrupted", trigger="scheduled", finished_at=now))
+    db_session.add(AdminJobRun(job_name="sample", status="failed", trigger="manual", finished_at=now, exit_code=1))
+    db_session.add(AdminJobRun(job_name="sample", status="running", trigger="manual", started_at=now))
+    db_session.commit()
+    summary = service.overview(db_session, FakeRuntime(), "development")["jobs"][0]["result_summary"]
+    assert summary["consecutive_failed"] == 1 and summary["terminal_runs"] == 43
+    runtime = FakeRuntime()
+    runtime.snapshot = lambda: {"status": "running", "heartbeat": None, "error": None,
+        "jobs": [{"name": "empty", "schedule": "Manual", "paused": False, "next_run_at": None, "active_run_id": None}]}
+    empty = service.overview(db_session, runtime, "development")["jobs"][0]["result_summary"]
+    assert empty == {"history_scope": "all_stored_runs", "terminal_runs": 0,
+                     "last_success": None, "last_failure": None, "consecutive_failed": 0}

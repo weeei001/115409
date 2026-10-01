@@ -64,3 +64,19 @@ LTN failure history, enabled Cnyes, exactly one follow-up, and restart persisten
 The standalone scheduler/`--job all` pipeline does not read admin pause controls;
 manual CLI runs must not be used to enact or silently bypass this source policy.
 Pausing LTN does not establish data freshness or repair impact/warmup failures.
+
+## Liveness, results, and due schedules (#89)
+
+Service cards describe connectivity/liveness only. Each job summary queries all
+retained admin history independently of either paginated table or recent-run list.
+It reports the most recent success and failure in execution-record order, plus
+consecutive failed terminal runs. Success or interruption breaks that streak;
+queued/running records do not count as terminal results. No history is shown as
+no recorded result, and absent summary data stays unavailable.
+
+Next times remain the runtime's original planned timestamps. Due jobs show waiting
+behind a currently active serial job when that snapshot provides the evidence;
+otherwise the waiting cause stays unknown. Manual-only, paused, queued, running,
+and no-follow-up states are explained without moving deadlines or changing locks.
+All display times use Asia/Taipei. Actual data watermarks are not available in this
+contract and remain unknown, even after a successful run.

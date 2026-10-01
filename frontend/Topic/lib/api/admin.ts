@@ -16,6 +16,13 @@ export interface AdminJob {
   next_run_at: string | null;
   active_run_id: number | null;
   queued_run_id?: number | null;
+  result_summary?: {
+    history_scope: 'all_stored_runs';
+    terminal_runs: number;
+    last_success: AdminRun | null;
+    last_failure: AdminRun | null;
+    consecutive_failed: number;
+  };
 }
 
 export interface AdminRun {
@@ -79,4 +86,22 @@ export function canStartAdminJob(job: AdminJob): boolean {
 export function canRetryAdminRun(run: AdminRun, jobs: AdminJob[]): boolean {
   const job = jobs.find((item) => item.name === run.job_name);
   return Boolean(job && canStartAdminJob(job) && ['success', 'succeeded', 'failed', 'interrupted'].includes(run.status));
+}
+
+export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: string, schedulerStatus = 'running'): string {
+  if (job.paused) return '排程已暫停；手動執行不受影響';
+  if (job.active_run_id != null) return `正在執行 #${job.active_run_id}；下次時間於完成後確認`;
+  if (job.queued_run_id != null) return `已排入等待 #${job.queued_run_id}；開始時間尚未確認`;
+  if (schedulerStatus !== 'running') return '排程器未運作；下次時間尚無法確認';
+  if (job.next_run_at) {
+    const deadline = Date.parse(job.next_run_at);
+    const observed = checkedAt ? Date.parse(checkedAt) : NaN;
+    if (Number.isFinite(deadline) && Number.isFinite(observed) && deadline <= observed) {
+      const previous = jobs.find((item) => item.active_run_id != null);
+      return previous ? `已到期，序列排程等待工作 #${previous.active_run_id} 完成` : '已到期，尚未開始；等待原因未知';
+    }
+    return '預定時間；實際開始依序列排程而定';
+  }
+  return job.schedule === 'Manual' ? '僅手動執行，沒有下次排程' : job.name === 'rag'
+    ? '目前沒有後續排程；等待資料工作完成後安排' : '尚無下次排程資訊';
 }
