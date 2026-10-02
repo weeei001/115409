@@ -14,7 +14,7 @@
 | `app/db/` | 連線、session 與資料表定義 |
 | `app/jobs/` | 匯入、排程與研究工作；FastAPI lifespan 管理後台排程器 |
 
-API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載入 `app.jobs.runtime` 管理排程，feature／client 不反向依賴 jobs。`features/retrieval/chunking.py` 提供新聞切段，`features/news/sentiment.py` 提供股票辨識，`db/models/news_chunk.py` 保留獨立 metadata。API 啟動不建立資料表。後台設定與授權見[管理後台](admin.md)。
+API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載入 `app.jobs.runtime` 管理排程，feature／client 不反向依賴 jobs。`features/retrieval/chunking.py` 提供新聞切段，`features/news/sentiment.py` 提供股票辨識，`db/models/news_chunk.py` 保留獨立 metadata。API 啟動不建立資料表。
 
 `core/streaming.py` 統一 SSE 編碼與來源 iterator 關閉；各 router 保留自己的 headers 與數值序列化政策。架構邊界與串流行為的可執行檢查分別位於 [test_architecture.py](../backend/tests/test_architecture.py) 與 [test_streaming.py](../backend/tests/test_streaming.py)。
 
@@ -77,7 +77,7 @@ python -m app.jobs init-schema --sync-catalog
 
 ## 背景工作
 
-新聞來源版本使用三張額外資料表；升級既有資料庫前先執行唯讀盤點，再明確套用遷移，API 不會自行建表。指令、選版與回復步驟見 [新聞來源版本](news-source-versions.md)。本輪品質變更與驗證界線見 [新聞品質實作報告](../reports/news-quality-implementation.md)。
+新聞來源版本使用三張額外資料表；升級既有資料庫前先執行唯讀盤點，再明確套用遷移，API 不會自行建表。
 
 FastAPI 啟動時管理後台排程；單次資料工作仍可使用 CLI 獨立執行。從 `backend/` 使用已安裝依賴的 Python 查看工作清單；開發時先設定程序環境 `APP_ENV=development`：
 

@@ -28,8 +28,6 @@
 | 會員功能 | 註冊、登入、Google 登入、重設密碼與個人資料管理 |
 | 背景資料處理 | FastAPI 管理排程生命週期，worker 匯入行情、處理新聞與建立向量索引 |
 
-另提供 [AI 模擬下單 Demo](frontend/Topic/features/ai-trade-demo/README.md)，展示 AI 逐日決策的回測結果；此頁使用獨立 API，需另設 `NEXT_PUBLIC_AI_TRADE_DEMO_API_URL`。
-
 ## 技術架構
 
 | 層級 | 技術 |
@@ -41,7 +39,7 @@
 | AI 與檢索 | 外部 LLM、embedding API、新聞向量檢索、SSE 串流 |
 | 驗證與 CI | pytest、TypeScript 型別檢查、tsx、GitHub Actions |
 
-前端透過 HTTP API 存取後端。FastAPI 提供查詢與應用功能，並管理 jobs 排程的啟動與關閉；工作以子程序串行執行，不阻塞 HTTP。API 啟動時不建立資料表。[管理後台](docs/admin.md)沿用現有登入，可查看服務與執行紀錄、控制 jobs 及管理單一管理員資格。
+前端透過 HTTP API 存取後端。FastAPI 提供查詢與應用功能，並管理 jobs 排程的啟動與關閉；工作以子程序串行執行，不阻塞 HTTP。API 啟動時不建立資料表。管理後台沿用現有登入，可查看服務與執行紀錄、控制 jobs 及管理單一管理員資格。
 
 ## 快速開始
 
@@ -168,7 +166,6 @@ Windows PowerShell 可使用 `npm.cmd` 取代 `npm`。前端與後端各自保�
 | 行情匯入 | `FINMIND_API_TOKEN` |
 | Google 登入與重設密碼 | `GOOGLE_CLIENT_ID`、`FRONTEND_PASSWORD_RESET_URL`、`SMTP_*` |
 | 前端 API 與 Google 登入 | `NEXT_PUBLIC_API_URL`、`NEXT_PUBLIC_GOOGLE_CLIENT_ID` |
-| AI 模擬下單 Demo | `NEXT_PUBLIC_AI_TRADE_DEMO_API_URL` |
 
 `STREAM_LLM_*` 三個欄位皆有值時才套用覆寫，否則沿用個股分析的模型設定。完整欄位、別名與預設值見 [Settings](backend/app/core/config.py)。
 
@@ -194,8 +191,6 @@ Windows PowerShell 可使用 `npm.cmd` 取代 `npm`。前端與後端各自保�
 ├── docs/                   # Architecture and operations documentation
 └── AGENTS.md               # Coding agent instructions
 ```
-
-`frontend/topictest/` 為歷史目錄；前端開發使用 `frontend/Topic/`。
 
 ## 開發與測試
 
@@ -229,7 +224,6 @@ npm run lint -- --incremental false
 ## 相關文件
 
 - [開發與操作文件](docs/README.md)：後端分層、資料庫初始化、背景工作與資料匯入。
-- [AI 模擬下單 Demo](frontend/Topic/features/ai-trade-demo/README.md)：獨立 API、串流格式與回測指標。
 - [Android 建置腳本](frontend/Topic/build-capacitor-release.ps1)：Capacitor APK 匯出。
 - [歷史設計文件](docs/圖檔/)與[學期進度](docs/上學期進度/)：專題設計與開發紀錄。
 - [AGENTS.md](AGENTS.md)：程式代理的專案協作指引。
