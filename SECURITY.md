@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-StockBeacon provides security fixes for the latest code on the `main` branch.
+Stock Lighthouse provides security fixes for the latest code on the `main` branch.
 Upgrade to the latest `main` revision to receive fixes.
 
 | Version | Supported |

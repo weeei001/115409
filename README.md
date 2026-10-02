@@ -1,4 +1,4 @@
-# 股海明燈（StockBeacon）
+# 股海明燈（Stock Lighthouse）
 
 [![CI](https://github.com/weeei001/115409/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/weeei001/115409/actions/workflows/ci-cd.yml)
 
