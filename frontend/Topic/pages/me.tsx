@@ -7,6 +7,7 @@ import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Notice } from '@/components/common/Notice';
 import { FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { FavoriteList } from '@/features/favorites/FavoriteList';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -153,10 +154,10 @@ export default function MePage() {
   const head = (
     <Head>
       <title>股海明燈｜個人中心</title>
-      <meta name="description" content="檢視帳號資訊與登出。" />
+      <meta name="description" content="檢視帳號資訊、收藏股與登出。" />
     </Head>
   );
-  const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊" />;
+  const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊與收藏股" />;
 
   if (!checked) {
     return (
@@ -210,6 +211,8 @@ export default function MePage() {
                 <dd>{user?.display_name?.trim() ? user.display_name : <span className="text-muted-foreground">未設定</span>}</dd>
               </div>
             </dl>
+
+            <FavoriteList />
 
             <section aria-labelledby="me-password-heading" className="mt-8 border-t pt-8">
               <div className="mb-4 flex items-center gap-2">

@@ -303,6 +303,18 @@ export interface MessageResponse {
   message: string;
 }
 
+// ── Favorites（openapi.json 這段是手寫的，後端部署後要 sync 比對；決議 F1） ──
+
+export interface FavoriteStockResponse {
+  symbol: string;
+  name: string;
+  created_at: string;
+}
+
+export interface FavoriteStockListResponse {
+  items: FavoriteStockResponse[];
+}
+
 // ── Simulated orders ──
 
 export type OrderSide = 'buy' | 'sell';

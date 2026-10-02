@@ -1,6 +1,6 @@
 import React, { memo, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { Minus, Star, TrendingDown, TrendingUp } from 'lucide-react';
 import type { DailyPriceResponse } from '@/lib/types/api';
 import { Sparkline } from '@/components/common/Sparkline';
 import { useCanHoverTilt, usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
@@ -13,6 +13,8 @@ interface Props {
   stockName?: string | null;
   index: number;
   sparkline?: number[];
+  /** 收藏股排在前面時加星號標示 */
+  favorite?: boolean;
   onNavigate: (symbol: string) => void;
 }
 
@@ -25,7 +27,7 @@ const GLOW = {
 const REST_TRANSFORM = 'perspective(600px) rotateY(0deg) rotateX(0deg) scale3d(1,1,1)';
 
 /** Stored closing quote card; hover devices retain the existing tilt interaction. */
-export const StockPriceCard = memo(function StockPriceCard({ data, stockName, index, sparkline, onNavigate }: Props) {
+export const StockPriceCard = memo(function StockPriceCard({ data, stockName, index, sparkline, favorite = false, onNavigate }: Props) {
   const ref = useRef<HTMLButtonElement>(null);
   const canTilt = useCanHoverTilt();
   const reduce = usePrefersReducedMotion();
@@ -37,7 +39,7 @@ export const StockPriceCard = memo(function StockPriceCard({ data, stockName, in
   const tone = getValueTone(change);
   const TrendIcon = tone === 'up' ? TrendingUp : tone === 'down' ? TrendingDown : Minus;
   const sign = change > 0 ? '+' : '';
-  const label = stockName ? `${data.symbol} ${stockName}` : data.symbol;
+  const label = `${stockName ? `${data.symbol} ${stockName}` : data.symbol}${favorite ? '（已收藏）' : ''}`;
 
   const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (!canTilt || !ref.current) return;
@@ -72,7 +74,10 @@ export const StockPriceCard = memo(function StockPriceCard({ data, stockName, in
     >
       <div className="mb-2 flex items-start justify-between gap-2" aria-hidden>
         <div className="min-w-0">
-          <div className="font-mono text-lg font-bold tabular-nums">{data.symbol}</div>
+          <div className="flex items-center gap-1.5 font-mono text-lg font-bold tabular-nums">
+            {data.symbol}
+            {favorite ? <Star size={14} className="shrink-0 fill-current text-brand" /> : null}
+          </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">{stockName ?? '\u00a0'}</div>
         </div>
         <span className={cn('inline-flex shrink-0 items-center gap-0.5 rounded-full border px-2 py-1 text-xs font-medium', toneBadge(tone))}>
