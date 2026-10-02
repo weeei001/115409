@@ -47,6 +47,10 @@ def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(
                 events = [event async for event in chat.stream_events(request)]
                 assert events[-1]["type"] == "done"
                 assert events[-1]["answer"].startswith(MODEL_ANSWER)
+                statuses = [event["content"] for event in events if event["type"] == "status"]
+                assert statuses[-3:] == ["正在核對回答的引用與數值…", "回答未通過核對，正在依據來源重新產生…",
+                                         "正在重新核對回答的引用與數值…"]
+                assert not any("Invalid citation" in event.get("content", "") for event in events)
             else:
                 assert (await chat.ask(request)).answer.startswith(MODEL_ANSWER)
             analysis = AnalysisService(db=None, settings=settings, http=http, rag=object())

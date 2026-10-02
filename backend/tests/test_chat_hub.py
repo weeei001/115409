@@ -196,6 +196,7 @@ def test_dashboard_is_ready_before_answer_generation_and_survives_model_failure(
     async def check():
         stream = service.stream_events(AskRequest(query="比較台積電與鴻海", stream=True))
         assert (await anext(stream))["type"] == "status"
+        assert await anext(stream) == {"type": "status", "content": "正在讀取行情、技術指標與基本面資料…"}
         prepared = await anext(stream)
         assert prepared["type"] == "dashboard"
         assert {block["kind"] for block in prepared["dashboard"]["blocks"]} >= {"chart", "table"}

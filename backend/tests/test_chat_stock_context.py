@@ -116,49 +116,40 @@ def test_financials_without_prices_use_existing_publication_lags_and_keep_raw_ze
     assert next(item for item in before["items"] if item["field"] == "eps")["value"] == 1
 
 
-def test_saved_analysis_skips_invalid_fallback_future_and_later_generated_snapshots(db_session):
+@pytest.mark.parametrize("has_market_rows", [False, True])
+def test_live_stock_context_never_scans_archived_analyses_or_news(db_session, monkeypatch, has_market_rows):
     from app.features.analysis import repository
-    from app.features.analysis.service import text_brief_revision
-    def snapshot(day, created, headline="Usable saved interpretation", **changes):
-        response = StockBehaviorTextBriefResponse(
-            symbol="2330", as_of_date=day.isoformat(), generated_by="test", status="verified",
-            brief={**brief_payload(), "headline": headline},
-            disclaimer={"version": "test", "text": "Stored interpretation"},
-        )
-        fields = {"symbol": "2330", "as_of_date": day, "created_at": created,
-                  "kind": "text_brief", "config_hash": "test", "config_json": json.dumps({"purpose": "production",
-                      "revision": text_brief_revision(), "input_fingerprint": repository.input_fingerprint(
-                          db_session, symbol="2330", as_of=day)}),
-                  "response_json": response.model_dump_json(), "is_fallback": False}
-        return LlmResponse(**{**fields, **changes})
-
-    past = AS_OF - timedelta(days=1)
-    db_session.add_all([
-        snapshot(past, datetime.combine(past, datetime.min.time())),
-        snapshot(AS_OF, datetime.combine(AS_OF, datetime.min.time()), response_json="malformed"),
-        snapshot(AS_OF, datetime.combine(AS_OF, datetime.min.time()), "Fallback output", is_fallback=True),
-        snapshot(AS_OF + timedelta(days=1), datetime.combine(AS_OF, datetime.min.time()), "Future data"),
-        snapshot(AS_OF, datetime.combine(AS_OF + timedelta(days=1), datetime.min.time()), "Later reconstruction"),
-    ])
+    response = StockBehaviorTextBriefResponse(
+        symbol="2330", as_of_date=AS_OF.isoformat(), generated_by="test", status="verified",
+        brief=brief_payload(), disclaimer={"version": "test", "text": "Stored interpretation"},
+    )
+    archived = LlmResponse(
+        symbol="2330", as_of_date=AS_OF, created_at=datetime.combine(AS_OF, datetime.min.time()),
+        kind="text_brief", config_hash="test", config_json='{"purpose":"production"}',
+        response_json=response.model_dump_json(), is_fallback=False,
+    )
+    db_session.add(archived)
+    if has_market_rows:
+        db_session.add(DailyPrice(symbol="2330", date=AS_OF, close=102, volume_shares=30_526_551))
     db_session.commit()
-    sources = collect_stock_sources(db_session, ["2330"], AS_OF)
-    assert len(sources) == 1
-    saved = payloads(sources)["2330", "analysis_snapshot"]
-    assert saved["interpretation"]["headline"] == "Usable saved interpretation"
-    assert saved["analysis_as_of"] == past.isoformat()
-    assert "not independent market evidence" in saved["evidence_basis"]
 
-    valid = db_session.query(LlmResponse).filter(LlmResponse.as_of_date == past).one()
-    current_config = json.loads(valid.config_json)
-    for change in ({"input_fingerprint": None}, {"input_fingerprint": "stale"}, {"revision": "old-pipeline"}):
-        valid.config_json = json.dumps({**current_config, **change})
-        db_session.commit()
-        assert not any(source.category == "analysis_snapshot" for source in collect_stock_sources(db_session, ["2330"], AS_OF))
-        # Removing it from active context does not erase or prevent audit reading.
-        assert repository.saved_brief(valid) is not None
-    valid.config_json = json.dumps(current_config)
-    db_session.commit()
-    assert any(source.category == "analysis_snapshot" for source in collect_stock_sources(db_session, ["2330"], AS_OF))
+    def unexpected_fingerprint(*args, **kwargs):
+        raise AssertionError("Live chat must not rescan news to validate archived AI analyses")
+
+    monkeypatch.setattr(repository, "input_fingerprint", unexpected_fingerprint)
+    statements = []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        sources = collect_stock_sources(db_session, ["2330"], AS_OF)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert {source.category for source in sources} == {"market_technical" if has_market_rows else "data_availability"}
+    assert not any("llm_responses" in statement or "news_articles" in statement for statement in statements)
+    # Removing derived interpretations from live chat does not erase archived reports.
+    assert repository.saved_brief(archived).brief is not None
 
 
 def test_missing_data_is_a_limitation_and_invalid_date_order_is_rejected(db_session):

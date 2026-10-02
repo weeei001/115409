@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { appendCompletedChatTurn, ragAskStream, type RagHistoryMessage } from '@/lib/api/ragAsk';
 import { AUTH_CHANGE_EVENT, getStoredUser, getToken, isAuthSessionBoundary } from '@/lib/auth/storage';
-import { clearChatSession, loadChatSession, saveChatSession } from '@/lib/chat/session';
+import { createConversation, getConversation, listConversations, type ConversationSummary } from '@/lib/api/conversations';
 import type { ChatAction, ChatMessage, ChatSource } from '@/lib/types/chat';
 import type { ChatDashboard } from '@/lib/types/chatDashboard';
 
 const newId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-const cacheUnavailable = '本分頁無法暫存對話；離頁後可能無法復原。';
 
 function sessionOwner(): string | null {
   try {
@@ -17,48 +16,36 @@ function sessionOwner(): string | null {
   } catch { return null; }
 }
 
-function restoredHistory(messages: ChatMessage[]): RagHistoryMessage[] {
-  let history: RagHistoryMessage[] = [];
-  for (let i = 1; i < messages.length; i++) {
-    const user = messages[i - 1];
-    const assistant = messages[i];
-    if (user.role === 'user' && assistant.role === 'assistant' && assistant.status === 'completed') {
-      history = appendCompletedChatTurn(history, user.content, assistant.content);
-    }
-  }
-  return history;
-}
-
-/** Same-tab snapshots preserve completed turns; unfinished turns never replay. */
+/** Conversation content is persisted by the authenticated backend stream. */
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
-  const [cacheNotice, setCacheNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const listRequest = useRef<AbortController | null>(null);
+  const conversationRef = useRef<string | null>(null);
   const [stopNotice, setStopNotice] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const ownerRef = useRef<string | null>(null);
   const readyRef = useRef(false);
-  const saveTimer = useRef<number | null>(null);
+
   const abortRef = useRef<AbortController | null>(null);
   const activeRef = useRef<{ ctrl: AbortController; finish: () => void } | null>(null);
   const completedHistory = useRef<RagHistoryMessage[]>([]);
 
-  const persistNow = useCallback(() => {
-    if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-    if (!readyRef.current || !ownerRef.current || sessionOwner() !== ownerRef.current) return;
-    const result = saveChatSession(ownerRef.current, messagesRef.current);
-    setCacheNotice(!result.saved ? cacheUnavailable : result.trimmed ? '對話較長，重新載入時只會保留最近幾輪。' : null);
-  }, []);
-
   const changeMessages = useCallback((next: ChatMessage[] | ((previous: ChatMessage[]) => ChatMessage[])) => {
     messagesRef.current = typeof next === 'function' ? next(messagesRef.current) : next;
     setMessages(messagesRef.current);
-    // Avoid serializing a large source snapshot for every streamed token.
-    if (readyRef.current && saveTimer.current === null) saveTimer.current = window.setTimeout(persistNow, 250);
-  }, [persistNow]);
+  }, []);
 
   const interrupt = useCallback(() => {
     activeRef.current?.finish();
@@ -67,73 +54,172 @@ export function useChat() {
     abortRef.current = null;
     setLoading(false);
     setStreamingMessageId(null);
-    persistNow();
-  }, [persistNow]);
+  }, []);
 
   const clear = useCallback(() => {
     activeRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
-    if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-    ownerRef.current = sessionOwner();
+
+    conversationRef.current = null;
+    setConversationId(null);
     messagesRef.current = [];
     completedHistory.current = [];
     setMessages([]);
     setLoading(false);
     setStreamingMessageId(null);
     setStopNotice(false);
-    setCacheNotice(ownerRef.current === null ? cacheUnavailable : null);
-    clearChatSession();
+    setNotice(null);
   }, []);
 
   const stop = useCallback(() => {
     if (!activeRef.current) return;
     interrupt();
     setStopNotice(true);
+    if (conversationRef.current) setRevision((value) => value + 1);
   }, [interrupt]);
 
-  useEffect(() => {
+  const resetAccount = useCallback(() => {
+    clear();
+    listRequest.current?.abort();
+    listRequest.current = null;
     ownerRef.current = sessionOwner();
-    if (ownerRef.current === null) clearChatSession();
-    const restored = ownerRef.current === null ? { messages: [], available: false } : loadChatSession(ownerRef.current);
-    messagesRef.current = restored.messages;
-    completedHistory.current = restoredHistory(restored.messages);
-    setMessages(restored.messages);
+    setConversations([]);
+    setSearch('');
+    setHasMore(false);
+    setHistoryLoading(false);
+    setHistoryError(null);
+    setSignedIn(Boolean(ownerRef.current && ownerRef.current !== 'guest'));
+    setRevision((value) => value + 1);
+  }, [clear]);
+
+  useEffect(() => {
+    resetAccount();
     readyRef.current = true;
     setReady(true);
-    if (!restored.available) setCacheNotice(cacheUnavailable);
-    if (restored.messages.length) persistNow();
     const onAuthChange = (event: Event) => {
-      if ((event as CustomEvent<{ logout?: boolean }>).detail?.logout || sessionOwner() !== ownerRef.current) clear();
+      if ((event as CustomEvent<{ logout?: boolean }>).detail?.logout || sessionOwner() !== ownerRef.current) resetAccount();
     };
     const onStorage = (event: StorageEvent) => {
-      if (event.storageArea === window.localStorage && (isAuthSessionBoundary(event) || sessionOwner() !== ownerRef.current)) clear();
+      if (event.storageArea === window.localStorage && (isAuthSessionBoundary(event) || sessionOwner() !== ownerRef.current)) resetAccount();
+    };
+    const onPageHide = () => {
+      interrupt();
+      if (ownerRef.current === 'guest') clear();
     };
     window.addEventListener(AUTH_CHANGE_EVENT, onAuthChange);
     window.addEventListener('storage', onStorage);
-    window.addEventListener('pagehide', interrupt);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onAuthChange);
     return () => {
       interrupt();
+      listRequest.current?.abort();
       readyRef.current = false;
       window.removeEventListener(AUTH_CHANGE_EVENT, onAuthChange);
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('pagehide', interrupt);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('pageshow', onAuthChange);
     };
-  }, [clear, interrupt, persistNow]);
+  }, [resetAccount, interrupt, clear]);
+
+  const fetchHistory = useCallback(async (offset = 0) => {
+    listRequest.current?.abort();
+    if (!signedIn || !ownerRef.current || ownerRef.current === 'guest' || sessionOwner() !== ownerRef.current) return;
+    const ctrl = new AbortController();
+    const owner = ownerRef.current;
+    const current = () => !ctrl.signal.aborted && listRequest.current === ctrl && sessionOwner() === owner;
+    listRequest.current = ctrl;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await listConversations(search.trim(), offset, ctrl.signal);
+      if (!current()) return;
+      setConversations((previous) => offset ? [...previous, ...page.items.filter((item) => !previous.some((old) => old.id === item.id))] : page.items);
+      setHasMore(page.has_more);
+    } catch (error) {
+      if (current()) setHistoryError(userFacingMessage(error, '無法載入歷史對話，請重試。'));
+    } finally {
+      if (current()) setHistoryLoading(false);
+    }
+  }, [search, signedIn]);
+
+  useEffect(() => {
+    setConversations([]);
+    setHasMore(false);
+    setHistoryLoading(signedIn);
+    const timer = window.setTimeout(() => { void fetchHistory(); }, 250);
+    return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
+  }, [fetchHistory, revision, signedIn]);
+
+  const newConversation = useCallback(() => {
+    if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
+    interrupt();
+    clear();
+    setRevision((value) => value + 1);
+  }, [interrupt, clear, resetAccount]);
+
+  const openConversation = useCallback(async (id: string) => {
+    if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
+    if (!ownerRef.current || ownerRef.current === 'guest') return;
+    interrupt();
+    const ctrl = new AbortController();
+    const owner = ownerRef.current;
+    const current = () => !ctrl.signal.aborted && abortRef.current === ctrl && sessionOwner() === owner;
+    abortRef.current = ctrl;
+    setLoading(true);
+    setNotice(null);
+    try {
+      const selected = await getConversation(id, ctrl.signal);
+      if (!current()) return;
+      conversationRef.current = selected.id;
+      setConversationId(selected.id);
+      changeMessages(selected.messages);
+      completedHistory.current = [];
+      setStopNotice(false);
+    } catch (error) {
+      if (current()) setNotice(userFacingMessage(error, '無法開啟對話，請重試。'));
+    } finally {
+      if (current()) setLoading(false);
+      if (abortRef.current === ctrl) abortRef.current = null;
+    }
+  }, [interrupt, resetAccount, changeMessages]);
 
   const send = useCallback(async (text: string) => {
-    if (!readyRef.current) return;
-    if (sessionOwner() !== ownerRef.current) clear();
+    if (!readyRef.current || abortRef.current) return;
+    if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
+    if (!ownerRef.current) { setNotice('登入狀態尚未就緒，請重新登入後再試。'); return; }
+    text = text.trim();
+    if (!text) return;
     interrupt();
     setStopNotice(false);
+    setNotice(null);
     const ctrl = new AbortController();
+    const owner = ownerRef.current;
+    const current = () => !ctrl.signal.aborted && abortRef.current === ctrl && sessionOwner() === owner;
     abortRef.current = ctrl;
-    const history = completedHistory.current;
+    setLoading(true);
+    let selectedId = conversationRef.current;
+    if (ownerRef.current && ownerRef.current !== 'guest' && !selectedId) {
+      try {
+        const created = await createConversation(ctrl.signal);
+        if (!current()) return;
+        selectedId = created.id;
+        conversationRef.current = created.id;
+        setConversationId(created.id);
+      } catch (error) {
+        if (current()) {
+          setNotice(userFacingMessage(error, '無法建立對話，請重試。'));
+          setLoading(false);
+        }
+        if (abortRef.current === ctrl) abortRef.current = null;
+        return;
+      }
+    }
+    const history = selectedId ? [] : completedHistory.current;
     const assistantId = newId();
     const now = new Date().toISOString();
     const update = (patch: (message: ChatMessage) => Partial<ChatMessage>) => {
-      if (!ctrl.signal.aborted) changeMessages((previous) => previous.map((message) => message.id === assistantId ? { ...message, ...patch(message) } : message));
+      if (current()) changeMessages((previous) => previous.map((message) => message.id === assistantId ? { ...message, ...patch(message) } : message));
     };
     let answer = '';
     let actions: ChatAction[] = [];
@@ -147,7 +233,6 @@ export function useChat() {
       { id: newId(), role: 'user', content: text, timestamp: now },
       { id: assistantId, role: 'assistant', content: '', timestamp: now, status: 'streaming' },
     ]);
-    persistNow();
     setLoading(true);
     setStreamingMessageId(assistantId);
 
@@ -156,7 +241,7 @@ export function useChat() {
     let pendingStatus: string | undefined;
     const flush = () => {
       frame = null;
-      if (ctrl.signal.aborted || (!pendingText && pendingStatus === undefined)) return;
+      if (!current() || (!pendingText && pendingStatus === undefined)) return;
       const textChunk = pendingText;
       const status = pendingStatus;
       pendingText = '';
@@ -166,16 +251,16 @@ export function useChat() {
     const schedule = () => { if (frame === null) frame = window.requestAnimationFrame(flush); };
     try {
       const result = await ragAskStream({ query: text, history }, {
-        onStatus: (status) => { if (!ctrl.signal.aborted) { pendingStatus = status; schedule(); } },
-        onText: (chunk) => { if (!ctrl.signal.aborted) { answer += chunk; pendingText += chunk; schedule(); } },
+        onStatus: (status) => { if (current()) { pendingStatus = status; schedule(); } },
+        onText: (chunk) => { if (current()) { answer += chunk; pendingText += chunk; schedule(); } },
         onDashboard: (result) => {
-          if (ctrl.signal.aborted) return;
+          if (!current()) return;
           dashboard = result.dashboard;
           actions = result.actions;
           update(() => ({ dashboard, actions }));
         },
         onDone: (result) => {
-          if (ctrl.signal.aborted) return;
+          if (!current()) return;
           completed = true;
           actions = result.actions;
           dashboard = result.dashboard ?? dashboard;
@@ -184,31 +269,35 @@ export function useChat() {
           frame = null;
           pendingText = '';
           pendingStatus = undefined;
-          completedHistory.current = appendCompletedChatTurn(history, text, answer);
+          if (!selectedId) completedHistory.current = appendCompletedChatTurn(history, text, answer);
           update(() => ({ content: answer, streamStatus: undefined, status: 'completed', actions, dashboard, sources }));
-          persistNow();
         },
-      }, { signal: ctrl.signal });
+      }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
       if (frame !== null) { window.cancelAnimationFrame(frame); flush(); }
-      if (ctrl.signal.aborted) return;
+      if (!current()) return;
       update(() => ({ content: answer.trim() ? answer : '（無回覆內容）', streamStatus: undefined,
         status: result.completed ? 'completed' : 'interrupted', actions, dashboard, sources }));
-      persistNow();
     } catch (error) {
-      if (ctrl.signal.aborted) return;
+      if (!current()) return;
       const message = userFacingMessage(error, '請稍後再試。');
       update((previous) => ({ content: answer.trim() ? answer : previous.dashboard
         ? `資料已顯示，文字解讀暫時無法取得：${message}` : `抱歉，無法取得回覆：${message}`,
         streamStatus: undefined, status: 'failed', error: message, actions, dashboard, sources }));
-      persistNow();
     } finally {
       if (frame !== null) window.cancelAnimationFrame(frame);
+      const wasCurrent = current();
       if (activeRef.current?.ctrl === ctrl) activeRef.current = null;
       if (abortRef.current === ctrl) abortRef.current = null;
       setStreamingMessageId((previous) => previous === assistantId ? null : previous);
-      if (!ctrl.signal.aborted) setLoading(false);
+      if (wasCurrent) {
+        setLoading(false);
+        if (selectedId) setRevision((value) => value + 1);
+      }
     }
-  }, [changeMessages, clear, interrupt, persistNow]);
+  }, [changeMessages, resetAccount, interrupt]);
 
-  return { messages, loading, ready, cacheNotice, stopNotice, streamingMessageId, send, clear, stop };
+  return { messages, loading, ready, notice, stopNotice, streamingMessageId, signedIn,
+    conversations, conversationId, search, setSearch, historyLoading, historyError, hasMore,
+    refreshHistory: () => setRevision((value) => value + 1),
+    loadMore: () => fetchHistory(conversations.length), send, newConversation, openConversation, stop };
 }
