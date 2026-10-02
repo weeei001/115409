@@ -48,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.features.favorites.router import router as favorites_router
     from app.features.analysis.router import prediction_router, router as analysis_router
     from app.features.chat.router import router as chat_router
+    from app.features.conversations.router import router as conversations_router
     from app.features.retrieval.router import router as retrieval_router
     from app.features.simulation.router import router as simulation_router
     from app.features.admin.router import router as admin_router
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(analysis_router)
     app.include_router(prediction_router)
     app.include_router(chat_router)
+    app.include_router(conversations_router)
     app.include_router(retrieval_router)
     app.include_router(simulation_router)
     app.include_router(admin_router)
