@@ -17,12 +17,6 @@ export default function Document() {
       <Head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="apple-touch-icon" href="/favicon.svg" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=Fira+Code:wght@400..700&family=Noto+Sans+TC:wght@300..800&display=swap"
-          rel="stylesheet"
-        />
       </Head>
       <body>
         <a href="#main-content" className="skip-link">

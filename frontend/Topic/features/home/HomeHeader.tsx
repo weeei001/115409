@@ -1,5 +1,4 @@
 import React, { useRef } from 'react';
-import { motion } from 'motion/react';
 import { TrendingUp } from 'lucide-react';
 import { AppNavDrawer } from '@/components/layout/AppNavDrawer';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
@@ -29,11 +28,8 @@ export function HomeHeader({ symbols, stockInfos, loading, error, onRetry, onSel
 
   return (
     <header ref={headerRef} className="sticky top-0 z-50 shrink-0 bg-card pt-[var(--app-safe-area-top)] sm:mx-4 sm:mt-3 sm:bg-transparent">
-      <motion.div
+      <div
         className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b bg-card px-4 py-3 shadow-raised sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-4 sm:rounded-2xl sm:border sm:px-6 lg:px-8"
-        initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={reduce ? { duration: 0 } : { duration: 0.35 }}
       >
         <div className="flex min-h-11 min-w-0 items-center gap-3">
           <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-gradient shadow-card', !reduce && 'anim-glow-pulse')}>
@@ -73,7 +69,7 @@ export function HomeHeader({ symbols, stockInfos, loading, error, onRetry, onSel
           <AppNavDrawer />
           <ThemeToggle />
         </div>
-      </motion.div>
+      </div>
     </header>
   );
 }

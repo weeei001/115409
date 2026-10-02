@@ -198,8 +198,8 @@
   --shadow-card-hover: var(--elev-card-hover);
   --shadow-raised: var(--elev-raised);
 
-  --font-sans: "Noto Sans TC", "PingFang TC", "Inter", system-ui, sans-serif;
-  --font-mono: "Fira Code", ui-monospace, monospace;
+  --font-sans: var(--font-app-sans, "PingFang TC", system-ui, sans-serif);
+  --font-mono: var(--font-app-mono, ui-monospace, monospace);
 }
 
 /* ═══════════════════════════
