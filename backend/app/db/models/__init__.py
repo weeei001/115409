@@ -18,6 +18,7 @@ from .finmind_extra import (
 from .user import User
 from .password_reset_token import PasswordResetToken
 from .favorite_stock import FavoriteStock
+from .conversation import Conversation, ConversationMessage
 from .llm_response import LlmResponse
 from .news_sentiment import NewsSentiment
 from .news_impact import NewsEventAnalysis, NewsEventImpact
@@ -47,6 +48,8 @@ __all__ = [
     "User",
     "PasswordResetToken",
     "FavoriteStock",
+    "Conversation",
+    "ConversationMessage",
     "LlmResponse",
     "AdminAccount",
     "AdminJobControl",

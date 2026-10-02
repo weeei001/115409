@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import aclosing
 import json
 from pathlib import Path
 import sys
@@ -74,11 +75,14 @@ class MeasuredLlm(LlmClient):
 
 
 class MeasuredChat(ChatService):
-    async def _prepare(self, request):
+    async def _prepare_steps(self, request):
         started = perf_counter()
-        self.prepared = await super()._prepare(request)
-        self.prepare_seconds = perf_counter() - started
-        return self.prepared
+        async with aclosing(super()._prepare_steps(request)) as steps:
+            async for step in steps:
+                if not isinstance(step, str):
+                    self.prepared = step
+                    self.prepare_seconds = perf_counter() - started
+                yield step
 
 
 def sources_for(case):

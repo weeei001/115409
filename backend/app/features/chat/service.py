@@ -5,6 +5,7 @@ import calendar
 import json
 import logging
 import re
+from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
@@ -232,6 +233,15 @@ class ChatService:
             return sources
 
     async def _prepare(self, request: AskRequest) -> tuple[AskResponse, str, str]:
+        async with aclosing(self._prepare_steps(request)) as steps:
+            async for step in steps:
+                if not isinstance(step, str):
+                    return step
+        raise RuntimeError("Chat preparation did not produce a result")
+
+    async def _prepare_steps(self, request: AskRequest) -> AsyncGenerator[str | tuple[AskResponse, str, str], None]:
+        """Yield progress before each awaited stage, followed by the prepared response."""
+        yield "正在理解問題與對話脈絡…"
         now = taipei_now().replace(microsecond=0)
         history = _conversation_history(request)
         result = await self.intent_llm.generate(
@@ -251,7 +261,8 @@ class ChatService:
         needs = set(intent.data_needs or ["news"])
         if not intent.is_finance and "help" not in needs:
             response.answer = NON_FINANCE_ANSWER
-            return response, "", ""
+            yield response, "", ""
+            return
 
         query = (intent.standalone_query or request.query).strip() if history else request.query
         forward_outlook = _is_forward_outlook(query)
@@ -263,7 +274,8 @@ class ChatService:
         if request.stock_id:
             if request.stock_id not in known_symbols:
                 response.answer = "目前沒有這檔上市櫃公司的新聞資料。"
-                return response, "", ""
+                yield response, "", ""
+                return
             symbols = [request.stock_id]
         elif not symbols:
             supported = [symbol for symbol, words in STOCK_KEYWORDS.items()
@@ -289,7 +301,8 @@ class ChatService:
         if "market" in needs and not market_symbols:
             response.answer = ("想分析或比較哪幾檔股票？目前可查詢：" +
                                "、".join(f"{name}（{code}）" for code, name in STOCK_OPTIONS.items()) + "。")
-            return response, "", ""
+            yield response, "", ""
+            return
 
         time_from, time_to = _intent_time_range(intent, query, now)
         if time_to:
@@ -306,6 +319,7 @@ class ChatService:
                 unavailable.append("以下股票不支援行情與基本面查詢：" + "、".join(unsupported) + "；不能據此完成全體比較。")
         news_error = None
         if "news" in needs:
+            yield "正在搜尋相關新聞與來源…"
             try:
                 news_end = datetime.fromisoformat(time_to) if time_to else now
                 news_start = time_from or (news_end - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
@@ -332,6 +346,7 @@ class ChatService:
                 unavailable.append("未找到符合問題的新聞。" if exc.status_code == 404 else "新聞服務暫時無法使用。")
 
         if "market" in needs:
+            yield "正在讀取行情、技術指標與基本面資料…"
             as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
             start_date = datetime.fromisoformat(time_from).date() if time_from else None
             # Stored rows have day precision, so an intraday historical cutoff uses the previous day.
@@ -365,7 +380,8 @@ class ChatService:
             warning += "\n\n" + " ".join(unavailable)
         if not response.sources:
             response.answer = INSUFFICIENT_EVIDENCE_ANSWER
-            return response, "", ""
+            yield response, "", ""
+            return
 
         context_parts = []
         for number, item in enumerate(response.sources, 1):
@@ -401,13 +417,20 @@ class ChatService:
         prompt = ANSWER_PROMPT.format(current_time=response.current_time, time_focus=time_focus + warning,
                                       context="\n\n---\n\n".join(context_parts), query=request.query,
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
-        return response, prompt, warning
+        yield response, prompt, warning
 
     async def _validate_response(self, raw_text, metadata, response, request, prompt, warning):
+        async with aclosing(self._validation_steps(raw_text, metadata, response, request, prompt, warning)) as steps:
+            async for _ in steps:
+                pass
+
+    async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning):
+        yield "正在核對回答的引用與數值…"
         try:
             response.answer = _checked_answer(raw_text, metadata, response.sources, warning)
         except CitationValidationError:
             # Retry once from the same evidence; never publish or attach citations to rejected prose.
+            yield "回答未通過核對，正在依據來源重新產生…"
             result = await self.llm.text(
                 system_prompt=answer_system_prompt(request.answer_detail) + (
                     "\nThe previous attempt failed citation validation. Write a fresh concise answer from "
@@ -418,6 +441,7 @@ class ChatService:
                 ),
                 prompt=prompt,
             )
+            yield "正在重新核對回答的引用與數值…"
             try:
                 response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning)
             except CitationValidationError:
@@ -442,15 +466,19 @@ class ChatService:
 
     async def stream_events(self, request: AskRequest):
         try:
-            yield {"type": "status", "content": "🔍 正在找尋資料..."}
-            response, prompt, warning = await self._prepare(request)
+            async with aclosing(self._prepare_steps(request)) as steps:
+                async for step in steps:
+                    if isinstance(step, str):
+                        yield {"type": "status", "content": step}
+                    else:
+                        response, prompt, warning = step
             if response.dashboard:
                 yield {"type": "dashboard", "dashboard": response.dashboard.model_dump(mode="json"),
                        "actions": [action.model_dump(mode="json") for action in response.actions]}
             if not prompt:
                 yield {"type": "text", "content": response.answer}
             else:
-                yield {"type": "status", "content": "資料已整理，正在產生文字解讀…" if response.dashboard else "正在整理回答…"}
+                yield {"type": "status", "content": "正在依據資料產生回答…"}
                 started = perf_counter()
                 metadata = {}
                 parts = []
@@ -461,7 +489,11 @@ class ChatService:
                         metadata.update(chunk.metadata)
                         if chunk.text:
                             parts.append(chunk.text)
-                await self._validate_response("".join(parts), metadata, response, request, prompt, warning)
+                async with aclosing(self._validation_steps(
+                    "".join(parts), metadata, response, request, prompt, warning,
+                )) as steps:
+                    async for status in steps:
+                        yield {"type": "status", "content": status}
                 response.duration_ms = int((perf_counter() - started) * 1000)
                 # Buffer until validation so rejected or truncated text never reaches the consumer.
                 yield {"type": "text", "content": response.answer}

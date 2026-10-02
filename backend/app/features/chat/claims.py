@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from .schemas import SourceChunk
 
-NUMBER = r"[+\-−]?\d[\d,]*(?:\.\d+)?"
+NUMBER = r"[+\-−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 METRICS = {
     "close": r"(?:收盤價?|股價)",
     "eps": r"(?:EPS|每股盈餘)",
@@ -18,6 +18,19 @@ METRICS = {
 
 def _number(value) -> Decimal:
     return Decimal(str(value).replace(",", "").replace("−", "-"))
+
+
+def _evidence_numbers(value):
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _evidence_numbers(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _evidence_numbers(item)
+    elif isinstance(value, str):
+        yield from (_number(token) for token in re.findall(NUMBER, value))
+    elif type(value) in {int, Decimal}:
+        yield _number(value)
 
 
 def _records(payload: dict, field: str):
@@ -57,11 +70,15 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk]) -> bool
     """
     prose = re.sub(r"\[S\d+\]", "", paragraph)
     structured = []
+    evidence_numbers = set()
     for source in sources:
         try:
-            payload = json.loads(source.content)
+            payload = json.loads(source.content, parse_float=Decimal)
         except (ValueError, TypeError):
+            evidence_numbers.update(_evidence_numbers(source.content))
             continue
+        # JSON commas separate values; only prose commas can group thousands.
+        evidence_numbers.update(_evidence_numbers(payload))
         if isinstance(payload, dict) and source.category in {"market_technical", "fundamental", "institutional"}:
             structured.append((source, payload))
 
@@ -88,8 +105,6 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk]) -> bool
 
     # A signed percentage must at least occur in the cited evidence, never in
     # an unrelated source. This is a necessary condition, not full verification.
-    evidence_numbers = {_number(token) for source in sources
-                        for token in re.findall(NUMBER, source.content)}
     for token in re.findall(r"(" + NUMBER + r")\s*[%％]", prose):
         if _number(token) not in evidence_numbers:
             return False

@@ -28,13 +28,21 @@ API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載�
 python -m app.jobs init-schema --sync-catalog
 ```
 
-此命令建立缺少的 27 張現行資料表，包含獨立 metadata 的 `news_chunks`、三張新聞版本表與四張後台管理表。新 MySQL 表使用 InnoDB／utf8mb4。命令不清除資料、不修改既有表結構、不建立資料庫，也不建立舊 `news_sentiments` 或 `analysis_digests` 表。既有表需要升級時仍使用對應遷移，不能以重跑初始化代替。`--help` 與不支援的參數不會連線。
+此命令建立缺少的 30 張現行資料表，包含獨立 metadata 的 `news_chunks`、三張新聞版本表、四張後台管理表與兩張 AI 對話歷史表。新 MySQL 表使用 InnoDB／utf8mb4。命令不清除資料、不修改既有表結構、不建立資料庫，也不建立舊 `news_sentiments` 或 `analysis_digests` 表。既有表需要升級時仍使用對應遷移，不能以重跑初始化代替。`--help` 與不支援的參數不會連線。
 
 `--sync-catalog` 會重新取得 TWSE／TPEx 官方全市場公司目錄、儲存該環境的公司目錄快取，再將下列 40 檔同步到 `stock_info`。省略此旗標只建立資料表；不建立預設使用者，不呼叫 embedding 或 LLM。官方目錄失敗或缺少指定公司時命令失敗，已建立的資料表保留，可重跑。
 
 啟動 scheduler 前還須取得首批行情與新聞，並明確建立向量集合。既有 `market-fetch` 的多數資料是當日快照，`--start` 不代表補齊歷史；歷史價格使用 `market-backfill`。抓取新聞後，首次索引使用 `news-ingest --create-collection`，須設定明確的 `NEWS_INDEX_VERSION`、非 legacy 的 `QDRANT_COLLECTION` 與 `EMBED_TRUNCATE=NONE`。集合會在第一批有效 embedding 寫入時建立；完全沒有新聞時不會產生空集合。這些抓取、向量化與分析工作應依部署所需的期間及模型預算執行。
 
 空庫不能直接以 scheduler 完成初始化：行情工作依賴 `stock_info`，正常索引不自動建立集合。初始化與首批資料驗證完成後再啟動排程；`/health` 只驗證 HTTP 程序。
+
+### AI 對話歷史
+
+登入後的 AI 對話儲存在 MySQL 的 `chat_conversations` 與 `chat_messages`，依使用者隔離。前端可搜尋標題及訊息內容、查看原有回答與引用／資料面板，並接續提問；後端從已完成回合建立上下文。訪客對話只存在頁面記憶體，不寫入瀏覽器儲存。
+
+既有環境需在啟用此功能前執行 `python -m app.jobs init-schema`，建立缺少的兩張表；不必加 `--sync-catalog`，不會呼叫 AI 服務或改寫既有資料表。API 啟動不會自行建表。
+
+API：`GET/POST /api/conversations`、`GET/DELETE /api/conversations/{id}`、`POST /api/conversations/{id}/ask`。清單支援 `q`、`offset`、`limit`；皆需 Bearer token。續聊忽略客戶端傳入的 `history`，使用資料庫中最近四個完成回合；中斷或失敗回合仍可查看，但不納入模型上下文。同一對話尚在處理另一個提問時回傳 409。
 
 ### 逐批補齊新聞事件分析
 
