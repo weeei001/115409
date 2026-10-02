@@ -33,7 +33,7 @@ class FakeRuntime:
                 "jobs": [{"name": "sample", "label": "Sample", "schedule": "daily", "paused": self.paused,
                           "next_run_at": None, "active_run_id": None}]}
 
-    def perform(self, db, actor, job_name, action, run_id=None):
+    def perform(self, db, actor, job_name, action, run_id=None, symbol=None):
         if job_name != "sample" or action not in {"run", "retry", "pause", "resume"}:
             raise AppError("Unknown job or action", 404)
         if action == "retry":
@@ -278,3 +278,46 @@ def test_accepted_audit_can_read_exact_run_beyond_first_page_without_rewriting_r
     assert client.get("/admin/runs/2147483648", headers=headers).status_code == 422
     assert client.get("/admin/runs/999999", headers=headers).status_code == 404
     assert service.list_runs(db_session)["total"] == 26, "Read-only navigation must not enqueue work."
+
+
+def test_selected_brief_symbol_is_validated_stored_executed_and_retried(client, app, db_session, settings, monkeypatch):
+    from app.db.models.stock_info import StockInfo
+    from app.jobs.runtime import JobRuntime
+
+    _, headers = account(db_session, settings, "manager@example.com", administrator=True)
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
+    db_session.add(StockInfo(symbol="9999", name="Unsupported"))
+    db_session.commit()
+    runtime = JobRuntime(settings, lambda: db_session)
+    runtime.status = "running"
+    app.state.jobs = runtime
+    for job, action, body, code in [
+        ("text-brief", "run", {"symbol": "missing"}, 404),
+        ("text-brief", "run", {"symbol": "9999"}, 422),
+        ("text-brief", "run", {"symbol": "2330,2317"}, 422),
+        ("rag", "run", {"symbol": "2330"}, 422),
+        ("text-brief", "pause", {"symbol": "2330"}, 422),
+    ]:
+        assert client.post(f"/admin/jobs/{job}/{action}", headers=headers, json=body).status_code == code
+    response = client.post("/admin/jobs/text-brief/run", headers=headers, json={"symbol": "2330"})
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+    assert client.get(f"/admin/runs/{run_id}", headers=headers).json()["symbol"] == "2330"
+    commands = []
+    monkeypatch.setattr(runtime, "_worker", lambda command: commands.append(command) or 0)
+    assert runtime._execute(run_id) == 0
+    assert commands == [["cache-warmup", "--symbols", "2330"]]
+    response = client.post("/admin/jobs/text-brief/retry", headers=headers, json={"run_id": run_id})
+    assert response.status_code == 200
+    retry = db_session.get(AdminJobRun, response.json()["run_id"])
+    assert retry.symbol == "2330" and retry.retry_of == run_id
+    assert client.post("/admin/jobs/text-brief/retry", headers=headers,
+                       json={"run_id": run_id, "symbol": "2330"}).status_code == 422
+    assert runtime._execute(retry.id) == 0
+    legacy = AdminJobRun(job_name="text-brief", status="succeeded", trigger="manual")
+    db_session.add(legacy)
+    db_session.commit()
+    response = client.post("/admin/jobs/text-brief/retry", headers=headers, json={"run_id": legacy.id})
+    assert response.status_code == 200
+    assert runtime._execute(response.json()["run_id"]) == 0
+    assert commands[-1] == ["cache-warmup"]

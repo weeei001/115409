@@ -155,6 +155,7 @@ class Settings(BaseSettings):
     JOBS_IMPACT_SINCE: date | None = None
     JOBS_IMPACT_LIMIT: int = Field(100, ge=1)
     JOBS_IMPACT_MAX_COST_USD: float = Field(0.50, ge=0, allow_inf_nan=False)
+    JOBS_BRIEF_TIMEOUT_SECONDS: float = Field(180, gt=0, allow_inf_nan=False)
 
     JWT_SECRET: str = "change-me-in-production-use-long-random-string"
     JWT_ALGORITHM: str = "HS256"

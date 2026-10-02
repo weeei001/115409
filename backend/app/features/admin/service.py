@@ -125,7 +125,7 @@ def bootstrap_administrator(db: Session, email: str) -> int:
     return user_id
 
 
-def perform_job(db: Session, actor: User, runtime, job_name: str, action: str, run_id: int | None) -> dict:
+def perform_job(db: Session, actor: User, runtime, job_name: str, action: str, run_id: int | None, symbol: str | None = None) -> dict:
     actor_snapshot = (actor.id, actor.email)
     audit_action = f"job.{action}"[:80]
     target = job_name[:255]
@@ -135,10 +135,10 @@ def perform_job(db: Session, actor: User, runtime, job_name: str, action: str, r
             if runtime is None:
                 raise AppError("Job scheduler unavailable", 503)
             with runtime.lock:
-                run = runtime.perform(db, actor, job_name, action, run_id=run_id)
+                run = runtime.perform(db, actor, job_name, action, run_id=run_id, symbol=symbol)
                 queued_id = run.id if run is not None else None
                 audit(db, *actor_snapshot, audit_action, target, "succeeded",
-                      {"run_id": queued_id, "retry_of": run_id})
+                      {"run_id": queued_id, "retry_of": run_id, "symbol": run.symbol if run is not None else None})
                 _commit(db)
                 runtime.apply_control(job_name, action, queued_id)
         except (AppError, SQLAlchemyError) as exc:
@@ -191,7 +191,11 @@ def overview(db: Session, runtime, environment: str) -> dict:
     jobs = []
     for job in snapshot["jobs"]:
         succeeded, failed, streak, total = repository.job_results(db, job["name"])
-        jobs.append({**job, "result_summary": {"history_scope": "all_stored_runs", "terminal_runs": total,
+        active = repository.run_by_id(db, job["active_run_id"]) if job.get("active_run_id") else None
+        queued = repository.run_by_id(db, job["queued_run_id"]) if job.get("queued_run_id") else None
+        live = snapshot.get("run_activity", {}).get(job["name"])
+        jobs.append({**job, "active_run": public_run(active, live) if active else None,
+            "queued_run": public_run(queued) if queued else None, "result_summary": {"history_scope": "all_stored_runs", "terminal_runs": total,
             "last_success": public_run(succeeded) if succeeded else None,
             "last_failure": public_run(failed) if failed else None, "consecutive_failed": streak}})
     return {"environment": environment, "checked_at": datetime.now(timezone.utc), "services": services,

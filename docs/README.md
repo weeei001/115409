@@ -48,7 +48,7 @@ API：`GET/POST /api/conversations`、`GET/DELETE /api/conversations/{id}`、`PO
 
 正常排程預設處理最近 30 天新聞。已有歷史新聞需要逐批分析時，可在 scheduler 啟動參數加上 `--impact-since 2026-01-01`；此設定只擴大新聞事件分析與事件向量標記同步期間，不改行情起日。每輪仍受 `--impact-limit`（預設 100 篇）及 `--impact-max-cost-usd`（預設 0.50 美元估計成本）限制，成功且內容／分析設定 hash 未變者會略過。單獨 worker 對應 `news-impact-batch --since 2026-01-01 --execute`；`--since` 與 `--backfill-days` 不能同時使用。
 
-`rag` 管線的新聞向量匯入失敗時，仍會執行獨立的 SQL 新聞事件分析，並跳過該輪向量標記同步。簡報暖機也會獨立嘗試，依既有證據檢查回傳 limited／unavailable，不將缺資料改成 verified。管線保留第一個錯誤的非零結束碼；事件分析若有失敗文章，即使未達連續失敗停止門檻也回非零。來源爬蟲即使有失敗頁，也會依既有延遲合併觸發一次後續分析，讓已入庫新聞與待分析資料持續處理；失敗來源與退出碼仍記錄於日誌。服務仍由後續排程逐批重試，單輪結束不代表歷史資料已全部完成。
+`rag` 管線的新聞向量匯入失敗時，仍會執行獨立的 SQL 新聞事件分析，並跳過該輪向量標記同步。排程器在索引結束後另行安排 `text-brief` 簡報暖機，使用獨立執行紀錄；索引失敗也會嘗試暖機，但摘要排程暫停或已有摘要工作等待／執行時不重複安排。暖機依既有證據檢查回傳 limited／unavailable，不將缺資料改成 verified。管線保留第一個錯誤的非零結束碼；事件分析若有失敗文章，即使未達連續失敗停止門檻也回非零。來源爬蟲即使有失敗頁，也會依既有延遲合併觸發一次後續分析，讓已入庫新聞與待分析資料持續處理；失敗來源與退出碼仍記錄於日誌。服務仍由後續排程逐批重試，單輪結束不代表歷史資料已全部完成。
 
 歷史個股簡報已有獨立日期參數，無須改正常排程的最新簡報行為：`python -m app.jobs cache-warmup --start 2026-09-21 --end 2026-09-28`。未指定股票時使用 `stock_info`，並只處理各股已有日行情的交易日；缺行情或結果 unavailable 會回報失敗。
 
@@ -84,6 +84,24 @@ API：`GET/POST /api/conversations`、`GET/DELETE /api/conversations/{id}`、`PO
 `company_catalog.json` 保留完整官方目錄，供新聞實體辨識與產業對應使用。例如即使長榮航未納入服務名單，仍須能辨識「長榮航」，避免錯配為長榮。這份辨識目錄不代表全市場都有行情資料或可提供完整個股分析。
 
 ## 背景工作
+
+### 管理後台排程操作
+
+「個股摘要」可選擇股票後手動執行；股票代號會保存在執行紀錄中，重跑沿用原本範圍。自動摘要與舊有未指定股票的紀錄仍處理全部服務股票。暖機會重新核對來源，資料未變且快取有效時沿用既有摘要。
+
+新聞索引與個股摘要使用分開的執行紀錄，但仍共用序列排程器，一次處理一個工作。暫停只停止後續自動安排，不中斷已執行或已排入等待的工作；手動執行仍可使用。後台顯示目前階段與等待原因；階段開始時間不代表逐筆完成進度。
+
+摘要每檔、每日期的處理上限由 `JOBS_BRIEF_TIMEOUT_SECONDS` 設定，預設 180 秒。逾時會等候進行中的資料庫操作安全收尾，記錄失敗後繼續下一檔，因此不是整批工作的硬性時間上限。
+
+既有環境啟用選股功能前，須從 `backend/` 對正確環境執行一次加欄位遷移，再啟動新版服務：
+
+```powershell
+python -m app.jobs migrate-admin-schema
+```
+
+此命令僅在 `admin_job_runs` 加入可空的 `symbol` 欄位，保留既有紀錄，可重複執行；`--help` 不連線。新環境的 `init-schema` 已包含該欄位，API 啟動不自行升級資料表。
+
+API：`POST /admin/jobs/text-brief/run` 可傳入 `{"symbol":"2330"}`；`POST /admin/jobs/text-brief/retry` 傳入 `{"run_id":123}` 並沿用該筆股票範圍。`symbol` 只接受用於個股摘要的手動執行。
 
 新聞來源版本使用三張額外資料表；升級既有資料庫前先執行唯讀盤點，再明確套用遷移，API 不會自行建表。
 
@@ -143,17 +161,3 @@ python -m pytest tests/test_benchmark.py tests/test_scheduler.py -q
 [歷史設計圖](圖檔/)與[學期進度](上學期進度/)保留設計脈絡；介面與命令應以目前程式碼、執行中的 OpenAPI 及根目錄 README 為準。
 
 `docs/` 可納入版本控制；本機產生的報告與匯出檔請放在已忽略的 `output/` 或 `artifacts/`。
-
-## 文件依據
-
-查核日期：**2026-09-26**。以下區分文件格式、工具行為與建議；不把範例規則套成專案的強制流程。
-
-| 官方來源 | 本次採用方式 |
-| --- | --- |
-| [GitHub：About READMEs](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes) | 根目錄說明用途、啟動、驗證與協作；專案內連結使用相對路徑，延伸內容放在此頁 |
-| [AGENTS.md 開放格式](https://agents.md/) | 使用確切檔名 `AGENTS.md` 與一般 Markdown；格式沒有固定必填欄位 |
-| [OpenAI：AGENTS.md 載入規則](https://learn.chatgpt.com/docs/agent-configuration/agents-md) | 採單一根目錄指引；有實際子專案差異時才新增分層指引 |
-| [OpenAI：精簡代理指引，2026-09-11](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) | 以成果、專案事實與必要邊界為主，讓模型決定方法；依任務選擇閱讀與驗證範圍 |
-| [Next.js：環境需求](https://nextjs.org/docs/app/getting-started/installation) | 對照官方最低要求與本專案 lockfile；不因更新文件而更換套件版本 |
-
-Codex 會沿專案根目錄到啟動工作目錄載入指引；同層先找 `AGENTS.override.md`，再找 `AGENTS.md`，較深層指引可覆寫較上層內容。預設合併上限為 32 KiB，這是 Codex 的設定值，不是 AGENTS.md 格式限制。完整行為見上方 OpenAI 官方文件。

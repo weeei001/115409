@@ -93,4 +93,4 @@ def job_action(request: Request, user: Administrator, db: Database,
                action: str = Path(..., min_length=1, max_length=20),
                body: JobActionRequest | None = Body(None)):
     return service.perform_job(db, user, getattr(request.app.state, "jobs", None), job_name,
-                               action, body.run_id if body else None)
+                               action, body.run_id if body else None, body.symbol if body else None)

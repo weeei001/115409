@@ -179,3 +179,63 @@ def test_removed_sentiment_worker_is_rejected_before_dispatch(monkeypatch):
     with pytest.raises(SystemExit) as result:
         main(["sentiment-batch", "--execute"])
     assert result.value.code == 2
+
+
+@pytest.mark.parametrize("cancel_run", [False, True])
+def test_warmup_timeout_and_cancellation_release_resources(settings, monkeypatch, cancel_run):
+    from contextlib import asynccontextmanager
+    from app.jobs import warmup
+
+    events = []
+    class Session:
+        def rollback(self):
+            events.append("rollback")
+        def close(self):
+            events.append("close")
+    class Engine:
+        def dispose(self):
+            events.append("dispose")
+    @asynccontextmanager
+    async def client(_):
+        try:
+            yield object()
+        finally:
+            events.append("http-close")
+    class Analysis:
+        def __init__(self, **kwargs):
+            pass
+        async def generate_text_brief(self, request, **kwargs):
+            events.append(request.symbol)
+            if request.symbol == "2317":
+                return SimpleNamespace(status="verified", cached=False)
+            try:
+                if cancel_run:
+                    raise asyncio.CancelledError
+                await asyncio.Event().wait()
+            finally:
+                events.append("analysis-cleanup")
+
+    settings.JOBS_BRIEF_TIMEOUT_SECONDS = 0.01
+    monkeypatch.setattr(warmup, "get_settings", lambda: settings)
+    monkeypatch.setattr(warmup, "make_engine", lambda _: Engine())
+    monkeypatch.setattr(warmup, "make_session_factory", lambda _: Session)
+    monkeypatch.setattr(warmup, "make_http_client", client)
+    monkeypatch.setattr(warmup, "as_of_dates", lambda *args: [date(2026, 1, 1)])
+    monkeypatch.setattr(warmup, "AnalysisService", Analysis)
+    if cancel_run:
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(warmup.warm(["2330", "2317"], None, None))
+        assert events == ["2330", "analysis-cleanup", "close", "http-close", "dispose"]
+    else:
+        assert asyncio.run(warmup.warm(["2330", "2317"], None, None)) == 1
+        assert events == ["2330", "analysis-cleanup", "rollback", "close", "2317", "close", "http-close", "dispose"]
+
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
+def test_brief_warmup_timeout_must_be_positive_and_finite(value):
+    from pydantic import ValidationError
+    from app.core.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, JOBS_BRIEF_TIMEOUT_SECONDS=value)

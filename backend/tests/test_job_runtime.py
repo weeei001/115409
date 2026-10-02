@@ -38,6 +38,39 @@ def wait_until(predicate):
         time.sleep(0.01)
 
 
+@pytest.mark.parametrize("result,paused,existing,stopped", [
+    (0, False, False, False), (1, False, False, False),
+    (0, True, False, False), (0, False, True, False), (1, False, False, True),
+])
+def test_rag_finishes_before_independent_deduplicated_brief(tmp_path, settings, monkeypatch,
+                                                         result, paused, existing, stopped):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    jobs.status = "running"
+    if paused:
+        jobs.paused.add("text-brief")
+    def pipeline(name, **kwargs):
+        if stopped:
+            jobs.stop_event.set()
+        return result
+    monkeypatch.setattr(runtime, "run_pipeline", pipeline)
+    try:
+        with factory() as db:
+            if existing:
+                db.add(AdminJobRun(job_name="text-brief", status="queued", trigger="manual", symbol="2330"))
+                db.commit()
+            run_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "run", None)["run_id"]
+        assert jobs._execute(run_id) == result
+        with factory() as db:
+            assert db.get(AdminJobRun, run_id).finished_at is not None
+            briefs = list(db.scalars(select(AdminJobRun).where(AdminJobRun.job_name == "text-brief")))
+            assert len(briefs) == (0 if paused or stopped else 1)
+            if briefs:
+                assert briefs[0].status == "queued"
+                assert briefs[0].symbol == ("2330" if existing else None)
+    finally:
+        engine.dispose()
+
+
 def test_pause_during_run_prevents_sibling_jobs_and_survives_restart(tmp_path, settings, monkeypatch):
     jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
     entered, finish = Event(), Event()
@@ -255,7 +288,7 @@ def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknow
 
     def worker(command):
         calls.append(command[0])
-        if command[0] == "cache-warmup":
+        if command[0] == "news-impact-sync":
             entered.set()
             assert finish.wait(5)
         return 3 if command[0] == "news-impact-batch" else 0
@@ -269,22 +302,25 @@ def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknow
         assert entered.wait(5)
         with factory() as db:
             live = service.get_run(db, run_id, jobs)["diagnostics"]
-            assert live["stage"] == "cache-warmup" and live["activity_kind"] == "stage_started"
+            assert live["stage"] == "news-impact-sync" and live["activity_kind"] == "stage_started"
             assert live["last_activity_at"] == live["stage_started_at"]
             assert live["worker_progress"] == "unknown"
+            card = next(job for job in service.overview(db, jobs, "development")["jobs"] if job["name"] == "rag")
+            assert card["active_run"]["id"] == run_id
+            assert card["active_run"]["diagnostics"]["stage"] == "news-impact-sync"
             jobs.heartbeat = "2026-10-01T13:00:00Z"
             assert service.get_run(db, run_id, jobs)["diagnostics"]["last_activity_at"] == live["last_activity_at"]
         finish.set()
         thread.join(5)
         assert not thread.is_alive()
-        assert calls == ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]
+        assert calls == ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]
         with factory() as db:
             result = service.get_run(db, run_id, jobs)
             assert result["status"] == "failed" and result["exit_code"] == 3
             assert result["diagnostics"]["failed_stages"] == [{"stage": "news-impact-batch", "exit_code": 3}]
             assert result["diagnostics"]["stage"] is None
         output = capsys.readouterr().out
-        assert f"admin_run={run_id} stage=cache-warmup event=started" in output
+        assert f"admin_run={run_id} stage=news-impact-sync event=started" in output
         assert f"admin_run={run_id} stage=news-impact-batch event=finished exit_code=3" in output
         assert "--execute" not in output and "--max-cost-usd" not in output
     finally:
@@ -342,7 +378,7 @@ def test_cnyes_only_policy_uses_durable_pause_without_duplicate_followup(tmp_pat
     jobs.scheduler.delay = 0
     jobs.start()
     try:
-        wait_until(lambda: calls == ["cnyes", "rag"] and not jobs.active)
+        wait_until(lambda: calls == ["cnyes", "rag", "text-brief"] and not jobs.active)
         snapshot = jobs.snapshot()
         ltn = next(item for item in snapshot["jobs"] if item["name"] == "ltn")
         cnyes = next(item for item in snapshot["jobs"] if item["name"] == "cnyes")
@@ -351,7 +387,7 @@ def test_cnyes_only_policy_uses_durable_pause_without_duplicate_followup(tmp_pat
         with factory() as db:
             assert db.get(AdminJobRun, old_id).status == "failed"
             names = [row.job_name for row in db.scalars(select(AdminJobRun).order_by(AdminJobRun.id))]
-            assert names == ["ltn", "cnyes", "rag"]
+            assert names == ["ltn", "cnyes", "rag", "text-brief"]
     finally:
         jobs.stop()
     restarted = runtime.JobRuntime(settings, factory)
@@ -359,7 +395,7 @@ def test_cnyes_only_policy_uses_durable_pause_without_duplicate_followup(tmp_pat
     try:
         wait_until(lambda: restarted.status == "running")
         assert "ltn" in restarted.paused and not restarted._enabled("ltn")
-        assert restarted._enabled("cnyes") and calls == ["cnyes", "rag"]
+        assert restarted._enabled("cnyes") and calls == ["cnyes", "rag", "text-brief"]
     finally:
         restarted.stop()
         engine.dispose()
