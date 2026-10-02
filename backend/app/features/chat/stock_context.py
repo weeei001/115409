@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time
+from datetime import date
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models.llm_response import LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse
 from app.features.analysis import repository
-from app.features.analysis.service import text_brief_revision
 from app.features.analysis.evidence import (
     ANNUAL_PUBLISH_LAG_DAYS, FINANCIAL_PUBLISH_LAG_DAYS, REVENUE_PUBLISH_DAY,
     TIMELINE_TRADING_DAYS, _financial_is_published, _revenue_is_published, build_evidence_bundle,
@@ -42,46 +39,13 @@ def _source(symbol: str, category: str, title: str, as_of: date, content: dict,
     )
 
 
-def _saved_brief_source(db: Session, symbol: str, as_of: date) -> SourceChunk | None:
-    candidates = select(LlmResponse).where(
-        LlmResponse.symbol == symbol, LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF,
-        LlmResponse.is_fallback.is_(False), LlmResponse.as_of_date <= as_of,
-        LlmResponse.created_at <= datetime.combine(as_of, time.max),
-    ).order_by(LlmResponse.as_of_date.desc(), LlmResponse.id.desc())
-    fingerprints = {}
-    for row in db.scalars(candidates):
-        saved = repository.saved_brief(row)
-        if saved is None or saved.analysis_revision != text_brief_revision():
-            continue
-        # Archived snapshots remain readable, but an active answer must not reuse
-        # interpretations of inputs whose content or effective source changed.
-        config = json.loads(row.config_json)
-        fingerprint = config.get("input_fingerprint")
-        if not fingerprint:
-            continue
-        referenced = repository.news_article_ids([item.model_dump(mode="python") for item in saved.evidence_catalog
-                                                 if item.field == "news"])
-        key = (row.as_of_date, tuple(sorted(referenced)))
-        if key not in fingerprints:
-            fingerprints[key] = repository.input_fingerprint(db, symbol=symbol, as_of=row.as_of_date,
-                                                              referenced_article_ids=referenced)
-        if fingerprint != fingerprints[key]:
-            continue
-        return _source(symbol, "analysis_snapshot", "已存 AI 分析", as_of, {
-            "snapshot_id": saved.snapshot_id, "analysis_as_of": saved.as_of_date,
-            "generated_at": saved.generated_at, "status": saved.status,
-            "interpretation": saved.brief.model_dump(mode="json"),
-            "limitations": saved.limitations,
-            "evidence_basis": "Stored AI interpretation, not independent market evidence. "
-                              "Its input fingerprint and analysis revision are current; "
-                              "this does not verify the interpretation's full meaning or predictions.",
-        }, saved.generated_at)
-    return None
-
-
 def collect_stock_sources(db: Session, symbols: list[str], as_of: date,
                           start_date: date | None = None) -> list[SourceChunk]:
-    """Use one caller-owned Session sequentially; preserve nulls and observation dates."""
+    """Read primary observations using one caller-owned Session.
+
+    Archived AI interpretations are excluded: checking their freshness scans the
+    news corpus for every candidate date and is not part of a live chat request.
+    """
     if start_date is not None and start_date > as_of:
         raise ValueError("start_date must not be after as_of")
     collected = {symbol: repository.collect_rows(db, symbol=symbol, as_of=as_of)
@@ -202,14 +166,11 @@ def collect_stock_sources(db: Session, symbols: list[str], as_of: date,
                                      "which can predate the requested interval.",
             }))
 
-        snapshot = _saved_brief_source(db, symbol, as_of)
-        if snapshot is not None:
-            sources.append(snapshot)
         if len(sources) == before:
             sources.append(_source(symbol, "data_availability", "資料可用性", as_of, {
                 **window, "status": "unavailable",
-                "limitation": "No price, technical, institutional, available financial evidence, or usable "
-                              "saved AI analysis was found for this stock and cutoff/window. "
+                "limitation": "No price, technical, institutional, or available financial evidence "
+                              "was found for this stock and cutoff/window. "
                               "The source date is the query cutoff, not an observation publication date.",
             }))
     return sources
