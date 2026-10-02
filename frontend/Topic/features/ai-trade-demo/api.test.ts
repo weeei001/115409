@@ -126,7 +126,7 @@ async function main() {
 
   // 1b. 命中快取的回應：init 沒有 type 也要認得，cached 為 true；day、done 與第一次相同
   {
-    assert.ok(!CACHED_FIXTURE.split('\n\n')[0].includes('"type"'), 'fixture 應保留實測的缺 type 狀態');
+    assert.ok(!CACHED_FIXTURE.split(/\r?\n\r?\n/)[0].includes('"type"'), 'fixture 應保留實測的缺 type 狀態');
     mockFetch(byteChunks(CACHED_FIXTURE, 11));
     const { outcome, got } = await run();
     assert.deepEqual(outcome, { kind: 'done' });
@@ -152,7 +152,7 @@ async function main() {
 
   // 3. 收到 error 就停止：回傳後端訊息，之後的事件不處理
   {
-    const blocks = FIXTURE.split('\n\n').filter(Boolean);
+    const blocks = FIXTURE.split(/\r?\n\r?\n/).filter(Boolean);
     const body = [blocks[0], blocks[1], 'data: {"type": "error", "message": "模型逾時"}', blocks[2]].join('\n\n') + '\n\n';
     const stream = mockFetch(byteChunks(body, 5), { close: false });
     const { outcome, got } = await run();
@@ -164,7 +164,7 @@ async function main() {
 
   // 4. 串流結束但沒有 done：incomplete；格式不符的事件計數、不中斷
   {
-    const blocks = FIXTURE.split('\n\n').filter(Boolean);
+    const blocks = FIXTURE.split(/\r?\n\r?\n/).filter(Boolean);
     const body = [blocks[0], 'data: {"type": "day", "date": "2026-08-28"}', 'data: not-json', 'data: {"type": "heartbeat"}', blocks[1]].join('\n\n') + '\n\n';
     mockFetch([encoder.encode(body)]);
     const { outcome, got } = await run();
@@ -200,7 +200,7 @@ async function main() {
 
   // 7. 取消：收到第一個 day 後 abort，回傳 aborted
   {
-    mockFetch([encoder.encode(FIXTURE.split('\n\n').slice(0, 2).join('\n\n') + '\n\n')], { close: false });
+    mockFetch([encoder.encode(FIXTURE.split(/\r?\n\r?\n/).slice(0, 2).join('\n\n') + '\n\n')], { close: false });
     const controller = new AbortController();
     const { outcome, got } = await run(controller.signal, () => controller.abort());
     assert.deepEqual(outcome, { kind: 'aborted' });
