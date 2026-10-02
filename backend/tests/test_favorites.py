@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select, update
@@ -70,6 +70,24 @@ def test_repeated_put_keeps_a_single_row(client, db_session, settings):
     assert second.json() == first.json()
     assert len(db_session.scalars(select(FavoriteStock)).all()) == 1
     assert symbols(client, headers) == ["2330"]
+
+
+def test_new_favorite_uses_application_utc_timestamp(client, db_session, settings, monkeypatch):
+    from app.features.favorites import service
+
+    class FixedClock:
+        @staticmethod
+        def now(tz):
+            assert tz == timezone.utc
+            return datetime(2026, 10, 2, 9, 15, 30, tzinfo=timezone.utc)
+
+    headers = login(db_session, settings)
+    monkeypatch.setattr(service, "datetime", FixedClock)
+    response = client.put("/favorites/2330", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["created_at"] == "2026-10-02T09:15:30"
+    favorite = db_session.scalar(select(FavoriteStock))
+    assert favorite.created_at == datetime(2026, 10, 2, 9, 15, 30)
 
 
 def test_concurrent_duplicate_insert_returns_the_stored_row(client, db_session, settings, monkeypatch):

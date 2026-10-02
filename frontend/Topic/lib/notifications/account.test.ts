@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { clearAuth, setAuth, updateStoredUser } from '../auth/storage';
+import { notificationAccountSnapshot, subscribeNotificationAccount } from './account';
+
+const values = new Map<string, string>();
+const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) };
+const events = new EventTarget();
+Object.defineProperty(globalThis, 'window', { value: events, configurable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+const snapshots: string[] = [];
+const unsubscribe = subscribeNotificationAccount(() => snapshots.push(notificationAccountSnapshot()));
+const user = (id: number) => ({ id, email: 'fixture@example.com', display_name: 'Fixture' });
+setAuth('session-one', user(1));
+const first = notificationAccountSnapshot();
+updateStoredUser({ ...user(1), display_name: 'Updated' });
+assert.equal(notificationAccountSnapshot(), first, 'Profile changes must preserve settings state');
+// A cross-tab write does not call setAuth in this tab.
+storage.setItem('topictest_access_token', 'session-two');
+storage.setItem('topictest_user', JSON.stringify(user(2)));
+events.dispatchEvent(new Event('storage'));
+assert.notEqual(snapshots.at(-1), first, 'Cross-tab account switch must change the keyed settings instance');
+assert.equal(snapshots.at(-1), notificationAccountSnapshot());
+clearAuth();
+assert.equal(snapshots.at(-1), '', 'Logout must remove the settings instance');
+const count = snapshots.length;
+unsubscribe();
+setAuth('session-three', user(3));
+events.dispatchEvent(new Event('storage'));
+assert.equal(snapshots.length, count, 'Unmount must remove both subscriptions');
+console.log('Notification account tests passed: same-account profile update, cross-tab switch, logout, and cleanup.');
