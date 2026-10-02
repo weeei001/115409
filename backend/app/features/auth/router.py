@@ -2,9 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.errors import AppError
 from app.db.models.user import User
 from app.db.session import get_db
 from app.features.auth import service
@@ -15,7 +17,7 @@ from app.features.auth.schemas import (
 
 
 router = APIRouter(prefix="/auth", tags=["認證"])
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def auth_settings(request: Request) -> Settings:
@@ -23,10 +25,15 @@ def auth_settings(request: Request) -> Settings:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: Session = Depends(get_db),
     settings: Settings = Depends(auth_settings),
 ) -> User:
+    if credentials is None:
+        scheme, token = get_authorization_scheme_param(request.headers.get("Authorization"))
+        detail = "Invalid authentication credentials" if scheme and token else "Not authenticated"
+        raise AppError(detail, status_code=403)
     return service.current_user(db, credentials.credentials, settings)
 
 
