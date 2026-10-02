@@ -91,6 +91,7 @@ def test_provider_timeout_and_failure_mapping(settings, timeout):
 
 
 def test_provider_thinking_compatibility_remains_local():
+    assert _thinking_extra_body("gemini-3.8-flash", False) == {}
     assert _thinking_extra_body("deepseek-ai/deepseek-v4-pro") == {"chat_template_kwargs": {"thinking": False}}
     assert _thinking_extra_body("qwen/qwen3") == {"chat_template_kwargs": {"enable_thinking": False}}
     assert _thinking_extra_body("nvidia/nemotron-3-super-120b-a12b") == {"chat_template_kwargs": {"enable_thinking": False}}
