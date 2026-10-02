@@ -11,6 +11,47 @@ from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.chat.router import get_service
 from app.features.chat.schemas import AskRequest
 from test_chat import NOW, chat, events
+from app.features.chat.prompts import INVESTMENT_DISCLAIMER
+from app.features.chat.service import _is_recommendation
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_recommendation_followup_fetches_market_and_appends_disclaimer(hub, stream):
+    client, _, llm, retrieval = hub
+    llm.intent = {"stocks": ["2330", "2317"], "data_needs": ["news"],
+                  "standalone_query": "Recommend a stock from TSMC and Foxconn"}
+    llm.answer = "Under a momentum assumption, I prefer TSMC based on its rising close. [S1]"
+    response = client.post("/api/ask", json={
+        "query": "哪個最推薦買", "stream": stream,
+        "history": [{"role": "user", "content": "Compare TSMC and Foxconn"}],
+    })
+    assert response.status_code == 200
+    data = events(response)[-1] if stream else response.json()
+    assert data["answer"].startswith(llm.answer)
+    assert data["answer"].endswith(INVESTMENT_DISCLAIMER)
+    assert data["answer"].count(INVESTMENT_DISCLAIMER) == 1
+    assert any(source["category"] == "comparison" for source in data["sources"])
+    assert any(source["category"] == "market_technical" for source in data["sources"])
+    assert retrieval.calls
+    if stream:
+        assert next(event["content"] for event in events(response) if event["type"] == "text") == data["answer"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_recommendation_disclaimer_does_not_bypass_citations(hub, stream):
+    client, _, llm, _ = hub
+    llm.answer = "Buy TSMC. [S99]"
+    response = client.post("/api/ask", json={"query": "哪個最推薦買", "stream": stream})
+    if stream:
+        assert events(response)[-1]["type"] == "error"
+        assert not any(event["type"] in {"text", "done"} for event in events(response))
+    else:
+        assert response.status_code == 503
+
+
+@pytest.mark.parametrize("query", ["如何在模擬下單頁買進股票？", "外資買賣超多少？", "What does buy mean?"])
+def test_order_help_and_market_facts_are_not_recommendations(query):
+    assert not _is_recommendation(query)
 
 
 @pytest.fixture
