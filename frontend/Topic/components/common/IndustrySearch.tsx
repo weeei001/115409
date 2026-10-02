@@ -6,30 +6,33 @@ import type { StockInfo } from '@/lib/types/api';
 export interface IndustryOption {
   industry: string;
   symbols: string[];
+  allAdded: boolean;
 }
 
 interface Props {
   stockInfos: StockInfo[];
-  availableSymbols: string[];
+  supportedSymbols: string[];
+  selectedSymbols: string[];
   onSelect: (symbols: string[]) => void;
   className?: string;
 }
 
 const MAX_OPTIONS = 12;
 
-export function buildIndustryOptions(stockInfos: StockInfo[], availableSymbols: string[]): IndustryOption[] {
-  const available = new Set(availableSymbols.map((symbol) => symbol.trim().toUpperCase()));
+export function buildIndustryOptions(stockInfos: StockInfo[], supportedSymbols: string[], selectedSymbols: string[] = []): IndustryOption[] {
+  const supported = new Set(supportedSymbols.map((symbol) => symbol.trim().toUpperCase()));
+  const selected = new Set(selectedSymbols.map((symbol) => symbol.trim().toUpperCase()));
   const groups = new Map<string, Set<string>>();
   for (const stock of stockInfos) {
     const symbol = stock.symbol.trim().toUpperCase();
     const industry = stock.industry?.trim();
-    if (!industry || !available.has(symbol)) continue;
+    if (!industry || !supported.has(symbol)) continue;
     const symbols = groups.get(industry) ?? new Set<string>();
     symbols.add(symbol);
     groups.set(industry, symbols);
   }
   return [...groups.entries()]
-    .map(([industry, symbols]) => ({ industry, symbols: [...symbols].sort() }))
+    .map(([industry, symbols]) => ({ industry, symbols: [...symbols].filter((symbol) => !selected.has(symbol)).sort(), allAdded: [...symbols].every((symbol) => selected.has(symbol)) }))
     .sort((a, b) => a.industry.localeCompare(b.industry, 'zh-Hant'));
 }
 
@@ -47,13 +50,13 @@ export function searchIndustryOptions(options: IndustryOption[], query: string, 
     .map((item) => item.option);
 }
 
-export function IndustrySearch({ stockInfos, availableSymbols, onSelect, className }: Props) {
+export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, onSelect, className }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
-  const options = useMemo(() => buildIndustryOptions(stockInfos, availableSymbols), [availableSymbols, stockInfos]);
+  const options = useMemo(() => buildIndustryOptions(stockInfos, supportedSymbols, selectedSymbols), [supportedSymbols, selectedSymbols, stockInfos]);
   const filtered = useMemo(() => searchIndustryOptions(options, query), [options, query]);
 
   useEffect(() => {
@@ -71,46 +74,50 @@ export function IndustrySearch({ stockInfos, availableSymbols, onSelect, classNa
   };
 
   const selectOption = (option: IndustryOption) => {
+    if (option.symbols.length === 0) return;
     onSelect(option.symbols);
     reset();
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    const selectable = filtered.flatMap((option, index) => option.symbols.length > 0 ? [index] : []);
     if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      if (filtered.length === 0) return;
+      if (selectable.length === 0) return;
       event.preventDefault();
       setOpen(true);
-      setActiveIndex(0);
+      setActiveIndex(selectable[0]);
       return;
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      if (activeIndex >= 0 && activeIndex < filtered.length) return selectOption(filtered[activeIndex]);
-      if (filtered.length > 0) return selectOption(filtered[0]);
+      if (selectable.includes(activeIndex)) return selectOption(filtered[activeIndex]);
+      if (selectable.length > 0) return selectOption(filtered[selectable[0]]);
       return;
     }
-    if (!open || filtered.length === 0) return;
+    if (!open || selectable.length === 0) return;
+    const position = selectable.indexOf(activeIndex);
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
-        setActiveIndex((index) => (index + 1) % filtered.length);
+        setActiveIndex(selectable[(position + 1) % selectable.length]);
         break;
       case 'ArrowUp':
         event.preventDefault();
-        setActiveIndex((index) => (index <= 0 ? filtered.length - 1 : index - 1));
+        setActiveIndex(selectable[position <= 0 ? selectable.length - 1 : position - 1]);
         break;
       case 'Home':
         event.preventDefault();
-        setActiveIndex(0);
+        setActiveIndex(selectable[0]);
         break;
       case 'End':
         event.preventDefault();
-        setActiveIndex(filtered.length - 1);
-        break;
-      case 'Escape':
-        event.preventDefault();
-        setOpen(false);
-        setActiveIndex(-1);
+        setActiveIndex(selectable[selectable.length - 1]);
         break;
     }
   };
@@ -127,7 +134,7 @@ export function IndustrySearch({ stockInfos, availableSymbols, onSelect, classNa
         aria-expanded={expanded}
         aria-controls={expanded ? listboxId : undefined}
         aria-autocomplete="list"
-        aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+        aria-activedescendant={expanded && filtered[activeIndex]?.symbols.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
@@ -146,25 +153,27 @@ export function IndustrySearch({ stockInfos, availableSymbols, onSelect, classNa
               key={option.industry}
               id={`${listboxId}-option-${index}`}
               role="option"
-              aria-selected={index === activeIndex}
+              aria-disabled={option.symbols.length === 0}
+              aria-selected={option.symbols.length > 0 && index === activeIndex}
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectOption(option)}
-              onMouseEnter={() => setActiveIndex(index)}
-              className={cn('cursor-pointer px-4 py-2.5 text-subtle transition-colors', index === activeIndex && 'bg-accent text-accent-foreground')}
+              onMouseEnter={() => setActiveIndex(option.symbols.length > 0 ? index : -1)}
+              className={cn('px-4 py-2.5 text-subtle transition-colors', option.symbols.length === 0 ? 'cursor-default text-muted-foreground' : 'cursor-pointer', option.symbols.length > 0 && index === activeIndex && 'bg-accent text-accent-foreground')}
             >
               <span className="flex min-w-0 items-baseline justify-between gap-3">
                 <span className="min-w-0 truncate text-sm font-medium">{option.industry}</span>
-                <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{option.symbols.length} 檔</span>
+                {option.symbols.length > 0 ? <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{option.symbols.length} 檔</span> : null}
               </span>
-              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">加入該產業尚未選取的股票</span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">{option.symbols.length > 0 ? '加入該產業尚未選取的支援股票' : option.allAdded ? '此產業的支援股票已全部加入。' : '目前沒有可加入的支援股票。'}</span>
             </li>
           ))}
           {filtered.length === 0 ? (
             <li role="status" className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-              {options.length === 0 ? '目前沒有可加入的產業。' : `找不到「${query.trim()}」相關產業。`}
+              {options.length === 0 ? '目前沒有支援股票的產業資料。' : `找不到「${query.trim()}」相關產業。`}
             </li>
           ) : (
             <li role="status" className="border-t px-4 py-2 text-[11px] text-muted-foreground">
-              選取後會加入該產業所有尚未選取的股票
+              選取後會加入該產業尚未選取的支援股票
             </li>
           )}
         </ul>

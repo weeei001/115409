@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import { toast } from 'sonner';
 import {
   fetchCandlestickMA,
@@ -45,8 +45,8 @@ export interface HistoryPage {
 
 export function useStockDashboard(symbol: string) {
   const defaults = getDefaultDateRange();
-  const [startDate, setStartDate] = useState(defaults.start);
-  const [endDate, setEndDate] = useState(defaults.end);
+  const [startDate, setStartDateValue] = useState(defaults.start);
+  const [endDate, setEndDateValue] = useState(defaults.end);
   /** AI 分析基準日：固定為資料最後一天，不跟著圖表結束日變動（決議 D9-c20） */
   const [baseDate, setBaseDate] = useState<string | null>(null);
   const [maPeriods, setMaPeriods] = useState(DEFAULT_MA_PERIODS);
@@ -74,11 +74,21 @@ export function useStockDashboard(symbol: string) {
   const [history, setHistory] = useState<HistoryPage | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const initReq = useRef(0);
   const chartReq = useRef(0);
   const chipsReq = useRef(0);
   const historyReq = useRef(0);
+
+  const setStartDate = useCallback((value: SetStateAction<string>) => {
+    setHistoryPage(1);
+    setStartDateValue(value);
+  }, []);
+  const setEndDate = useCallback((value: SetStateAction<string>) => {
+    setHistoryPage(1);
+    setEndDateValue(value);
+  }, []);
 
   // 換股票：清空所有資料，避免短暫顯示上一檔
   useLayoutEffect(() => {
@@ -221,11 +231,12 @@ export function useStockDashboard(symbol: string) {
     }
   }, []);
 
-  const loadHistory = useCallback(async (sym: string, page: number) => {
+  const loadHistory = useCallback(async (sym: string, sd: string, ed: string, page: number) => {
     const id = ++historyReq.current;
     setHistoryError(null);
+    setHistoryLoading(true);
     try {
-      const res = await fetchHistory(sym, { skip: (page - 1) * HISTORY_PAGE_SIZE, limit: HISTORY_PAGE_SIZE });
+      const res = await fetchHistory(sym, { start_date: sd, end_date: ed, skip: (page - 1) * HISTORY_PAGE_SIZE, limit: HISTORY_PAGE_SIZE });
       if (id !== historyReq.current) return;
       setHistory({ total: res.total, rows: (res.data ?? []).map(toDailyQuote) });
     } catch (err) {
@@ -234,10 +245,20 @@ export function useStockDashboard(symbol: string) {
       setHistoryError(msg);
       toast.error(msg);
       setHistory(null);
+    } finally {
+      if (id === historyReq.current) setHistoryLoading(false);
     }
   }, []);
 
   const ready = isStockSymbol(symbol) && !loading && rangeReady;
+
+  // Clear the previous range/page before painting and reject its late response.
+  useLayoutEffect(() => {
+    historyReq.current += 1;
+    setHistory(null);
+    setHistoryError(null);
+    setHistoryLoading(ready);
+  }, [ready, symbol, startDate, endDate, historyPage]);
 
   useEffect(() => {
     if (ready) void loadChart(symbol, startDate, endDate, maPeriods, showPriceChange);
@@ -249,8 +270,9 @@ export function useStockDashboard(symbol: string) {
   }, [ready, symbol, startDate, endDate, loadChips]);
 
   useEffect(() => {
-    if (isStockSymbol(symbol) && !loading) void loadHistory(symbol, historyPage);
-  }, [symbol, loading, historyPage, loadHistory]);
+    if (ready) void loadHistory(symbol, startDate, endDate, historyPage);
+    return () => { historyReq.current += 1; };
+  }, [ready, symbol, startDate, endDate, historyPage, loadHistory]);
 
   const priceChart = useMemo(() => (candlestickMA ? candlestickMaToPriceChart(candlestickMA) : null), [candlestickMA]);
 
@@ -296,6 +318,7 @@ export function useStockDashboard(symbol: string) {
     historyPage,
     setHistoryPage,
     historyError,
+    historyLoading,
     historyPageSize: HISTORY_PAGE_SIZE,
     reloadCharts,
     reloadChips,

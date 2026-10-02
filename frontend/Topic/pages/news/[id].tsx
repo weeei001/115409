@@ -12,6 +12,7 @@ import { breadcrumbsTrail } from '@/lib/nav';
 import { parseRelatedStocks } from '@/lib/news/sentiment';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
 import { userFacingMessage } from '@/lib/api/errorDetail';
+import { stockNewsReturnHref } from '@/lib/news/stockNewsView';
 
 const isStockCode = (code: string | null | undefined): code is string => Boolean(code && /^\d{4,6}$/.test(code));
 const firstQuery = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) || '';
@@ -29,6 +30,7 @@ export default function NewsDetailPage() {
   const articleId = firstQuery(router.query.id);
   const stockParam = firstQuery(router.query.stock);
   const revisionId = firstQuery(router.query.revision_id);
+  const newsReturn = stockNewsReturnHref(firstQuery(router.query.returnTo), stockParam);
   const [news, setNews] = useState<News | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +70,9 @@ export default function NewsDetailPage() {
 
   const breadcrumbs = useMemo(
     () => isStockCode(selectedStock)
-      ? breadcrumbsTrail({ label: formatStockLabel(selectedStock), href: `/stock/${selectedStock}` }, '新聞內容與事件影響')
+      ? breadcrumbsTrail({ label: formatStockLabel(selectedStock), href: selectedStock === stockParam && newsReturn ? newsReturn : `/stock/${selectedStock}` }, '新聞內容與事件影響')
       : breadcrumbsTrail('新聞內容與事件影響'),
-    [selectedStock],
+    [selectedStock, stockParam, newsReturn],
   );
   const pageTitle = news?.title ? `${news.title} - 新聞事件影響 | 股海明燈` : '新聞事件影響 | 股海明燈';
 
@@ -89,6 +91,7 @@ export default function NewsDetailPage() {
       />
 
       <main aria-label="新聞內容" className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        {newsReturn && <Button variant="outline" className="mb-4 min-h-11" onClick={() => void router.push(newsReturn)}><ArrowLeft aria-hidden />返回相關新聞列表</Button>}
         {loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-28" aria-busy="true" aria-live="polite">
             <Loader2 size={36} className="animate-spin text-brand" aria-hidden />

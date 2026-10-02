@@ -10,7 +10,12 @@ const COUNTER_THRESHOLD = MAX_QUERY_LENGTH - 500;
  * Enter 送出、Shift+Enter 換行；輸入法組字中（isComposing／keyCode 229）不送出。
  * 輸入框下方固定顯示 AI 免責：手機版 /ai 沒有頁尾、副標題也會被截斷（決議 D13）。
  */
-export function ChatInput({ onSend, disabled }: { onSend: (text: string) => void; disabled: boolean }) {
+export function ChatInput({ onSend, disabled, onStop, stopNotice = false }: {
+  onSend: (text: string) => void;
+  disabled: boolean;
+  onStop?: () => void;
+  stopNotice?: boolean;
+}) {
   const [value, setValue] = useState('');
 
   const submit = () => {
@@ -52,6 +57,10 @@ export function ChatInput({ onSend, disabled }: { onSend: (text: string) => void
         >
           <Send size={18} aria-hidden />
         </button>
+        {onStop ? <button type="button" onClick={onStop}
+          className="min-h-12 shrink-0 rounded-xl border px-3 text-sm whitespace-nowrap text-subtle hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2">
+          停止接收
+        </button> : null}
       </div>
       <p id="chat-input-note" className="mt-2 flex justify-between gap-3 text-xs text-muted-foreground">
         <span>AI 回覆僅供研究參考，不是投資建議。</span>
@@ -61,6 +70,7 @@ export function ChatInput({ onSend, disabled }: { onSend: (text: string) => void
           </span>
         ) : null}
       </p>
+      {stopNotice ? <p role="status" className="mt-2 text-xs text-muted-foreground">已停止接收，後端可能仍在處理。</p> : null}
     </div>
   );
 }

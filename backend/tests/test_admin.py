@@ -196,3 +196,85 @@ def test_overview_uses_environment_local_qdrant_and_sanitizes_errors(client, app
 
         asyncio.run(app.state.http.aclose())
         app.state.http = original
+
+
+def test_run_diagnostics_are_whitelisted_and_detail_requires_admin(client, db_session, settings):
+    _, headers = account(db_session, settings, "manager@example.com", administrator=True)
+    _, member_headers = account(db_session, settings, "member@example.com")
+    rows = [AdminJobRun(job_name="rag", status="failed", trigger="scheduled", exit_code=1,
+        error="news-impact-batch exited with code 1; cache-warmup exited with code 2"),
+        AdminJobRun(job_name="rag", status="failed", trigger="manual", exit_code=1,
+        error="password=private-token https://private.test exception and article content"),
+        AdminJobRun(job_name="rag", status="interrupted", trigger="scheduled",
+        error="Service restarted before this run completed")]
+    db_session.add_all(rows)
+    db_session.commit()
+    response = client.get(f"/admin/runs/{rows[0].id}", headers=headers)
+    assert response.status_code == 200
+    diagnostics = response.json()["diagnostics"]
+    assert diagnostics["failed_stages"] == [{"stage": "news-impact-batch", "exit_code": 1},
+                                            {"stage": "cache-warmup", "exit_code": 2}]
+    assert diagnostics["error_category"] == "stage_nonzero"
+    assert diagnostics["worker_progress"] == "unknown"
+    assert diagnostics["last_activity_at"] is None
+    assert client.get(f"/admin/runs/{rows[0].id}", headers=member_headers).status_code == 403
+    assert client.get(f"/admin/runs/{rows[0].id}").status_code == 403
+    assert client.get("/admin/runs/999999", headers=headers).status_code == 404
+    data = client.get("/admin/runs", headers=headers).text
+    assert "private-token" not in data and "private.test" not in data and "article content" not in data
+    assert rows[1].error.startswith("password="), "Public diagnostics must not mutate retained history."
+    assert client.get(f"/admin/runs/{rows[2].id}", headers=headers).json()["diagnostics"]["error_category"] == "service_restart"
+    from app.features.admin.diagnostics import failure_stages, safe_error
+    assert failure_stages("news-ingest exited with code 1; password=private") == []
+    assert failure_stages("invented-stage exited with code 1") == []
+    assert "private" not in safe_error("private" * 10000)
+
+
+def test_job_summary_uses_all_retained_history_and_never_confuses_liveness(db_session):
+    now = datetime(2026, 10, 1, 13)
+    old_success = AdminJobRun(job_name="sample", status="succeeded", trigger="scheduled", finished_at=now)
+    db_session.add(old_success)
+    db_session.flush()
+    db_session.add_all([AdminJobRun(job_name="sample", status="failed", trigger="scheduled",
+        finished_at=now + timedelta(minutes=n + 1), exit_code=1) for n in range(40)])
+    db_session.add(AdminJobRun(job_name="other", status="succeeded", trigger="scheduled", finished_at=now))
+    db_session.commit()
+    data = service.overview(db_session, FakeRuntime(), "development")
+    assert data["services"][1]["status"] == "running"
+    summary = data["jobs"][0]["result_summary"]
+    assert summary["history_scope"] == "all_stored_runs" and summary["terminal_runs"] == 41
+    assert summary["last_success"]["id"] == old_success.id
+    assert summary["consecutive_failed"] == 40
+    assert old_success.id not in [item["id"] for item in service.list_runs(db_session)["items"]]
+    db_session.add(AdminJobRun(job_name="sample", status="interrupted", trigger="scheduled", finished_at=now))
+    db_session.add(AdminJobRun(job_name="sample", status="failed", trigger="manual", finished_at=now, exit_code=1))
+    db_session.add(AdminJobRun(job_name="sample", status="running", trigger="manual", started_at=now))
+    db_session.commit()
+    summary = service.overview(db_session, FakeRuntime(), "development")["jobs"][0]["result_summary"]
+    assert summary["consecutive_failed"] == 1 and summary["terminal_runs"] == 43
+    runtime = FakeRuntime()
+    runtime.snapshot = lambda: {"status": "running", "heartbeat": None, "error": None,
+        "jobs": [{"name": "empty", "schedule": "Manual", "paused": False, "next_run_at": None, "active_run_id": None}]}
+    empty = service.overview(db_session, runtime, "development")["jobs"][0]["result_summary"]
+    assert empty == {"history_scope": "all_stored_runs", "terminal_runs": 0,
+                     "last_success": None, "last_failure": None, "consecutive_failed": 0}
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "succeeded", "failed", "interrupted"])
+def test_accepted_audit_can_read_exact_run_beyond_first_page_without_rewriting_result(client, db_session, settings, status):
+    manager, headers = account(db_session, settings, "manager@example.com", administrator=True)
+    original = AdminJobRun(job_name="impact", status=status, trigger="manual", actor_id=manager.id)
+    db_session.add(original)
+    db_session.flush()
+    service.audit(db_session, manager.id, manager.email, "job.run", "impact", "succeeded", {"run_id": original.id})
+    db_session.add_all([AdminJobRun(job_name="cnyes", status="succeeded", trigger="scheduled") for _ in range(25)])
+    db_session.commit()
+    assert original.id not in [item["id"] for item in client.get("/admin/runs", headers=headers).json()["items"]]
+    response = client.get(f"/admin/runs/{original.id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["id"] == original.id and response.json()["status"] == status
+    record = next(item for item in client.get("/admin/audit", headers=headers).json()["items"] if item["action"] == "job.run")
+    assert record["status"] == "succeeded" and record["details"]["run_id"] == original.id
+    assert client.get("/admin/runs/2147483648", headers=headers).status_code == 422
+    assert client.get("/admin/runs/999999", headers=headers).status_code == 404
+    assert service.list_runs(db_session)["total"] == 26, "Read-only navigation must not enqueue work."

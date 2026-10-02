@@ -42,3 +42,25 @@ def test_volume_history_preserves_missing_zero_and_nontrading_end_date(client, d
     response = client.get("/stocks/2330/history", params={"end_date": friday + timedelta(days=2), "limit": 60})
     assert response.status_code == 200
     assert [row["volume_shares"] for row in response.json()["data"]] == [0, None]
+
+
+def test_visible_history_range_filters_total_and_every_page(client, db_session):
+    days = [date(2026, 1, 1) + timedelta(days=index) for index in range(80)]
+    db_session.add_all(DailyPrice(symbol="2330", date=day, close=100, volume_shares=index)
+                       for index, day in enumerate(days))
+    db_session.add(DailyPrice(symbol="2454", date=days[40], close=200, volume_shares=1000))
+    db_session.commit()
+    params = {"start_date": days[10], "end_date": days[70], "limit": 30}
+    rows = []
+    for skip in (0, 30, 60):
+        response = client.get("/stocks/2330/history", params={**params, "skip": skip})
+        assert response.status_code == 200
+        assert response.json()["total"] == 61
+        rows.extend(response.json()["data"])
+    assert [row["date"] for row in rows] == [day.isoformat() for day in reversed(days[10:71])]
+    short = client.get("/stocks/2330/history", params={**params, "start_date": days[65]}).json()
+    assert short["total"] == 6
+    assert [row["date"] for row in short["data"]] == [day.isoformat() for day in reversed(days[65:71])]
+    empty = client.get("/stocks/2330/history", params={**params, "start_date": "2027-01-01", "end_date": "2027-02-01"}).json()
+    assert empty["total"] == 0
+    assert empty["data"] == []
