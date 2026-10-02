@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from app.features.auth.router import CurrentUser, Database
 from app.features.paper_portfolio import service
-from app.features.paper_portfolio.schemas import OrderCreate
+from app.features.paper_portfolio.schemas import FundCreate, OrderCreate
 
 router = APIRouter(prefix='/paper-portfolio', tags=['Paper portfolio'])
 
@@ -14,6 +14,11 @@ def get_portfolio(user: CurrentUser, db: Database):
 @router.post('/orders')
 def create_order(body: OrderCreate, user: CurrentUser, db: Database):
     return service.create_order(db, user.id, body)
+
+
+@router.post('/funds')
+def create_fund_movement(body: FundCreate, user: CurrentUser, db: Database):
+    return service.create_fund_movement(db, user.id, body)
 
 
 @router.post('/orders/{order_id}/cancel')

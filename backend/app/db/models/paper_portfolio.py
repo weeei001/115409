@@ -5,8 +5,19 @@ from app.db.base import Base
 class PaperAccount(Base):
     __tablename__ = 'paper_accounts'
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
-    initial_cash = Column(Numeric(18, 2), nullable=False, default=1000000)
-    cash = Column(Numeric(18, 2), nullable=False, default=1000000)
+    initial_cash = Column(Numeric(18, 2), nullable=False)
+    cash = Column(Numeric(18, 2), nullable=False)
+
+
+class PaperCashMovement(Base):
+    __tablename__ = 'paper_cash_movements'
+    id = Column(String(36), primary_key=True)
+    user_id = Column(Integer, ForeignKey('paper_accounts.user_id', ondelete='CASCADE'), nullable=False, index=True)
+    client_request_id = Column(String(128), nullable=False)
+    kind = Column(String(16), nullable=False)
+    amount = Column(Numeric(18, 2), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    __table_args__ = (UniqueConstraint('user_id', 'client_request_id', name='uq_paper_cash_request'),)
 
 
 class PaperOrder(Base):

@@ -3,6 +3,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class FundCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    client_request_id: str = Field(min_length=1, max_length=128)
+    kind: Literal['initial', 'deposit', 'withdrawal']
+    amount: Decimal = Field(gt=0, le=1000000000, decimal_places=2)
+
+
 class OrderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     client_request_id: str = Field(min_length=1, max_length=128)
