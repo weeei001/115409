@@ -1,4 +1,5 @@
 import type { News, NewsImpact, NewsImpactDirection, NewsImpactScope } from '../types';
+import { toneBadge } from './tone';
 
 export const DIRECTION_LABELS: Record<NewsImpactDirection, string> = {
   positive: '正向', negative: '負向', neutral: '中性', mixed: '正負並存', uncertain: '方向未明',
@@ -23,12 +24,13 @@ export const TOPIC_LABELS: Record<string, string> = {
   company_operations: '企業營運', capital_markets: '資本市場',
 };
 
+/** 正向用漲色、負向用跌色，其餘中性（DESIGN.md 第 7 節、決議 D8） */
 export const DIRECTION_CLASSES: Record<NewsImpactDirection, string> = {
-  positive: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-  negative: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
-  neutral: 'text-slate-300 bg-slate-500/15 border-slate-500/30',
-  mixed: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-  uncertain: 'text-zinc-400 bg-zinc-500/15 border-zinc-500/30',
+  positive: toneBadge('up', { emphasis: true }),
+  negative: toneBadge('down', { emphasis: true }),
+  neutral: toneBadge('neutral'),
+  mixed: toneBadge('neutral'),
+  uncertain: toneBadge('neutral'),
 };
 
 export function impactTarget(impact: NewsImpact): string {

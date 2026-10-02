@@ -193,22 +193,6 @@ export interface ChipsVolumeChartResponse {
 
 // ── News ──
 
-export interface SentimentEvidenceItem {
-  field: 'title' | 'content';
-  quote: string;
-}
-
-/** openapi 只寫 string；後端 news/sentiment.py 限定這 5 個值（openapi 未列，依後端實作） */
-export type SentimentLabel = 'positive' | 'negative' | 'neutral' | 'mixed' | 'insufficient';
-
-export interface SentimentResponse {
-  target_stock_id: string;
-  label: SentimentLabel | string;
-  reason: string;
-  evidence?: SentimentEvidenceItem[];
-  analyzed_at?: string | null;
-}
-
 export type NewsImpactDirection = 'positive' | 'negative' | 'neutral' | 'mixed' | 'uncertain';
 export type NewsImpactScope = 'market' | 'industry' | 'company';
 
@@ -240,7 +224,7 @@ export interface NewsImpact {
 
 export interface NewsEventAnalysis {
   content_truncated?: boolean;
-  content_kind?: string;
+  content_kind?: string | null;
   validation_scope?: string;
   status: 'pending' | 'success' | 'failed' | 'skipped';
   events: NewsEvent[];
@@ -271,7 +255,6 @@ export interface News {
   tags: string | null;
   content: string | null;
   created_at: string | null;
-  sentiments?: SentimentResponse[];
   event_analysis: NewsEventAnalysis;
 }
 
@@ -303,7 +286,7 @@ export interface MessageResponse {
   message: string;
 }
 
-// ── Favorites（openapi.json 這段是手寫的，後端部署後要 sync 比對；決議 F1） ──
+// ── Favorites（決議 F1：已從 production openapi 同步，端點與 schema 與原手寫版本相同） ──
 
 export interface FavoriteStockResponse {
   symbol: string;

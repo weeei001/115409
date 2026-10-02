@@ -22,4 +22,7 @@ for (const status of ['conflict', 'superseded', 'historical'] as const) {
   assert.ok(html.includes('https://example.com/original'));
   if (status === 'historical') assert.ok(html.includes(`revision_id=${'a'.repeat(64)}`));
 }
+const activeHtml = renderToStaticMarkup(React.createElement(NewsCard, { news, targetStock: '2330' }));
+assert.ok(activeHtml.includes('bg-up-muted text-up-emphasis border-up/30'));
+assert.doesNotMatch(activeHtml, /emerald|rose|slate|amber|zinc/);
 console.log('NewsCard version state tests passed');

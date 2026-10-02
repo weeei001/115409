@@ -9,7 +9,7 @@ Communicate in Taiwan Traditional Chinese by default. Write implementation artif
 ## Where to work
 
 - Backend: `backend/app/`; tests: `backend/tests/`; API entry: `app.main:app` from `backend/`.
-- Frontend: `frontend/Topic/`, Next.js Pages Router with npm and `package-lock.json`. `frontend/topictest/` is historical, not the active app.
+- Frontend: `frontend/Topic/`, Next.js Pages Router with npm and `package-lock.json`.
 - Use [README.md](README.md) for setup and [docs/README.md](docs/README.md) for backend boundaries, benchmark operations, and verification limits. Read the parts relevant to the task.
 - Keep secrets, machine-local `.env` files, `deploy/`, `.state/`, `qdrant_db/`, and generated outputs out of commits. Preserve local data unless the task requires a change; sanitized example configuration can be maintained with the source.
 - Keep machine-specific deployment runbooks, service configurations, and deployment scripts local; do not commit them.
