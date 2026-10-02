@@ -24,7 +24,7 @@ const GLOW = {
 
 const REST_TRANSFORM = 'perspective(600px) rotateY(0deg) rotateX(0deg) scale3d(1,1,1)';
 
-/** 首頁即時股價卡：點擊進個股頁；滑鼠裝置才有 3D 傾斜 */
+/** Stored closing quote card; hover devices retain the existing tilt interaction. */
 export const StockPriceCard = memo(function StockPriceCard({ data, stockName, index, sparkline, onNavigate }: Props) {
   const ref = useRef<HTMLButtonElement>(null);
   const canTilt = useCanHoverTilt();
@@ -56,7 +56,7 @@ export const StockPriceCard = memo(function StockPriceCard({ data, stockName, in
       onMouseLeave={() => {
         if (ref.current) ref.current.style.transform = REST_TRANSFORM;
       }}
-      aria-label={`${label} 收盤 ${close.toFixed(2)}，漲跌 ${sign}${change.toFixed(2)}（${sign}${changePct.toFixed(2)}%），查看個股`}
+      aria-label={`${label} 收盤日 ${data.date}，收盤 ${close.toFixed(2)}，漲跌 ${sign}${change.toFixed(2)}（${sign}${changePct.toFixed(2)}%），查看個股`}
       className="w-full rounded-xl border bg-card px-4 py-4 text-left hover:border-border-strong hover:shadow-[0_0_24px_var(--card-glow),var(--elev-card-hover)]"
       style={
         {

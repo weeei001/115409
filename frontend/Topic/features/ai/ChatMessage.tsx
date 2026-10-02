@@ -19,11 +19,13 @@ interface Props {
   streamActive: boolean;
   onFollowUp?: (query: string) => void;
   followUpDisabled: boolean;
+  answerTargetId?: string;
+  citationsTargetId?: string;
 }
 
 const Cursor = () => <span className="ml-0.5 inline-block h-4 w-0.5 bg-brand align-text-bottom" style={{ animation: 'cursor-blink 1s step-end infinite' }} />;
 
-export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, followUpDisabled }: Props) {
+export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, followUpDisabled, answerTargetId, citationsTargetId }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const sourceScope = useId();
@@ -69,7 +71,9 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
 
   return (
     <motion.div
-      className={cn('flex min-w-0 gap-2 sm:gap-3', isUser && 'flex-row-reverse')}
+      id={answerTargetId}
+      tabIndex={answerTargetId ? -1 : undefined}
+      className={cn('flex min-w-0 gap-2 sm:gap-3', isUser && 'flex-row-reverse', answerTargetId && 'rounded-xl focus:outline-2 focus:outline-offset-2')}
       initial={reducedMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={reducedMotion ? { duration: 0 } : { duration: 0.3 }}
@@ -118,7 +122,10 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
           ) : null}
         </div>
 
-        {!isUser && citedIds.length ? (
+        {!isUser && (citedIds.length > 0 || sources.length > 0) ? <div id={citationsTargetId}
+          tabIndex={citationsTargetId ? -1 : undefined} aria-label="引用與原始資料"
+          className={citationsTargetId ? 'rounded-lg focus:outline-2 focus:outline-offset-2' : undefined}>
+        {citedIds.length ? (
           <section className="mt-3 border-t pt-3 text-sm" aria-label="引用來源">
             <h3 className="mb-2 text-xs font-semibold">引用來源</h3>
             <ul className="space-y-2">
@@ -129,7 +136,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
           </section>
         ) : null}
 
-        {!isUser && sources.length ? (
+        {sources.length ? (
           <details ref={rawSourcesRef} className="mt-3 border-t pt-3 text-sm">
             <summary className="cursor-pointer text-brand-text">本輪引用原始資料</summary>
             {sources.map((source) => (
@@ -141,6 +148,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
             ))}
           </details>
         ) : null}
+        </div> : null}
 
         {followUps.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="建議追問">

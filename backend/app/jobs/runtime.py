@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import state_directory
 from app.core.errors import AppError, Conflict, NotFound, ServiceUnavailable
 from app.db.models.admin import AdminJobControl, AdminJobRun
+from app.features.admin.diagnostics import STAGES
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 
@@ -40,6 +41,7 @@ class JobRuntime:
         self.paused = set()
         self.active = {}
         self.pending = {}
+        self.run_activity = {}
         self.scheduler = Scheduler(self._scheduled, datetime.now(TAIPEI), clock.monotonic(),
             interval=settings.JOBS_INTERVAL_MINUTES * 60,
             delay=settings.JOBS_RAG_DELAY_MINUTES * 60,
@@ -181,7 +183,20 @@ class JobRuntime:
         failures = []
 
         def worker(command):
-            result = self._worker(command)
+            stage = command[0] if command and command[0] in STAGES else None
+            started = datetime.now(timezone.utc).isoformat()
+            with self.lock:
+                self.run_activity[name] = {"run_id": run_id, "stage": stage,
+                    "stage_started_at": started, "last_activity_at": started}
+            print(f"admin_run={run_id} stage={stage or 'unknown'} event=started at={started}", flush=True)
+            try:
+                result = self._worker(command)
+            except Exception:
+                print(f"admin_run={run_id} stage={stage or 'unknown'} event=exception at={datetime.now(timezone.utc).isoformat()}", flush=True)
+                raise
+            print(f"admin_run={run_id} stage={stage or 'unknown'} event=finished exit_code={result} at={datetime.now(timezone.utc).isoformat()}", flush=True)
+            with self.lock:
+                self.run_activity.pop(name, None)
             if result:
                 failures.append(f"{command[0]} exited with code {result}")
             return result
@@ -207,6 +222,7 @@ class JobRuntime:
         finally:
             with self.lock:
                 self.active.pop(name, None)
+                self.run_activity.pop(name, None)
         return result
 
     def _worker(self, command):
@@ -292,4 +308,5 @@ class JobRuntime:
                     "next_run_at": (next_at.isoformat() if next_at and self.status == "running"
                         and name not in self.paused and name not in self.active and name not in self.pending else None),
                     "active_run_id": self.active.get(name), "queued_run_id": self.pending.get(name)})
-            return {"status": self.status, "heartbeat": self.heartbeat, "error": self.error, "jobs": jobs}
+            return {"status": self.status, "heartbeat": self.heartbeat, "error": self.error, "jobs": jobs,
+                "run_activity": {name: dict(value) for name, value in self.run_activity.items()}}
