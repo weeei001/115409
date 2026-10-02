@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import type { News } from '../types';
-import { visibleImpacts } from './newsImpact';
+import { DIRECTION_CLASSES, visibleImpacts } from './newsImpact';
 
 const news = {
   article_id: 'example',
+  target_industries: ['TWSE:24'],
   event_analysis: {
     status: 'success',
     events: [],
@@ -22,3 +23,10 @@ assert.deepEqual(visibleImpacts(news, '2330', 'market_context').map((impact) => 
 assert.deepEqual(visibleImpacts(news, '2317'), []);
 news.event_analysis!.status = 'pending';
 assert.deepEqual(visibleImpacts(news), []);
+
+// 台股慣例：正向＝漲（紅）、負向＝跌（綠），其餘中性
+assert.equal(DIRECTION_CLASSES.positive, 'bg-up-muted text-up-emphasis border-up/30');
+assert.equal(DIRECTION_CLASSES.negative, 'bg-down-muted text-down-emphasis border-down/30');
+for (const direction of ['neutral', 'mixed', 'uncertain'] as const) {
+  assert.equal(DIRECTION_CLASSES[direction], 'bg-muted text-subtle border-border');
+}
