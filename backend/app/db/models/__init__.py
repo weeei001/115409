@@ -62,5 +62,5 @@ __all__ = [
     "AdminAuditLog",
 ]
 
-from .paper_portfolio import PaperAccount, PaperOrder, PaperReview
-__all__ += ['PaperAccount', 'PaperOrder', 'PaperReview']
+from .paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview
+__all__ += ['PaperAccount', 'PaperCashMovement', 'PaperOrder', 'PaperReview']

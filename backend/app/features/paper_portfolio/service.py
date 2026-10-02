@@ -6,11 +6,10 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.core.errors import AppError, NotFound, Conflict
-from app.db.models.paper_portfolio import PaperAccount, PaperOrder, PaperReview
+from app.db.models.paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview
 from app.db.models.notification import Notification
 from app.features.paper_portfolio import repository as repo
 
-INITIAL_CASH = Decimal('1000000.00')
 TAIPEI = ZoneInfo('Asia/Taipei')
 
 
@@ -43,15 +42,51 @@ def _holdings(records):
     return holdings, realized
 
 
-def _ensure_account(db, user_id):
+def _lock_account(db, user_id, required=True):
     if repo.lock_owner(db, user_id) is None:
         raise NotFound('找不到使用者')
     account = repo.account(db, user_id, lock=True)
-    if account is None:
-        account = PaperAccount(user_id=user_id, initial_cash=INITIAL_CASH, cash=INITIAL_CASH)
-        db.add(account)
-        db.flush()
+    if account is None and required:
+        raise Conflict('請先設定模擬投資預算')
     return account
+
+
+def create_fund_movement(db, user_id, body, now=None):
+    current = _now(now)
+    try:
+        account = _lock_account(db, user_id, required=False)
+        movements = repo.fund_movements(db, user_id, lock=True)
+        existing = next((row for row in movements if row.client_request_id == body.client_request_id), None)
+        if existing:
+            if existing.kind != body.kind or existing.amount != body.amount:
+                raise Conflict('此請求已用於其他資金調整，請重新送出')
+            db.commit()
+            return snapshot(db, user_id, now=current)
+        if body.kind == 'initial':
+            if account is not None:
+                raise Conflict('已設定投資預算，請使用增加或取回資金')
+            account = PaperAccount(user_id=user_id, initial_cash=body.amount, cash=body.amount)
+            db.add(account)
+            db.flush()
+        else:
+            if account is None:
+                raise Conflict('請先設定模擬投資預算')
+            _settle(db, user_id, current)
+            if body.kind == 'withdrawal':
+                reserved = sum((row.budget for row in repo.orders(db, user_id, lock=True)
+                                if row.status == 'pending' and row.side == 'buy'), Decimal(0))
+                if body.amount > account.cash - reserved:
+                    raise AppError('可用模擬資金不足，請減少取回金額或先取消待成交委託')
+                account.cash -= body.amount
+            else:
+                account.cash += body.amount
+        db.add(PaperCashMovement(id=str(uuid4()), user_id=user_id,
+                                created_at=current.replace(tzinfo=None), **body.model_dump()))
+        db.commit()
+        return snapshot(db, user_id, now=current)
+    except Exception:
+        db.rollback()
+        raise
 
 
 def _order(row, sessions=None):
@@ -74,7 +109,7 @@ def _order(row, sessions=None):
 def create_order(db, user_id, body, now=None):
     current = _now(now)
     try:
-        account = _ensure_account(db, user_id)
+        account = _lock_account(db, user_id)
         _settle(db, user_id, current)
         records = repo.orders(db, user_id, lock=True)
         existing = next((r for r in records if r.client_request_id == body.client_request_id), None)
@@ -140,7 +175,9 @@ def _eligible_sessions(db, current):
 
 
 def _settle(db, user_id, current):
-    account = _ensure_account(db, user_id)
+    account = _lock_account(db, user_id, required=False)
+    if account is None:
+        return
     records = repo.orders(db, user_id, lock=True)
     days = _eligible_sessions(db, current)
     for row in records:
@@ -188,6 +225,8 @@ def _settle(db, user_id, current):
                             body='回顧當初的投資理由，對照後續行情與新聞。',
                             url=f'/order?review={review.id}', dedupe_key=sha256(f'paper-review:{row.id}'.encode()).hexdigest(),
                             created_at=timestamp, expires_at=timestamp + timedelta(days=90), delivered_at=timestamp))
+    # Locking rereads refresh ORM state even when the session disables autoflush.
+    db.flush()
 
 
 def reconcile(db, user_id=None, now=None):
@@ -211,7 +250,12 @@ def snapshot(db, user_id, now=None):
     holdings, realized = _holdings(records)
     pending = [r for r in records if r.status == 'pending']
     reserved = sum((r.budget for r in pending if r.side == 'buy'), Decimal(0))
-    cash = account.cash if account else INITIAL_CASH
+    cash = account.cash if account else Decimal(0)
+    initial_cash = account.initial_cash if account else Decimal(0)
+    movements = repo.fund_movements(db, user_id)
+    deposits = sum((row.amount for row in movements if row.kind == 'deposit'), Decimal(0))
+    withdrawals = sum((row.amount for row in movements if row.kind == 'withdrawal'), Decimal(0))
+    contributions = initial_cash + deposits - withdrawals
     positions, value, unrealized = [], Decimal(0), Decimal(0)
     unpriced = False
     for symbol, holding in holdings.items():
@@ -244,7 +288,10 @@ def snapshot(db, user_id, now=None):
                             price_return_pct=float((close.close / order.fill_price - 1) * 100) if close and close.close else None,
                             benchmark_return_pct=float((end.close / start.close - 1) * 100) if start and end and start.close > 0 else None,
                             comparison_note='價格報酬未含股息與費稅；帳戶損益含模擬費稅。除權息與其他公司行動未調整，請勿直接以漲跌認定判斷成敗。'))
-    return dict(initial_cash=float(account.initial_cash if account else INITIAL_CASH), cash=float(cash),
+    return dict(initialized=account is not None, initial_cash=float(initial_cash), cash=float(cash),
+                total_deposits=float(deposits), total_withdrawals=float(withdrawals), net_contributions=float(contributions),
+                total_pnl=None if unpriced else float(cash + value - contributions),
+                fund_movements=[dict(id=row.id, kind=row.kind, amount=float(row.amount), created_at=_now(row.created_at).isoformat()) for row in reversed(movements)],
                 available_cash=float(cash - reserved), reserved_cash=float(reserved), equity=None if unpriced else float(cash + value), valuation_status='missing_prices' if unpriced else 'available',
                 realized_pnl=float(realized), unrealized_pnl=None if unpriced else float(unrealized), as_of=current.isoformat(),
                 positions=positions, orders=[_order(r, sessions) for r in reversed(records)], reviews=reviews,
@@ -258,7 +305,7 @@ def get_portfolio(db, user_id, now=None):
 
 def acknowledge_review(db, user_id, review_id, now=None):
     try:
-        _ensure_account(db, user_id)
+        _lock_account(db, user_id)
         row = next((r for r in repo.reviews(db, user_id, lock=True) if r.id == review_id), None)
         if row is None:
             raise NotFound('找不到回顧')

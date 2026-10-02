@@ -13,6 +13,10 @@ def personal_scopes(query, needs):
         scopes.add("favorites")
     if re.search(r"我的持股|我持有|我的投資|我的模擬|模擬持股|模擬帳戶|剩餘資金|可用資金|我的.{0,12}(?:股票|訂單|委託)|回顧|模擬.{0,20}(?:買|賣)|my (?:portfolio|positions)", query, re.I):
         scopes.add("portfolio")
+    if re.search(r"(?:我|目前|現在).{0,12}(?:預算|本金|資金|買得起|能買多少|可以買多少)|(?:增加|減少|調整|設定|投入|取回).{0,8}(?:模擬資金|投資預算)|my (?:budget|cash)|can I afford", query, re.I):
+        scopes.add("portfolio")
+    if "favorites" in scopes and re.search(r"買|賣|投入|分配|配置|預算|本金|資金|投資|buy|sell|allocat|invest|afford", query, re.I):
+        scopes.add("portfolio")
     return scopes
 
 
@@ -42,11 +46,16 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
             selected_reviews = selected_reviews[:len(relevant_reviews) + 20]
             portfolio["orders"] = selected_orders
             portfolio["reviews"] = selected_reviews
+            movements = portfolio.get("fund_movements", [])
+            portfolio["fund_movements"] = movements[:20]
             portfolio["context_counts"] = {
                 "orders_total": len(records), "orders_shown": len(selected_orders),
                 "reviews_total": len(reviews), "reviews_shown": len(selected_reviews),
+                "fund_movements_total": len(movements), "fund_movements_shown": len(movements[:20]),
             }
-            portfolio["context_note"] = "僅提供最近 20 筆委託、最多 20 筆優先待回顧紀錄及本次指定紀錄；未列出的紀錄不代表不存在。帳戶數字仍由完整帳本計算。"
+            portfolio["context_note"] = "僅提供最近 20 筆委託與資金紀錄、最多 20 筆優先待回顧紀錄及本次指定紀錄；未列出的紀錄不代表不存在。帳戶數字仍由完整帳本計算。"
+            if portfolio.get("initialized") is False:
+                portfolio["setup_note"] = "使用者尚未設定模擬投資預算；零值僅表示尚未建立帳戶，不能解讀為沒有存款或沒有投資能力。請引導使用者至模擬投資頁設定想投入的練習金額。"
             payload["portfolio"] = portfolio
     symbols = [row["symbol"] for row in payload.get("favorites", [])]
     portfolio = payload.get("portfolio", {})

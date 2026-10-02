@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 
 from app.features.chat import service as chat_module
-from app.features.chat.personal_context import paper_draft, read_personal_context
+from app.features.chat.personal_context import paper_draft, personal_scopes, read_personal_context
 from app.features.chat.schemas import AskRequest, AskResponse
 from app.features.chat.service import ChatService
 from test_chat import FakeModels, FakeRetrieval
@@ -61,6 +61,52 @@ def test_favorites_resolve_before_news_retrieval(monkeypatch):
     assert seen == [(7, {"favorites"})]
     assert retrieval.calls[0]["symbols"] == ["2330"]
     assert response.detected_stocks == ["2330"]
+
+
+@pytest.mark.parametrize("query,needs,expected", [
+    ("我的投資預算有多少？", [], {"portfolio"}),
+    ("我買得起 2330 嗎？", ["market"], {"portfolio"}),
+    ("目前資金可以買多少？", [], {"portfolio"}),
+    ("增加模擬資金", ["help"], {"portfolio"}),
+    ("從我的收藏幫我分配投入金額", ["favorites"], {"favorites", "portfolio"}),
+    ("這些收藏哪檔適合買？", ["favorites", "market"], {"favorites", "portfolio"}),
+    ("我的收藏有哪些新聞？", ["favorites", "news"], {"favorites"}),
+    ("什麼是資金配置？", ["knowledge"], set()),
+])
+def test_personal_scopes_include_budget_only_when_relevant(query, needs, expected):
+    assert personal_scopes(query, needs) == expected
+
+
+def test_unconfigured_portfolio_is_distinct_from_zero_funds(monkeypatch):
+    from app.features.paper_portfolio import service
+    monkeypatch.setattr(service, "snapshot", lambda db, user: {
+        "initialized": False, "cash": 0, "available_cash": 0, "positions": [],
+    })
+    _, source = read_personal_context(lambda: nullcontext(object()), 7, {"portfolio"})
+    payload = json.loads(source.content)["portfolio"]
+    assert payload["initialized"] is False
+    assert "尚未設定" in payload["setup_note"]
+    assert "不能解讀為沒有存款" in payload["setup_note"]
+
+
+def test_fund_context_keeps_full_totals_with_bounded_history(monkeypatch):
+    from app.features.paper_portfolio import service
+    movements = [{"id": str(index), "amount": 1000} for index in range(50)]
+    monkeypatch.setattr(service, "snapshot", lambda db, user: {
+        "initialized": True, "cash": 0, "available_cash": 0, "positions": [],
+        "total_deposits": 50000, "total_withdrawals": 10000,
+        "net_contributions": 70000, "total_pnl": 3000, "fund_movements": movements,
+    })
+    _, source = read_personal_context(lambda: nullcontext(object()), 7, {"portfolio"})
+    payload = json.loads(source.content)["portfolio"]
+    assert "setup_note" not in payload
+    assert payload["total_deposits"] == 50000
+    assert payload["total_withdrawals"] == 10000
+    assert payload["net_contributions"] == 70000
+    assert payload["total_pnl"] == 3000
+    assert payload["fund_movements"] == movements[:20]
+    assert payload["context_counts"]["fund_movements_total"] == 50
+    assert payload["context_counts"]["fund_movements_shown"] == 20
 
 
 @pytest.mark.parametrize("query,quantity,budget", [

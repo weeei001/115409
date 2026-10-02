@@ -5,7 +5,7 @@ import pytest
 from app.core.errors import AppError, Conflict, NotFound
 from app.db.models import User, StockInfo, DailyPrice, BenchmarkPrice, Conversation, Notification
 from app.features.paper_portfolio import service
-from app.features.paper_portfolio.schemas import OrderCreate
+from app.features.paper_portfolio.schemas import FundCreate, OrderCreate
 
 
 def at(day):
@@ -28,6 +28,8 @@ def market(db, day, close=None):
 
 
 def buy(db, owner, key='buy', budget=10000, **kwargs):
+    if not service.snapshot(db, owner)['initialized']:
+        service.create_fund_movement(db, owner, FundCreate(client_request_id='initial', kind='initial', amount=1000000), now=at(1))
     return service.create_order(db, owner, OrderCreate(client_request_id=key, symbol='2330', side='buy', budget=budget, **kwargs), now=at(1))
 
 
@@ -114,7 +116,8 @@ def test_owner_isolation_and_conversation_ownership(db_session, owner):
 
 def test_snapshot_is_read_only_and_future_or_intraday_prices_do_not_fill(db_session, owner):
     from app.db.models.paper_portfolio import PaperAccount
-    assert service.snapshot(db_session, owner)['cash'] == 1000000
+    assert service.get_portfolio(db_session, owner)['cash'] == 0
+    assert service.snapshot(db_session, owner)['initialized'] is False
     assert db_session.query(PaperAccount).count() == 0
     buy(db_session, owner)
     market(db_session, 2, 100)
@@ -177,6 +180,161 @@ def test_portfolio_endpoints_require_authentication(client):
     assert client.post('/paper-portfolio/orders', json={
         'client_request_id': 'auth-test', 'symbol': '2330', 'side': 'buy', 'budget': 1000,
     }).status_code == 403
+    assert client.post('/paper-portfolio/funds', json={
+        'client_request_id': 'auth-funds', 'kind': 'initial', 'amount': 30000,
+    }).status_code == 403
+
+
+def fund(db, owner, kind, amount, key=None, day=1):
+    return service.create_fund_movement(db, owner, FundCreate(
+        client_request_id=key or kind, kind=kind, amount=amount), now=at(day))
+
+
+def test_custom_budget_and_idempotent_fund_requests(db_session, owner):
+    with pytest.raises(Conflict):
+        service.create_order(db_session, owner, OrderCreate(client_request_id='unfunded', symbol='2330', side='buy', budget=1000), now=at(1))
+    with pytest.raises(Conflict):
+        fund(db_session, owner, 'deposit', 1000)
+    result = fund(db_session, owner, 'initial', 30000)
+    assert result['initialized'] is True
+    assert result['initial_cash'] == result['available_cash'] == 30000
+    assert result['total_pnl'] == 0
+    replay = fund(db_session, owner, 'initial', 30000)
+    assert replay['fund_movements'] == result['fund_movements']
+    with pytest.raises(Conflict):
+        fund(db_session, owner, 'initial', 50000)
+    with pytest.raises(Conflict):
+        fund(db_session, owner, 'initial', 30000, key='other-initial')
+    fund(db_session, owner, 'deposit', 5000)
+    result = fund(db_session, owner, 'deposit', 5000)
+    assert result['cash'] == 35000
+    assert result['total_deposits'] == 5000
+    assert result['net_contributions'] == 35000
+    assert result['total_pnl'] == 0
+    with pytest.raises(Conflict):
+        fund(db_session, owner, 'withdrawal', 5000, key='deposit')
+
+
+def test_withdrawal_respects_reservations_and_does_not_change_profit(db_session, owner):
+    fund(db_session, owner, 'initial', 30000)
+    buy(db_session, owner, budget=20000)
+    with pytest.raises(AppError):
+        fund(db_session, owner, 'withdrawal', 10000.01)
+    result = fund(db_session, owner, 'withdrawal', 10000)
+    assert result['available_cash'] == 0
+    assert result['total_withdrawals'] == 10000
+    assert result['total_pnl'] == 0
+    market(db_session, 2, 100)
+    result = fund(db_session, owner, 'deposit', 5000, day=2)
+    assert result['orders'][0]['status'] == 'filled'
+    profit = result['total_pnl']
+    assert profit == pytest.approx(result['realized_pnl'] + result['unrealized_pnl'])
+    result = fund(db_session, owner, 'withdrawal', 5000, key='withdraw-after-fill', day=2)
+    assert result['total_pnl'] == profit
+    replay = fund(db_session, owner, 'withdrawal', 5000, key='withdraw-after-fill', day=2)
+    assert replay['cash'] == result['cash']
+    assert len(replay['fund_movements']) == 4
+
+
+def test_existing_accounts_preserve_balances_and_funds_are_owner_scoped(db_session, owner):
+    from app.db.models.paper_portfolio import PaperAccount
+    db_session.add(PaperAccount(user_id=owner, initial_cash=1000000, cash=1000000))
+    other = User(email='fund-other@example.com')
+    db_session.add(other)
+    db_session.commit()
+    result = fund(db_session, owner, 'deposit', 5000, key='shared')
+    assert result['initial_cash'] == 1000000
+    assert result['cash'] == 1005000
+    assert result['total_pnl'] == 0
+    other_result = fund(db_session, other.id, 'initial', 1000, key='shared')
+    assert other_result['cash'] == 1000
+    assert len(other_result['fund_movements']) == 1
+    assert service.snapshot(db_session, owner)['cash'] == 1005000
+
+
+@pytest.mark.parametrize('amount', [0, -1, 'NaN', 'Infinity', '1.001', 1000000001])
+def test_invalid_fund_amounts_rejected(amount):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        FundCreate(client_request_id='invalid', kind='initial', amount=amount)
+
+
+def test_fund_payload_cannot_supply_owner_or_time():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        FundCreate(client_request_id='invalid', kind='initial', amount=1000, user_id=123)
+    with pytest.raises(ValidationError):
+        FundCreate(client_request_id='invalid', kind='initial', amount=1000, created_at='2020-01-01')
+
+
+def test_fund_endpoint_uses_authenticated_owner(client, db_session, owner, settings):
+    from app.features.auth.service import create_access_token
+    from app.db.models.paper_portfolio import PaperAccount
+    token, _ = create_access_token(owner, settings)
+    headers = {'Authorization': 'Bearer ' + token}
+    assert client.get('/paper-portfolio', headers=headers).json()['initialized'] is False
+    assert db_session.query(PaperAccount).count() == 0
+    payload = {'client_request_id': 'first-budget', 'kind': 'initial', 'amount': '3000.50'}
+    response = client.post('/paper-portfolio/funds', headers=headers, json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()['available_cash'] == 3000.5
+    assert client.post('/paper-portfolio/funds', headers=headers, json=payload).json()['cash'] == 3000.5
+    assert client.post('/paper-portfolio/funds', headers=headers, json={**payload, 'user_id': owner}).status_code == 422
+    assert client.post('/paper-portfolio/funds', headers=headers, json={**payload, 'amount': 5000}).status_code == 409
+    assert db_session.get(PaperAccount, owner).cash == Decimal('3000.50')
+
+
+@pytest.mark.parametrize('next_action', ['withdrawal', 'order'])
+def test_settlement_survives_locking_rereads_without_autoflush(db_session, owner, next_action):
+    db_session.autoflush = False
+    fund(db_session, owner, 'initial', 10000)
+    buy(db_session, owner, budget=10000)
+    market(db_session, 2, 100)
+    if next_action == 'withdrawal':
+        result = fund(db_session, owner, 'withdrawal', '85.89', day=2)
+        assert result['cash'] == 0
+        assert result['available_cash'] == 0
+    else:
+        service.create_order(db_session, owner, OrderCreate(
+            client_request_id='next-buy', symbol='2330', side='buy', budget='85.89'), now=at(2))
+        result = service.snapshot(db_session, owner, at(2))
+        assert result['cash'] == 85.89
+        assert result['available_cash'] == 0
+        assert result['reserved_cash'] == 85.89
+    original = next(row for row in result['orders'] if row['client_request_id'] == 'buy')
+    assert original['status'] == 'filled'
+    assert result['positions'][0]['quantity'] == 99
+    service.reconcile(db_session, owner, at(2))
+    repeated = service.snapshot(db_session, owner, at(2))
+    assert repeated['cash'] == result['cash']
+    assert repeated['positions'] == result['positions']
+
+
+@pytest.mark.parametrize('operation', ['deposit', 'get'])
+def test_post_commit_snapshot_refreshes_cash_after_concurrent_deposit(db_session, owner, operation):
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    from app.db.models.paper_portfolio import PaperAccount
+    db_session.autoflush = False
+    fund(db_session, owner, 'initial', 30000)
+    # Retain the row as production sessions do with expire_on_commit=False.
+    retained_account = db_session.get(PaperAccount, owner)
+
+    def concurrent_deposit(session):
+        with Session(session.get_bind(), expire_on_commit=False, autoflush=False) as other:
+            fund(other, owner, 'deposit', 1000, key='concurrent')
+
+    event.listen(db_session, 'after_commit', concurrent_deposit, once=True)
+    if operation == 'deposit':
+        result = fund(db_session, owner, 'deposit', 2000)
+        expected = 33000
+    else:
+        result = service.get_portfolio(db_session, owner, now=at(1))
+        expected = 31000
+    assert result['cash'] == expected
+    assert result['net_contributions'] == expected
+    assert result['total_pnl'] == 0
+    assert retained_account.cash == expected
 
 
 

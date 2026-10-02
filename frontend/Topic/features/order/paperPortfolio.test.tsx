@@ -3,7 +3,7 @@ import React from 'react';
 import { AxiosHeaders } from 'axios';
 import { renderToStaticMarkup } from 'react-dom/server';
 import apiClient from '../../lib/api/client';
-import { fetchPaperPortfolio, createPaperOrder, paperMoney, paperDateTime, type PaperOrder } from '../../lib/api/paperPortfolio';
+import { fetchPaperPortfolio, changePaperFunds, createPaperOrder, paperMoney, paperDateTime, type PaperOrder } from '../../lib/api/paperPortfolio';
 import { isChatAction, isPaperOrderDraftAction } from '../../lib/nav';
 import { PaperOrderDraft, PaperOrderStatus } from './PaperOrderDraft';
 import { ChatInput } from '../ai/ChatInput';
@@ -56,6 +56,19 @@ async function main() {
   assert.deepEqual(sent[0], sent[1], 'Retries send the same idempotency key and payload');
   assert.equal((sent[0] as { client_request_id: string }).client_request_id, 'stable-draft-id');
   assert.equal('user_id' in (sent[0] as object), false, 'Identity must be supplied by authentication');
+  const funds: unknown[] = [];
+  apiClient.defaults.adapter = async (config) => {
+    assert.equal(config.method, 'post');
+    assert.equal(config.url, '/paper-portfolio/funds');
+    funds.push(JSON.parse(config.data));
+    return { data: { initialized: true, available_cash: 30000 }, status: 200, statusText: 'OK', headers: new AxiosHeaders(), config };
+  };
+  await changePaperFunds('initial', 30000, 'setup-budget');
+  await changePaperFunds('initial', 30000, 'setup-budget');
+  await changePaperFunds('withdrawal', 0.01, 'withdraw-cent');
+  assert.deepEqual(funds[0], funds[1], 'Fund retries preserve their request identity');
+  assert.deepEqual(funds[2], { kind: 'withdrawal', amount: 0.01, client_request_id: 'withdraw-cent' });
+  assert.equal('user_id' in (funds[0] as object), false);
   console.log('Paper UI/API passed: untrusted draft validation, login gate, pending/filled/cancelled states, missing prices, passive chat prefill, deduplication, idempotency transport.');
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

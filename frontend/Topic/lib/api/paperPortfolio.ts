@@ -53,6 +53,12 @@ export interface PaperReview {
   comparison_note?: string;
 }
 export interface PaperPortfolio {
+  initialized: boolean;
+  total_deposits: number;
+  total_withdrawals: number;
+  net_contributions: number;
+  total_pnl: number | null;
+  fund_movements: PaperFundMovement[];
   initial_cash: number;
   cash: number;
   available_cash: number;
@@ -65,6 +71,18 @@ export interface PaperPortfolio {
   orders: PaperOrder[];
   reviews: PaperReview[];
   accounting_note?: string;
+}
+export interface PaperFundMovement {
+  id: string;
+  kind: 'initial' | 'deposit' | 'withdrawal';
+  amount: number;
+  created_at: string;
+}
+export async function changePaperFunds(kind: PaperFundMovement['kind'], amount: number, clientRequestId: string) {
+  const owner = getToken() ?? '';
+  const result = (await apiClient.post<PaperPortfolio>('/paper-portfolio/funds', { kind, amount, client_request_id: clientRequestId })).data;
+  inFlight.delete(owner);
+  return result;
 }
 const inFlight = new Map<string, Promise<PaperPortfolio>>();
 export async function fetchPaperPortfolio(signal?: AbortSignal) {
