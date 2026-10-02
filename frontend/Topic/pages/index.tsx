@@ -114,13 +114,13 @@ export default function HomePage() {
                     />
                   ))}
                 </div>
-                {favoriteSymbols.length > FEATURED_COUNT ? (
+                {favorites.status === 'ready' ? (
                   <div className="mt-3 flex justify-end">
                     <Link
-                      href="/me"
+                      href="/favorites"
                       className="inline-flex min-h-11 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand-text"
                     >
-                      查看全部收藏
+                      管理收藏與通知
                       <ChevronRight size={14} aria-hidden />
                     </Link>
                   </div>

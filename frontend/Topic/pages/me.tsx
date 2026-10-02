@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
+import ErrorPage from 'next/error';
 import { useRouter } from 'next/router';
 import { KeyRound, Loader2, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
@@ -7,8 +8,6 @@ import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Notice } from '@/components/common/Notice';
 import { FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
-import { FavoriteList } from '@/features/favorites/FavoriteList';
-import { NotificationSettings } from '@/features/notifications/NotificationSettings';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -20,6 +19,7 @@ const errorText = (err: unknown, fallback: string) => userFacingMessage(err, fal
 
 export default function MePage() {
   const router = useRouter();
+  const legacyNotifications = router.asPath.split('#')[1] === 'notifications';
   const [user, setUser] = useState<UserPublic | null>(null);
   const [checked, setChecked] = useState(false);
   const [hasToken, setHasToken] = useState(false);
@@ -42,6 +42,7 @@ export default function MePage() {
 
   useEffect(() => {
     if (!router.isReady) return;
+    if (legacyNotifications) return;
     if (!getToken()) {
       void router.replace(LOGIN_FOR_ME);
       setChecked(true);
@@ -72,8 +73,8 @@ export default function MePage() {
     return () => {
       active = false;
     };
-    // router 物件每次 render 都是新的；只在 isReady 變化時確認一次
-  }, [router.isReady]);
+    // Recheck only when the route is ready or its legacy notification target changes.
+  }, [router.isReady, legacyNotifications]);
 
   // 在這頁從主選單登出：清掉畫面上的資料並回首頁，跟本頁「登出」一致（決議 D9-c18）
   useEffect(() => {
@@ -155,10 +156,12 @@ export default function MePage() {
   const head = (
     <Head>
       <title>股海明燈｜個人中心</title>
-      <meta name="description" content="檢視帳號資訊、收藏股與登出。" />
+      <meta name="description" content="檢視帳號資訊、變更密碼與管理登入狀態。" />
     </Head>
   );
-  const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊與收藏股" />;
+  const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊與安全設定" />;
+
+  if (router.isReady && legacyNotifications) return <ErrorPage statusCode={404} />;
 
   if (!checked) {
     return (
@@ -212,9 +215,6 @@ export default function MePage() {
                 <dd>{user?.display_name?.trim() ? user.display_name : <span className="text-muted-foreground">未設定</span>}</dd>
               </div>
             </dl>
-
-            <FavoriteList />
-            <NotificationSettings />
 
             <section aria-labelledby="me-password-heading" className="mt-8 border-t pt-8">
               <div className="mb-4 flex items-center gap-2">

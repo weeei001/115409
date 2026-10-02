@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
 
-/** 個人中心的收藏清單：每列可進個股頁，也可直接移除（樂觀更新，失敗會回復並提示） */
+/** Saved stocks with direct stock links and optimistic removal. */
 export function FavoriteList() {
   const { status, items, loadError, reload, remove } = useFavorites();
 
@@ -76,14 +76,14 @@ export function FavoriteList() {
   }
 
   return (
-    <section aria-labelledby="me-favorites-heading" className="mt-8 border-t pt-8">
+    <section aria-labelledby="favorites-heading" className="rounded-2xl border bg-card p-5 shadow-card sm:p-6">
       <div className="mb-4 flex items-center gap-2">
         <div className="bg-brand-gradient flex size-9 items-center justify-center rounded-xl">
           <Star size={18} className="text-on-brand" aria-hidden />
         </div>
-        <h3 id="me-favorites-heading" className="text-base font-semibold">
-          收藏股
-        </h3>
+        <h2 id="favorites-heading" className="text-base font-semibold">
+          收藏清單
+        </h2>
         {status === 'ready' && items.length > 0 ? (
           <span className="ml-auto text-xs tabular-nums text-muted-foreground">共 {items.length} 檔</span>
         ) : null}
