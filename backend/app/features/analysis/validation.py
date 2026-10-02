@@ -143,9 +143,21 @@ def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -
         return ["新聞支持契約未列入同項證據引用"] if item.get("news_support") else []
     by_id = {row["id"]: row for row in news}
     support = item.get("news_support") or []
-    if not support or {entry.get("evidence_id") for entry in support} != set(by_id):
+    forward_view = "stance" in item
+    support_ids = {entry.get("evidence_id") for entry in support}
+    if support_ids - set(by_id) or (not forward_view and support_ids != set(by_id)):
         return ["新聞主張缺少同項原文支持契約"]
     issues = []
+    if forward_view and set(by_id) - support_ids:
+        issues.append("未核實逐篇新聞摘錄；方向推論依據已引用的新聞原文")
+    if "what" not in item:
+        texts = " ".join(str(item.get(key, "")) for key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS)
+        # Forecasts may infer from the cited source, not only its selected excerpt.
+        source_text = " ".join(str(row.get("value", "")) for row in news) if forward_view else " ".join(
+            str(entry.get("quote", "")) for entry in support)
+        terms = set(re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", texts)) - {"EPS", "TWD", "RSI", "MACD"}
+        if any(term not in source_text for term in terms):
+            return ["主張的產品或實體名稱不在同項引用來源" if forward_view else "主張的產品或實體名稱不在同項引文"]
     for entry in support:
         row = by_id.get(entry.get("evidence_id"))
         quote = entry.get("quote", "")
@@ -191,7 +203,6 @@ def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -
             item["what"] = f"{price}{published} {role}：「{quote}」。報導與行情分列，未核實價格因果。"
         else:
             texts = " ".join(str(item.get(key, "")) for key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS)
-            quoted = " ".join(str(value.get("quote", "")) for value in support)
             source_text = str(row.get("value", ""))
             offset = source_text.index(quote)
             paragraph_start = source_text.rfind("\n", 0, offset) + 1
@@ -201,10 +212,6 @@ def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -
             if (re.search(aggregate, paragraph) and re.search(r"獲利|盈餘", quote)
                     and re.search(r"獲利|盈餘", texts) and not re.search(aggregate, texts)):
                 return ["金控合計獲利未保留產業主詞，不能當成單一公司獲利"]
-            # Product acronyms are literal identities, unlike complete entailment.
-            terms = set(re.findall(r"\b[A-Z][A-Z0-9-]{2,}\b", texts)) - {"EPS", "TWD", "RSI", "MACD"}
-            if any(term not in quoted for term in terms):
-                return ["主張的產品或實體名稱不在同項引文"]
     return issues
 
 
@@ -655,15 +662,14 @@ def _apply_text_brief_compliance_gate(
     blocked = False
     for horizon, view in brief_payload["forward_views"].items():
         if record(check(view)):
-            if not allow_partial_forward_views:
-                blocked = True
-                continue
             # An invalid condition does not invalidate a supported explanation.
             explanation = {key: value for key, value in view.items() if key != "invalidation"}
             if not any(hit.severity == "hard" for hit in check(explanation)):
                 view["invalidation"] = "本次未提供可核對的失效條件。"
                 removed_ids.append(f"forward_views.{horizon}.invalidation")
                 brief_payload["confidence"] = "low"
+            elif not allow_partial_forward_views:
+                blocked = True
             else:
                 removed_ids.append(f"forward_views.{horizon}")
                 brief_payload["forward_views"][horizon] = {
@@ -674,10 +680,14 @@ def _apply_text_brief_compliance_gate(
                     "validation_status": "rejected",
                 }
 
+    has_direction = any(view["stance"] != "uncertain" and view.get("evidence_ids")
+                        and view.get("validation_status") != "rejected"
+                        for view in brief_payload["forward_views"].values())
     if any(f"forward_views.{horizon}" in removed_ids for horizon in brief_payload["forward_views"]):
-        brief_payload["overall_stance"] = "uncertain"
+        if not has_direction:
+            brief_payload["overall_stance"] = "uncertain"
         brief_payload["confidence"] = "low"
-        brief_payload["confidence_reason"] = "部分期間展望未通過證據檢查，無法保留原有總體方向；請分別參考仍有效的觀察。"
+        brief_payload["confidence_reason"] = "部分期間的分析依據無法確認，信心調降；請參考其餘有依據的期間判斷。"
     elif any(item.endswith(".invalidation") for item in removed_ids):
         brief_payload["confidence_reason"] = "部分失效條件未通過檢查，已保留有依據的方向與理由，信心調降。"
 
@@ -703,9 +713,10 @@ def _apply_text_brief_compliance_gate(
         kept_limits.append(text)
     brief_payload["limitations"] = kept_limits
     if any(not brief_payload[section] for section in TEXT_BRIEF_ITEM_SECTIONS if section != "source_divergences"):
-        brief_payload["overall_stance"] = "uncertain"
+        if not has_direction:
+            brief_payload["overall_stance"] = "uncertain"
         brief_payload["confidence"] = "low"
-        brief_payload["confidence_reason"] = "部分段落沒有通過檢查的依據，僅保留可核對的內容，無法據此提供總體方向。"
+        brief_payload["confidence_reason"] = "部分項目缺少分析依據，信心調降；方向判斷僅依現有可用資料。"
     return (
         removed_ids,
         hard_violations,

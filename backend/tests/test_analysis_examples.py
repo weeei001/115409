@@ -71,6 +71,23 @@ def test_source_disclaimer_does_not_hide_price_targets_or_trade_instructions(not
         assert any(hit.severity == "hard" for hit in scan_compliance_hits(text))
 
 
+@pytest.mark.parametrize("disclaimer", ["不保證", "無法保證", "不能保證", "並非保證", "不是保證", "尚未保證"])
+def test_direction_disclaimer_does_not_hide_affirmative_promises(disclaimer):
+    from app.features.analysis.compliance import scan_compliance_hits
+
+    note = f"短線偏多，但{disclaimer}後續上漲。"
+    assert not scan_compliance_hits(note)
+    for promise in ("保證上漲", "必然上漲", "穩賺", "絕對會上漲", "不能不保證上漲"):
+        assert any(hit.rule == "承諾詞-hard" for hit in scan_compliance_hits(note + promise))
+
+
+@pytest.mark.parametrize("separator", ["。", "，", ",", "；", ";", "\n", "\r\n"])
+def test_promise_negation_does_not_cross_clause_boundaries(separator):
+    from app.features.analysis.compliance import scan_compliance_hits
+
+    assert any(hit.rule == "承諾詞-hard" for hit in scan_compliance_hits(f"不能{separator}保證上漲。"))
+
+
 @pytest.mark.parametrize("separator", ["，", ",", "；", ";", "\n", "\r\n"])
 def test_return_rules_do_not_join_separate_clauses(separator):
     from app.features.analysis.compliance import scan_compliance_hits
