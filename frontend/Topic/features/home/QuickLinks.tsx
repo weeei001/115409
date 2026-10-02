@@ -1,11 +1,12 @@
 import React from 'react';
 import { useRouter } from 'next/router';
-import { Bot, GitCompareArrows, ShoppingCart, Sparkles, Star, type LucideIcon } from 'lucide-react';
+import { Bell, Bot, GitCompareArrows, ShoppingCart, Sparkles, Star, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 const LINKS: Array<{ path: string; title: string; hint: string; icon: LucideIcon; primary?: boolean }> = [
   { path: '/ai', title: 'AI 對話', hint: '市場參考對話', icon: Bot, primary: true },
-  { path: '/favorites', title: '收藏股', hint: '追蹤個股與通知設定', icon: Star },
+  { path: '/favorites', title: '收藏股', hint: '管理關注的個股', icon: Star },
+  { path: '/notifications', title: '通知', hint: '查看消息與推播設定', icon: Bell },
   { path: '/compare', title: '多股比較', hint: '交叉分析走勢', icon: GitCompareArrows },
   { path: '/order', title: '模擬下單', hint: '練習下單流程', icon: ShoppingCart },
 ];

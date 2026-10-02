@@ -22,7 +22,7 @@ export function deviceEnabled() {
   catch { return false; }
 }
 function emit(title?: string, body?: string, url?: string) {
-  window.dispatchEvent(new CustomEvent(PUSH_EVENT, { detail: { title, body, url: safeReturnUrl(url) || '/favorites#notifications' } }));
+  window.dispatchEvent(new CustomEvent(PUSH_EVENT, { detail: { title, body, url: safeReturnUrl(url) || '/notifications' } }));
 }
 async function messaging() {
   const [{ initializeApp, getApps }, { getMessaging, isSupported }] = await Promise.all([import('firebase/app'), import('firebase/messaging')]);
@@ -43,7 +43,7 @@ export async function listenForPush(): Promise<() => void> {
       const { PushNotifications } = await import('@capacitor/push-notifications');
       const received = await PushNotifications.addListener('pushNotificationReceived', (message) => emit(message.title, message.body, message.data?.url));
       const action = await PushNotifications.addListener('pushNotificationActionPerformed', ({ notification }) => {
-        window.location.assign(safeReturnUrl(notification.data?.url) || '/favorites#notifications');
+        window.location.assign(safeReturnUrl(notification.data?.url) || '/notifications');
       });
       return () => { void received.remove(); void action.remove(); };
     }

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShieldCheck, ShoppingCart, Star, UserRound, type LucideIcon } from 'lucide-react';
+import { Bell, Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShieldCheck, ShoppingCart, Star, UserRound, type LucideIcon } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from './ThemeToggle';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken } from '@/lib/auth/storage';
@@ -14,6 +14,7 @@ import { cn } from '@/lib/cn';
 const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/': House,
   '/favorites': Star,
+  '/notifications': Bell,
   '/ai': Bot,
   '/order': ShoppingCart,
   '/compare': GitCompareArrows,

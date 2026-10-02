@@ -139,6 +139,6 @@ def generate_notifications(db, now=None, *, impact_config_hash=None):
             missing = "\n今日收盤資料尚未提供：" + "、".join(unavailable) if unavailable else ""
             news = "；".join(brief[:3]) if brief else "今日暫無已確認的重要新聞。"
             save(pref, "daily_summary", f"{day:%m/%d} 收藏股收盤摘要", details[:1100] + missing[:350] + "\n" + news[:500],
-                 "/favorites#notifications", f"summary:{day}", now + timedelta(hours=24))
+                 "/notifications", f"summary:{day}", now + timedelta(hours=24))
     db.commit()
     return created

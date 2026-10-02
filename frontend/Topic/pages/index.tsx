@@ -120,7 +120,7 @@ export default function HomePage() {
                       href="/favorites"
                       className="inline-flex min-h-11 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand-text"
                     >
-                      管理收藏與通知
+                      管理收藏股
                       <ChevronRight size={14} aria-hidden />
                     </Link>
                   </div>
