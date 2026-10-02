@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "test:notifications": "tsx lib/notifications/session.test.ts && tsx lib/notifications/worker.test.ts && tsx lib/notifications/account.test.ts",
     "dev": "next dev --hostname 127.0.0.1 --port 3000",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 53000",
@@ -11,7 +12,6 @@
     "test:chat": "tsx lib/api/ragAsk.test.ts && tsx lib/utils/markdown.test.tsx && tsx features/ai/ChatMessage.test.tsx && tsx lib/auth/storage.test.ts && tsx lib/api/conversations.test.ts && tsx features/ai/ConversationHistory.test.tsx && tsx features/ai/ChatInput.test.tsx && tsx features/ai/ChatArea.test.tsx",
     "test:volume": "tsx lib/charts/volumeInsight.test.ts",
     "test:order": "tsx features/order/estimate.test.tsx",
-    "test:news": "tsx lib/hooks/useNewsList.test.ts && tsx lib/news/stockNewsView.test.ts && tsx features/news/NewsCard.test.ts && tsx features/news/NewsFilters.test.tsx && tsx features/news/NewsEventAnalysisPanel.test.tsx",
     "test:news": "tsx lib/hooks/useNewsList.test.ts && tsx lib/news/stockNewsView.test.ts && tsx lib/utils/newsImpact.test.ts && tsx features/news/NewsCard.test.ts && tsx features/news/NewsFilters.test.tsx",
     "test:admin": "tsx features/admin/AdminDashboard.test.tsx",
     "test:compare": "tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx components/common/IndustrySearch.test.ts && tsx features/compare/MetricsTable.test.tsx",
@@ -21,6 +21,7 @@
   "dependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/push-notifications": "^8.1.2",
     "@react-three/fiber": "^9.7.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@vercel/analytics": "^2.0.1",
@@ -28,6 +29,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "echarts": "^6.1.0",
+    "firebase": "^12.19.0",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^0.577.0",
     "motion": "^12.43.0",

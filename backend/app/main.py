@@ -52,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.features.retrieval.router import router as retrieval_router
     from app.features.simulation.router import router as simulation_router
     from app.features.admin.router import router as admin_router
+    from app.features.notifications.router import router as notifications_router
 
     app.include_router(market_router)
     app.include_router(news_router)
@@ -65,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(retrieval_router)
     app.include_router(simulation_router)
     app.include_router(admin_router)
+    app.include_router(notifications_router)
 
     @app.get("/", tags=["系統"])
     def read_root():

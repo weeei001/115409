@@ -5,6 +5,7 @@ import sys
 
 
 COMMANDS = (
+    "notifications",
     "init-schema",
     "admin-grant",
     "migrate-admin-schema",
@@ -37,6 +38,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "notifications":
+        from app.jobs.notifications import main as notify
+        return notify(argv)
     if job == "migrate-admin-schema":
         from app.jobs.admin_migrate import main as migrate
         return migrate(argv)

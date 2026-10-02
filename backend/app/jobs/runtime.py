@@ -44,6 +44,7 @@ class JobRuntime:
         self.active = {}
         self.pending = {}
         self.run_activity = {}
+        self.next_notifications = 0.0
         self.scheduler = Scheduler(self._scheduled, datetime.now(TAIPEI), clock.monotonic(),
             interval=settings.JOBS_INTERVAL_MINUTES * 60,
             delay=settings.JOBS_RAG_DELAY_MINUTES * 60,
@@ -118,6 +119,7 @@ class JobRuntime:
                             queued_name = queued.job_name if queued else None
                             self.status, self.error = "running", None
                             self.heartbeat = datetime.now(timezone.utc).isoformat()
+                        self._notification_tick()
                         if queued_id is not None:
                             if queued_name == "rag":
                                 self.scheduler.followup = None
@@ -171,6 +173,17 @@ class JobRuntime:
             db.commit()
             run_id = row.id
         return self._execute(run_id)
+
+    def _notification_tick(self):
+        if not self.settings.NOTIFICATIONS_ENABLED or self.stop_event.is_set() or clock.monotonic() < self.next_notifications:
+            return
+        self.next_notifications = clock.monotonic() + 60
+        try:
+            result = self._worker(["notifications", "--execute"])
+            if result:
+                logger.warning("Notification worker failed (exit code %s)", result)
+        except Exception as exc:
+            logger.warning("Notification worker failed (%s)", type(exc).__name__)
 
     def _execute(self, run_id):
         with self.lock, self.session_factory() as db:

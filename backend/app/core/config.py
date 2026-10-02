@@ -170,6 +170,11 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""
     SMTP_USE_TLS: bool = True
     CORS_ALLOW_ORIGINS: str = "*"
+    NOTIFICATIONS_ENABLED: bool = False
+    FCM_ENABLED: bool = False
+    FCM_PROJECT_ID: str = ""
+    FCM_CREDENTIALS_FILE: str = ""
+    FCM_WEB_ORIGIN: str = ""
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",

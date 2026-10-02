@@ -8,6 +8,7 @@ import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Notice } from '@/components/common/Notice';
 import { FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
 import { FavoriteList } from '@/features/favorites/FavoriteList';
+import { NotificationSettings } from '@/features/notifications/NotificationSettings';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -213,6 +214,7 @@ export default function MePage() {
             </dl>
 
             <FavoriteList />
+            <NotificationSettings />
 
             <section aria-labelledby="me-password-heading" className="mt-8 border-t pt-8">
               <div className="mb-4 flex items-center gap-2">
