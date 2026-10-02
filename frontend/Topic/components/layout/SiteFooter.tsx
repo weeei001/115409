@@ -57,7 +57,7 @@ export function SiteFooter({ className }: { className?: string }) {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-xl font-bold tracking-[0.15em] text-brand-gradient sm:text-2xl">股海明燈</p>
-            <p className="mt-1 text-[11px] tracking-[0.25em] text-muted-foreground uppercase">Stock Market Beacon</p>
+            <p className="mt-1 text-[11px] tracking-[0.25em] text-muted-foreground uppercase">Stock Lighthouse</p>
           </div>
           <SparkBars gradientId={gradientId} animate={!reduce} />
         </div>
