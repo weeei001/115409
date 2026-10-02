@@ -43,7 +43,12 @@ export function NewsFilters({ draft, applied, setDraft, onApply, onClearAdvanced
           {active ? <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-brand" aria-hidden /> : null}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(calc(100vw-2rem),18rem)] space-y-3" aria-label="篩選新聞">
+      <PopoverContent
+        align="end"
+        collisionPadding={16}
+        className="max-h-[var(--radix-popover-content-available-height)] w-[min(calc(100vw-2rem),18rem)] space-y-3 overflow-y-auto overscroll-contain"
+        aria-label="篩選新聞"
+      >
         <p className="text-sm font-semibold">篩選新聞</p>
         <p className="text-[11px] leading-relaxed text-muted-foreground">時間區間為發布時間（含起迄）。</p>
         <label className="flex flex-col gap-1 text-xs">
