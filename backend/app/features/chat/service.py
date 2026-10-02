@@ -29,9 +29,18 @@ from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
 
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
-                      INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER,
+                      INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
                       NO_NEWS_MESSAGE, TIME_FALLBACK_WARNING)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
+
+
+def _is_recommendation(query: str) -> bool:
+    return bool(re.search(
+        r"推薦|推荐|買哪|买哪|哪.{0,12}[買买]|"
+        r"(?:該|该|應該|应该|適合|适合|值得|能不能|可不可以).{0,6}[買买賣卖]|"
+        r"[買买賣卖](?:進|进|出)?(?:嗎|吗)|值得.{0,8}投資|"
+        r"\brecommend\w*\b|\b(?:should I|which\b.{0,40})\s+(?:buy|sell)\b",
+        query, re.IGNORECASE))
 
 
 def _is_forward_outlook(query: str) -> bool:
@@ -265,6 +274,8 @@ class ChatService:
             return
 
         query = (intent.standalone_query or request.query).strip() if history else request.query
+        if _is_recommendation(request.query) or _is_recommendation(query):
+            needs.update({"market", "news"})
         forward_outlook = _is_forward_outlook(query)
         if forward_outlook:
             needs.update({"market", "news"})
@@ -451,6 +462,8 @@ class ChatService:
             metadata = {key: (metadata.get(key) or 0) + (result.metadata.get(key) or 0)
                         if metadata.get(key) is not None or result.metadata.get(key) is not None else None
                         for key in ("prompt_tokens", "completion_tokens", "thinking_tokens")}
+        if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
+            response.answer += "\n\n" + INVESTMENT_DISCLAIMER
         response.tokens = _tokens(metadata)
 
     async def ask(self, request: AskRequest) -> AskResponse:
