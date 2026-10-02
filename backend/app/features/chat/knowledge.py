@@ -3,7 +3,6 @@ import json
 import re
 
 from app.features.analysis.evidence import FIELD_GLOSSARY
-from app.features.retrieval.common import STOCK_OPTIONS
 
 from .schemas import SourceChunk
 
@@ -31,11 +30,13 @@ def reference_source(title: str, content: str, *, category: str = "knowledge", u
                        pub_time="", url=url, stock_id="", score=1)
 
 
-def collect_knowledge_sources(query: str, *, include_help: bool, include_knowledge: bool) -> list[SourceChunk]:
+def collect_knowledge_sources(query: str, *, stock_options: dict[str, str] | None,
+                              include_help: bool, include_knowledge: bool) -> list[SourceChunk]:
     sources = []
     if include_help:
         sources.append(reference_source("系統功能與操作入口", json.dumps({
-            "supported_stocks": STOCK_OPTIONS,
+            "supported_stocks": stock_options,
+            "supported_stocks_status": "available" if stock_options is not None else "unavailable",
             "features": {
                 "home": "首頁提供股票總覽，以及個股頁面的入口。",
                 "individual_stock": "個股頁面依現有資料提供價量圖、技術指標、法人買賣超、財務資料、新聞與 AI 分析。",

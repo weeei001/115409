@@ -217,7 +217,15 @@ def test_cnyes_worker_exposes_failure_and_stops_broken_pagination(db_session, fa
     assert result["failed"] > 0 and len(requests) <= 2 * len(crawlers.CNYES_CATEGORIES)
 
 
-def test_ltn_html_preserves_id_time_and_priority_stock_and_removes_footer():
+@pytest.fixture
+def ltn_catalog(monkeypatch):
+    catalog = {symbol: {"name": name} for symbol, name in (
+        ("2330", "台積電"), ("2317", "鴻海"), ("2454", "聯發科"), ("2408", "南亞科"))}
+    monkeypatch.setattr("app.features.news.sentiment.company_catalog", lambda: catalog)
+    return catalog
+
+
+def test_ltn_html_preserves_id_time_and_priority_stock_and_removes_footer(ltn_catalog):
     item = crawlers.ltn_article(article_html(), "https://ec.ltn.com.tw/article/1")
     assert item["pub_time"] == "2024-01-02T08:30:00+08:00" and item["stock_id"] == "2330"
     assert item["tags"] == "2330,2317"
@@ -230,10 +238,10 @@ def test_ltn_html_preserves_id_time_and_priority_stock_and_removes_footer():
         crawlers.ltn_article(article_html(content="太短"), item["url"])
 
 
-def test_ltn_tags_include_late_mentions_and_exact_symbols_only():
+def test_ltn_tags_include_late_mentions_and_exact_symbols_only(ltn_catalog):
     content = "企業公布最新營運展望，市場關注供應鏈需求。" * 60 + "南亞科與聯發科（2454）公布新計畫。"
     item = crawlers.ltn_article(article_html(title="鴻海營运展望", content=content), "https://ec.ltn.com.tw/article/2")
-    assert item["stock_id"] == "2317" and item["tags"] == "2317,2454,2408"
+    assert item["stock_id"] == "2317" and item["tags"] == "2317,2408,2454"
     unrelated = "企業公布最新營運數據，市場持續關注需求。訂單編號123301、A2317B、12345與notTSMC不可當成股票代號。"
     item = crawlers.ltn_article(article_html(title="市場營運展望", content=unrelated), "https://ec.ltn.com.tw/article/3")
     assert item["stock_id"] == "tw_stock" and item["tags"] == ""
@@ -335,3 +343,15 @@ def test_cli_partial_and_unexpected_failure_return_nonzero_and_sanitize_logs(rai
     assert crawlers.crawler_main("cnyes", ["--scheduled-once"]) == 1
     assert "private" not in caplog.text
     engine.dispose.assert_called_once()
+
+
+def test_ltn_empty_catalog_does_not_restore_legacy_stocks():
+    item = crawlers.ltn_article(article_html(), "https://ec.ltn.com.tw/article/empty", {})
+    assert item["stock_id"] == "tw_stock" and item["tags"] == ""
+
+
+def test_ltn_catalog_recognizes_other_supported_companies():
+    catalog = {"1101": {"name": "台泥"}, "1303": {"name": "南亞"}}
+    item = crawlers.ltn_article(article_html(title="台泥與南亞營運展望"),
+        "https://ec.ltn.com.tw/article/new", catalog)
+    assert item["tags"] == "1101,1303"

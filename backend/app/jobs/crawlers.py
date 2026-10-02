@@ -35,9 +35,6 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 CNYES_HEADERS = {**HEADERS, "Accept": "application/json, text/plain, */*",
                  "Origin": "https://news.cnyes.com", "Referer": "https://news.cnyes.com/"}
 LTN_LIST_HEADERS = {**HEADERS, "x-requested-with": "XMLHttpRequest", "referer": "https://ec.ltn.com.tw/list/securities"}
-LTN_ALIASES = [("2330", ["台積電", "台積", "TSMC"]), ("2317", ["鴻海", "Foxconn", "富士康"]),
-               ("2454", ["聯發科", "MediaTek"]), ("2881", ["富邦金", "富邦金控"]),
-               ("2408", ["南亞科"]), ("2615", ["萬海"])]
 AD_PHRASES = ["點我訂閱自由財經Youtube頻道", "不用抽 不用搶 現在用APP看新聞 保證天天中獎", "點我下載APP",
               "一手掌握經濟脈動", "按我看活動辦法"]
 BOTTOM_KEYWORDS = ["相關新聞", "基金查詢more", "熱門新訊more", "注目新聞", "延伸閱讀", "看更多相關新聞"]
@@ -430,14 +427,8 @@ def ltn_article(raw_html: str, url: str, catalog: dict | None = None) -> dict:
     content = clean_ltn_content("\n".join(paragraph.get_text().strip() for paragraph in content_div.select("p"))) if content_div else ""
     if len(title) <= 3 or not pub_time.startswith("20") or len(content) < 30:
         raise ValueError("LTN article lacks usable title, publication date or content")
-    haystack = title + " " + content
-    symbols = [code for code, aliases in LTN_ALIASES
-               if re.search(r"(?<![A-Za-z0-9_.])" + code + r"(?![A-Za-z0-9_.])", haystack)
-               or any(re.search(r"(?<![A-Za-z])" + re.escape(alias) + r"(?![A-Za-z])", haystack, re.IGNORECASE)
-                      if alias.isascii() else alias in haystack for alias in aliases)]
-    if catalog:
-        from app.features.news.sentiment import extract_candidate_stocks
-        symbols = extract_candidate_stocks(symbols[0] if symbols else None, ",".join(symbols), title, content, catalog)
+    from app.features.news.sentiment import extract_candidate_stocks
+    symbols = extract_candidate_stocks(None, None, title, content, catalog)
     symbol = symbols[0] if symbols else "tw_stock"
     return {"article_id": article_id("ltn", title, pub_time), "source": "ltn", "source_group": "ltn",
             "stock_id": symbol, "title": title, "pub_time": pub_time, "url": url, "tags": ",".join(symbols),

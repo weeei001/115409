@@ -71,10 +71,12 @@ class FakeRetrieval:
 
 
 @pytest.fixture
-def chat(monkeypatch):
+def chat(monkeypatch, chat_session_factory):
     monkeypatch.setattr(chat_module, "taipei_now", lambda: NOW)
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {})
     llm, retrieval = FakeModels(), FakeRetrieval()
-    service = ChatService(http=None, settings=None, retrieval=retrieval, intent_llm=llm, llm=llm)
+    service = ChatService(http=None, settings=None, retrieval=retrieval, intent_llm=llm, llm=llm,
+                          session_factory=chat_session_factory)
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router)
@@ -202,8 +204,9 @@ def test_non_finance_reply_is_visible_without_retrieval_or_answer_model(chat, st
     assert not retrieval.calls and len(llm.calls) == 1
 
 
-def test_malformed_intent_uses_stock_and_calendar_fallback_but_manual_stock_wins(chat):
+def test_malformed_intent_uses_stock_and_calendar_fallback_but_manual_stock_wins(chat, monkeypatch):
     client, _, llm, retrieval = chat
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2024": {"name": "Test steel company"}})
     llm.intent = {"stocks": None, "time_from": "not a date"}
     response = client.post("/api/ask", json={"query": "2024年Q4台積電和鴻海營收"})
     assert response.status_code == 200
@@ -480,7 +483,7 @@ def test_source_list_does_not_make_unsafe_source_urls_clickable(chat, url):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream):
+def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream, chat_session_factory):
     requested_models = []
     configured = settings.model_copy(update={"LLM_API_KEY": "test-only-key",
         "LLM_BASE_URL": "https://chat.test/v1", "LLM_MODEL": "test-shared-model",
@@ -506,7 +509,7 @@ def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream):
 
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http:
-            service = ChatService(http=http, settings=configured, retrieval=FakeRetrieval())
+            service = ChatService(http=http, settings=configured, retrieval=FakeRetrieval(), session_factory=chat_session_factory)
             assert service.intent_llm is service.llm
             request = AskRequest(query="台積電營收", stream=stream)
             if stream:

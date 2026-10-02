@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.llm import LlmClient
 from app.features.retrieval.service import RetrievalService
-from app.features.retrieval.common import STOCK_OPTIONS, TAIPEI
+from app.features.retrieval.common import TAIPEI
 from app.core.errors import AppError, ServiceUnavailable
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from . import repository, validation as gate
@@ -33,7 +33,6 @@ from .schemas import (StockBehaviorRagRequest, StockBehaviorRagResponse, StockBe
                       TextBriefVerification)
 
 
-ALLOWED_SYMBOLS = frozenset(STOCK_OPTIONS)
 SIMPLIFIED_CHINESE_CHARS = frozenset(
     "门为说经开关证买卖风险机会亿万点涨势后头复资达预测币价业东个产众优体债"
     "仅从仓传伤伦伪侧侦兑兰兴冲决况净击则刚创删别剂务动劳华协单卫压历县叶号叹"
@@ -95,7 +94,7 @@ async def _db_work(function, *args, **kwargs):
         raise
 
 
-def _validate_symbol(symbol: str, allowed_symbols=ALLOWED_SYMBOLS) -> str:
+def _validate_symbol(symbol: str, allowed_symbols) -> str:
     symbol = symbol.strip().upper()
     if symbol not in allowed_symbols:
         raise AppError({"code": "policy_violation", "message": f"symbol is not allowed by policy: {symbol}", "context": {}}, status_code=422)
@@ -109,9 +108,7 @@ class AnalysisService:
         if rag is None and session_factory is None:
             raise ValueError("Analysis retrieval requires an independent session factory")
         self.db, self.settings = db, settings
-        self.stock_options = dict(STOCK_OPTIONS)
-        if db is not None:
-            self.stock_options.update(repository.stock_names(db))
+        self.stock_options = repository.stock_names(db) if db is not None else {}
         self.llm = llm or LlmClient(settings, http)
         self.rag = rag if rag is not None else RetrievalService(
             http, settings, stock_options=self.stock_options, session_factory=session_factory)

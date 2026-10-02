@@ -209,3 +209,19 @@ def test_collect_preserves_original_timestamp_precision_and_timezone(settings, m
     monkeypatch.setattr(retrieval, "analyze", analyze)
     result = asyncio.run(retrieval.collect(symbol="2603", as_of=date(2026, 9, 2)))
     assert result.news_sources[0]["timestamp"] == timestamp
+
+
+def test_company_aliases_require_catalog_membership_and_match_word_boundaries():
+    catalog = {"2330": {"name": "台積電"}, "2317": {"name": "鴻海"}, "2454": {"name": "聯發科"}}
+    for name, symbol in (("TSMC", "2330"), ("台積", "2330"), ("Foxconn", "2317"),
+                         ("富士康", "2317"), ("MediaTek", "2454")):
+        assert extract_candidate_stocks(None, None, name, None, catalog) == [symbol]
+        assert extract_candidate_stocks(None, None, name, None, {}) == []
+    assert company_mentions("notTSMC MediaTekology", None, catalog) == []
+
+
+def test_input_hash_requires_catalog_name_for_every_company():
+    from app.features.news.sentiment import article_input_hash
+    article = SimpleNamespace(title="Company results", content="Revenue", pub_time="2024-01-01")
+    assert article_input_hash(article, "2330", {}) is None
+    assert article_input_hash(article, "1101", {"1101": {"name": "台泥"}})

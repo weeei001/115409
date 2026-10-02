@@ -19,6 +19,7 @@ from app.db.base import Base
 from app.db.models.conversation import Conversation
 from app.db.models.daily_price import DailyPrice
 from app.db.models.user import User
+from app.db.models.stock_info import StockInfo
 from app.features.auth.service import create_access_token
 from app.features.chat import service as chat_module
 from app.features.chat.router import get_service, router as chat_router
@@ -94,6 +95,7 @@ def live_chat(tmp_path, settings, monkeypatch):
     with factory() as db, db.begin():
         user = User(email="tcp-chat@example.com", is_active=True)
         db.add(user)
+        db.add_all([StockInfo(symbol="2330", name="TSMC"), StockInfo(symbol="2317", name="Foxconn")])
         db.add_all([DailyPrice(symbol=symbol, date=NOW.date(), open=100, high=110, low=95, close=105,
                                volume_shares=1000) for symbol in ("2330", "2317")])
         db.flush()

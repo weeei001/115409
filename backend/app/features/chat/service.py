@@ -17,13 +17,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.clients.llm import LlmClient
 from app.core.errors import AppError, NotFound, ServiceUnavailable
 from app.features.market.company_catalog import load_catalog
+from app.features.market.repository import stock_names
 from app.features.news.sentiment import extract_candidate_stocks
-from app.features.retrieval.common import (STOCK_KEYWORDS, STOCK_OPTIONS, get_source_name,
-                                            normalize_source_url, source_provenance)
+from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
 from .claims import numeric_claims_supported
-from .comparison_context import collect_comparison_source
+from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
@@ -230,6 +230,12 @@ class ChatService:
         self.intent_llm.require_enabled()
         self.llm.require_enabled()
 
+    def _stock_options(self) -> dict[str, str]:
+        if self.session_factory is None:
+            raise ServiceUnavailable("股票服務名單暫時無法讀取")
+        with self.session_factory() as db:
+            return stock_names(db)
+
     def _market_sources(self, symbols, as_of, start_date):
         if self.session_factory is None:
             raise ServiceUnavailable("行情資料暫時無法讀取")
@@ -295,8 +301,20 @@ class ChatService:
         forward_outlook = _is_forward_outlook(query)
         if forward_outlook:
             needs.update({"market", "news"})
+        stock_options_available = True
+        try:
+            stock_options = await asyncio.to_thread(self._stock_options)
+        except (SQLAlchemyError, ServiceUnavailable):
+            if needs & {"market", "news"}:
+                response.answer = "目前無法讀取股票服務名單，請稍後再試。"
+                yield response, "", ""
+                return
+            stock_options = {}
+            stock_options_available = False
         catalog = load_catalog()
-        known_symbols = set(catalog) | set(STOCK_OPTIONS)
+        catalog = {**catalog, **{symbol: {**catalog.get(symbol, {}), "name": name}
+                               for symbol, name in stock_options.items()}}
+        known_symbols = set(catalog)
         symbols = list(dict.fromkeys(symbol for symbol in intent.stocks if symbol in known_symbols))
         if request.stock_id:
             if request.stock_id not in known_symbols:
@@ -305,8 +323,9 @@ class ChatService:
                 return
             symbols = [request.stock_id]
         elif not symbols:
-            supported = [symbol for symbol, words in STOCK_KEYWORDS.items()
-                         if any(word.casefold() in query.casefold() for word in words)]
+            supported = [symbol for symbol in re.findall(
+                r"(?<![A-Za-z0-9])\d{4,6}(?![A-Za-z0-9]|年|[/.-]\d)", query)
+                         if symbol in known_symbols]
             listed = extract_candidate_stocks(None, None, query, None, catalog) if catalog else []
             symbols = list(dict.fromkeys([*supported, *listed]))
         if scopes and not symbols:
@@ -315,8 +334,8 @@ class ChatService:
             needs.discard("market")
             needs.discard("news")
         response.detected_stocks = symbols
-        response.actions = [ChatAction(label=f"{STOCK_OPTIONS[symbol]}個股分析", path=f"/stock/{symbol}")
-                            for symbol in symbols if symbol in STOCK_OPTIONS]
+        response.actions = [ChatAction(label=f"{stock_options[symbol]}個股分析", path=f"/stock/{symbol}")
+                            for symbol in symbols if symbol in stock_options]
         if len(symbols) > 1 or "help" in needs:
             response.actions.append(ChatAction(label="多股比較", path="/compare"))
         if "help" in needs:
@@ -328,15 +347,20 @@ class ChatService:
         if draft:
             response.actions.append(draft)
             response.sources.append(reference_source("模擬單草稿", "已準備可編輯草稿，尚未下單或成交。使用者必須確認金額、股數、理由與觀察期間，再由系統驗證資金和庫存。", category="help"))
-        market_symbols = [symbol for symbol in symbols if symbol in STOCK_OPTIONS]
+        market_symbols = [symbol for symbol in symbols if symbol in stock_options]
+        if "market" in needs and len(market_symbols) > MAX_COMPARISON_STOCKS:
+            response.answer = f"單次最多比較 {MAX_COMPARISON_STOCKS} 檔股票，請縮小本次比較範圍。"
+            yield response, "", ""
+            return
         if ("market" in needs and not market_symbols and not symbols
                 and re.search(r"台股|大盤|加權指數|櫃買|央行|利率|通膨|關稅|匯率|Fed|聯準會", query, re.I)):
             needs.add("news")
-        if "market" in needs and not market_symbols and "news" in needs:
+        if "market" in needs and not symbols and "news" in needs:
             needs.remove("market")
-        if "market" in needs and not market_symbols:
+        if "market" in needs and not symbols:
             response.answer = ("想分析或比較哪幾檔股票？目前可查詢：" +
-                               "、".join(f"{name}（{code}）" for code, name in STOCK_OPTIONS.items()) + "。")
+                               "、".join(f"{name}（{code}）" for code, name in stock_options.items()) + "。"
+                               if stock_options else "目前股票服務名單為空，無法查詢行情與基本面。")
             yield response, "", ""
             return
 
@@ -348,7 +372,8 @@ class ChatService:
         if time_from or time_to:
             response.time_range = {"from": time_from, "to": time_to}
         warning = ""
-        unavailable = []
+        unavailable = (["股票服務名單暫時無法讀取，無法確認可查詢的股票範圍。"]
+                       if not stock_options_available and "help" in needs else [])
         if "market" in needs:
             unsupported = [symbol for symbol in symbols if symbol not in market_symbols]
             if unsupported:
@@ -381,7 +406,7 @@ class ChatService:
                 news_error = exc
                 unavailable.append("未找到符合問題的新聞。" if exc.status_code == 404 else "新聞服務暫時無法使用。")
 
-        if "market" in needs:
+        if "market" in needs and market_symbols:
             yield "正在讀取行情、技術指標與基本面資料…"
             as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
             start_date = datetime.fromisoformat(time_from).date() if time_from else None
@@ -408,7 +433,8 @@ class ChatService:
         if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
             unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
         response.sources.extend(collect_knowledge_sources(
-            query, include_help="help" in needs, include_knowledge=bool(needs & {"market", "knowledge"})))
+            query, stock_options=stock_options if stock_options_available else None, include_help="help" in needs,
+            include_knowledge=bool(needs & {"market", "knowledge"})))
         if news_error and needs == {"news"}:
             raise news_error
         if unavailable:

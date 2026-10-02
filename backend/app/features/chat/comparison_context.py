@@ -12,13 +12,16 @@ from app.features.market import repository
 from .schemas import SourceChunk
 
 
+MAX_COMPARISON_STOCKS = 6
+
+
 def collect_comparison_source(db: Session, symbols: list[str], start_date: date,
                               end_date: date) -> SourceChunk | None:
     """Read with the caller's Session; never fill missing prices or returns."""
     requested = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols if symbol.strip()))
     if start_date > end_date:
         raise ValueError("start_date must not be after end_date")
-    if len(requested) > 6:
+    if len(requested) > MAX_COMPARISON_STOCKS:
         raise ValueError("Comparison supports at most six stocks")
     if len(requested) < 2:
         return None

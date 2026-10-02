@@ -28,6 +28,12 @@ from app.features.analysis.service import (AnalysisService, build_llm_runtime_co
 AS_OF = date(2026, 7, 13)
 
 
+@pytest.fixture(autouse=True)
+def stock_catalog(db_session):
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
+    db_session.commit()
+
+
 def brief_payload():
     claim = {"id": "cs_01", "claim_type": "observation", "text": "Price increased with mixed evidence.",
              "direction": "mixed", "evidence_ids": ["d_04"], "importance": "high"}
@@ -369,13 +375,29 @@ def test_latest_weekend_analysis_is_independent_of_price_day_and_historical_cuto
     assert llm.calls == rag.calls == 3
 
 
-def test_text_brief_accepts_symbols_from_stock_info(db_session, settings):
-    db_session.add(StockInfo(symbol="1101", name="台泥"))
-    db_session.add_all([DailyPrice(symbol="1101", date=date(2026, 7, day), close=Decimal(100 + day),
+@pytest.mark.parametrize("symbol", ["1101", "1303"])
+def test_text_brief_accepts_symbols_from_stock_info(db_session, settings, symbol):
+    db_session.add(StockInfo(symbol=symbol, name="Catalog company"))
+    db_session.add_all([DailyPrice(symbol=symbol, date=date(2026, 7, day), close=Decimal(100 + day),
                                     volume_shares=1_000_000) for day in range(10, 15)])
     db_session.commit()
-    result = run_service(db_session, settings, symbol="1101")
-    assert result.symbol == "1101" and result.status == "limited"
+    result = run_service(db_session, settings, symbol=symbol)
+    assert result.symbol == symbol and result.status == "limited"
+
+
+def test_text_brief_rejects_former_default_symbol_absent_from_database(db_session, settings):
+    llm, rag = FakeLlm(), FakeRag()
+    with pytest.raises(AppError) as error:
+        run_service(db_session, settings, llm, rag, symbol="2408")
+    assert error.value.status_code == 422
+    assert llm.calls == rag.calls == 0
+
+
+def test_analysis_without_database_has_no_default_symbols(settings):
+    service = AnalysisService(db=None, settings=settings, http=None, llm=FakeLlm(), rag=FakeRag())
+    assert service.stock_options == {}
+    with pytest.raises(AppError):
+        service._validate_symbol("2330")
 
 
 @pytest.mark.parametrize("requested_date", [AS_OF, date(2026, 9, 12)])

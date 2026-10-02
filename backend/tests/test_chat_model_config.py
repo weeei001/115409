@@ -12,7 +12,7 @@ from test_llm_chat import completion, configured, stream_frame
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(settings, stream):
+def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(settings, stream, chat_session_factory):
     settings = configured(settings, LLM_MODEL="analysis-model", LLM_MAX_TOKENS=8192,
                           LLM_TIMEOUT_SECONDS=900, LLM_MAX_RETRIES=2,
                           CHAT_LLM_MODEL="fast-chat-model", CHAT_LLM_MAX_TOKENS=2048,
@@ -39,7 +39,7 @@ def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(
 
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http:
-            chat = ChatService(settings=settings, http=http, retrieval=FakeRetrieval())
+            chat = ChatService(settings=settings, http=http, retrieval=FakeRetrieval(), session_factory=chat_session_factory)
             assert chat.intent_llm is chat.llm
             assert chat.llm.settings.LLM_MAX_RETRIES == 0
             request = AskRequest(query="台積電", stream=stream)
