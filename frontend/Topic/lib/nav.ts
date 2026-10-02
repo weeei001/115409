@@ -5,6 +5,7 @@ import type { ChatAction } from './types/chat';
 export const PRIMARY_NAV = [
   { path: '/', label: '首頁' },
   { path: '/favorites', label: '收藏股' },
+  { path: '/notifications', label: '通知' },
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬下單' },
   { path: '/compare', label: '多股比較' },
@@ -46,6 +47,7 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/reset-password': '重設密碼',
   '/me': '個人中心',
   '/favorites': '收藏股',
+  '/notifications': '通知',
   '/admin': '管理後台',
 };
 

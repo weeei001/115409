@@ -14,7 +14,7 @@ export function PushListener() {
     const receive = (event: Event) => {
       if (!getToken()) return;
       const { title, body, url } = (event as CustomEvent).detail;
-      toast(title || '收藏股通知', { description: body, action: { label: '查看', onClick: () => window.location.assign(safeReturnUrl(url) || '/favorites#notifications') } });
+      toast(title || '收藏股通知', { description: body, action: { label: '查看', onClick: () => window.location.assign(safeReturnUrl(url) || '/notifications') } });
     };
     setup();
     window.addEventListener(AUTH_CHANGE_EVENT, setup);

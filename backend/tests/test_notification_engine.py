@@ -57,7 +57,7 @@ def test_close_summary_and_price_threshold_are_durable(db_session):
     assert generate_notifications(db_session, NOW) == 2
     rows = notifications(db_session)
     assert {row.kind for row in rows} == {"daily_summary", "price_alert"}
-    assert next(row for row in rows if row.kind == "daily_summary").url == "/favorites#notifications"
+    assert next(row for row in rows if row.kind == "daily_summary").url == "/notifications"
     alert = next(row for row in rows if row.kind == "price_alert")
     assert alert.symbol == "2330" and "+5.00%" in alert.body and "收盤" in alert.body
     assert generate_notifications(db_session, NOW + timedelta(minutes=5)) == 0
