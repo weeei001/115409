@@ -12,7 +12,7 @@ import { StockPriceCard } from '@/features/home/StockPriceCard';
 import { FEATURED_COUNT, useFeaturedQuotes } from '@/features/home/useFeaturedQuotes';
 import { parseBulkSymbolInput } from '@/lib/utils/stockSelection';
 
-const DESCRIPTION = '即時股價、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。';
+const DESCRIPTION = '最近儲存收盤行情（非即時）、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。';
 
 export default function HomePage() {
   const router = useRouter();
@@ -35,7 +35,7 @@ export default function HomePage() {
   return (
     <div className="flex min-h-[100dvh] flex-col overflow-x-hidden">
       <Head>
-        <title>股海明燈｜即時股價與財經新聞</title>
+        <title>股海明燈｜最近儲存收盤行情與財經新聞</title>
         <meta name="description" content={DESCRIPTION} />
       </Head>
 
@@ -55,7 +55,7 @@ export default function HomePage() {
             <div className="mb-5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <BarChart3 size={18} className="text-brand" aria-hidden />
-                <h2 className="text-lg font-bold tracking-tight">即時股價</h2>
+                <h2 className="text-lg font-bold tracking-tight">最近儲存收盤行情</h2>
               </div>
               {symbolsReady ? (
                 <button
@@ -68,6 +68,8 @@ export default function HomePage() {
                 </button>
               ) : null}
             </div>
+
+            <p className="mb-4 text-xs text-muted-foreground">非即時行情；依已匯入資料顯示，收盤日見各筆資料。</p>
 
             {quotes.emptySymbols ? (
               <EmptyState className="py-8">目前沒有可顯示的股票</EmptyState>

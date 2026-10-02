@@ -28,7 +28,7 @@ function StockDashboardView({ symbol }: { symbol: string }) {
   const dashboard = useStockDashboard(symbol);
   const label = formatStockLabel(symbol);
   const title = `股海明燈｜${label}`;
-  const description = `查詢 ${label} 即時股價、K 線、籌碼、技術指標、AI 投資分析與新聞（展示／專題用途）。`;
+  const description = `查詢 ${label} 最近儲存收盤行情、K 線、籌碼、技術指標、AI 投資分析與新聞（非即時；展示／專題用途）。`;
   const header = (subtitle: string, titleWrap = false) => (
     <SiteHeader icon={TrendingUp} breadcrumbs={breadcrumbsForStock(symbol)} title={label} subtitle={subtitle} titleWrap={titleWrap} />
   );

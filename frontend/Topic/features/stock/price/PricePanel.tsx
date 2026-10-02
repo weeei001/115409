@@ -61,7 +61,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
           <div>
             <h3 className="text-xl font-semibold">價量走勢</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {lastDate ? `資料截至 ${lastDate}` : '尚無資料日期'}；展示用途，非投資建議。
+              {lastDate ? `資料截至 ${lastDate}` : '尚無資料日期'}；非即時行情，依已匯入資料顯示；展示用途，非投資建議。
             </p>
           </div>
           <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
