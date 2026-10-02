@@ -4,7 +4,7 @@ import { isChatAction } from '../nav';
 import { parseChatSources, type ChatSource, type ChatAction } from '../types/chat';
 import { parseChatDashboard, type ChatDashboard } from '../types/chatDashboard';
 import { ApiRequestError } from './client';
-import { genericMessageForStatus, pickDetailMessage } from './errorDetail';
+import { genericMessageForStatus, pickDetailMessage, userFacingMessage } from './errorDetail';
 import { getRagApiTimeoutMs } from './ragTimeout';
 
 const ASK_URL = `${API_BASE}/api/ask`;
@@ -107,10 +107,15 @@ export async function ragAskStream(
   options?: { signal?: AbortSignal; conversationId?: string },
 ): Promise<RagAskStreamResult> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), getRagApiTimeoutMs());
+  const timeoutMs = getRagApiTimeoutMs();
+  let timedOut = false;
+  let lastStage = '';
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+  const abort = () => ctrl.abort();
   if (options?.signal) {
     if (options.signal.aborted) ctrl.abort();
-    else options.signal.addEventListener('abort', () => ctrl.abort(), { once: true });
+    else options.signal.addEventListener('abort', abort, { once: true });
   }
 
   const body = JSON.stringify({
@@ -154,7 +159,10 @@ export async function ragAskStream(
       if (!event || typeof event.type !== 'string') return false;
       switch (event.type) {
         case 'status':
-          if (typeof event.content === 'string') handlers.onStatus?.(event.content);
+          if (typeof event.content === 'string') {
+            lastStage = event.content.trim().replace(/\s+/g, ' ').slice(0, 200);
+            handlers.onStatus?.(event.content);
+          }
           return false;
         case 'dashboard': {
           const dashboard = parseChatDashboard(event.dashboard);
@@ -177,7 +185,7 @@ export async function ragAskStream(
       }
     };
 
-    const reader = res.body.getReader();
+    reader = res.body.getReader();
     const decoder = new TextDecoder();
     let carry = '';
     let fullRaw = '';
@@ -206,14 +214,23 @@ export async function ragAskStream(
         /* 不是 JSON */
       }
     }
+    if (!completed) throw new ApiRequestError('回覆連線提前結束，尚未收到完整結果。請重新提問。');
     return { hadStreamText, completed };
   } catch (err) {
-    if (err instanceof ApiRequestError) throw err;
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new ApiRequestError('AI 回覆逾時，請稍後再試。', undefined, { cause: err });
-    }
-    throw err instanceof Error ? err : new ApiRequestError(String(err));
+    if (options?.signal?.aborted) throw new DOMException('Request cancelled', 'AbortError');
+    const message = timedOut
+      ? `AI 回覆等待超過 ${Math.round(timeoutMs / 1000)} 秒，已停止等待。請重新提問。`
+      : err instanceof ApiRequestError
+        ? userFacingMessage(err, '伺服器無法完成回覆，請稍後再試。')
+        : '與伺服器的連線中斷，尚未取得完整回覆。請確認網路連線後重試。';
+    throw new ApiRequestError(lastStage ? `${message} 最後處理階段：${lastStage}` : message,
+      err instanceof ApiRequestError ? err.status : undefined, { cause: err });
   } finally {
     clearTimeout(timer);
+    options?.signal?.removeEventListener('abort', abort);
+    if (reader) {
+      void reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
   }
 }

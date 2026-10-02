@@ -144,7 +144,9 @@ def test_frontend_stream_consumes_text_and_receives_fallback_warning(chat):
     assert result[-1]["type"] == "done" and result[-1]["answer"] == rendered
     assert result[-1]["actions"][0]["path"] == "/stock/2330" and result[-1]["sources"]
     assert result[-1]["time_range"]["to"] == "2026-09-11 15:30:00"
-    assert [event["type"] for event in result[:3]] == ["status", "dashboard", "status"]
+    assert [event["type"] for event in result[:4]] == ["status", "status", "dashboard", "status"]
+    assert [event["content"] for event in result if event["type"] == "status"] == [
+        "正在理解問題與對話脈絡…", "正在搜尋相關新聞與來源…", "正在依據資料產生回答…", "正在核對回答的引用與數值…"]
     assert llm.closed
 
 
@@ -290,6 +292,7 @@ def test_cancelled_consumer_closes_provider_stream(chat):
         llm.stream_text = waiting_provider
         stream = service.stream_events(AskRequest(query="台積電", stream=True))
         assert (await anext(stream))["type"] == "status"
+        assert (await anext(stream))["type"] == "status"
         assert (await anext(stream))["type"] == "dashboard"
         assert (await anext(stream))["type"] == "status"
         pending = asyncio.create_task(anext(stream))
@@ -301,6 +304,48 @@ def test_cancelled_consumer_closes_provider_stream(chat):
             await pending
     asyncio.run(cancel())
     assert llm.closed
+
+
+@pytest.mark.parametrize("stage", ["intent", "news", "repair"])
+def test_cancelled_stage_closes_inflight_operation_without_background_work(chat, stage):
+    _, service, llm, retrieval = chat
+    statuses = {"intent": "正在理解問題與對話脈絡…", "news": "正在搜尋相關新聞與來源…",
+                "repair": "回答未通過核對，正在依據來源重新產生…"}
+
+    async def cancel():
+        started, closed = asyncio.Event(), asyncio.Event()
+
+        async def waiting(*args, **kwargs):
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                closed.set()
+
+        if stage == "intent":
+            llm.generate = waiting
+        elif stage == "news":
+            retrieval.search_question = waiting
+        else:
+            llm.answer = "Unverified answer [S99]"
+            llm.text = waiting
+        stream = service.stream_events(AskRequest(query="台積電", stream=True))
+        while True:
+            event = await anext(stream)
+            assert event["type"] != "text"
+            if event == {"type": "status", "content": statuses[stage]}:
+                break
+        assert not started.is_set()
+        pending = asyncio.create_task(anext(stream))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        await stream.aclose()
+        assert closed.is_set()
+        assert all(task is asyncio.current_task() for task in asyncio.all_tasks())
+
+    asyncio.run(cancel())
 
 
 @pytest.mark.parametrize("stream", [False, True])

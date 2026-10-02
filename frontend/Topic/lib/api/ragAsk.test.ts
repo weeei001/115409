@@ -114,10 +114,9 @@ async function check() {
     assert.equal(reply.completed, true);
   }
   responseBody = 'data: {"type":"text","content":"Partial answer"}\n\n';
-  const interrupted = await ragAskStream({ query: expectedQuery }, { onText: () => {} });
-  assert.equal(interrupted.completed, false);
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), /回覆連線提前結束/);
   responseBody = 'data: {"type":"error","message":"Retrieval failed"}\n\n';
-  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), /Retrieval failed/);
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), /伺服器無法完成回覆/);
 
   const mixedSources = '- [S1] Market snapshot\n- [S2] News: https://example.com/news\n' +
     '- [S3] Untrusted source: javascript:alert(1)\n- [S4] Internal news: /news/article-1';
@@ -215,19 +214,128 @@ async function check() {
   let available: ChatDashboard | undefined;
   await assert.rejects(ragAskStream({ query: expectedQuery }, {
     onDashboard: (result) => { available = result.dashboard; }, onText: () => {},
-  }), /Model failed/);
+  }), /伺服器無法完成回覆/);
   assert.deepEqual(available, dashboard);
   responseBody = prepared;
   let preparedCount = 0;
-  const partial = await ragAskStream({ query: expectedQuery }, {
+  await assert.rejects(ragAskStream({ query: expectedQuery }, {
     onDashboard: () => preparedCount++, onText: () => {}, onDone: () => assert.fail('No completion event'),
-  });
+  }), /回覆連線提前結束/);
   assert.equal(preparedCount, 1);
-  assert.equal(partial.completed, false);
   responseBody = JSON.stringify({ answer: 'Explanation', dashboard, actions: safeActions });
   await ragAskStream({ query: expectedQuery }, {
     onText: () => {}, onDone: (result) => assert.deepEqual(result.dashboard, dashboard),
   });
+
+  responseBody = 'data: {"type":"status","content":"驗證引用與數值"}\n\n';
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }),
+    /回覆連線提前結束.*最後處理階段：驗證引用與數值/);
+  responseBody += 'data: {"type":"error","message":"供應商暫時無法回覆"}\n\n';
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }),
+    /供應商暫時無法回覆.*最後處理階段：驗證引用與數值/);
+
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch: secret provider URL'); };
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), (error: Error) => {
+    assert.match(error.message, /與伺服器的連線中斷/);
+    assert.doesNotMatch(error.message, /secret|Failed to fetch/);
+    return true;
+  });
+  const encoder = new TextEncoder();
+  const framedBytes = encoder.encode(': heartbeat\r\n\r\n' +
+    'data: {"type":"status","content":"檢索中"}\r\n\r\n' +
+    'data: {"type":"text","content":"台積電"}\r\n\r\n' +
+    'data: {"type":"text","content":"營收成長 📈"}\r\n\r\n' +
+    'data: {"type":"done","answer":"台積電營收成長 📈","actions":[]}');
+  for (const chunkSize of [1, 7, framedBytes.length]) {
+    let offset = 0;
+    globalThis.fetch = async () => new Response(new ReadableStream({
+      pull(controller) {
+        if (offset === framedBytes.length) { controller.close(); return; }
+        const end = Math.min(offset + chunkSize, framedBytes.length);
+        controller.enqueue(framedBytes.slice(offset, end));
+        offset = end;
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } });
+    const events: string[] = [];
+    const framed = await ragAskStream({ query: expectedQuery }, {
+      onStatus: (status) => events.push(`status:${status}`),
+      onText: (text) => events.push(`text:${text}`),
+      onDone: () => events.push('done'),
+    });
+    assert.deepEqual(events, ['status:檢索中', 'text:台積電', 'text:營收成長 📈', 'done'], `Chunk size ${chunkSize}`);
+    assert.equal(framed.completed, true);
+    assert.equal(framed.hadStreamText, true);
+  }
+
+  let cancelCount = 0;
+  const openStream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(encoder.encode('data: {"type":"done","answer":"Completed","actions":[]}\n\n')); },
+    cancel() { cancelCount++; },
+  });
+  globalThis.fetch = async () => new Response(openStream);
+  const closedAtDone = await ragAskStream({ query: expectedQuery }, { onText: () => {} });
+  assert.equal(closedAtDone.completed, true);
+  assert.equal(cancelCount, 1, 'Receiving done cancels the response without waiting for the server to close');
+  assert.equal(openStream.locked, false);
+
+  const midstreamAbort = new AbortController();
+  let abortedStream: ReadableStream<Uint8Array> | undefined;
+  let abortStatuses = 0;
+  globalThis.fetch = async (_url, options) => {
+    abortedStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"status","content":"等待生成"}\n\n'));
+        options?.signal?.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true });
+      },
+    });
+    return new Response(abortedStream);
+  };
+  await assert.rejects(ragAskStream({ query: expectedQuery }, {
+    onStatus: () => { abortStatuses++; midstreamAbort.abort(); },
+    onText: () => assert.fail('Cancelled stream must not produce text'),
+    onDone: () => assert.fail('Cancelled stream must not complete'),
+  }, { signal: midstreamAbort.signal }), (error: Error) => error.name === 'AbortError');
+  assert.equal(abortStatuses, 1);
+  assert.equal(abortedStream?.locked, false);
+
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"type":"status","content":"準備模型輸入"}\n\n'));
+    },
+    pull(controller) { controller.error(new TypeError('terminated')); },
+  }));
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), (error: Error) => {
+    assert.match(error.message, /與伺服器的連線中斷.*最後處理階段：準備模型輸入/);
+    const failureMarkup = renderToStaticMarkup(createElement(ChatMessage, {
+      message: { id: 'network-failure', role: 'assistant', content: 'Partial answer', timestamp: '', status: 'failed', error: error.message },
+      reducedMotion: true, streamActive: false, followUpDisabled: false,
+    }));
+    assert.match(failureMarkup, /Partial answer/);
+    assert.match(failureMarkup, /與伺服器的連線中斷/);
+    assert.match(failureMarkup, /最後處理階段：準備模型輸入/);
+    return true;
+  });
+
+  const originalSetTimeout = globalThis.setTimeout;
+  let expire = () => {};
+  globalThis.setTimeout = ((callback: () => void) => { expire = callback; return 0; }) as unknown as typeof setTimeout;
+  try {
+    globalThis.fetch = async (_url, options) => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"status","content":"產生回答"}\n\n'));
+        options?.signal?.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true });
+      },
+      pull() { expire(); },
+    }));
+    await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }),
+      /AI 回覆等待超過 \d+ 秒.*最後處理階段：產生回答/);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+  const cancelled = new AbortController();
+  globalThis.fetch = async () => { cancelled.abort(); throw new DOMException('Aborted', 'AbortError'); };
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }, { signal: cancelled.signal }),
+    (error: Error) => error.name === 'AbortError' && !error.message.includes('逾時'));
 
   Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => 'fixture-token' } });
@@ -259,5 +367,5 @@ if (process.argv.includes('--child')) {
     });
     assert.equal(child.status, 0, child.stderr || child.stdout);
   }
-  console.log('Chat checks passed: routing, answer detail, bounded history, safe actions, and stream completion.');
+  console.log('Chat checks passed: routing, answer detail, bounded history, safe actions, and stream completion. SSE framing/lifecycle: 5 fixtures across 4 API configurations (20 checks).');
 }
