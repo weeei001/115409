@@ -285,32 +285,31 @@ def test_selected_brief_symbol_is_validated_stored_executed_and_retried(client, 
     from app.jobs.runtime import JobRuntime
 
     _, headers = account(db_session, settings, "manager@example.com", administrator=True)
-    db_session.add(StockInfo(symbol="2330", name="TSMC"))
-    db_session.add(StockInfo(symbol="9999", name="Unsupported"))
+    db_session.add(StockInfo(symbol="1101", name="Taiwan Cement"))
     db_session.commit()
     runtime = JobRuntime(settings, lambda: db_session)
     runtime.status = "running"
     app.state.jobs = runtime
     for job, action, body, code in [
         ("text-brief", "run", {"symbol": "missing"}, 404),
-        ("text-brief", "run", {"symbol": "9999"}, 422),
+        ("text-brief", "run", {"symbol": "9999"}, 404),
         ("text-brief", "run", {"symbol": "2330,2317"}, 422),
         ("rag", "run", {"symbol": "2330"}, 422),
         ("text-brief", "pause", {"symbol": "2330"}, 422),
     ]:
         assert client.post(f"/admin/jobs/{job}/{action}", headers=headers, json=body).status_code == code
-    response = client.post("/admin/jobs/text-brief/run", headers=headers, json={"symbol": "2330"})
+    response = client.post("/admin/jobs/text-brief/run", headers=headers, json={"symbol": "1101"})
     assert response.status_code == 200
     run_id = response.json()["run_id"]
-    assert client.get(f"/admin/runs/{run_id}", headers=headers).json()["symbol"] == "2330"
+    assert client.get(f"/admin/runs/{run_id}", headers=headers).json()["symbol"] == "1101"
     commands = []
     monkeypatch.setattr(runtime, "_worker", lambda command: commands.append(command) or 0)
     assert runtime._execute(run_id) == 0
-    assert commands == [["cache-warmup", "--symbols", "2330"]]
+    assert commands == [["cache-warmup", "--symbols", "1101"]]
     response = client.post("/admin/jobs/text-brief/retry", headers=headers, json={"run_id": run_id})
     assert response.status_code == 200
     retry = db_session.get(AdminJobRun, response.json()["run_id"])
-    assert retry.symbol == "2330" and retry.retry_of == run_id
+    assert retry.symbol == "1101" and retry.retry_of == run_id
     assert client.post("/admin/jobs/text-brief/retry", headers=headers,
                        json={"run_id": run_id, "symbol": "2330"}).status_code == 422
     assert runtime._execute(retry.id) == 0
