@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
+from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 
 class ChatTurn(BaseModel):
@@ -9,6 +10,8 @@ class ChatTurn(BaseModel):
 
 
 class AskRequest(BaseModel):
+    _user_id: int | None = PrivateAttr(default=None)
+    _conversation_id: str | None = PrivateAttr(default=None)
     query: str = Field(min_length=1, max_length=6000)
     stock_id: str | None = Field(default=None, pattern=r"^[0-9]{4,6}$")
     stream: bool = False
@@ -28,7 +31,7 @@ class Intent(BaseModel):
     stocks: list[str] = Field(default_factory=list)
     time_from: str | None = None
     time_to: str | None = None
-    data_needs: list[Literal["news", "market", "knowledge", "help"]] = Field(default_factory=lambda: ["news"])
+    data_needs: list[Literal["news", "market", "knowledge", "help", "favorites", "portfolio"]] = Field(default_factory=lambda: ["news"])
     suggested_questions: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
     standalone_query: str | None = Field(default=None, max_length=6000)
     display_focus: list[Literal["price", "technical", "institutional", "fundamental", "comparison", "news"]] = Field(default_factory=list)
@@ -86,6 +89,20 @@ class ChatAction(BaseModel):
     type: Literal["navigate"] = "navigate"
     label: str
     path: str = Field(pattern=r"^(?:/|/ai|/compare|/order|/stock/[0-9]{4,6})$")
+
+
+class PaperOrderDraft(BaseModel):
+    type: Literal["paper_order_draft"] = "paper_order_draft"
+    draft_id: str = Field(default_factory=lambda: str(uuid4()))
+    label: str = "建立模擬單草稿"
+    symbol: str = Field(pattern=r"^[0-9]{4,6}$")
+    side: Literal["buy", "sell"]
+    budget: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    quantity: int | None = Field(default=None, gt=0)
+    reason: str = Field(default="", max_length=2000)
+    observation: str = Field(default="", max_length=2000)
+    review_after_days: int = Field(default=20, ge=1, le=250)
+    conversation_id: str | None = None
 
 
 class ChatFollowUp(BaseModel):
@@ -158,5 +175,5 @@ class AskResponse(BaseModel):
     tokens: dict
     duration_ms: int
     current_time: str
-    actions: list[ChatAction | ChatFollowUp] = Field(default_factory=list)
+    actions: list[ChatAction | ChatFollowUp | PaperOrderDraft] = Field(default_factory=list)
     dashboard: ChatDashboard | None = None

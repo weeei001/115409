@@ -78,7 +78,7 @@ export function SiteFooter({ className }: { className?: string }) {
           ))}
         </nav>
         <p className="mx-auto mb-3 max-w-xl text-center text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-          本網站為展示與學習用途，不構成投資建議。模擬下單紀錄會儲存在本站伺服器：未登入時以瀏覽器產生的匿名 ID 識別，登入後以帳號 Email 識別。
+          本網站為展示與學習用途，不構成投資建議。模擬投資使用虛擬資金，交易與決策紀錄儲存於登入帳戶。
         </p>
         <div className="mb-2 h-px w-full bg-gradient-to-r from-transparent via-border to-transparent" aria-hidden />
         <p className="text-center text-[11px] tracking-wide text-muted-foreground sm:text-xs">

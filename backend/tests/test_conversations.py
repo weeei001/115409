@@ -77,6 +77,8 @@ def test_history_auth_ownership_search_pagination_and_delete(client, service, db
     assert '"type": "done"' in result.text
     assert result.headers["cache-control"] == "no-cache"
     assert service.chat.requests[0].history == []
+    assert service.chat.requests[0]._user_id == owner
+    assert service.chat.requests[0]._conversation_id == conversation_id
     detail = client.get(f"/api/conversations/{conversation_id}", headers=headers).json()
     assert detail["title"] == "First title" and detail["updated_at"].endswith("Z")
     assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]

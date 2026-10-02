@@ -84,7 +84,10 @@ class ConversationService:
                                     position=position + 1, role="assistant", content="", timestamp=now,
                                     status="streaming", extra={}),
             ])
-        return turn_id, request.model_copy(update={"history": history})
+        trusted_request = request.model_copy(update={"history": history})
+        trusted_request._user_id = user_id
+        trusted_request._conversation_id = conversation_id
+        return turn_id, trusted_request
 
     def _finish(self, conversation_id, turn_id, content, status, extra):
         with self.session_factory() as db, db.begin():

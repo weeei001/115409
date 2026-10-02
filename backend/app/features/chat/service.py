@@ -27,6 +27,7 @@ from .comparison_context import collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
+from .personal_context import personal_scopes, read_personal_context, paper_draft
 
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
                       INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
@@ -268,7 +269,22 @@ class ChatService:
                                tokens={"input": 0, "output": 0, "thinking": None}, duration_ms=0,
                                current_time=now.strftime("%Y年%m月%d日 %H:%M"))
         needs = set(intent.data_needs or ["news"])
-        if not intent.is_finance and "help" not in needs:
+        scopes = personal_scopes(request.query, needs)
+        personal_symbols = []
+        if scopes:
+            if request._user_id is None:
+                response.answer = "登入後即可讓 AI 讀取你的收藏與模擬持股；目前尚未讀取任何個人資料。"
+                yield response, "", ""
+                return
+            try:
+                personal_symbols, personal_source = await asyncio.to_thread(
+                    read_personal_context, self.session_factory, request._user_id, scopes, query=request.query)
+                response.sources.append(personal_source)
+            except (SQLAlchemyError, ServiceUnavailable):
+                response.answer = "目前無法讀取你的個人資料，請稍後再試。"
+                yield response, "", ""
+                return
+        if not intent.is_finance and "help" not in needs and not scopes:
             response.answer = NON_FINANCE_ANSWER
             yield response, "", ""
             return
@@ -293,6 +309,11 @@ class ChatService:
                          if any(word.casefold() in query.casefold() for word in words)]
             listed = extract_candidate_stocks(None, None, query, None, catalog) if catalog else []
             symbols = list(dict.fromkeys([*supported, *listed]))
+        if scopes and not symbols:
+            symbols = personal_symbols
+        if scopes and not symbols:
+            needs.discard("market")
+            needs.discard("news")
         response.detected_stocks = symbols
         response.actions = [ChatAction(label=f"{STOCK_OPTIONS[symbol]}個股分析", path=f"/stock/{symbol}")
                             for symbol in symbols if symbol in STOCK_OPTIONS]
@@ -303,6 +324,10 @@ class ChatService:
                                      ChatAction(label="模擬下單", path="/order")])
         response.actions.extend(ChatFollowUp(label=question.strip(), query=question.strip())
                                 for question in dict.fromkeys(intent.suggested_questions) if question.strip())
+        draft = paper_draft(request.query, symbols, request)
+        if draft:
+            response.actions.append(draft)
+            response.sources.append(reference_source("模擬單草稿", "已準備可編輯草稿，尚未下單或成交。使用者必須確認金額、股數、理由與觀察期間，再由系統驗證資金和庫存。", category="help"))
         market_symbols = [symbol for symbol in symbols if symbol in STOCK_OPTIONS]
         if ("market" in needs and not market_symbols and not symbols
                 and re.search(r"台股|大盤|加權指數|櫃買|央行|利率|通膨|關稅|匯率|Fed|聯準會", query, re.I)):

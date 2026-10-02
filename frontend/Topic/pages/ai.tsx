@@ -1,5 +1,6 @@
 import React from 'react';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { Bot } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { ConversationHistory } from '@/features/ai/ConversationHistory';
@@ -17,6 +18,8 @@ const EXAMPLE_QUESTIONS = [
 
 export default function AiPage() {
   const chat = useChat();
+  const router = useRouter();
+  const initialPrompt = typeof router.query.prompt === 'string' ? router.query.prompt.slice(0, 6000) : '';
 
   return (
     <div className="flex min-h-[100dvh] flex-col lg:min-h-0 lg:flex-1">
@@ -44,7 +47,10 @@ export default function AiPage() {
               onSend={chat.send}
             />
             <div className="shrink-0">
-              <ChatInput key={chat.conversationId ?? "new"} onSend={chat.send} disabled={chat.loading || !chat.ready}
+              <ChatInput key={`${chat.conversationId ?? 'new'}:${initialPrompt}`} initialValue={chat.conversationId ? '' : initialPrompt} onSend={(text) => {
+                if (initialPrompt) void router.replace('/ai', undefined, { shallow: true });
+                chat.send(text);
+              }} disabled={chat.loading || !chat.ready}
                 onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} />
             </div>
           </div>

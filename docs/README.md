@@ -28,7 +28,7 @@ API 與 worker 共用 feature／db 層；只有 `app/main.py` 的 lifespan 載�
 python -m app.jobs init-schema --sync-catalog
 ```
 
-此命令建立缺少的 30 張現行資料表，包含獨立 metadata 的 `news_chunks`、三張新聞版本表、四張後台管理表與兩張 AI 對話歷史表。新 MySQL 表使用 InnoDB／utf8mb4。命令不清除資料、不修改既有表結構、不建立資料庫，也不建立舊 `news_sentiments` 或 `analysis_digests` 表。既有表需要升級時仍使用對應遷移，不能以重跑初始化代替。`--help` 與不支援的參數不會連線。
+此命令建立缺少的現行資料表，包含獨立 metadata 的 `news_chunks`、新聞版本表、後台管理表、AI 對話歷史、通知與模擬投資表。新 MySQL 表使用 InnoDB／utf8mb4。命令不清除資料、不修改既有表結構、不建立資料庫，也不建立舊 `news_sentiments` 或 `analysis_digests` 表。既有表需要升級時仍使用對應遷移，不能以重跑初始化代替。`--help` 與不支援的參數不會連線。
 
 `--sync-catalog` 會重新取得 TWSE／TPEx 官方全市場公司目錄、儲存該環境的公司目錄快取，再將下列 40 檔同步到 `stock_info`。省略此旗標只建立資料表；不建立預設使用者，不呼叫 embedding 或 LLM。官方目錄失敗或缺少指定公司時命令失敗，已建立的資料表保留，可重跑。
 
@@ -43,6 +43,20 @@ python -m app.jobs init-schema --sync-catalog
 既有環境需在啟用此功能前執行 `python -m app.jobs init-schema`，建立缺少的兩張表；不必加 `--sync-catalog`，不會呼叫 AI 服務或改寫既有資料表。API 啟動不會自行建表。
 
 API：`GET/POST /api/conversations`、`GET/DELETE /api/conversations/{id}`、`POST /api/conversations/{id}/ask`。清單支援 `q`、`offset`、`limit`；皆需 Bearer token。續聊忽略客戶端傳入的 `history`，使用資料庫中最近四個完成回合；中斷或失敗回合仍可查看，但不納入模型上下文。同一對話尚在處理另一個提問時回傳 409。
+
+### Paper portfolio and decision reviews
+
+`/order` is the single paper investment interface and uses an authenticated virtual account with TWD 1,000,000 initial cash. Its balances and reviews use `paper_accounts`, `paper_orders`, and `paper_reviews`; pre-existing `simulated_orders` rows are not imported into these balances or deleted. There is no legacy read-only page. Before enabling the feature, run `python -m app.jobs init-schema` from `backend/` against the intended environment. API startup never creates tables.
+
+The authenticated API is `GET /paper-portfolio`, `POST /paper-portfolio/orders`, `POST /paper-portfolio/orders/{id}/cancel`, and `POST /paper-portfolio/reviews/{id}/acknowledge`. Ownership comes from the Bearer token. A stable `client_request_id` makes repeated submissions idempotent; reusing it for different order details returns a conflict. Buy budgets include fees and reserve cash. Sell quantities reserve shares. Filled orders use average-cost accounting; reviews never sell positions automatically.
+
+Fills use the first stored TAIEX session strictly after the order's Taiwan-local submission date, and the stock's close on that exact date after the session closes. Missing stock prices leave orders pending instead of substituting a later price. The session calendar is inferred from imported TAIEX observations: completeness of that dataset must be checked before interpreting execution dates or review periods. This is a daily-price simulation, not exchange matching. Fees and sell tax are fixed simulation assumptions saved with each order, rounded to cents without minimum fees; dividends, corporate actions, liquidity and slippage are not modeled.
+
+The market pipeline runs `paper-reconcile --execute` after stock and benchmark imports succeed. It settles eligible orders and creates one station-inbox notification per due review without calling an AI provider. `python -m app.jobs paper-reconcile` and `--help` are read-only help; adding `--execute` writes account and review records. Portfolio requests also reconcile the current account so imported data can be reflected when the scheduler is disabled.
+
+Authenticated conversation turns can read the current user's favorites and portfolio as cited evidence. Explicit simulation requests produce an editable draft with a stable ID, not an executed order. Confirmed reasons and observation notes live with the order even if the source conversation is deleted. Review discussions are stored through the existing conversation history. Personal stock analysis is bounded to six symbols per question; missing private data must not be interpreted as an empty account.
+
+Offline verification: `python -m pytest backend/tests/test_paper_portfolio.py backend/tests/test_paper_worker.py backend/tests/test_chat_personal.py backend/tests/test_conversations.py backend/tests/test_schema_init.py backend/tests/test_scheduler.py -q` from the repository root. SQLite tests verify accounting and state transitions; production MySQL row-lock contention requires separate runtime verification.
 
 ### 逐批補齊新聞事件分析
 

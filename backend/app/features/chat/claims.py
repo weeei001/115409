@@ -81,6 +81,18 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk]) -> bool
         evidence_numbers.update(_evidence_numbers(payload))
         if isinstance(payload, dict) and source.category in {"market_technical", "fundamental", "institutional"}:
             structured.append((source, payload))
+        if isinstance(payload, dict) and source.category == "personal":
+            portfolio = payload.get("portfolio", {})
+            for position in portfolio.get("positions", []):
+                if position.get("market_date"):
+                    structured.append((source.model_copy(update={"stock_id": position["symbol"]}),
+                                       {"items": [{"field": "close", "value": position.get("market_price"),
+                                                   "date": position["market_date"]}]}))
+            for review in portfolio.get("reviews", []):
+                items = [{"field": "chg_pct", "value": review.get("price_return_pct"), "date": review.get("due_date")},
+                         {"field": "close", "value": review.get("closing_price"), "date": review.get("due_date")}]
+                structured.append((source.model_copy(update={"stock_id": review["symbol"]}), {"items": items}))
+
 
     for field, label in METRICS.items():
         for match in re.finditer(_claim_pattern(label), prose, re.I):

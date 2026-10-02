@@ -48,6 +48,7 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
              "--start", start.isoformat(), "--out", str(output)],
             ["market-import", "--input-dir", str(output)],
             ["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()],
+            ["paper-reconcile", "--execute"],
         ])
     if job in {"cnyes", "all"}:
         commands.append(["crawl-cnyes", "--scheduled-once"])

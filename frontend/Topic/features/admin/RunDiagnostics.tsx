@@ -9,6 +9,7 @@ const CATEGORIES: Record<string, string> = {
 export function adminStageLabel(stage?: string | null): string {
   const labels: Record<string, string> = {
     'market-fetch': '下載行情', 'market-import': '匯入行情', 'market-backfill': '補齊行情',
+    'paper-reconcile': '處理模擬投資成交與回顧',
     'crawl-cnyes': '擷取鉅亨新聞', 'crawl-ltn': '擷取自由財經新聞',
     'migrate-news-impact-schema': '準備新聞分析資料', 'news-ingest': '建立新聞向量索引',
     'news-impact-batch': '新聞 AI 分析', 'news-impact-sync': '同步向量標記', 'cache-warmup': '產生個股摘要',
