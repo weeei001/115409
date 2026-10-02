@@ -10,6 +10,7 @@ class GrantAdministratorRequest(BaseModel):
 
 class JobActionRequest(BaseModel):
     run_id: int | None = Field(None, gt=0)
+    symbol: str | None = Field(None, pattern=r"^[A-Za-z0-9]{1,10}$")
 
 
 class ActionResponse(BaseModel):
@@ -24,6 +25,7 @@ class RunPublic(BaseModel):
     trigger: str
     actor_id: int | None
     retry_of: int | None
+    symbol: str | None = None
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None

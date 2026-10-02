@@ -16,6 +16,8 @@ export interface AdminJob {
   next_run_at: string | null;
   active_run_id: number | null;
   queued_run_id?: number | null;
+  active_run?: AdminRun | null;
+  queued_run?: AdminRun | null;
   result_summary?: {
     history_scope: 'all_stored_runs';
     terminal_runs: number;
@@ -28,6 +30,7 @@ export interface AdminJob {
 export interface AdminRun {
   id: number;
   job_name: string;
+  symbol?: string | null;
   status: string;
   trigger: string;
   actor_id?: number | null;
@@ -89,9 +92,12 @@ export function canRetryAdminRun(run: AdminRun, jobs: AdminJob[]): boolean {
 }
 
 export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: string, schedulerStatus = 'running'): string {
-  if (job.paused) return '排程已暫停；手動執行不受影響';
   if (job.active_run_id != null) return `正在執行 #${job.active_run_id}；下次時間於完成後確認`;
-  if (job.queued_run_id != null) return `已排入等待 #${job.queued_run_id}；開始時間尚未確認`;
+  if (job.queued_run_id != null) {
+    const active = jobs.find((item) => item.active_run_id != null);
+    return `已排入等待 #${job.queued_run_id}；${active ? `等待工作 #${active.active_run_id} 完成` : '等待排程器依序啟動'}`;
+  }
+  if (job.paused) return '排程已暫停；手動執行不受影響';
   if (schedulerStatus !== 'running') return '排程器未運作；下次時間尚無法確認';
   if (job.next_run_at) {
     const deadline = Date.parse(job.next_run_at);
@@ -103,7 +109,17 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
     return '預定時間；實際開始依序列排程而定';
   }
   return job.schedule === 'Manual' ? '僅手動執行，沒有下次排程' : job.name === 'rag'
-    ? '目前沒有後續排程；等待資料工作完成後安排' : '尚無下次排程資訊';
+    ? '目前沒有後續排程；等待資料工作完成後安排' : job.name === 'text-brief' ? '等待新聞索引完成後安排；也可指定股票手動執行' : '尚無下次排程資訊';
+}
+
+export function adminDuration(seconds?: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  const total = Math.max(0, Math.round(seconds));
+  return total < 60 ? `${total} 秒` : `${Math.floor(total / 60)} 分 ${total % 60} 秒`;
+}
+
+export function adminRunScope(run: Pick<AdminRun, 'job_name' | 'symbol'>): string {
+  return run.job_name === 'text-brief' ? (run.symbol ? `股票 ${run.symbol}` : '全部股票') : '';
 }
 
 export function adminRunId(value: unknown): number | null {

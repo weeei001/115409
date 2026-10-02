@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { acceptedJobAudit, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
+import { acceptedJobAudit, adminDuration, adminRunScope, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
 import type { AdminAudit, AdminJob, AdminRun } from '../../lib/api/admin';
 import { AdminAuditResult, AdminJobs, AdminRunHistory } from '../../pages/admin';
 import { AdminRunDiagnostics } from './RunDiagnostics';
@@ -42,7 +42,7 @@ assert.doesNotMatch(manualMarkup, /暫停新聞影響分析排程/);
 
 const historyMarkup = renderToStaticMarkup(<AdminRunHistory runs={[run]} jobs={[job]} disabled={true} onRetry={() => undefined} />);
 assert.match(historyMarkup, /disabled=""[^>]*aria-label="重跑行情更新執行紀錄 7"/);
-assert.match(historyMarkup, /2026\/9\/30\s10:00:00/);
+assert.match(historyMarkup, /2026\/9\/30 10:00:00/);
 assert.match(historyMarkup, /5 秒/);
 assert.match(historyMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
 assert.doesNotMatch(historyMarkup, /<script>/);
@@ -100,4 +100,29 @@ for (const details of [null, 'run_id=7', {}, { run_id: '7' }, { run_id: -1 }, { 
 for (const value of ['0', '007', ['7'], '7#other', NaN, Infinity, 2147483648, undefined]) assert.equal(adminRunId(value), null);
 assert.equal(adminRunId('7'), 7);
 assert.equal(adminRunId(7), 7);
+assert.equal(adminDuration(3744), '62 分 24 秒');
+assert.equal(adminDuration(null), '—');
+assert.equal(adminRunScope({ job_name: 'text-brief', symbol: '2330' }), '股票 2330');
+assert.equal(adminRunScope({ job_name: 'text-brief' }), '全部股票');
+assert.match(adminScheduleState({ ...job, active_run_id: 9 }, [job]), /正在執行 #9/);
+assert.match(adminScheduleState({ ...job, queued_run_id: 10 }, [{ ...job, active_run_id: 9 }]), /等待工作 #9 完成/);
+const brief = { ...job, name: 'text-brief', paused: false, schedule: 'After news indexing' };
+const briefMarkup = renderToStaticMarkup(<AdminJobs jobs={[brief]} disabled={false} onAction={() => undefined} />);
+assert.match(briefMarkup, /label for="brief-symbol"/);
+assert.match(briefMarkup, /select id="brief-symbol" required=""/);
+assert.match(briefMarkup, /disabled=""[^>]*aria-label="立即執行個股摘要"/);
+assert.match(briefMarkup, /新聞索引完成後自動執行/);
+assert.match(briefMarkup, /暫停個股摘要排程/);
+assert.doesNotMatch(briefMarkup, /option[^>]*>全部股票/);
+const liveMarkup = renderToStaticMarkup(<AdminJobs jobs={[{ ...brief, active_run_id: 7, active_run: {
+  ...run, job_name: 'text-brief', symbol: '2330', status: 'running', duration_seconds: 3744,
+  diagnostics: { run_id: 7, error_category: null, failed_stages: [], stage: 'cache-warmup', stage_started_at: now,
+    last_activity_at: now, activity_kind: 'stage_started', worker_progress: 'unknown' },
+} }]} disabled={false} onAction={() => undefined} />);
+assert.match(liveMarkup, /目前階段：產生個股摘要/);
+assert.match(liveMarkup, /62 分 24 秒/);
+assert.match(liveMarkup, /執行範圍：股票 2330/);
+const scopedHistory = renderToStaticMarkup(<AdminRunHistory runs={[{ ...run, job_name: 'text-brief', symbol: '2330' }, { ...run, id: 8, job_name: 'text-brief' }]} jobs={[brief]} disabled={false} onRetry={() => undefined} />);
+assert.match(scopedHistory, /股票 2330/);
+assert.match(scopedHistory, /全部股票/);
 console.log('Admin checks passed: paused manual runs, overlap guards, completed retries, unavailable actions, manual-only jobs, Taipei timestamps, and escaped errors.');

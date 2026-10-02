@@ -7,6 +7,7 @@ import sys
 COMMANDS = (
     "init-schema",
     "admin-grant",
+    "migrate-admin-schema",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
@@ -36,6 +37,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "migrate-admin-schema":
+        from app.jobs.admin_migrate import main as migrate
+        return migrate(argv)
     if job == "admin-grant":
         from app.jobs.admin import main as grant
         return grant(argv)

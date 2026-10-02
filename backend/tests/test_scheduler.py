@@ -47,14 +47,13 @@ def test_backfill_runs_before_market_import_and_ai(tmp_path):
 
 
 @pytest.mark.parametrize("failures,expected,commands", [
-    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "cache-warmup"]),
-    ({"news-ingest": 7, "news-impact-batch": 9}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "cache-warmup"]),
-    ({"news-impact-sync": 8}, 8, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
-    ({"cache-warmup": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
-    ({"news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
-    ({"cache-warmup": 7, "news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]),
+    ({}, 0, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
+    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch"]),
+    ({"news-ingest": 7, "news-impact-batch": 9}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch"]),
+    ({"news-impact-sync": 8}, 8, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
+    ({"news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
 ])
-def test_warmup_and_impact_run_independently_after_ingestion(failures, expected, commands, tmp_path):
+def test_news_index_reports_its_own_result_without_warming_briefs(failures, expected, commands, tmp_path):
     called = []
     def run(command):
         called.append(command[0])
@@ -101,7 +100,7 @@ def test_daily_and_news_jobs_coalesce_one_followup(monkeypatch):
     tick(2399)
     assert calls == ["cnyes", "ltn"]
     tick(2400)
-    assert calls == ["cnyes", "ltn", "rag"] and worker.followup is None
+    assert calls == ["cnyes", "ltn", "rag", "text-brief"] and worker.followup is None
     tick(3600)
     assert calls[-3:] == ["market", "cnyes", "ltn"] and worker.followup == 4200
     assert worker.next_market == datetime(2026, 7, 14, 17, tzinfo=scheduler.TAIPEI)
@@ -126,7 +125,7 @@ def test_failed_crawls_still_coalesce_followup_and_repeat(successful, monkeypatc
     assert worker.followup == 2400
     elapsed[0] = 2400
     worker.tick(now + timedelta(minutes=40), 2400)
-    assert calls == ["cnyes", "ltn", "rag"]
+    assert calls == ["cnyes", "ltn", "rag", "text-brief"]
     assert worker.followup is None
     assert "source=cnyes exit_code=1" in capsys.readouterr().out
     elapsed[0] = 3600
@@ -134,7 +133,7 @@ def test_failed_crawls_still_coalesce_followup_and_repeat(successful, monkeypatc
     assert worker.followup == 4200
     elapsed[0] = 4200
     worker.tick(now + timedelta(minutes=70), 4200)
-    assert calls == ["cnyes", "ltn", "rag", "cnyes", "ltn", "rag"]
+    assert calls == ["cnyes", "ltn", "rag", "text-brief", "cnyes", "ltn", "rag", "text-brief"]
 
 
 def test_followup_delay_starts_after_successful_crawl_finishes(monkeypatch):
@@ -343,3 +342,15 @@ def test_fixed_impact_start_reaches_worker_and_sync_without_changing_default(mon
     assert batch[batch.index("--since") + 1] == "2026-01-01"
     sync = next(command for command in commands if command[0] == "news-impact-sync")
     assert int(sync[sync.index("--backfill-days") + 1]) == max(1, (datetime.now(scheduler.TAIPEI).date() - date(2026, 1, 1)).days + 1)
+
+
+@pytest.mark.parametrize("brief_enabled", [False, True])
+def test_standalone_scheduler_separates_brief_and_respects_disabled_job(brief_enabled, monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: 0)
+    now = datetime(2026, 7, 13, 8, tzinfo=scheduler.TAIPEI)
+    worker = scheduler.Scheduler(lambda job: calls.append(job) or 1, now, 0,
+        enabled=lambda job: job != "text-brief" or brief_enabled)
+    worker.followup = 0
+    worker.tick(now, 0)
+    assert calls == ["rag", *(["text-brief"] if brief_enabled else [])]
