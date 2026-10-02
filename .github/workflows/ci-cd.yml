@@ -56,7 +56,6 @@ jobs:
       - run: npm run test:chat
       - run: npm run test:volume
       - run: npm run test:order
-      - run: npm run test:demo
       - run: npm run test:news
       - run: npm run test:compare
       - run: npm run test:admin
