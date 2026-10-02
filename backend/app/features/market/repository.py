@@ -8,6 +8,10 @@ from app.db.models.finmind_extra import FinancialStatementRow
 from app.db.models.stock_info import StockInfo
 
 
+def stock_names(db: Session) -> dict[str, str]:
+    return dict(db.execute(select(StockInfo.symbol, StockInfo.name).order_by(StockInfo.symbol)).all())
+
+
 def symbol_range(db: Session, model, symbol: str, start_date: date, end_date: date):
     return list(db.scalars(select(model).where(
         model.symbol == symbol, model.date >= start_date, model.date <= end_date,

@@ -107,7 +107,6 @@ def test_help_and_concepts_work_without_news_or_market_configuration(chat, query
     assert data["sources"][0]["category"] == category and not retrieval.calls
     if needs == ["help"]:
         assert {a["path"] for a in data["actions"]} == {"/", "/compare", "/order"}
-        assert "does not read personal holdings" in llm.calls[-1][1]["prompt"]
     else:
         assert "fidelity.com" in data["answer"]
         assert not data["actions"]
@@ -131,8 +130,11 @@ def test_news_failure_keeps_available_stock_evidence_and_visible_limit(hub, erro
     assert "新聞" in data["answer"] and "private" not in json.dumps(data)
 
 
-def test_all_market_data_unavailable_is_cited_as_a_limit_not_zero(chat):
-    client, _, llm, _ = chat
+def test_all_market_data_unavailable_is_cited_as_a_limit_not_zero(chat, monkeypatch):
+    client, service, llm, _ = chat
+    def unavailable(*args):
+        raise ServiceUnavailable("Market data unavailable")
+    monkeypatch.setattr(service, "_market_sources", unavailable)
     llm.intent = {"stocks": ["2330"], "data_needs": ["market"]}
     llm.answer = "這次無法取得台積電的行情資料，無法判斷目前走勢。[S2]"
     data = client.post("/api/ask", json={"query": "分析台積電"}).json()

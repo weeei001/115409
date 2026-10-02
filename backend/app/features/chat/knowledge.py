@@ -3,7 +3,6 @@ import json
 import re
 
 from app.features.analysis.evidence import FIELD_GLOSSARY
-from app.features.retrieval.common import STOCK_OPTIONS
 
 from .schemas import SourceChunk
 
@@ -31,11 +30,13 @@ def reference_source(title: str, content: str, *, category: str = "knowledge", u
                        pub_time="", url=url, stock_id="", score=1)
 
 
-def collect_knowledge_sources(query: str, *, include_help: bool, include_knowledge: bool) -> list[SourceChunk]:
+def collect_knowledge_sources(query: str, *, stock_options: dict[str, str] | None,
+                              include_help: bool, include_knowledge: bool) -> list[SourceChunk]:
     sources = []
     if include_help:
         sources.append(reference_source("系統功能與操作入口", json.dumps({
-            "supported_stocks": STOCK_OPTIONS,
+            "supported_stocks": stock_options,
+            "supported_stocks_status": "available" if stock_options is not None else "unavailable",
             "features": {
                 "home": "首頁提供股票總覽，以及個股頁面的入口。",
                 "individual_stock": "個股頁面依現有資料提供價量圖、技術指標、法人買賣超、財務資料、新聞與 AI 分析。",
@@ -45,6 +46,8 @@ def collect_knowledge_sources(query: str, *, include_help: bool, include_knowled
                                    "可在對話中編輯並確認模擬單草稿，或至 /order 建立委託。買入以金額操作，支援零股。"
                                    "委託預計於下一個交易日收盤成交，實際股數依成交價格計算；尚未進入成交處理的委託可取消。"
                                    "主畫面可查看可用資金、總資產、投資損益與持股，交易紀錄及回顧按需要展開。"
+                                   "AI 可引用帳戶提供的資金與持股配置比例，分母為模擬總資產；全部現金包含可用與委託保留資金。"
+                                   "尚未設定預算、總資產為零或行情不完整時，配置比例可能無法計算。"
                                    "可透過管理資金增加或取回模擬現金，取回金額不能超過可用資金。追加資金不計為投資獲利。"
                                    "AI 可依收藏、模擬持股及可用資金討論投資分配；草稿須經使用者確認，不會自動下單或調整資金。"
                                    "模擬資產不代表真實存款或券商持股；回顧到期不會自動賣出持股。",

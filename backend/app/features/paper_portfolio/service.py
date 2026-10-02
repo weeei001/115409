@@ -257,6 +257,7 @@ def snapshot(db, user_id, now=None):
     withdrawals = sum((row.amount for row in movements if row.kind == 'withdrawal'), Decimal(0))
     contributions = initial_cash + deposits - withdrawals
     positions, value, unrealized = [], Decimal(0), Decimal(0)
+    position_values = {}
     unpriced = False
     for symbol, holding in holdings.items():
         if not holding['quantity']:
@@ -264,6 +265,7 @@ def snapshot(db, user_id, now=None):
         latest = repo.latest_price(db, symbol, _day(current))
         mark = latest.close if latest else None
         market_value = _money(mark * holding['quantity']) if mark is not None else None
+        position_values[symbol] = market_value
         profit = market_value - holding['cost'] if market_value is not None else None
         unpriced = unpriced or market_value is None
         if market_value is not None:
@@ -273,6 +275,15 @@ def snapshot(db, user_id, now=None):
                               market_price=float(mark) if mark is not None else None, market_date=latest.date.isoformat() if latest else None,
                               market_value=float(market_value) if market_value is not None else None, unrealized_pnl=float(profit) if profit is not None else None,
                               reserved_quantity=sum(r.quantity for r in pending if r.side == 'sell' and r.symbol == symbol)))
+    equity = None if unpriced else cash + value
+
+    def allocation(amount):
+        if account is None or equity is None or equity <= 0 or amount is None:
+            return None
+        return float(_money(amount / equity * 100))
+
+    for position in positions:
+        position['allocation_pct'] = allocation(position_values[position['symbol']])
     sessions = _eligible_sessions(db, current)
     orders_by_id = {r.id: r for r in records}
     reviews = []
@@ -292,7 +303,10 @@ def snapshot(db, user_id, now=None):
                 total_deposits=float(deposits), total_withdrawals=float(withdrawals), net_contributions=float(contributions),
                 total_pnl=None if unpriced else float(cash + value - contributions),
                 fund_movements=[dict(id=row.id, kind=row.kind, amount=float(row.amount), created_at=_now(row.created_at).isoformat()) for row in reversed(movements)],
-                available_cash=float(cash - reserved), reserved_cash=float(reserved), equity=None if unpriced else float(cash + value), valuation_status='missing_prices' if unpriced else 'available',
+                available_cash=float(cash - reserved), reserved_cash=float(reserved), equity=float(equity) if equity is not None else None, valuation_status='missing_prices' if unpriced else 'available',
+                holdings_value=None if unpriced else float(value), holdings_allocation_pct=allocation(value),
+                cash_allocation_pct=allocation(cash), available_cash_allocation_pct=allocation(cash - reserved),
+                reserved_cash_allocation_pct=allocation(reserved),
                 realized_pnl=float(realized), unrealized_pnl=None if unpriced else float(unrealized), as_of=current.isoformat(),
                 positions=positions, orders=[_order(r, sessions) for r in reversed(records)], reviews=reviews,
                 accounting_note='以股為單位模擬交易；手續費 0.1425%、賣出稅 0.3%，四捨五入至分，無最低費用。此為固定模擬規則，不代表各商品實際稅費；股息與公司行動尚未計入。')

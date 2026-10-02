@@ -12,11 +12,12 @@ from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.db.models.daily_price import DailyPrice
 from app.features.market.repository import symbol_range
+from app.features.market.company_catalog import company_name
 from app.features.analysis.prediction import (
     compute_weighted_regression, compute_momentum_meanreversion_curve,
 )
 from app.features.retrieval.common import (
-    CMONEY_SOURCES, STOCK_OPTIONS as STOCK_NAMES, TAIPEI, parse_timestamp,
+    CMONEY_SOURCES, TAIPEI, parse_timestamp,
 )
 
 DIGEST_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
@@ -49,7 +50,7 @@ def fetch_pit_articles(settings, embeddings, stock_id: str, as_of: str,
     async def retrieve():
         async with make_http_client(settings) as http:
             vector = VectorClient(http, settings)
-            query = await vector.embed_query(f"{STOCK_NAMES.get(stock_id, stock_id)} recent financial outlook")
+            query = await vector.embed_query(f"{company_name(stock_id)} recent financial outlook")
             return await vector.query(query, symbols=[stock_id], start=start, end=end, limit=pool_limit)
 
     analyst, news, seen = [], [], set()

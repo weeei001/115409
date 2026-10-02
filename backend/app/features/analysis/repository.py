@@ -16,9 +16,8 @@ from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_version import NewsArticleVersion, NewsSourceDecision, NewsSourceSelection
-from app.db.models.stock_info import StockInfo
 from app.db.models.technical_indicator import TechnicalIndicator
-from app.features.market.repository import financial_statements, symbol_range
+from app.features.market.repository import financial_statements, stock_names, symbol_range
 from app.features.news.repository import news_list
 from app.features.news.sentiment import company_catalog, extract_candidate_stocks
 from app.features.news.versions import source_identity
@@ -28,10 +27,6 @@ from app.features.news.eligibility import contains_simulation
 from .evidence import (FINANCIAL_LOOKBACK_DAYS, LONG_TERM_LOOKBACK_DAYS,
                        REVENUE_LOOKBACK_DAYS, TIMELINE_TRADING_DAYS,
                        VALUATION_RANK_LOOKBACK_DAYS)
-
-
-def stock_names(db: Session) -> dict[str, str]:
-    return {row.symbol: row.name for row in db.execute(select(StockInfo.symbol, StockInfo.name))}
 
 
 def collect_rows(db: Session, *, symbol: str, as_of: date) -> dict[str, list[Any]]:

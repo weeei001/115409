@@ -90,7 +90,7 @@ def test_failed_outlook_does_not_invent_direction_or_misattribute_prices(chat, n
 def test_mixed_supported_stocks_disclose_partial_market_coverage(chat, monkeypatch):
     from app.features.chat import service as chat_module
     client, service, llm, _ = chat
-    monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2330": "台積電", "2603": "長榮"})
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2330": {"name": "台積電"}, "2603": {"name": "長榮"}})
     llm.intent = {"is_finance": True, "stocks": ["2330", "2603"], "data_needs": ["market", "news"]}
     service._market_sources = lambda *_: []
     answer = client.post("/api/ask", json={"query": "比較台積電與長榮"}).json()["answer"]

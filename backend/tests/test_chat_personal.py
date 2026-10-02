@@ -47,7 +47,7 @@ def test_personal_reader_uses_trusted_owner(monkeypatch):
     assert json.loads(source.content)["favorites"] == [{"symbol": "2330", "name": "TSMC"}]
 
 
-def test_favorites_resolve_before_news_retrieval(monkeypatch):
+def test_favorites_resolve_before_news_retrieval(monkeypatch, chat_session_factory):
     from app.features.chat.knowledge import reference_source
     seen = []
     def reader(factory, owner, scopes, query=""):
@@ -56,7 +56,7 @@ def test_favorites_resolve_before_news_retrieval(monkeypatch):
     monkeypatch.setattr(chat_module, "read_personal_context", reader)
     models = FakeModels(intent={"stocks": [], "data_needs": ["favorites", "news"]})
     retrieval = FakeRetrieval()
-    service = ChatService(http=None, settings=None, llm=models, retrieval=retrieval)
+    service = ChatService(http=None, settings=None, llm=models, retrieval=retrieval, session_factory=chat_session_factory)
     response, _, _ = asyncio.run(service._prepare(trusted("我的收藏有什麼新聞")))
     assert seen == [(7, {"favorites"})]
     assert retrieval.calls[0]["symbols"] == ["2330"]

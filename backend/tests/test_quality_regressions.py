@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.errors import AppError
+from app.db.models.stock_info import StockInfo
 from app.features.analysis.prediction import PredictionOutput, call_llm_for_prediction, StrategyConfig
 from app.features.analysis.service import AnalysisService
 from app.jobs.indicators import _calc_rsi
@@ -31,7 +32,7 @@ def test_prediction_failure_does_not_invent_direction():
 
 
 @pytest.mark.parametrize("pct, expected", [(10, "up"), (0, "neutral"), (-10, "down"), (None, None)])
-def test_weekly_predictions_are_cumulative_and_failure_is_error(monkeypatch, settings, pct, expected):
+def test_weekly_predictions_are_cumulative_and_failure_is_error(monkeypatch, settings, db_session, pct, expected):
     class Llm:
         async def generate(self, **kwargs):
             assert "累積" in kwargs["system_prompt"]
@@ -43,7 +44,9 @@ def test_weekly_predictions_are_cumulative_and_failure_is_error(monkeypatch, set
         return "2330", None, [{"date": "2026-09-01", "close": 100.0}], [], StrategyConfig(name="test")
 
     monkeypatch.setattr(AnalysisService, "_trend_context", context)
-    service = AnalysisService(db=None, settings=settings, http=None, llm=Llm(), rag=object())
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
+    db_session.commit()
+    service = AnalysisService(db=db_session, settings=settings, http=None, llm=Llm(), rag=object())
 
     async def collect():
         return [event async for event in service.stream_trend_prediction("2330")]

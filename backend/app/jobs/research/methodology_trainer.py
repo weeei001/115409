@@ -27,7 +27,7 @@ from pathlib import Path
 from app.core.config import state_directory
 
 from app.jobs.research.digest_core import (
-    STOCK_NAMES, make_h200_client, DIGEST_EXTRA_BODY,
+    company_name, make_h200_client, DIGEST_EXTRA_BODY,
     fetch_pit_articles, fetch_prices, compute_technical,
 )
 from app.jobs.research.build_analysis_digests import anchor_dates, build_qdrant_embeddings
@@ -274,7 +274,7 @@ _METHODOLOGY_KEYS = ("summary", "regime_rules", "rules", "anti_patterns")
 
 def build_induction_prompt(stock_id: str, train_start: str, train_end: str,
                            cases: list[TrainingCase]) -> str:
-    name = STOCK_NAMES.get(stock_id, stock_id)
+    name = company_name(stock_id)
     case_blocks = "\n\n".join(case_summary(c) for c in cases)
     contract = ('{"market_regime": "...", "technical_reasoning": "...", '
                 '"news_reasoning": "...", "change_pct": 數字}')

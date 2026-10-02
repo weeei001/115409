@@ -25,8 +25,6 @@ from . import transforms as transform
 
 log = logging.getLogger(__name__)
 FINMIND_API_URL = "https://api.finmindtrade.com/api/v4/data"
-DEFAULT_STOCKS = ["2330", "2317", "2454", "2881", "2408", "2615"]
-DEFAULT_STOCK_LIMIT = 40
 DEFAULT_MAX_API_REQUESTS = 600
 API_USAGE_PATH = Path(__file__).resolve().parents[2] / ".state" / "finmind_api_usage.json"
 EXTRA_DATASETS = (
@@ -191,9 +189,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--institutional-csv")
     parser.add_argument("--skip-institutional", action="store_true")
     parser.add_argument("--include-holding-shares-per", action="store_true")
-    parser.add_argument("--from-stock-info", action="store_true")
-    parser.add_argument("--max-stocks", type=int, default=DEFAULT_STOCK_LIMIT,
-                        help="Maximum stock_info symbols to fetch (default: 40)")
+    parser.add_argument("--from-stock-info", action="store_true",
+                        help="Read symbols from stock_info (default when no stocks are specified)")
+    parser.add_argument("--max-stocks", type=int,
+                        help="Maximum stock_info symbols to fetch (default: all)")
     args = parser.parse_args(argv)
     args.end = args.end or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     try:
@@ -205,15 +204,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             raise ValueError("--start must be <= --end")
         if (not math.isfinite(args.timeout) or args.timeout <= 0 or args.retries < 0
                 or not math.isfinite(args.request_interval) or args.request_interval < 0
-                or args.warmup_days < 0 or args.max_stocks < 1):
+                or args.warmup_days < 0 or (args.max_stocks is not None and args.max_stocks < 1)):
             raise ValueError("Timeout must be positive; retries, request interval and warmup must be nonnegative; stock limit must be positive")
     except ValueError as exc:
         parser.error(str(exc))
-    if args.from_stock_info and (args.stock or args.stocks):
+    if args.from_stock_info and (args.stock is not None or args.stocks is not None):
         parser.error("--from-stock-info cannot be combined with --stock or --stocks")
-    args.symbols = (list(dict.fromkeys((args.stock or args.stocks or ",".join(DEFAULT_STOCKS)).split(",")))
-                    if not args.from_stock_info else [])
-    args.symbols = [symbol.strip() for symbol in args.symbols if symbol.strip()]
+    explicit_symbols = args.stock if args.stock is not None else args.stocks
+    args.from_stock_info = args.from_stock_info or explicit_symbols is None
+    args.symbols = list(dict.fromkeys(symbol.strip() for symbol in (explicit_symbols or "").split(",")
+                                      if symbol.strip()))
+    if not args.from_stock_info and not args.symbols:
+        parser.error("At least one stock id is required")
     if args.symbols and any(not re.fullmatch(r"\d{4,6}", symbol) for symbol in args.symbols):
         parser.error("Stock ids must contain 4 to 6 digits")
     return args

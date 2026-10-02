@@ -14,7 +14,6 @@ from app.core.errors import AppError, Conflict, NotFound, ServiceUnavailable
 from app.db.models.admin import AdminJobControl, AdminJobRun
 from app.db.models.stock_info import StockInfo
 from app.features.admin.diagnostics import STAGES
-from app.features.retrieval.common import STOCK_OPTIONS
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 
@@ -282,8 +281,6 @@ class JobRuntime:
                 raise AppError("A symbol is supported only for text-brief run", 422)
             if db.get(StockInfo, symbol) is None:
                 raise NotFound("Stock not found")
-            if symbol not in STOCK_OPTIONS:
-                raise AppError("Stock is not supported for text briefs", 422)
         if self.status != "running" or self.stop_event.is_set():
             raise ServiceUnavailable("Scheduler is not available for job controls")
         if action in {"pause", "resume"}:

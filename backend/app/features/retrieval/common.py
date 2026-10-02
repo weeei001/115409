@@ -4,18 +4,6 @@ from typing import Any
 
 
 TAIPEI = timezone(timedelta(hours=8))
-STOCK_OPTIONS = {
-    "2330": "台積電", "2317": "鴻海", "2454": "聯發科",
-    "2881": "富邦金", "2408": "南亞科", "2615": "萬海",
-}
-STOCK_KEYWORDS = {
-    "2330": ["台積電", "TSMC", "2330"],
-    "2317": ["鴻海", "富士康", "2317"],
-    "2454": ["聯發科", "MediaTek", "2454"],
-    "2881": ["富邦金", "富邦", "2881"],
-    "2408": ["南亞科", "南亞科技", "Nanya", "2408"],
-    "2615": ["萬海", "2615"],
-}
 CMONEY_SOURCES = {
     "tpshouse", "cmoney", "newsyoudeservetoknow", "lewis", "coneyresearcher",
     "cmoneyaicurator", "josh", "money", "nico", "cmoneyairesearcher",

@@ -74,13 +74,13 @@ def test_article_id_never_guessed_from_long_chunk_id_and_passage_keeps_whitespac
     assert evidence["value"] == source["summary"]
 
 
-def test_chat_preserves_citation_provenance_and_raw_passage():
+def test_chat_preserves_citation_provenance_and_raw_passage(chat_session_factory):
     item = hit("passage")
     item["payload"].update(article_id="article", chunk_index=2, char_start=8, char_end=30,
         content_hash="hash", revision="r1", index_version="news-v1", embedding_model="test-model",
         stock_ids=["2330", "2317"], page_content="Raw.\n\n  Exact passage.")
     llm = FakeModels()
-    chat = ChatService(http=None, settings=None, retrieval=FakeRetrieval(hits=[item]), llm=llm)
+    chat = ChatService(http=None, settings=None, retrieval=FakeRetrieval(hits=[item]), llm=llm, session_factory=chat_session_factory)
     result = asyncio.run(chat.ask(AskRequest(query="Company revenue")))
     source = result.sources[0]
     assert source.citation_id == "S1" and source.article_id == "article" and source.chunk_id == "passage"

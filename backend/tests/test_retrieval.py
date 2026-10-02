@@ -43,7 +43,7 @@ class FakeVector:
 
 
 def service(vector):
-    return RetrievalService(http=None, settings=None, vector=vector)
+    return RetrievalService(http=None, settings=None, vector=vector, stock_options={"2330": "台積電", "2317": "鴻海"})
 
 
 def test_analyze_three_routes_dedupe_noise_and_taipei_future_guard():
@@ -220,3 +220,18 @@ def test_analyze_http_request_response_contract():
         assert client.post("/api/analyze", json={"symbols": []}).status_code == 400
         assert client.post("/api/analyze", json={}).status_code == 422
         assert client.post("/api/analyze", json={"symbols": ["2330"], "lookback_days": None}).status_code == 422
+
+
+def test_catalog_drives_retrieval_and_empty_options_do_not_fall_back(monkeypatch):
+    catalog = {"1101": {"name": "台泥"}, "1303": {"name": "南亞"}}
+    monkeypatch.setattr("app.features.retrieval.service.load_catalog", lambda: catalog)
+    retrieval = RetrievalService(None, None, FakeVector())
+    assert retrieval.stock_options == {"1101": "台泥", "1303": "南亞"}
+    response = asyncio.run(retrieval.analyze(RetrievalRequest(symbols=["1101", "1303"], as_of="2024-01-31")))
+    assert not response.news_sources
+    empty = RetrievalService(None, None, FakeVector(), stock_options={})
+    assert empty.stock_options == {}
+    with pytest.raises(AppError):
+        empty._stock_descriptor("1101")
+    monkeypatch.setattr("app.features.retrieval.service.load_catalog", lambda: {})
+    assert RetrievalService(None, None, FakeVector()).stock_options == {}
