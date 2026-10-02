@@ -228,6 +228,20 @@ async function check() {
   await ragAskStream({ query: expectedQuery }, {
     onText: () => {}, onDone: (result) => assert.deepEqual(result.dashboard, dashboard),
   });
+
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => 'fixture-token' } });
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, `${process.env.EXPECTED_API_BASE}/api/conversations/conversation-one/ask`);
+    assert.equal((options?.headers as Record<string, string>).Authorization, 'Bearer fixture-token');
+    assert.deepEqual(JSON.parse(String(options?.body)).history, []);
+    return new Response('data: {"type":"text","content":"Continued"}\n\ndata: {"type":"done","actions":[]}\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  };
+  const continued: string[] = [];
+  const savedResult = await ragAskStream({ query: 'Continue' }, { onText: (text) => continued.push(text) }, { conversationId: 'conversation-one' });
+  assert.equal(savedResult.completed, true);
+  assert.deepEqual(continued, ['Continued']);
+
 }
 
 if (process.argv.includes('--child')) {

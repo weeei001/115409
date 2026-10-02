@@ -44,7 +44,8 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response) {
       const { status, data } = error.response;
-      if (status === 401 && typeof window !== 'undefined' && error.config?.headers?.Authorization) {
+      if (status === 401 && typeof window !== 'undefined' && getToken()
+        && error.config?.headers?.Authorization === `Bearer ${getToken()}`) {
         clearAuth();
       }
       return Promise.reject(new ApiRequestError(pickDetailMessage(data, status), status, { cause: error }));

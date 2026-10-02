@@ -42,11 +42,11 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
-  status?: ChatMessageStatus;
-  error?: string;
+  status?: ChatMessageStatus | null;
+  error?: string | null;
   /** 串流中後端 `type: "status"` 的狀態文字 */
   streamStatus?: string;
   actions?: ChatAction[];
-  dashboard?: ChatDashboard;
+  dashboard?: ChatDashboard | null;
   sources?: ChatSource[];
 }

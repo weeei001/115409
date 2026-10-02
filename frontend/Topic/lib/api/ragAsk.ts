@@ -104,7 +104,7 @@ export interface RagAskStreamResult {
 export async function ragAskStream(
   params: RagAskParams,
   handlers: RagAskStreamHandlers,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; conversationId?: string },
 ): Promise<RagAskStreamResult> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), getRagApiTimeoutMs());
@@ -124,9 +124,11 @@ export async function ragAskStream(
   });
 
   try {
-    const res = await fetch(ASK_URL, {
+    const token = typeof window !== 'undefined' ? getToken() : null;
+    const url = options?.conversationId ? `${API_BASE}/api/conversations/${encodeURIComponent(options.conversationId)}/ask` : ASK_URL;
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json;q=0.1, */*;q=0.01' },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json;q=0.1, */*;q=0.01', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body,
       signal: ctrl.signal,
       cache: 'no-store',

@@ -2,6 +2,7 @@ import React from 'react';
 import Head from 'next/head';
 import { Bot } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
+import { ConversationHistory } from '@/features/ai/ConversationHistory';
 import { ChatArea } from '@/features/ai/ChatArea';
 import { ChatInput } from '@/features/ai/ChatInput';
 import { useChat } from '@/features/ai/useChat';
@@ -26,12 +27,14 @@ export default function AiPage() {
       <SiteHeader icon={Bot} title="AI 對話" subtitle="個股、多股比較、技術指標與新聞重點（不構成投資建議）" />
 
       <main aria-label="AI 對話" className="mx-auto flex w-full max-w-7xl flex-col px-4 py-3 sm:px-6 sm:py-6 lg:min-h-0 lg:flex-1 lg:px-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col lg:min-h-0 lg:flex-1">
-          <div className="flex w-full flex-col overflow-visible rounded-xl border bg-card shadow-raised lg:max-h-[calc(100dvh-var(--app-header-height)-4rem-var(--app-safe-area-bottom))] lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+        <div className="mx-auto flex w-full flex-col gap-3 lg:min-h-0 lg:flex-1 lg:flex-row">
+          <ConversationHistory signedIn={chat.signedIn} ready={chat.ready} items={chat.conversations}
+            selectedId={chat.conversationId} search={chat.search} loading={chat.historyLoading}
+            error={chat.historyError} hasMore={chat.hasMore} onSearch={chat.setSearch}
+            onOpen={chat.openConversation} onNew={chat.newConversation} onRetry={chat.refreshHistory} onMore={chat.loadMore} />
+          <div className="flex min-w-0 w-full flex-col overflow-visible rounded-xl border bg-card shadow-raised lg:max-h-[calc(100dvh-var(--app-header-height)-4rem-var(--app-safe-area-bottom))] lg:min-h-0 lg:flex-1 lg:overflow-hidden">
             <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2 text-xs text-muted-foreground">
-              <p role="status">{chat.cacheNotice ?? '對話保留於本分頁；登出或切換帳號會清除。'}</p>
-              <button type="button" onClick={chat.clear} disabled={!chat.ready || !chat.messages.length}
-                className="min-h-11 shrink-0 rounded-lg border px-3 text-sm text-subtle hover:bg-accent disabled:opacity-50">清除對話</button>
+              <p role="status">{chat.notice ?? (chat.signedIn ? '對話自動儲存於帳號，可從歷史清單開啟並繼續提問。' : '訪客對話僅在目前頁面顯示，登入後可儲存歷史對話。')}</p>
             </div>
             <ChatArea
               messages={chat.messages}
@@ -41,8 +44,8 @@ export default function AiPage() {
               onSend={chat.send}
             />
             <div className="shrink-0">
-              <ChatInput onSend={chat.send} disabled={chat.loading || !chat.ready}
-                onStop={chat.loading ? chat.stop : undefined} stopNotice={chat.stopNotice} />
+              <ChatInput key={chat.conversationId ?? "new"} onSend={chat.send} disabled={chat.loading || !chat.ready}
+                onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} />
             </div>
           </div>
         </div>

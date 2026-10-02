@@ -8,7 +8,7 @@
     "start": "next start -H 0.0.0.0 -p 53000",
     "lint": "tsc --noEmit",
     "test": "tsx scripts/openapiMapper.test.ts",
-    "test:chat": "tsx lib/api/ragAsk.test.ts && tsx lib/utils/markdown.test.tsx && tsx features/ai/ChatMessage.test.tsx && tsx lib/chat/session.test.ts && tsx features/ai/ChatInput.test.tsx && tsx features/ai/ChatArea.test.tsx",
+    "test:chat": "tsx lib/api/ragAsk.test.ts && tsx lib/utils/markdown.test.tsx && tsx features/ai/ChatMessage.test.tsx && tsx lib/auth/storage.test.ts && tsx lib/api/conversations.test.ts && tsx features/ai/ConversationHistory.test.tsx && tsx features/ai/ChatInput.test.tsx && tsx features/ai/ChatArea.test.tsx",
     "test:volume": "tsx lib/charts/volumeInsight.test.ts",
     "test:order": "tsx features/order/estimate.test.tsx",
     "test:news": "tsx lib/hooks/useNewsList.test.ts && tsx lib/news/stockNewsView.test.ts && tsx features/news/NewsCard.test.ts && tsx features/news/NewsFilters.test.tsx",

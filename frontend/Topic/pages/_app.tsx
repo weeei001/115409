@@ -1,5 +1,4 @@
 import type { AppProps } from 'next/app';
-import { useEffect } from 'react';
 import Head from 'next/head';
 import { MotionConfig } from 'motion/react';
 import '../styles/main.css';
@@ -8,21 +7,12 @@ import { ThemeColorMeta } from '@/components/layout/ThemeColorMeta';
 import { AppShell } from '@/components/layout/AppShell';
 import { AppToaster } from '@/components/layout/AppToaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { isAuthSessionBoundary } from '@/lib/auth/storage';
-import { clearChatSession } from '@/lib/chat/session';
 import { FavoritesProvider } from '@/lib/favorites/FavoritesContext';
 
 const DEFAULT_TITLE = '股海明燈｜最近儲存收盤行情與財經新聞';
 const DEFAULT_DESCRIPTION = '最近儲存收盤行情（非即時）、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。';
 
 export default function App({ Component, pageProps }: AppProps) {
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.storageArea === window.localStorage && isAuthSessionBoundary(event)) clearChatSession();
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
   return (
     <MotionConfig reducedMotion="user">
       <ThemeProvider>
