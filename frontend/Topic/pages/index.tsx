@@ -1,7 +1,8 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { BarChart3, GitCompareArrows, RefreshCw } from 'lucide-react';
+import { BarChart3, ChevronRight, GitCompareArrows, RefreshCw } from 'lucide-react';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { BentoCell, BentoGrid } from '@/features/home/BentoGrid';
@@ -10,13 +11,19 @@ import { HomeNews } from '@/features/home/HomeNews';
 import { QuickLinks } from '@/features/home/QuickLinks';
 import { StockPriceCard } from '@/features/home/StockPriceCard';
 import { FEATURED_COUNT, useFeaturedQuotes } from '@/features/home/useFeaturedQuotes';
+import { useFavorites } from '@/lib/favorites/FavoritesContext';
 import { parseBulkSymbolInput } from '@/lib/utils/stockSelection';
 
 const DESCRIPTION = '最近儲存收盤行情（非即時）、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。';
 
 export default function HomePage() {
   const router = useRouter();
-  const quotes = useFeaturedQuotes();
+  const favorites = useFavorites();
+  // 只有已登入且清單載入成功才排收藏股；未登入、沒有收藏或載入失敗都維持原本的輪播
+  const favoriteItems = favorites.status === 'ready' ? favorites.items : null;
+  const favoriteSymbols = useMemo(() => favoriteItems?.map((item) => item.symbol) ?? [], [favoriteItems]);
+  const favoriteNames = useMemo(() => new Map(favoriteItems?.map((item) => [item.symbol, item.name] as const)), [favoriteItems]);
+  const quotes = useFeaturedQuotes(favoriteSymbols, favorites.status !== 'idle' && favorites.status !== 'loading');
   const { symbols } = quotes;
 
   const goToStock = useCallback((symbol: string) => void router.push(`/stock/${symbol}`), [router]);
@@ -93,18 +100,32 @@ export default function HomePage() {
                 {quotes.errorPrices}
               </Notice>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {quotes.prices.map((p, i) => (
-                  <StockPriceCard
-                    key={p.symbol}
-                    data={p}
-                    stockName={quotes.stockInfos.find((stock) => stock.symbol === p.symbol)?.name}
-                    index={i}
-                    sparkline={quotes.sparklines[p.symbol]}
-                    onNavigate={goToStock}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {quotes.prices.map((p, i) => (
+                    <StockPriceCard
+                      key={p.symbol}
+                      data={p}
+                      stockName={quotes.stockInfos.find((stock) => stock.symbol === p.symbol)?.name ?? (favoriteNames.get(p.symbol) || undefined)}
+                      index={i}
+                      sparkline={quotes.sparklines[p.symbol]}
+                      favorite={quotes.favoriteFeatured.has(p.symbol)}
+                      onNavigate={goToStock}
+                    />
+                  ))}
+                </div>
+                {favoriteSymbols.length > FEATURED_COUNT ? (
+                  <div className="mt-3 flex justify-end">
+                    <Link
+                      href="/me"
+                      className="inline-flex min-h-11 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand-text"
+                    >
+                      查看全部收藏
+                      <ChevronRight size={14} aria-hidden />
+                    </Link>
+                  </div>
+                ) : null}
+              </>
             )}
           </BentoCell>
 

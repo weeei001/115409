@@ -5,6 +5,7 @@ import { Loader2, TrendingUp } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
+import { FavoriteToggle } from '@/features/favorites/FavoriteToggle';
 import { StockDashboard } from '@/features/stock/StockDashboard';
 import { isStockSymbol, useStockDashboard } from '@/lib/hooks/useStockDashboard';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
@@ -30,7 +31,14 @@ function StockDashboardView({ symbol }: { symbol: string }) {
   const title = `股海明燈｜${label}`;
   const description = `查詢 ${label} 最近儲存收盤行情、K 線、籌碼、技術指標、AI 投資分析與新聞（非即時；展示／專題用途）。`;
   const header = (subtitle: string, titleWrap = false) => (
-    <SiteHeader icon={TrendingUp} breadcrumbs={breadcrumbsForStock(symbol)} title={label} subtitle={subtitle} titleWrap={titleWrap} />
+    <SiteHeader
+      icon={TrendingUp}
+      breadcrumbs={breadcrumbsForStock(symbol)}
+      title={label}
+      subtitle={subtitle}
+      titleWrap={titleWrap}
+      titleAction={<FavoriteToggle symbol={symbol} />}
+    />
   );
 
   const head = (
