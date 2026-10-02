@@ -46,7 +46,7 @@ API：`GET/POST /api/conversations`、`GET/DELETE /api/conversations/{id}`、`PO
 
 ### Paper portfolio and decision reviews
 
-`/order` uses an authenticated virtual account with TWD 1,000,000 initial cash. The new `paper_accounts`, `paper_orders`, and `paper_reviews` tables are separate from legacy `simulated_orders`. Existing records remain available at `/order/legacy`; they do not contribute to the new account's balances or returns. Before enabling the new version, run `python -m app.jobs init-schema` from `backend/` against the intended environment. API startup never creates tables.
+`/order` is the single paper investment interface and uses an authenticated virtual account with TWD 1,000,000 initial cash. Its balances and reviews use `paper_accounts`, `paper_orders`, and `paper_reviews`; pre-existing `simulated_orders` rows are not imported into these balances or deleted. There is no legacy read-only page. Before enabling the feature, run `python -m app.jobs init-schema` from `backend/` against the intended environment. API startup never creates tables.
 
 The authenticated API is `GET /paper-portfolio`, `POST /paper-portfolio/orders`, `POST /paper-portfolio/orders/{id}/cancel`, and `POST /paper-portfolio/reviews/{id}/acknowledge`. Ownership comes from the Bearer token. A stable `client_request_id` makes repeated submissions idempotent; reusing it for different order details returns a conflict. Buy budgets include fees and reserve cash. Sell quantities reserve shares. Filled orders use average-cost accounting; reviews never sell positions automatically.
 

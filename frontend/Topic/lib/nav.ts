@@ -58,7 +58,6 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/': '首頁',
   '/ai': 'AI 對話',
   '/order': '模擬投資',
-  '/order/legacy': '舊版模擬紀錄',
   '/compare': '多股比較',
   '/login': '登入',
   '/register': '註冊',

@@ -92,7 +92,6 @@ export default function OrderPage() {
         </> : !loading && !error ? <p role="status">正在載入帳戶…</p> : null}
         {draft ? <section ref={draftRef} tabIndex={-1} className="mt-8 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2"><PaperOrderDraft key={`${account}:${draft.key}`} initial={draft.value} onCreated={() => void load()} /></section> : null}
       </>}
-      <footer className="mt-8 border-t pt-4 text-xs text-muted-foreground"><Link href="/order/legacy" className="underline underline-offset-2">查看舊版模擬紀錄</Link><p className="mt-2">舊版紀錄獨立保留，不計入新帳戶資金與績效。</p></footer>
     </main>
   </>;
 }

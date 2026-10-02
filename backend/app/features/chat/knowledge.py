@@ -47,9 +47,11 @@ def collect_knowledge_sources(query: str, *, include_help: bool, include_knowled
                               "price performance, volatility, drawdown, correlation, technicals and flows.",
                 "chat": "Ask about single stocks, multiple stocks, news or indicator concepts; click AI-suggested "
                         "follow-up questions or ask for a shorter or deeper explanation in the conversation.",
-                "simulated_orders": "Simulated order page: enter stock, direction, date and quantity, inspect "
-                                     "order records and profit grouped by stock. Uses the logged-in account "
-                                     "or this browser's anonymous identity. These are simulated records.",
+                "paper_portfolio": "Authenticated paper investment account with TWD 1,000,000 initial virtual cash. "
+                                   "Confirm an editable chat draft or create an order on /order. Buy budgets reserve cash; "
+                                   "sell orders reserve shares. Orders use the next trading session's stored close, "
+                                   "not a user-selected historical date. Track positions, available cash and decision "
+                                   "reviews; a due review does not automatically sell a position.",
             },
             "chat_limits": "Chat reads available system market data and references. It cannot access real "
                            "brokerage holdings or execute trades. Authenticated conversations can read the current user's "
