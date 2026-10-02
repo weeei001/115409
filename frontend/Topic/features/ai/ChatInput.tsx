@@ -10,13 +10,14 @@ const COUNTER_THRESHOLD = MAX_QUERY_LENGTH - 500;
  * Enter 送出、Shift+Enter 換行；輸入法組字中（isComposing／keyCode 229）不送出。
  * 輸入框下方固定顯示 AI 免責：手機版 /ai 沒有頁尾、副標題也會被截斷（決議 D13）。
  */
-export function ChatInput({ onSend, disabled, onStop, stopNotice = false }: {
+export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initialValue = '' }: {
   onSend: (text: string) => void;
   disabled: boolean;
   onStop?: () => void;
   stopNotice?: boolean;
+  initialValue?: string;
 }) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(initialValue.slice(0, MAX_QUERY_LENGTH));
 
   const submit = () => {
     const trimmed = value.trim().slice(0, MAX_QUERY_LENGTH);

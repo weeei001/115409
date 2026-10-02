@@ -7,7 +7,7 @@ export const PRIMARY_NAV = [
   { path: '/favorites', label: '收藏股' },
   { path: '/notifications', label: '通知' },
   { path: '/ai', label: 'AI 對話' },
-  { path: '/order', label: '模擬下單' },
+  { path: '/order', label: '模擬投資' },
   { path: '/compare', label: '多股比較' },
 ] as const;
 
@@ -29,7 +29,25 @@ export function isChatFollowUpAction(value: unknown): value is Extract<ChatActio
 }
 
 export function isChatAction(value: unknown): value is ChatAction {
-  return isChatNavigationAction(value) || isChatFollowUpAction(value);
+  return isChatNavigationAction(value) || isChatFollowUpAction(value) || isPaperOrderDraftAction(value);
+}
+
+export function isPaperOrderDraftAction(value: unknown): value is Extract<ChatAction, { type: 'paper_order_draft' }> {
+  if (!value || typeof value !== 'object') return false;
+  const action = value as Partial<Extract<ChatAction, { type: 'paper_order_draft' }>>;
+  const positive = (number: unknown) => number == null || (typeof number === 'number' && Number.isFinite(number) && number > 0);
+  return action.type === 'paper_order_draft' && typeof action.draft_id === 'string'
+    && /^[a-zA-Z0-9-]{1,100}$/.test(action.draft_id)
+    && typeof action.label === 'string' && action.label.length <= 200
+    && typeof action.symbol === 'string' && /^[0-9A-Z]{1,10}$/.test(action.symbol)
+    && (action.side === 'buy' || action.side === 'sell')
+    && positive(action.budget) && positive(action.quantity)
+    && (action.quantity == null || Number.isSafeInteger(action.quantity))
+    && typeof action.reason === 'string' && action.reason.length <= 2000
+    && typeof action.observation === 'string' && action.observation.length <= 2000
+    && typeof action.review_after_days === 'number' && Number.isInteger(action.review_after_days)
+    && action.review_after_days >= 1 && action.review_after_days <= 250
+    && (action.conversation_id == null || (typeof action.conversation_id === 'string' && action.conversation_id.length <= 100));
 }
 
 /** 頁尾連結（與主選單一致，避免遺漏項目） */
@@ -39,7 +57,8 @@ export const FOOTER_NAV = PRIMARY_NAV;
 export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/': '首頁',
   '/ai': 'AI 對話',
-  '/order': '模擬下單',
+  '/order': '模擬投資',
+  '/order/legacy': '舊版模擬紀錄',
   '/compare': '多股比較',
   '/login': '登入',
   '/register': '註冊',

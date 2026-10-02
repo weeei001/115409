@@ -45,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from app.features.market.router import router as market_router
     from app.features.news.router import router as news_router
     from app.features.orders.router import router as orders_router
+    from app.features.paper_portfolio.router import router as paper_portfolio_router
     from app.features.favorites.router import router as favorites_router
     from app.features.analysis.router import prediction_router, router as analysis_router
     from app.features.chat.router import router as chat_router
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(news_router)
     app.include_router(auth_router)
     app.include_router(orders_router)
+    app.include_router(paper_portfolio_router)
     app.include_router(favorites_router)
     app.include_router(analysis_router)
     app.include_router(prediction_router)

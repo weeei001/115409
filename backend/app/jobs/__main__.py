@@ -5,6 +5,7 @@ import sys
 
 
 COMMANDS = (
+    "paper-reconcile",
     "notifications",
     "init-schema",
     "admin-grant",
@@ -38,6 +39,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "paper-reconcile":
+        from app.jobs.paper_portfolio import main as reconcile
+        return reconcile(argv)
     if job == "notifications":
         from app.jobs.notifications import main as notify
         return notify(argv)

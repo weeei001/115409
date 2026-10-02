@@ -51,8 +51,9 @@ def collect_knowledge_sources(query: str, *, include_help: bool, include_knowled
                                      "order records and profit grouped by stock. Uses the logged-in account "
                                      "or this browser's anonymous identity. These are simulated records.",
             },
-            "chat_limits": "Chat reads available system market data and references. It does not read personal "
-                           "holdings, access account details, place/cancel orders or perform strategy backtests. "
+            "chat_limits": "Chat reads available system market data and references. It cannot access real "
+                           "brokerage holdings or execute trades. Authenticated conversations can read the current user's "
+                           "favorites and paper portfolio when requested, and prepare editable paper order drafts. "
                            "Use the supplied page buttons for these supported page features. Data may be missing "
                            "or delayed; stored prices are not real-time quotes.",
         }, ensure_ascii=False), category="help"))
