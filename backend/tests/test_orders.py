@@ -32,6 +32,23 @@ def test_fifo_partial_lots_preserve_total_cost_and_rounding():
     assert service.calculate_estimated_amount(payload, Decimal("100.0005")) == 100001
 
 
+def test_readonly_order_estimate_history_is_exact_date_and_never_creates_order(client, db_session):
+    db_session.add_all([
+        DailyPrice(symbol="2330", date=date(2025, 1, 1), close=Decimal("100.25")),
+        DailyPrice(symbol="2330", date=date(2025, 1, 2), close=None),
+    ])
+    db_session.commit()
+    def lookup(symbol, day):
+        return client.get(f"/stocks/{symbol}/history", params={"start_date": day, "end_date": day, "limit": 1})
+    priced = lookup("2330", "2025-01-01")
+    assert priced.status_code == 200
+    assert priced.json()["data"][0]["close"] == "100.25"
+    assert lookup("2330", "2025-01-02").json()["data"][0]["close"] is None
+    assert lookup("2330", "2025-01-03").json()["data"] == []
+    assert lookup("MISSING", "2025-01-01").json()["data"] == []
+    assert len(list(db_session.scalars(select(SimulatedOrder)))) == 0
+
+
 def test_fifo_respects_symbol_order_id_and_expiry():
     records = [
         order(1, amount=100000, sell_plan="by_date", planned_sell_date=date(2025, 1, 2)),

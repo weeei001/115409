@@ -31,7 +31,7 @@ jobs:
       - run: python -m pip install -r backend/requirements.txt
       # The full legacy suite has known failures documented in docs/README.md.
       - name: Check architecture, API startup, and streaming
-        run: python -m pytest backend/tests/test_architecture.py backend/tests/test_system.py backend/tests/test_streaming.py backend/tests/test_volume_history.py backend/tests/test_admin.py backend/tests/test_job_runtime.py backend/tests/test_scheduler.py -q
+        run: python -m pytest backend/tests/test_architecture.py backend/tests/test_system.py backend/tests/test_streaming.py backend/tests/test_volume_history.py backend/tests/test_orders.py backend/tests/test_admin.py backend/tests/test_job_runtime.py backend/tests/test_scheduler.py -q
 
   frontend:
     name: Frontend checks
@@ -55,6 +55,7 @@ jobs:
       - run: npm ci
       - run: npm run test:chat
       - run: npm run test:volume
+      - run: npm run test:order
       - run: npm run test:demo
       - run: npm run test:news
       - run: npm run test:compare
