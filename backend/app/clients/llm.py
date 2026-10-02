@@ -52,11 +52,13 @@ def _repair_json_numeric_expressions(text: str) -> str:
     return JSON_NUMERIC_EXPR_RE.sub(replace, text)
 
 def _thinking_extra_body(model: str, enable_thinking: bool | None = None) -> dict[str, Any]:
+    model = model.lower()
+    if model.startswith(("gemini-", "models/gemini-")):
+        return {}
     if enable_thinking is False:
         return {"chat_template_kwargs": {"enable_thinking": False}}
     if enable_thinking is True:
         return {"chat_template_kwargs": {"enable_thinking": True}}
-    model = model.lower()
     if model.startswith(("deepseek-ai/", "moonshotai/")):
         return {"chat_template_kwargs": {"thinking": False}}
     if model.startswith(("qwen/", "z-ai/", "nvidia/nemotron-3-", "google/gemma")):

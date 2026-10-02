@@ -11,11 +11,10 @@
     "test:chat": "tsx lib/api/ragAsk.test.ts && tsx lib/utils/markdown.test.tsx && tsx features/ai/ChatMessage.test.tsx && tsx lib/chat/session.test.ts && tsx features/ai/ChatInput.test.tsx && tsx features/ai/ChatArea.test.tsx",
     "test:volume": "tsx lib/charts/volumeInsight.test.ts",
     "test:order": "tsx features/order/estimate.test.tsx",
-    "test:demo": "tsx features/ai-trade-demo/availability.test.tsx && tsx features/ai-trade-demo/sse.test.ts && tsx features/ai-trade-demo/api.test.ts && tsx features/ai-trade-demo/derive.test.ts && tsx features/ai-trade-demo/params.test.ts",
     "test:news": "tsx lib/hooks/useNewsList.test.ts && tsx lib/news/stockNewsView.test.ts && tsx features/news/NewsCard.test.ts && tsx features/news/NewsFilters.test.tsx",
     "test:admin": "tsx features/admin/AdminDashboard.test.tsx",
     "test:compare": "tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx components/common/IndustrySearch.test.ts && tsx features/compare/MetricsTable.test.tsx",
-    "test:all": "npm run test && npm run test:chat && tsx features/ai/ChatDashboard.test.tsx && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx lib/brief/textBriefEvidence.test.ts && tsx lib/charts/chartAdapters.test.ts && tsx lib/charts/priceChartVisibility.test.ts && tsx lib/hooks/useStockDashboard.test.ts && tsx lib/news/highlight.test.ts && tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx lib/utils/markdown.test.tsx && tsx lib/utils/returnUrl.test.ts",
+    "test:all": "npm run test && npm run test:chat && tsx features/ai/ChatDashboard.test.tsx && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx lib/brief/textBriefEvidence.test.ts && tsx lib/charts/chartAdapters.test.ts && tsx lib/charts/priceChartVisibility.test.ts && tsx lib/hooks/useStockDashboard.test.ts && tsx lib/news/highlight.test.ts && tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx lib/utils/markdown.test.tsx && tsx lib/utils/returnUrl.test.ts && tsx features/home/featuredSymbols.test.ts",
     "sync:openapi": "node scripts/sync-openapi.mjs"
   },
   "dependencies": {
@@ -52,5 +51,10 @@
     "@types/three": "^0.186.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
   }
 }
