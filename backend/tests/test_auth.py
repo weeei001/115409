@@ -48,8 +48,13 @@ def test_register_duplicate_and_auth_failures(client, db_session, settings):
     assert service.verify_password("Original123", stored.password_hash)
     assert client.post("/auth/register", json={"email": "person@example.com", "password": "Different123"}).status_code == 400
     assert client.post("/auth/login", json={"email": "person@example.com", "password": "Wrong"}).json() == {"detail": "帳號或密碼錯誤"}
-    assert client.get("/auth/me").status_code == 403
-    assert client.get("/auth/me", headers={"Authorization": "Basic xyz"}).status_code == 403
+    for authorization, detail in ((None, "Not authenticated"), ("Bearer", "Not authenticated"),
+                                  ("Basic xyz", "Invalid authentication credentials")):
+        headers = {"Authorization": authorization} if authorization else {}
+        response = client.get("/auth/me", headers=headers)
+        assert response.status_code == 403
+        assert response.json() == {"detail": detail}
+        assert "www-authenticate" not in response.headers
     for claims in (
         {"sub": str(stored.id), "exp": datetime.now(timezone.utc) - timedelta(seconds=1)},
         {"sub": "not-an-integer", "exp": datetime.now(timezone.utc) + timedelta(minutes=1)},
