@@ -1,15 +1,16 @@
 import React from 'react';
 import { useRouter } from 'next/router';
-import { Bot, GitCompareArrows, ShoppingCart, Sparkles, type LucideIcon } from 'lucide-react';
+import { Bot, GitCompareArrows, ShoppingCart, Sparkles, Star, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 const LINKS: Array<{ path: string; title: string; hint: string; icon: LucideIcon; primary?: boolean }> = [
   { path: '/ai', title: 'AI 對話', hint: '市場參考對話', icon: Bot, primary: true },
+  { path: '/favorites', title: '收藏股', hint: '追蹤個股與通知設定', icon: Star },
   { path: '/compare', title: '多股比較', hint: '交叉分析走勢', icon: GitCompareArrows },
   { path: '/order', title: '模擬下單', hint: '練習下單流程', icon: ShoppingCart },
 ];
 
-/** 首頁「快速功能」：AI 對話、多股比較、模擬下單 */
+/** Primary task shortcuts on the home page. */
 export function QuickLinks() {
   const router = useRouter();
   return (

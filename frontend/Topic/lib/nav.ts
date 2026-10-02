@@ -4,6 +4,7 @@ import type { ChatAction } from './types/chat';
 /** 主選單／頁尾共用導覽（路徑與標籤唯一來源） */
 export const PRIMARY_NAV = [
   { path: '/', label: '首頁' },
+  { path: '/favorites', label: '收藏股' },
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬下單' },
   { path: '/compare', label: '多股比較' },
@@ -44,6 +45,7 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/forgot-password': '忘記密碼',
   '/reset-password': '重設密碼',
   '/me': '個人中心',
+  '/favorites': '收藏股',
   '/admin': '管理後台',
 };
 

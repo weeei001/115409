@@ -12,10 +12,10 @@ vm.runInNewContext(readFileSync('public/firebase-messaging-sw.js', 'utf8'), {
 });
 for (const [url, expected] of [
   ['/stock/2330', `${origin}/stock/2330`],
-  ['/me#notifications', `${origin}/me#notifications`],
-  ['https://evil.example', `${origin}/me#notifications`],
-  ['//evil.example', `${origin}/me#notifications`],
-  ['javascript:alert(1)', `${origin}/me#notifications`],
+  ['/favorites#notifications', `${origin}/favorites#notifications`],
+  ['https://evil.example', `${origin}/favorites#notifications`],
+  ['//evil.example', `${origin}/favorites#notifications`],
+  ['javascript:alert(1)', `${origin}/favorites#notifications`],
 ]) {
   handlers.notificationclick({ notification: { data: { FCM_MSG: { data: { url } } }, close() {} }, stopImmediatePropagation() {}, waitUntil() {} });
   assert.equal(opened, expected);

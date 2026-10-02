@@ -39,8 +39,8 @@ function AccountNotificationSettings({ account }: { account: string }) {
     try { await action(); } catch (err) { setError(userFacingMessage(err, '操作失敗，請稍後重試。')); }
     finally { setBusy(false); }
   }
-  return <section id="notifications" aria-labelledby="notifications-heading" className="mt-8 scroll-mt-24 border-t pt-8">
-    <h3 id="notifications-heading" className="mb-3 flex items-center gap-2 text-base font-semibold"><Bell size={18} aria-hidden />收藏股通知</h3>
+  return <section id="notifications" aria-labelledby="notifications-heading" className="scroll-mt-36 rounded-2xl border bg-card p-5 shadow-card sm:p-6">
+    <h2 id="notifications-heading" className="mb-3 flex items-center gap-2 text-base font-semibold"><Bell size={18} aria-hidden />通知設定</h2>
     <p className="mb-4 text-sm text-muted-foreground">每日摘要、漲跌幅與重大事件集中在這裡。啟用裝置通知後，也能收到推播。</p>
     {error && <p id="notification-error" role="alert" className="mb-3 text-sm text-danger">{error}</p>}
     <p role="status" className="text-sm text-muted-foreground">{message}</p>
@@ -81,10 +81,10 @@ function AccountNotificationSettings({ account }: { account: string }) {
         setEnabled(deviceEnabled()); setMessage(enabled ? '已關閉此裝置推播。' : '此裝置已啟用推播。');
       })}>{enabled ? '關閉此裝置推播' : '啟用此裝置推播'}</button>
     </div>
-    <div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-sm font-semibold">最近通知</h4><button type="button" className={buttonClass} disabled={busy} onClick={() => void run(async () => { setItems(await fetchNotificationInbox()); setMessage('通知紀錄已更新。'); })}>重新整理通知</button></div>
+    <div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">最近通知</h3><button type="button" className={buttonClass} disabled={busy} onClick={() => void run(async () => { setItems(await fetchNotificationInbox()); setMessage('通知紀錄已更新。'); })}>重新整理通知</button></div>
     {items.length === 0 ? <p className="text-sm text-muted-foreground">尚無通知。收藏個股並開啟通知種類後，符合條件的事件會出現在這裡。</p> : <ul className="space-y-3">
       {items.map((item) => <li key={item.id} className="rounded-xl border p-3">
-        <Link href={safeReturnUrl(item.url) || '/me#notifications'} className="text-sm font-medium text-brand-text underline-offset-4 hover:underline">{item.title}</Link>
+        <Link href={safeReturnUrl(item.url) || '/favorites#notifications'} className="text-sm font-medium text-brand-text underline-offset-4 hover:underline">{item.title}</Link>
         <p className="mt-1 whitespace-pre-line text-sm text-subtle">{item.body}</p>
         <time dateTime={item.created_at} className="mt-2 block text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}</time>
       </li>)}

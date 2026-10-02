@@ -2,8 +2,8 @@
 self.addEventListener('notificationclick', (event) => {
   event.stopImmediatePropagation();
   event.notification.close();
-  const raw = event.notification.data?.FCM_MSG?.data?.url || '/me#notifications';
-  let target = new URL('/me#notifications', self.location.origin);
+  const raw = event.notification.data?.FCM_MSG?.data?.url || '/favorites#notifications';
+  let target = new URL('/favorites#notifications', self.location.origin);
   try {
     const candidate = new URL(raw, self.location.origin);
     if (candidate.origin === self.location.origin) target = candidate;
