@@ -106,7 +106,7 @@ export APP_ENV=development
 
 </details>
 
-`init-schema --sync-catalog` 用於首次建立資料表與同步股票名單。行情、新聞與向量資料另依[資料初始化流程](docs/README.md#首次初始化)匯入。
+`init-schema --sync-catalog` 用於首次建立資料表與同步股票名單。行情、新聞與向量資料需另行匯入。
 
 ### 4. 啟動前端
 
@@ -183,12 +183,11 @@ npm run build
 npm run lint -- --incremental false
 ```
 
-`lint` 執行 TypeScript 型別檢查。完整測試的已知限制見[驗證說明](docs/README.md#已知驗證限制)。CI/CD 設定見 [GitHub Actions](.github/workflows/ci-cd.yml)。
+`lint` 執行 TypeScript 型別檢查。CI/CD 設定見 [GitHub Actions](.github/workflows/ci-cd.yml)。
 
 ## 文件
 
-- [開發與操作文件](docs/README.md)：初始化、資料匯入、排程、資料庫升級與驗證。
-- [支援股票](docs/README.md#公司目錄範圍)：股票名單與資料範圍。
+- [支援股票](backend/app/jobs/market/stock_info.py)：初始化與同步使用的股票名單。
 - [Android 建置](frontend/Topic/build-capacitor-release.ps1)：Capacitor APK 建置腳本。
 
 ## 貢獻
