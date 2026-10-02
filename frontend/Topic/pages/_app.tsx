@@ -1,5 +1,6 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
+import { Fira_Code, Inter, Noto_Sans_TC } from 'next/font/google';
 import { MotionConfig } from 'motion/react';
 import '../styles/main.css';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
@@ -10,12 +11,23 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { FavoritesProvider } from '@/lib/favorites/FavoritesContext';
 import { PushListener } from '@/features/notifications/PushListener';
 
+// Load only the glyph ranges used on the page instead of preloading every CJK subset.
+const notoSansTC = Noto_Sans_TC({ display: 'swap', preload: false });
+const inter = Inter({ display: 'swap', preload: false });
+const firaCode = Fira_Code({ display: 'swap', subsets: ['latin'] });
+
 const DEFAULT_TITLE = '股海明燈｜最近儲存收盤行情與財經新聞';
 const DEFAULT_DESCRIPTION = '最近儲存收盤行情（非即時）、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。';
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <MotionConfig reducedMotion="user">
+      <style jsx global>{`
+        :root {
+          --font-app-sans: ${notoSansTC.style.fontFamily}, "PingFang TC", ${inter.style.fontFamily}, system-ui, sans-serif;
+          --font-app-mono: ${firaCode.style.fontFamily}, ui-monospace, monospace;
+        }
+      `}</style>
       <ThemeProvider>
         <TooltipProvider delayDuration={200}>
           <ThemeColorMeta />

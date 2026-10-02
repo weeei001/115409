@@ -1,9 +1,8 @@
 import React, { memo, useRef } from 'react';
-import { motion } from 'motion/react';
 import { Minus, Star, TrendingDown, TrendingUp } from 'lucide-react';
 import type { DailyPriceResponse } from '@/lib/types/api';
 import { Sparkline } from '@/components/common/Sparkline';
-import { useCanHoverTilt, usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
+import { useCanHoverTilt } from '@/lib/hooks/useClientEnv';
 import { getValueTone, toneBadge, toneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
 import { AnimatedCounter } from './AnimatedCounter';
@@ -11,7 +10,6 @@ import { AnimatedCounter } from './AnimatedCounter';
 interface Props {
   data: DailyPriceResponse;
   stockName?: string | null;
-  index: number;
   sparkline?: number[];
   /** 收藏股排在前面時加星號標示 */
   favorite?: boolean;
@@ -27,10 +25,9 @@ const GLOW = {
 const REST_TRANSFORM = 'perspective(600px) rotateY(0deg) rotateX(0deg) scale3d(1,1,1)';
 
 /** Stored closing quote card; hover devices retain the existing tilt interaction. */
-export const StockPriceCard = memo(function StockPriceCard({ data, stockName, index, sparkline, favorite = false, onNavigate }: Props) {
+export const StockPriceCard = memo(function StockPriceCard({ data, stockName, sparkline, favorite = false, onNavigate }: Props) {
   const ref = useRef<HTMLButtonElement>(null);
   const canTilt = useCanHoverTilt();
-  const reduce = usePrefersReducedMotion();
 
   const close = Number(data.close ?? 0);
   const change = Number(data.change ?? 0);
@@ -50,7 +47,7 @@ export const StockPriceCard = memo(function StockPriceCard({ data, stockName, in
   };
 
   return (
-    <motion.button
+    <button
       ref={ref}
       type="button"
       onClick={() => onNavigate(data.symbol)}
@@ -68,9 +65,6 @@ export const StockPriceCard = memo(function StockPriceCard({ data, stockName, in
             : 'box-shadow 0.3s ease, border-color 0.3s ease',
         } as React.CSSProperties
       }
-      initial={reduce ? false : { opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={reduce ? { duration: 0 } : { duration: 0.35, delay: index * 0.05, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
       <div className="mb-2 flex items-start justify-between gap-2" aria-hidden>
         <div className="min-w-0">
@@ -102,6 +96,6 @@ export const StockPriceCard = memo(function StockPriceCard({ data, stockName, in
       <div className="mt-2 text-[11px] tabular-nums text-muted-foreground" aria-hidden>
         {data.date}
       </div>
-    </motion.button>
+    </button>
   );
 });

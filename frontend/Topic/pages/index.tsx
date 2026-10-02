@@ -58,7 +58,7 @@ export default function HomePage() {
 
       <main aria-label="首頁內容" className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
         <BentoGrid>
-          <BentoCell span={2} delay={0.05} orderMobile={1}>
+          <BentoCell span={2} orderMobile={1}>
             <div className="mb-5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <BarChart3 size={18} className="text-brand" aria-hidden />
@@ -102,12 +102,11 @@ export default function HomePage() {
             ) : (
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {quotes.prices.map((p, i) => (
+                  {quotes.prices.map((p) => (
                     <StockPriceCard
                       key={p.symbol}
                       data={p}
                       stockName={quotes.stockInfos.find((stock) => stock.symbol === p.symbol)?.name ?? (favoriteNames.get(p.symbol) || undefined)}
-                      index={i}
                       sparkline={quotes.sparklines[p.symbol]}
                       favorite={quotes.favoriteFeatured.has(p.symbol)}
                       onNavigate={goToStock}
@@ -129,11 +128,11 @@ export default function HomePage() {
             )}
           </BentoCell>
 
-          <BentoCell delay={0.08} orderMobile={2}>
+          <BentoCell orderMobile={2}>
             <QuickLinks />
           </BentoCell>
 
-          <BentoCell span={3} delay={0.12} orderMobile={3}>
+          <BentoCell span={3} orderMobile={3}>
             <HomeNews />
           </BentoCell>
         </BentoGrid>
