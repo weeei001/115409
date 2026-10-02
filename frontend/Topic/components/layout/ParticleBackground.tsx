@@ -118,7 +118,9 @@ function ParticleField({
 }
 
 function useMobileViewport() {
-  const [mobile, setMobile] = useState(false);
+  const [mobile, setMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches,
+  );
   useEffect(() => {
     const mql = window.matchMedia('(max-width: 640px)');
     const onChange = () => setMobile(mql.matches);
@@ -170,15 +172,14 @@ function useReducedMotionMedia() {
 }
 
 function useLowPowerCanvas() {
-  const [low, setLow] = useState(false);
-  useEffect(() => {
+  const [low] = useState(() => {
     const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 8) : 8;
     const saveData =
       typeof navigator !== 'undefined' &&
       'connection' in navigator &&
       (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
-    setLow(cores <= 4 || Boolean(saveData));
-  }, []);
+    return cores <= 4 || Boolean(saveData);
+  });
   return low;
 }
 
