@@ -147,6 +147,59 @@ def test_missing_valuation_is_explicit(db_session, owner):
     assert snapshot['unrealized_pnl'] is None
     assert snapshot['positions'][0]['market_price'] is None
     assert snapshot['valuation_status'] == 'missing_prices'
+    assert snapshot['holdings_value'] is None
+    assert snapshot['positions'][0]['allocation_pct'] is None
+    for key in ('cash_allocation_pct', 'available_cash_allocation_pct', 'reserved_cash_allocation_pct', 'holdings_allocation_pct'):
+        assert snapshot[key] is None
+
+
+def test_allocation_uses_total_equity_and_preserves_pending_cash(db_session, owner):
+    import json
+    from contextlib import nullcontext
+    from app.features.chat.personal_context import read_personal_context
+    from app.features.chat.service import _checked_answer
+
+    fund(db_session, owner, 'initial', 30000)
+    buy(db_session, owner, budget=10000)
+    market(db_session, 2, 100)
+    service.reconcile(db_session, owner, at(2))
+    service.create_order(db_session, owner, OrderCreate(
+        client_request_id='pending-allocation', symbol='2330', side='buy', budget=5000,
+    ), now=at(2))
+    snapshot = service.snapshot(db_session, owner, at(2))
+    assert snapshot['equity'] == 29985.89
+    assert snapshot['holdings_value'] == 9900
+    assert snapshot['cash_allocation_pct'] == 66.98
+    assert snapshot['available_cash_allocation_pct'] == 50.31
+    assert snapshot['reserved_cash_allocation_pct'] == 16.67
+    assert snapshot['holdings_allocation_pct'] == 33.02
+    assert snapshot['positions'][0]['allocation_pct'] == 33.02
+    _, evidence = read_personal_context(
+        lambda: nullcontext(db_session), owner, {'portfolio'},
+        query='目前模擬帳戶的可用資金與持股配置比例是多少？',
+    )
+    portfolio = json.loads(evidence.content)['portfolio']
+    assert portfolio['available_cash_allocation_pct'] == 50.31
+    assert portfolio['positions'][0]['allocation_pct'] == 33.02
+    evidence.citation_id = 'S1'
+    answer = '可用資金為 15,085.89 元，占總資產 50.31%；持股市值為 9,900 元，占 33.02%；保留資金占 16.67%。[S1]'
+    assert _checked_answer(answer, {'finish_reason': 'stop'}, [evidence]).startswith(answer)
+
+
+def test_allocation_for_cash_only_uninitialized_and_empty_accounts(db_session, owner):
+    keys = ('cash_allocation_pct', 'available_cash_allocation_pct', 'reserved_cash_allocation_pct', 'holdings_allocation_pct')
+    snapshot = service.snapshot(db_session, owner, at(1))
+    assert all(snapshot[key] is None for key in keys)
+    snapshot = fund(db_session, owner, 'initial', 30000)
+    assert snapshot['holdings_value'] == 0
+    assert [snapshot[key] for key in keys] == [100, 100, 0, 0]
+    buy(db_session, owner, budget=10000)
+    snapshot = service.snapshot(db_session, owner, at(1))
+    assert [snapshot[key] for key in keys] == [100, 66.67, 33.33, 0]
+    service.cancel_order(db_session, owner, snapshot['orders'][0]['id'], now=at(1))
+    snapshot = fund(db_session, owner, 'withdrawal', 30000)
+    assert snapshot['equity'] == 0
+    assert all(snapshot[key] is None for key in keys)
 
 
 def test_next_order_settles_existing_and_releases_budget_remainder(db_session, owner):

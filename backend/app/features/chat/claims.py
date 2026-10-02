@@ -15,6 +15,35 @@ METRICS = {
     "foreign_net": r"(?:外資買賣超|外資淨買賣超)",
 }
 
+PORTFOLIO_AMOUNTS = {
+    "available_cash": r"可用資金",
+    "cash": r"現金餘額",
+    "equity": r"總資產",
+    "holdings_value": r"持股市值",
+    "total_pnl": r"投資損益",
+}
+PORTFOLIO_RATIOS = {
+    "available_cash_allocation_pct": r"可用資金",
+    "reserved_cash_allocation_pct": r"委託保留資金",
+    "cash_allocation_pct": r"現金",
+    "holdings_allocation_pct": r"(?:整體)?持股",
+}
+
+
+def _portfolio_claims_supported(prose, portfolios):
+    for fields, suffix, units in (
+        (PORTFOLIO_AMOUNTS, "", r"(萬元|元)"),
+        (PORTFOLIO_RATIOS, r"(?:配置)?(?:比例|占比|比重)", r"([%％])"),
+    ):
+        for field, label in fields.items():
+            pattern = label + suffix + r"\s*(?:為|是|約|[:：=])?\s*(" + NUMBER + r")\s*" + units
+            for match in re.finditer(pattern, prose):
+                value = _number(match.group(1)) * (10000 if match.group(2) == "萬元" else 1)
+                if not any(p.get("initialized") is True and p.get(field) is not None
+                           and _number(p[field]) == value for p in portfolios):
+                    return False
+    return True
+
 
 def _number(value) -> Decimal:
     return Decimal(str(value).replace(",", "").replace("−", "-"))
@@ -70,6 +99,7 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk]) -> bool
     """
     prose = re.sub(r"\[S\d+\]", "", paragraph)
     structured = []
+    portfolios = []
     evidence_numbers = set()
     for source in sources:
         try:
@@ -83,6 +113,7 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk]) -> bool
             structured.append((source, payload))
         if isinstance(payload, dict) and source.category == "personal":
             portfolio = payload.get("portfolio", {})
+            portfolios.append(portfolio)
             for position in portfolio.get("positions", []):
                 if position.get("market_date"):
                     structured.append((source.model_copy(update={"stock_id": position["symbol"]}),
@@ -93,6 +124,9 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk]) -> bool
                          {"field": "close", "value": review.get("closing_price"), "date": review.get("due_date")}]
                 structured.append((source.model_copy(update={"stock_id": review["symbol"]}), {"items": items}))
 
+
+    if portfolios and not _portfolio_claims_supported(prose, portfolios):
+        return False
 
     for field, label in METRICS.items():
         for match in re.finditer(_claim_pattern(label), prose, re.I):
