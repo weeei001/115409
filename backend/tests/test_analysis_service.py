@@ -619,7 +619,7 @@ def test_blocked_answer_is_regenerated_once_with_same_evidence(db_session, setti
             output = await super().generate(**kwargs)
             if self.calls == 1:
                 self.first_packet = deepcopy(kwargs["payload"])
-                output.payload["forward_views"]["short_1_5"]["invalidation"] = "跌破 2400 元"
+                output.payload["forward_views"]["short_1_5"]["reason"] = "股價為 2400 元"
             else:
                 assert kwargs["payload"] == self.first_packet
                 assert "上次輸出未通過檢查" in kwargs["system_prompt"]
@@ -668,7 +668,54 @@ def test_no_surviving_factual_sections_is_unavailable(db_session, settings):
     assert result.status == "unavailable" and result.brief is None and llm.calls == 2
 
 
-def test_invalid_invalidation_is_removed_after_retry_without_losing_direction(db_session, settings):
+@pytest.mark.parametrize("gap", ["empty_section", "rejected_period"])
+def test_supported_direction_survives_unrelated_analysis_gaps(db_session, settings, gap):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload.update(overall_stance="mildly_bullish", confidence="medium")
+    payload["forward_views"]["swing_6_20"].update(
+        stance="mildly_bullish", reason="收盤 113 元，波段暫偏多，仍須觀察後續變化。")
+    if gap == "empty_section":
+        payload["negative_factors"] = []
+    else:
+        payload["forward_views"]["short_1_5"]["reason"] = "股價為 2400 元。"
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "limited"
+    assert llm.calls == (1 if gap == "empty_section" else 2)
+    assert result.brief.overall_stance == "mildly_bullish"
+    assert result.brief.forward_views.swing_6_20.stance == "mildly_bullish"
+    assert result.brief.confidence == "low"
+    assert "2400" not in result.brief.model_dump_json()
+    restored = repository.saved_brief(db_session.get(LlmResponse, result.snapshot_id))
+    assert restored.brief.overall_stance == "mildly_bullish"
+
+
+@pytest.mark.parametrize("quote_count", [0, 1])
+def test_forward_news_inference_uses_cited_sources_without_exhaustive_excerpts(db_session, settings, quote_count):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["overall_stance"] = "mildly_bullish"
+    view = payload["forward_views"]["medium_21_40"]
+    view.update(stance="bullish", reason="ASIC 專案擴展與訂單展望支持中期偏多，需求轉弱則須重估。",
+                evidence_ids=["nw_01", "nw_02"], news_support=[{
+                    "evidence_id": "nw_02", "quote": "明年訂單仍將持續向上", "use": "attributed_view",
+                }][:quote_count])
+    rag = FakeRag(RagResult(news_sources=[
+        {"title": "Project outlook", "summary": "ASIC 專案取得新客戶與新專案。"},
+        {"title": "Order outlook", "summary": "公司預期明年訂單仍將持續向上。"},
+    ]))
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm, rag)
+    assert llm.calls == 1 and result.status == "limited"
+    assert result.brief.forward_views.medium_21_40.stance == "bullish"
+    assert result.brief.forward_views.medium_21_40.validation_status is None
+    assert result.brief.forward_views.medium_21_40.reason == view["reason"]
+    assert result.brief.forward_views.medium_21_40.evidence_ids == view["evidence_ids"]
+    assert result.verification["soft_compliance_hits"] > 0
+
+
+def test_invalid_invalidation_is_removed_without_retry_or_losing_direction(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
     payload.update(overall_stance="mildly_bullish", confidence="medium")
@@ -677,7 +724,7 @@ def test_invalid_invalidation_is_removed_after_retry_without_losing_direction(db
                 invalidation="跌破 2400 元")
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
-    assert result.status == "limited" and llm.calls == 2
+    assert result.status == "limited" and llm.calls == 1
     assert result.brief.key_days
     assert result.brief.forward_views.short_1_5.stance == "mildly_bullish"
     assert result.brief.forward_views.short_1_5.reason == view["reason"]

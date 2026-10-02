@@ -10,6 +10,24 @@ from app.features.analysis.service import AnalysisService
 from app.features.analysis.router import get_service
 
 
+def test_optional_forecast_excerpts_do_not_allow_fabricated_quotes_or_uncited_entities():
+    bundle = EvidenceBundle(symbol="2317", as_of_date=date(2026, 10, 2), news=[
+        {"id": "nw_01", "field": "news", "value": "ASIC 專案增加，訂單展望改善。"},
+        {"id": "nw_02", "field": "news", "value": "公司預期明年訂單仍將持續向上。"},
+        {"id": "nw_03", "field": "news", "value": "HBM 需求增加。"},
+    ])
+    view = {"stance": "bullish", "reason": "ASIC 訂單展望支持中期偏多。",
+            "evidence_ids": ["nw_01", "nw_02"], "news_support": []}
+    assert all(issue.startswith("未核實") for issue in _grounding_issues(view, bundle))
+    view["news_support"] = [{"evidence_id": "nw_02", "quote": "公司保證股價上漲", "use": "attributed_view"}]
+    assert "新聞主張引文不存在於引用片段" in _grounding_issues(view, bundle)
+    view["news_support"] = []
+    view["reason"] = "HBM 訂單展望支持中期偏多。"
+    assert "主張的產品或實體名稱不在同項引用來源" in _grounding_issues(view, bundle)
+    observation = {"id": "cs_01", "text": "ASIC 專案增加。", "evidence_ids": ["nw_01"], "news_support": []}
+    assert "新聞主張缺少同項原文支持契約" in _grounding_issues(observation, bundle)
+
+
 def test_financial_thresholds_use_local_citations_and_labeled_scenarios():
     bundle = EvidenceBundle(symbol="2330", as_of_date=date(2026, 9, 27),
         daily_timeline=[{"id": "d_01", "date": "2026-09-25", "close": 2400}],
