@@ -57,7 +57,7 @@ def text_brief_revision() -> str:
                                 "glossary": FIELD_GLOSSARY,
                                 "compliance": compliance_rules_signature(),
                                 "schema": StockBehaviorTextBrief.model_json_schema(),
-                                "pipeline": "backend-v1-claim-validation-2"})[:12]
+                                "pipeline": "backend-v1-claim-validation-3"})[:12]
 
 
 def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:

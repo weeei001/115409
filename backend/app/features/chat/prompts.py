@@ -139,8 +139,31 @@ ANSWER_DETAIL_INSTRUCTIONS = {
 
 
 def answer_system_prompt(answer_detail: str) -> str:
-    return (ANSWER_SYSTEM_PROMPT + f"\nDefault answer detail: {answer_detail}\n"
+    return (ANSWER_SYSTEM_PROMPT + f"\n預設回答詳細程度：{answer_detail}\n"
             + ANSWER_DETAIL_INSTRUCTIONS[answer_detail])
+
+
+def recovery_system_prompt(answer_detail: str, reason: str) -> str:
+    guidance = {
+        "length": (
+            "上一版回答超過輸出長度限制。本次重試最多使用三個短段落，包含引用編號在內不超過 350 字。"
+            "本次重試以此長度限制為準，優先保留結論、關鍵證據與下一步。"
+        ),
+        "empty": "上一版沒有可顯示的回答，請產生簡短且可直接呈現給使用者的回答。",
+        "numbers": (
+            "上一版回答未通過數值核對。請逐項對照各自引用的來源，確認指標、公司、日期或期間、"
+            "單位及正負號一致。帳戶金額與配置比例須使用來源原值；比較指標可四捨五入，但至少"
+            "保留兩位小數。區間報酬與單日漲跌幅須分開表達。明確區分建議配置與目前帳戶現況，"
+            "省略非必要數字，不要自行推算缺乏來源支持的觀測值。"
+        ),
+        "citations": "上一版回答未通過引用核對。",
+    }
+    return answer_system_prompt(answer_detail) + "\n" + guidance[reason] + (
+        "請只依本輪提供的證據重新撰寫精簡回答，不要接續未通過核對的草稿。"
+        "不要使用獨立標題、連結或引用來源清單。每個段落及條列項目（包含資料限制）"
+        "都須以支持該內容的 [S1] 格式引用結尾；多個來源使用 [S1][S2]。"
+        "各組引用須支持緊接在它前面的文字。若證據不足以回答，使用指定的資料不足回覆。"
+    )
 
 
 ANSWER_PROMPT = """目前台北時間：{current_time}

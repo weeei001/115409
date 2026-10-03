@@ -168,6 +168,8 @@ class ChatDashboard(BaseModel):
 
 
 class AskResponse(BaseModel):
+    # Recognition context stays out of API payloads and saved messages.
+    _company_catalog: dict = PrivateAttr(default_factory=dict)
     answer: str
     detected_stocks: list[str]
     time_range: dict | None
