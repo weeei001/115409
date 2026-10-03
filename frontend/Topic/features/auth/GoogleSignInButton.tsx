@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Notice } from '@/components/common/Notice';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 /** Google 按鈕寬度上限（renderButton 需要數字寬度） */
@@ -44,7 +45,7 @@ export function isGoogleSignInConfigured(): boolean {
 
 /**
  * Google Identity Services「使用 Google 帳戶登入」按鈕（需設定 NEXT_PUBLIC_GOOGLE_CLIENT_ID）。
- * 寬度跟著容器，最寬 320，窄螢幕不會撐破卡片。
+ * 寬度跟著容器，最寬 320，窄螢幕不會撐破面板。放在帳號頁表單下方的「或用 Google 帳號」列（AuthAltRow）。
  */
 export function GoogleSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
   const divRef = useRef<HTMLDivElement>(null);
@@ -87,13 +88,13 @@ export function GoogleSignInButton({ onCredential }: { onCredential: (credential
   if (!id) return null;
 
   return (
-    <div className="flex w-full flex-col items-center gap-2">
+    <div className="flex w-full flex-col gap-2 sm:w-80">
       {loadError ? (
-        <p className="text-center text-xs text-danger" role="alert">
+        <Notice tone="danger" className="w-full text-xs">
           {loadError}
-        </p>
+        </Notice>
       ) : null}
-      <div ref={divRef} className="flex min-h-10 justify-center" />
+      <div ref={divRef} className="flex min-h-10 justify-start" />
     </div>
   );
 }

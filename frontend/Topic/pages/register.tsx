@@ -1,10 +1,22 @@
 import React, { useCallback, useState } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Lock, Mail, User, UserPlus } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { AuthCard, AuthField, AuthIntro, EMAIL_PATTERN, FormError, OrDivider, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import {
+  AuthAltRow,
+  AuthField,
+  AuthLedger,
+  AuthLinkRow,
+  AuthPanel,
+  AuthPlate,
+  EMAIL_PATTERN,
+  FieldRows,
+  FormActions,
+  FormError,
+  PasswordField,
+  SubmitButton,
+} from '@/features/auth/AuthForm';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '@/features/auth/GoogleSignInButton';
 import { authGoogle, authRegister } from '@/lib/api/auth';
 import { setAuth } from '@/lib/auth/storage';
@@ -89,88 +101,107 @@ export default function RegisterPage() {
         <title>股海明燈｜註冊</title>
         <meta name="description" content="建立股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={UserPlus} title="股海明燈" subtitle="建立帳號" />
+      <SiteHeader icon={UserPlus} title="註冊" subtitle="用電子郵件與密碼建立帳號，姓名選填" />
 
-      <AuthCard glass>
-        <AuthIntro icon={UserPlus} title="建立帳號" subtitle="開始您的投資旅程" glow />
-        <FormError id="register-form-error" message={error} />
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5" aria-describedby={error ? 'register-form-error' : undefined}>
-          <AuthField
-            id="register-name"
-            label={
+      <AuthLedger
+        aside={
+          // 守燈人的桌前：帳號就是這張桌上的值班紀錄
+          <AuthPlate poster={4} caption="守燈人的桌前" ratio="square">
+            註冊後，值班日誌、收藏股與模擬委託都記在這個帳號。
+          </AuthPlate>
+        }
+        form={
+          <AuthPanel
+            id="register-form-heading"
+            title="建立帳號"
+            footer={
               <>
-                姓名 <span className="font-normal text-muted-foreground">（選填）</span>
+                {isGoogleSignInConfigured() ? (
+                  <AuthAltRow>
+                    <GoogleSignInButton onCredential={handleGoogleCredential} />
+                  </AuthAltRow>
+                ) : null}
+                <AuthLinkRow href={loginHref} lead="已有帳號？">
+                  返回登入
+                </AuthLinkRow>
               </>
             }
-            icon={User}
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="您的姓名"
-            autoComplete="name"
-            maxLength={255}
-            disabled={loading}
-          />
-          <AuthField
-            id="register-email"
-            label="電子郵件"
-            icon={Mail}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            inputMode="email"
-            maxLength={254}
-            disabled={loading}
-          />
-          <PasswordField
-            id="register-password"
-            label="密碼"
-            icon={Lock}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="8～128 個字元"
-            autoComplete="new-password"
-            maxLength={128}
-            disabled={loading}
-            shown={showPassword}
-            onToggle={() => setShowPassword((v) => !v)}
-            toggleLabels={['顯示密碼', '隱藏密碼']}
-          />
-          <PasswordField
-            id="register-confirm"
-            label="確認密碼"
-            icon={Lock}
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="再次輸入密碼"
-            autoComplete="new-password"
-            maxLength={128}
-            disabled={loading}
-            shown={showConfirm}
-            onToggle={() => setShowConfirm((v) => !v)}
-            toggleLabels={['顯示確認密碼', '隱藏確認密碼']}
-          />
-          <SubmitButton loading={loading} icon={UserPlus}>
-            註冊
-          </SubmitButton>
-        </form>
-
-        {isGoogleSignInConfigured() ? (
-          <>
-            <OrDivider />
-            <GoogleSignInButton onCredential={handleGoogleCredential} />
-          </>
-        ) : null}
-
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          已有帳號？{' '}
-          <Link href={loginHref} className="font-medium text-brand-text transition-colors hover:text-brand-deep">
-            返回登入
-          </Link>
-        </p>
-      </AuthCard>
+          >
+            <FormError id="register-form-error" message={error} />
+            <form onSubmit={handleSubmit} aria-describedby={error ? 'register-form-error' : undefined}>
+              <FieldRows>
+                <AuthField
+                  row
+                  id="register-name"
+                  label={
+                    <>
+                      姓名 <span className="font-normal text-muted-foreground">（選填）</span>
+                    </>
+                  }
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="您的姓名"
+                  autoComplete="name"
+                  maxLength={255}
+                  disabled={loading}
+                />
+                <AuthField
+                  row
+                  id="register-email"
+                  label="電子郵件"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  inputMode="email"
+                  maxLength={254}
+                  disabled={loading}
+                />
+                <PasswordField
+                  row
+                  id="register-password"
+                  label="密碼"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="8～128 個字元"
+                  autoComplete="new-password"
+                  maxLength={128}
+                  disabled={loading}
+                  aria-describedby="register-password-rule"
+                  shown={showPassword}
+                  onToggle={() => setShowPassword((v) => !v)}
+                  toggleLabels={['顯示密碼', '隱藏密碼']}
+                />
+                <PasswordField
+                  row
+                  id="register-confirm"
+                  label="確認密碼"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次輸入密碼"
+                  autoComplete="new-password"
+                  maxLength={128}
+                  disabled={loading}
+                  shown={showConfirm}
+                  onToggle={() => setShowConfirm((v) => !v)}
+                  toggleLabels={['顯示確認密碼', '隱藏確認密碼']}
+                />
+              </FieldRows>
+              <FormActions>
+                <SubmitButton loading={loading} icon={UserPlus} className="sm:w-auto sm:min-w-44">
+                  註冊
+                </SubmitButton>
+              </FormActions>
+              <p className="mt-4 text-[13px] leading-relaxed text-muted-foreground sm:pl-[8.5rem]">
+                <span id="register-password-rule">密碼 8～128 個字元。</span>
+                電子郵件是登入帳號，也是忘記密碼時收重設信的地址；姓名會顯示在選單與個人中心。
+              </p>
+            </form>
+          </AuthPanel>
+        }
+      />
     </>
   );
 }

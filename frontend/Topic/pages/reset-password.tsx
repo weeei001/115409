@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { CheckCircle, KeyRound, Loader2, Lock, LogIn } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { AuthCard, AuthIntro, AuthStatusIcon, BackToLogin, BrandLinkButton, FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { NextStep } from '@/components/common/Ledger';
+import { LoadingRows, Notice } from '@/components/common/Notice';
+import { AuthLedger, AuthLinkRow, AuthPanel, AuthSteps, FieldRows, FormActions, FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
 import { authResetPassword } from '@/lib/api/auth';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { userFacingMessage } from '@/lib/api/errorDetail';
@@ -60,83 +61,106 @@ export default function ResetPasswordPage() {
     }
   };
 
+  let form: React.ReactNode;
+  if (!ready) {
+    // 載入＝燈質 Q：有線的空白列，並寫出「讀取中」
+    form = (
+      <AuthPanel id="reset-loading-heading" title="設定新密碼">
+        <LoadingRows label="確認重設連結中…" className="h-[132px]" />
+      </AuthPanel>
+    );
+  } else if (!token) {
+    form = (
+      <AuthPanel
+        id="reset-invalid-heading"
+        title="連結不完整"
+        footer={
+          <>
+            <NextStep href="/forgot-password">重新申請重設連結</NextStep>
+            <AuthLinkRow href="/login">返回登入</AuthLinkRow>
+          </>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <Notice tone="danger">這個網址少了重設用的驗證碼，無法設定新密碼。</Notice>
+          <p className="text-[13px] leading-relaxed text-muted-foreground">請從重設密碼信件裡的連結開啟此頁；找不到信或連結已失效時，重新申請一次。</p>
+        </div>
+      </AuthPanel>
+    );
+  } else if (done) {
+    form = (
+      <AuthPanel id="reset-done-heading" title="密碼已更新" footer={<NextStep href="/login">用新密碼登入</NextStep>}>
+        <div className="pt-4">
+          <Notice tone="success">{successMessage ?? '密碼已重設，請使用新密碼登入。'}</Notice>
+        </div>
+      </AuthPanel>
+    );
+  } else {
+    form = (
+      <AuthPanel
+        id="reset-form-heading"
+        title="設定新密碼"
+        footer={
+          <AuthLinkRow href="/login" lead="想起密碼了？">
+            返回登入
+          </AuthLinkRow>
+        }
+      >
+        <FormError id="reset-form-error" message={error} />
+        <form onSubmit={(e) => void handleSubmit(e)} aria-describedby={error ? 'reset-form-error' : undefined}>
+          <FieldRows>
+            <PasswordField
+              row
+              id="reset-password-new"
+              label="新密碼"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="8～128 個字元"
+              autoComplete="new-password"
+              maxLength={128}
+              disabled={loading}
+              shown={showPassword}
+              onToggle={() => setShowPassword((v) => !v)}
+              toggleLabels={['顯示密碼', '隱藏密碼']}
+            />
+            <PasswordField
+              row
+              id="reset-password-confirm"
+              label="確認新密碼"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              maxLength={128}
+              disabled={loading}
+              shown={showConfirm}
+              onToggle={() => setShowConfirm((v) => !v)}
+              toggleLabels={['顯示確認密碼', '隱藏確認密碼']}
+            />
+          </FieldRows>
+          <FormActions>
+            <SubmitButton loading={loading} icon={KeyRound} className="sm:w-auto sm:min-w-44">
+              重設密碼
+            </SubmitButton>
+          </FormActions>
+        </form>
+      </AuthPanel>
+    );
+  }
+
   return (
     <>
       <Head>
-        <title>股海明燈｜設定新密碼</title>
+        <title>股海明燈｜重設密碼</title>
         <meta name="description" content="以電子郵件連結重設登入密碼。" />
       </Head>
-      <SiteHeader icon={KeyRound} title="股海明燈" subtitle="設定新密碼" />
+      <SiteHeader icon={KeyRound} title="重設密碼" subtitle="從重設信件的連結開啟，設定新的登入密碼" />
 
-      <AuthCard>
-        {!ready ? (
-          <div className="flex justify-center py-12" aria-busy aria-live="polite">
-            <Loader2 size={40} className="animate-spin text-brand" aria-hidden />
-            <span className="sr-only">載入中</span>
-          </div>
-        ) : !token ? (
-          <div className="text-center">
-            <AuthStatusIcon icon={KeyRound} tone="brand" />
-            <h2 className="mb-2 text-xl font-bold">連結不完整</h2>
-            <p className="mb-6 text-sm text-muted-foreground">請從重設密碼信件開啟此頁，或重新申請重設連結。</p>
-            <div className="flex flex-col justify-center gap-3 sm:flex-row">
-              <Link
-                href="/forgot-password"
-                className="flex min-h-11 items-center justify-center rounded-xl border px-5 py-2.5 text-sm font-medium text-subtle transition-colors hover:border-brand/40"
-              >
-                忘記密碼
-              </Link>
-              <BrandLinkButton href="/login" icon={LogIn}>
-                前往登入
-              </BrandLinkButton>
-            </div>
-          </div>
-        ) : done ? (
-          <div className="flex flex-col items-center text-center" role="status">
-            <AuthStatusIcon icon={CheckCircle} tone="success" />
-            <h2 className="mb-2 text-2xl font-bold">密碼已更新</h2>
-            <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{successMessage ?? '密碼已重設，請使用新密碼登入。'}</p>
-            <BrandLinkButton href="/login" icon={LogIn}>
-              前往登入
-            </BrandLinkButton>
-          </div>
-        ) : (
-          <>
-            <AuthIntro icon={KeyRound} title="設定新密碼" subtitle="請輸入 8～128 個字元的新密碼" />
-            <FormError id="reset-form-error" message={error} />
-            <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-5" aria-describedby={error ? 'reset-form-error' : undefined}>
-              <PasswordField
-                id="reset-password-new"
-                label="新密碼"
-                icon={Lock}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                maxLength={128}
-                disabled={loading}
-                shown={showPassword}
-                onToggle={() => setShowPassword((v) => !v)}
-                toggleLabels={['顯示密碼', '隱藏密碼']}
-              />
-              <PasswordField
-                id="reset-password-confirm"
-                label="確認新密碼"
-                icon={Lock}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-                maxLength={128}
-                disabled={loading}
-                shown={showConfirm}
-                onToggle={() => setShowConfirm((v) => !v)}
-                toggleLabels={['顯示確認密碼', '隱藏確認密碼']}
-              />
-              <SubmitButton loading={loading}>重設密碼</SubmitButton>
-            </form>
-            <BackToLogin />
-          </>
-        )}
-      </AuthCard>
+      <AuthLedger
+        asideOnMobile
+        // 沒有驗證碼＝還停在「開啟信中的連結」那一步
+        aside={<AuthSteps current={ready && !token ? 2 : 3} done={done} />}
+        form={form}
+      />
     </>
   );
 }

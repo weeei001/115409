@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
-import { ArrowLeft, CheckCircle, KeyRound, Mail } from 'lucide-react';
+import { KeyRound, Mail } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { AuthCard, AuthField, AuthIntro, AuthStatusIcon, BackToLogin, BrandLinkButton, EMAIL_PATTERN, FormError, SubmitButton } from '@/features/auth/AuthForm';
+import { NextStep } from '@/components/common/Ledger';
+import { Notice } from '@/components/common/Notice';
+import { AuthField, AuthLedger, AuthLinkRow, AuthPanel, AuthSteps, EMAIL_PATTERN, FieldRows, FormActions, FormError, SubmitButton } from '@/features/auth/AuthForm';
 import { authForgotPassword } from '@/lib/api/auth';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
@@ -33,48 +35,68 @@ export default function ForgotPasswordPage() {
     }
   };
 
+  const backToLogin = (
+    <AuthLinkRow href="/login" lead="想起密碼了？">
+      返回登入
+    </AuthLinkRow>
+  );
+
   return (
     <>
       <Head>
         <title>股海明燈｜忘記密碼</title>
-        <meta name="description" content="申請重設密碼連結至您的電子郵件。" />
+        <meta name="description" content="申請重設連結，寄到註冊用的電子郵件。" />
       </Head>
-      <SiteHeader icon={KeyRound} title="股海明燈" subtitle="重設密碼" />
+      <SiteHeader icon={KeyRound} title="忘記密碼" subtitle="填寫註冊用的電子郵件，系統會寄出重設連結" />
 
-      <AuthCard>
-        {sent ? (
-          <div className="flex flex-col items-center text-center" role="status">
-            <AuthStatusIcon icon={CheckCircle} tone="success" />
-            <h2 className="mb-2 text-2xl font-bold">申請已送出</h2>
-            <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{successMessage ?? '若此 email 已註冊且可重設密碼，您將收到重設連結。'}</p>
-            <BrandLinkButton href="/login" icon={ArrowLeft}>
-              返回登入
-            </BrandLinkButton>
-          </div>
-        ) : (
-          <>
-            <AuthIntro icon={KeyRound} title="忘記密碼" subtitle="輸入您的電子郵件，我們將發送重設連結" />
-            <FormError id="forgot-form-error" message={error} />
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5" aria-describedby={error ? 'forgot-form-error' : undefined}>
-              <AuthField
-                id="forgot-email"
-                label="電子郵件"
-                icon={Mail}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-                disabled={loading}
-              />
-              <SubmitButton loading={loading} icon={Mail}>
-                發送重設連結
-              </SubmitButton>
-            </form>
-            <BackToLogin />
-          </>
-        )}
-      </AuthCard>
+      <AuthLedger
+        asideOnMobile
+        aside={<AuthSteps current={sent ? 2 : 1} />}
+        form={
+          sent ? (
+            <AuthPanel
+              id="forgot-sent-heading"
+              title="申請已送出"
+              footer={
+                <NextStep href="/login">返回登入</NextStep>
+              }
+            >
+              <div className="space-y-4 pt-4">
+                <Notice tone="success">{successMessage ?? '若此 email 已註冊且可重設密碼，您將收到重設連結。'}</Notice>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  申請的地址：<span className="font-mono break-all text-foreground">{email.trim().toLowerCase()}</span>
+                  <br />
+                  開啟信中的連結就會回到本站設定新密碼；沒看到信時，先檢查垃圾郵件匣。
+                </p>
+              </div>
+            </AuthPanel>
+          ) : (
+            <AuthPanel id="forgot-form-heading" title="申請重設連結" footer={backToLogin}>
+              <FormError id="forgot-form-error" message={error} />
+              <form onSubmit={handleSubmit} aria-describedby={error ? 'forgot-form-error' : undefined}>
+                <FieldRows>
+                  <AuthField
+                    row
+                    id="forgot-email"
+                    label="電子郵件"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    disabled={loading}
+                  />
+                </FieldRows>
+                <FormActions>
+                  <SubmitButton loading={loading} icon={Mail} className="sm:w-auto sm:min-w-44">
+                    發送重設連結
+                  </SubmitButton>
+                </FormActions>
+              </form>
+            </AuthPanel>
+          )
+        }
+      />
     </>
   );
 }
