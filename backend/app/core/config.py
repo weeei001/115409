@@ -143,7 +143,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "FastAPI MySQL Application"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
-    APP_HOST: str = "0.0.0.0"
+    # Intentional configurable network binding; environment examples use loopback.
+    APP_HOST: str = "0.0.0.0"  # nosec B104
     APP_PORT: int = 8002
     APP_RELOAD: bool = False
 

@@ -71,7 +71,7 @@ def _remove_ad_phrases(text: str) -> str:
 
 
 def article_id(source: str, title: str, pub_time: str) -> str:
-    return hashlib.md5(f"{source}_{title}_{pub_time}".encode("utf-8")).hexdigest()
+    return hashlib.md5(f"{source}_{title}_{pub_time}".encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def clean_html_content(raw: str | None) -> str:
