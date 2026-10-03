@@ -90,7 +90,7 @@ def parse_report(html: str, statement: str, period: date, selected: set[str]) ->
         if any(token in name for token in ("％", "%", "比率", "百分比")):
             raise ValueError("Non-monetary MOPS account requires separate unit mapping")
         per_share = "每股" in name
-        item_type = f"MOPS_{period_type}_{'PER_SHARE_' if per_share else ''}{hashlib.sha1(name.encode()).hexdigest()[:16]}"
+        item_type = f"MOPS_{period_type}_{'PER_SHARE_' if per_share else ''}{hashlib.sha1(name.encode(), usedforsecurity=False).hexdigest()[:16]}"
         for (symbol, basis), cell in zip(columns, cells):
             amount = _number(cell.get_text(" ", strip=True))
             if amount is None:

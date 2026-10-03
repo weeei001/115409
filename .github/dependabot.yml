@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Taipei
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Taipei
+    open-pull-requests-limit: 5
+    groups:
+      compatible-updates:
+        patterns: ['*']
+        update-types: [minor, patch]
+      security-updates:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /frontend/Topic
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Taipei
+    open-pull-requests-limit: 5
+    groups:
+      compatible-updates:
+        patterns: ['*']
+        update-types: [minor, patch]
+      security-updates:
+        applies-to: security-updates
+        patterns: ['*']
