@@ -22,55 +22,58 @@ export interface ChartPalette {
 }
 
 const LIGHT: ChartPalette = {
-  grid: 'rgba(0, 0, 0, 0.08)',
-  gridSubtle: 'rgba(0, 0, 0, 0.05)',
-  tick: '#4b5563',
-  tickMuted: '#6b7280',
+  grid: '#cfd8df',
+  gridSubtle: '#e6edf1',
+  tick: '#2c3a46',
+  tickMuted: '#4f5f6c',
   tooltipBg: '#ffffff',
-  tooltipText: '#1a1a1a',
-  tooltipBorder: 'rgba(0, 0, 0, 0.08)',
-  referenceLine: '#9ca3af',
-  text: '#1a1a1a',
-  brand: '#ffa95a',
-  up: '#d06565',
-  down: '#649a7e',
-  flat: '#9ca3af',
-  volumeUp: 'rgba(208, 101, 101, 0.55)',
-  volumeDown: 'rgba(100, 154, 126, 0.55)',
-  volumeFlat: 'rgba(156, 163, 175, 0.55)',
+  tooltipText: '#0e1a24',
+  tooltipBorder: '#0e1a24',
+  referenceLine: '#8696a3',
+  text: '#0e1a24',
+  brand: '#f2b347',
+  up: '#b8282e',
+  down: '#0f7a4a',
+  flat: '#8696a3',
+  volumeUp: 'rgba(184, 40, 46, 0.55)',
+  volumeDown: 'rgba(15, 122, 74, 0.55)',
+  volumeFlat: 'rgba(134, 150, 163, 0.55)',
 };
 
 const DARK: ChartPalette = {
-  grid: 'rgba(255, 255, 255, 0.08)',
-  gridSubtle: 'rgba(255, 255, 255, 0.05)',
-  tick: '#a8a6a3',
-  tickMuted: '#9a9896',
-  tooltipBg: '#1c1c1f',
-  tooltipText: '#e8e6e3',
-  tooltipBorder: 'rgba(255, 255, 255, 0.08)',
-  referenceLine: '#6b6966',
-  text: '#e8e6e3',
-  brand: '#ffa95a',
-  up: '#d06565',
-  down: '#649a7e',
-  flat: '#6b6966',
-  volumeUp: 'rgba(208, 101, 101, 0.55)',
-  volumeDown: 'rgba(100, 154, 126, 0.55)',
-  volumeFlat: 'rgba(107, 105, 102, 0.55)',
+  grid: '#1c2630',
+  gridSubtle: '#131a21',
+  tick: '#b4bec8',
+  tickMuted: '#8a96a2',
+  tooltipBg: '#131a21',
+  tooltipText: '#dfe4e9',
+  tooltipBorder: '#6b7a88',
+  referenceLine: '#5b6b79',
+  text: '#dfe4e9',
+  brand: '#f2b347',
+  up: '#ef5b5f',
+  down: '#1fb46f',
+  flat: '#5b6b79',
+  volumeUp: 'rgba(239, 91, 95, 0.55)',
+  volumeDown: 'rgba(31, 180, 111, 0.55)',
+  volumeFlat: 'rgba(91, 107, 121, 0.55)',
 };
 
 export function getChartPalette(isDark: boolean): ChartPalette {
   return isDark ? DARK : LIGHT;
 }
 
-/** 均線色：刻意避開漲跌的紅綠（決議 D8）；對應 --chart-1…5 */
+/**
+ * 均線色：避開漲跌的紅綠（決議 D8），也避開燈色（金色只當光用）；對應 --chart-1…5。
+ * MA5 藍、MA10 紫、MA20 青、MA60 褐、MA120 灰藍。
+ */
 export function getMaColors(isDark: boolean) {
   return {
-    MA5: '#ffa95a',
-    MA10: '#7b9eb8',
-    MA20: '#9b8ec4',
-    MA60: isDark ? '#d9b44a' : '#a8821f',
-    MA120: isDark ? '#b8946a' : '#9a7550',
+    MA5: isDark ? '#7fb0dc' : '#4a7fb0',
+    MA10: isDark ? '#a79be0' : '#7a6fb5',
+    MA20: isDark ? '#5fc0d2' : '#2b8ca3',
+    MA60: isDark ? '#c9a27e' : '#8a6a4a',
+    MA120: isDark ? '#9aa6b2' : '#6b7785',
   } as const;
 }
 
@@ -83,19 +86,23 @@ export const SERIES_PALETTE = [
   '#0284c7', '#a16207', '#92400e', '#581c87', '#155e75', '#831843', '#1d4ed8', '#3730a3',
 ] as const;
 
+/** AI 對話圖表用的類別色：SERIES_PALETTE 去掉橘、琥珀、褐與洋紅，線條才不會被看成燈色或漲色 */
+const AI_EXCLUDED = new Set(['#f97316', '#d97706', '#a16207', '#92400e', '#db2777', '#831843']);
+export const AI_SERIES_PALETTE = SERIES_PALETTE.filter((color) => !AI_EXCLUDED.has(color));
+
 /**
  * 多股比較的股票代表色：依比較清單的順序取（最多 6 檔，決議 c76），同一次比較保證不撞色。
- * 從 SERIES_PALETTE 挑出彼此最分得開的 6 色，一樣避開漲跌的紅綠。
+ * 藍、紫、青、洋紅、褐、灰藍：避開漲跌的紅綠，也避開接近燈色的橘與琥珀；亮度取中間值，晨海與夜海都看得清楚。
  */
-export const COMPARE_SYMBOL_COLORS = ['#f97316', '#2563eb', '#9333ea', '#0891b2', '#db2777', '#a16207'] as const;
+export const COMPARE_SYMBOL_COLORS = ['#3b82f6', '#a855f7', '#06a3c4', '#e0559a', '#a47148', '#7d8ea3'] as const;
 
 /**
  * 相關係數色階：負相關藍 → 0 中性灰 → 正相關橘，避開紅綠（決議 D8-c9）。
  * 格子與圖例都用這個函式，色階才會一致；文字固定用 palette.text（兩端顏色都已確認對比 ≥ 4.5）。
  */
 const CORRELATION_STOPS = {
-  light: { neg: [91, 143, 209], mid: [231, 229, 228], pos: [232, 145, 74] },
-  dark: { neg: [47, 95, 153], mid: [58, 56, 54], pos: [154, 84, 32] },
+  light: { neg: [91, 143, 209], mid: [230, 237, 241], pos: [232, 145, 74] },
+  dark: { neg: [47, 95, 153], mid: [40, 52, 63], pos: [154, 84, 32] },
 } as const;
 
 export function correlationColor(value: number, isDark: boolean): string {
