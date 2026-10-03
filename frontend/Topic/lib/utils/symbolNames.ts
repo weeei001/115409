@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchStockInfos } from '../api/stock';
 
-export function getStockDisplayName(symbol: string): string {
-  return symbol.trim().toUpperCase();
-}
-
 export function useStockDisplayName(symbol: string): string {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const [displayName, setDisplayName] = useState(normalizedSymbol);
