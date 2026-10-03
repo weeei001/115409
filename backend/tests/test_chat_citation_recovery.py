@@ -32,7 +32,6 @@ def test_invalid_citation_is_regenerated_once_before_publication(chat, stream):
         attempts.append(kwargs)
         if not stream and len(attempts) == 1:
             return await initial_text(**kwargs)
-        assert "previous attempt failed citation validation" in kwargs["system_prompt"]
         assert invalid not in kwargs["prompt"]
         return LlmResult({}, MODEL_ANSWER, llm.metadata)
 
@@ -58,6 +57,72 @@ def test_failed_repair_does_not_loop_or_publish_unsupported_claims(chat, stream)
     assert response.status_code == 200
     assert data["answer"].startswith("目前提供的資料不足以回答此問題。")
     assert "保證上漲" not in response.text
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("completion", [
+    {"finish_reason": "length"}, {"finish_reason": "stop", "truncated": True},
+])
+def test_truncated_answer_is_regenerated_from_same_evidence_before_publication(chat, stream, completion):
+    client, _, llm, retrieval = chat
+    llm.answer = "This incomplete draft must never be published [S99]"
+    llm.metadata.update(completion, thinking_tokens=7)
+    initial_text = llm.text
+    attempts = []
+
+    async def repair(**kwargs):
+        attempts.append(kwargs)
+        if not stream and len(attempts) == 1:
+            return await initial_text(**kwargs)
+        return LlmResult({}, MODEL_ANSWER, {
+            "finish_reason": "stop", "prompt_tokens": 80, "completion_tokens": 20, "thinking_tokens": 3,
+        })
+
+    llm.text = repair
+    response = client.post("/api/ask", json={"query": "台積電最近營收", "stream": stream})
+    assert response.status_code == 200
+    data = events(response)[-1] if stream else response.json()
+    assert data["answer"].startswith(MODEL_ANSWER)
+    assert data["answer"].count("https://news.test/report") == 1
+    assert data["tokens"] == {"input": 180, "output": 50, "thinking": 10}
+    assert "incomplete draft" not in response.text and "S99" not in response.text
+    assert len(attempts) == (1 if stream else 2)
+    initial_call = next(kwargs for kind, kwargs in llm.calls if kind in {"text", "stream"})
+    assert attempts[-1]["prompt"] == initial_call["prompt"]
+    assert llm.answer not in attempts[-1]["prompt"]
+    assert len(retrieval.calls) == 1
+    if stream:
+        result = events(response)
+        assert result[-1]["type"] == "done" and llm.closed
+        assert [event["content"] for event in result if event["type"] == "text"] == [data["answer"]]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("first_truncated", [False, True])
+def test_citation_and_truncation_failures_share_one_retry_budget(chat, stream, first_truncated):
+    client, _, llm, _ = chat
+    llm.answer = "Rejected draft [S99]"
+    if first_truncated:
+        llm.metadata["finish_reason"] = "length"
+    initial_text = llm.text
+    attempts = []
+
+    async def repair(**kwargs):
+        attempts.append(kwargs)
+        if not stream and len(attempts) == 1:
+            return await initial_text(**kwargs)
+        return LlmResult({}, llm.answer, {"finish_reason": "stop" if first_truncated else "length"})
+
+    llm.text = repair
+    response = client.post("/api/ask", json={"query": "台積電最近營收", "stream": stream})
+    assert len(attempts) == (1 if stream else 2)
+    assert "Rejected draft" not in response.text
+    if stream:
+        result = events(response)
+        assert result[-1]["type"] == "error" and llm.closed
+        assert not any(event["type"] in {"text", "done"} for event in result)
+    else:
+        assert response.status_code == 503
 
 
 @pytest.mark.parametrize("claim", ["收盤價 999 元", "漲跌幅 +2.03%", "EPS 999 元", "2026-09-10 收盤價 100 元", "股票2317收盤價100元"])
