@@ -7,6 +7,7 @@ import { Loader2, Star } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Button } from '@/components/ui/button';
 import { FavoriteList } from '@/features/favorites/FavoriteList';
+import { FavoriteStockSearch } from '@/features/favorites/FavoriteStockSearch';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
 import { notificationAccountSnapshot, subscribeNotificationAccount } from '@/lib/notifications/account';
 
@@ -41,7 +42,7 @@ export default function FavoritesPage() {
           </section>
         ) : (
           <>
-            <p className="mb-5 text-sm text-muted-foreground">在個股頁點選星號，即可加入收藏清單。</p>
+            <FavoriteStockSearch />
             <FavoriteList />
           </>
         )}
