@@ -46,8 +46,11 @@ in any published advisory.
 
 ## Automated Checks
 
-Dependabot checks Python, npm, and GitHub Actions dependencies weekly. Security
-checks run on pull requests, pushes to `main` and `wei`, and a weekly schedule:
+Dependabot is configured for security update pull requests only. Routine version
+update pull requests are disabled for Python, npm, and GitHub Actions with
+`open-pull-requests-limit: 0`; maintainers handle ordinary upgrades manually.
+Security updates remain enabled and are grouped by ecosystem. Security checks
+run on pull requests, pushes to `main` and `wei`, and a weekly schedule:
 
 - `pip-audit` checks resolved backend dependencies against known vulnerabilities.
 - Bandit checks backend Python source for medium or higher severity findings
