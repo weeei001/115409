@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
+import ErrorPage from 'next/error';
 import { useRouter } from 'next/router';
 import { KeyRound, Loader2, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
@@ -9,7 +10,6 @@ import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/c
 import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
-import { FavoriteList } from '@/features/favorites/FavoriteList';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -21,6 +21,7 @@ const errorText = (err: unknown, fallback: string) => userFacingMessage(err, fal
 
 export default function MePage() {
   const router = useRouter();
+  const legacyNotifications = router.asPath.split('#')[1] === 'notifications';
   const [user, setUser] = useState<UserPublic | null>(null);
   const [checked, setChecked] = useState(false);
   const [hasToken, setHasToken] = useState(false);
@@ -45,6 +46,7 @@ export default function MePage() {
 
   useEffect(() => {
     if (!router.isReady) return;
+    if (legacyNotifications) return;
     if (!getToken()) {
       void router.replace(LOGIN_FOR_ME);
       setChecked(true);
@@ -78,8 +80,8 @@ export default function MePage() {
     return () => {
       active = false;
     };
-    // router 物件每次 render 都是新的；只在 isReady 變化時確認一次
-  }, [router.isReady]);
+    // Recheck only when the route is ready or its legacy notification target changes.
+  }, [router.isReady, legacyNotifications]);
 
   // 在這頁從主選單登出：清掉畫面上的資料並回首頁，跟本頁「登出」一致（決議 D9-c18）
   useEffect(() => {
@@ -162,13 +164,15 @@ export default function MePage() {
   const head = (
     <Head>
       <title>股海明燈｜個人中心</title>
-      <meta name="description" content="檢視帳號資訊、收藏股與登出。" />
+      <meta name="description" content="檢視帳號資訊、變更密碼與管理登入狀態。" />
     </Head>
   );
-  const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊與收藏股" />;
+  const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊與安全設定" />;
   /** 帳號資料的燈質：重新整理中 Q、確認失敗熄燈、其餘 F */
   const profileState: LightState = refreshing ? 'loading' : error || profileUnconfirmed ? 'error' : 'ready';
   const pageClass ='mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10';
+
+  if (router.isReady && legacyNotifications) return <ErrorPage statusCode={404} />;
 
   if (!checked) {
     // 載入＝燈質 Q：有線的空白列
@@ -202,8 +206,8 @@ export default function MePage() {
       {head}
       {header}
       <main aria-label="個人中心" className={pageClass}>
-        {/* 手機依序：帳號資料 → 收藏股 → 變更密碼；桌機收藏股佔右側兩列 */}
-        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-x-16">
+        {/* 手機依序：帳號資料 → 變更密碼；桌機左右並排。收藏股在獨立的 /favorites 頁 */}
+        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
           <AnimatedSection className="min-w-0 lg:col-span-5">
             <Ledger
               title="帳號資料"
@@ -256,11 +260,7 @@ export default function MePage() {
             </Ledger>
           </AnimatedSection>
 
-          <AnimatedSection delay={0.05} className="min-w-0 lg:col-span-7 lg:row-span-2">
-            <FavoriteList />
-          </AnimatedSection>
-
-          <AnimatedSection delay={0.1} className="min-w-0 lg:col-span-5">
+          <AnimatedSection delay={0.05} className="min-w-0 lg:col-span-7">
             <Ledger aria-labelledby="me-password-heading" title={<span id="me-password-heading">變更密碼</span>}>
               <LedgerPanel>
                 <p className="mb-4 text-xs leading-relaxed text-muted-foreground">

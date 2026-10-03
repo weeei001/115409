@@ -236,3 +236,9 @@ def test_budget_stops_before_call(db_session, settings, tmp_path):
     summary = asyncio.run(runner.run(since=datetime(2026, 1, 1)))
     assert summary["stopped_reason"] == "budget_exhausted" and llm.calls == 0
     assert db_session.get(NewsEventAnalysis, "budget") is None
+
+
+def test_recognition_alias_upgrade_invalidates_previous_analysis_config(settings, monkeypatch):
+    current = config_hash(settings, CATALOG)
+    monkeypatch.setattr("app.features.news.impact.COMPANY_RECOGNITION_VERSION", "mentions-v1")
+    assert config_hash(settings, CATALOG) != current

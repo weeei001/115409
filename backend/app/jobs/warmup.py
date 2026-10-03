@@ -52,9 +52,12 @@ async def warm(symbols: list[str] | None, start: date | None, end: date | None) 
                 for day in dates:
                     db = session_factory()
                     try:
-                        result = await AnalysisService(db=db, settings=settings, http=http,
-                            session_factory=session_factory).generate_text_brief(
-                            StockBehaviorTextBriefRequest(symbol=symbol, as_of_date=day), refresh_sources=True
+                        print(f"symbol={symbol} as_of={day} result=started", flush=True)
+                        result = await asyncio.wait_for(
+                            AnalysisService(db=db, settings=settings, http=http,
+                                session_factory=session_factory).generate_text_brief(
+                                StockBehaviorTextBriefRequest(symbol=symbol, as_of_date=day), refresh_sources=True
+                            ), timeout=settings.JOBS_BRIEF_TIMEOUT_SECONDS
                         )
                         print(f"symbol={symbol} as_of={day} result={result.status} cached={result.cached}")
                         if result.status == "unavailable":

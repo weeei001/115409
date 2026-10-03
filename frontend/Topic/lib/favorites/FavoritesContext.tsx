@@ -37,7 +37,7 @@ const newestFirst = (a: FavoriteStockResponse, b: FavoriteStockResponse) =>
   a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0;
 
 /**
- * 收藏清單存在後端、綁定登入帳號；個股頁、個人中心、首頁共用這一份。
+ * Account-owned favorites shared by stock pages, the favorites page and home.
  * saved 只放後端確認過的資料，pending 是樂觀更新：失敗時丟掉 pending 就等於回滾。
  */
 export function FavoritesProvider({ children }: { children: React.ReactNode }) {

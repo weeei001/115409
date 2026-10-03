@@ -349,9 +349,12 @@ def test_paid_dataset_opt_in_and_export_failure_nonzero(tmp_path, settings, monk
     assert seen[-1] == ("2317", "cli-token", True)
 
 
-def test_from_stock_info_exports_every_symbol(tmp_path, settings, monkeypatch):
+@pytest.mark.parametrize("options,limit", [([], None), (["--from-stock-info"], None),
+                                          (["--max-stocks", "2"], 2)])
+def test_stock_info_exports_selected_scope(tmp_path, settings, monkeypatch, options, limit):
     monkeypatch.setattr(fetch, "get_settings", lambda: settings)
-    monkeypatch.setattr(fetch, "stock_info_symbols", lambda configured: ["1101", "2330"])
+    symbols = ["1101", "1303", *[str(symbol) for symbol in range(2000, 2041)]]
+    monkeypatch.setattr(fetch, "stock_info_symbols", lambda configured: symbols)
     seen = []
 
     def export(symbol, args, client):
@@ -359,8 +362,31 @@ def test_from_stock_info_exports_every_symbol(tmp_path, settings, monkeypatch):
         return {}, False
 
     monkeypatch.setattr(fetch, "export_symbol", export)
-    assert fetch.main(["--from-stock-info", "--start", "2024-01-01", "--out", str(tmp_path)]) == 0
-    assert seen == ["1101", "2330"]
+    assert fetch.main([*options, "--start", "2024-01-01", "--out", str(tmp_path)]) == 0
+    assert seen == symbols[:limit]
+
+
+def test_empty_stock_info_stops_without_provider_calls(settings, monkeypatch):
+    monkeypatch.setattr(fetch, "get_settings", lambda: settings)
+    monkeypatch.setattr(fetch, "stock_info_symbols", lambda configured: [])
+    monkeypatch.setattr(fetch.httpx, "Client", lambda: pytest.fail("Empty stock_info must not call a provider"))
+    assert fetch.main(["--start", "2024-01-01"]) == 1
+
+
+def test_explicit_symbols_do_not_read_stock_info(tmp_path, settings, monkeypatch):
+    monkeypatch.setattr(fetch, "get_settings", lambda: settings)
+    monkeypatch.setattr(fetch, "stock_info_symbols", lambda configured: pytest.fail("Explicit symbols must be preserved"))
+    seen = []
+    monkeypatch.setattr(fetch, "export_symbol", lambda symbol, args, client: (seen.append(symbol) or {}, False))
+    assert fetch.main(["--stocks", "1303,1101", "--start", "2024-01-01", "--out", str(tmp_path)]) == 0
+    assert seen == ["1303", "1101"]
+
+
+@pytest.mark.parametrize("options", [["--stock", ""], ["--stocks", " , "], ["--max-stocks", "0"],
+                                   ["--from-stock-info", "--stock", "1101"]])
+def test_invalid_stock_scope_is_rejected(options):
+    with pytest.raises(SystemExit):
+        fetch.parse_args(["--start", "2024-01-01", *options])
 
 
 def test_optional_paid_dataset_failure_is_visible_and_default_skips_http(tmp_path):

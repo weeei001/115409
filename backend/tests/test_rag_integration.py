@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.db.engine import make_session_factory
 from app.db.session import get_db
 from app.db.models.news_article import NewsArticle
+from app.db.models.stock_info import StockInfo
 from app.db.models.news_chunk import chunk_metadata
 from app.features.retrieval.chunking import article_chunks
 from app.jobs.ingestion.repository import insert_article_chunks
@@ -33,6 +34,7 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
     }.items():
         monkeypatch.setenv(name, str(value))
     configured = Settings(_env_file=None, JWT_SECRET=settings.JWT_SECRET)
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
     seed_prices(db_session)
     article = NewsArticle(article_id="integration-article", title="TSMC quarterly revenue",
         content="TSMC public revenue report.", content_kind="full_text", pub_time="2026-07-12 12:00:00",

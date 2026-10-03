@@ -10,11 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import apiClient, { ApiRequestError } from '@/lib/api/client';
 import { userFacingMessage } from '@/lib/api/errorDetail';
-import { acceptedJobAudit, adminMe, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '@/lib/api/admin';
+import { acceptedJobAudit, adminDuration, adminRunScope, adminMe, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '@/lib/api/admin';
 import type { AdminAudit, AdminJob, AdminList, AdminOverview, AdminRun, Administrator } from '@/lib/api/admin';
 import { AUTH_CHANGE_EVENT, getToken } from '@/lib/auth/storage';
 import { cn } from '@/lib/cn';
-import { AdminRunDiagnostics } from '@/features/admin/RunDiagnostics';
+import { fetchStockInfos } from '@/lib/api/stock';
+import type { StockInfo } from '@/lib/types/api';
+import { adminStageLabel, AdminRunDiagnostics } from '@/features/admin/RunDiagnostics';
 
 const PAGE_SIZE = 20;
 const LOGIN = { pathname: '/login', query: { returnUrl: '/admin' } };
@@ -44,14 +46,14 @@ const linkClass = 'text-foreground underline decoration-input underline-offset-4
 function timeText(value?: string | null): string {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }).replace(/\s+/g, ' ');
 }
 
 function scheduleText(value: string | null): string {
   return value?.replace(/^Daily (\d{2}:\d{2}) Asia\/Taipei$/, '每日 $1（台北時間）')
     .replace(/^Every ([\d.]+) minutes$/, '每 $1 分鐘')
     .replace(/^After data jobs \+ ([\d.]+) minutes$/, '資料工作完成後 $1 分鐘')
-    .replace(/^Manual$/, '手動執行') || '未設定排程';
+    .replace(/^After news indexing$/, '新聞索引完成後自動執行').replace(/^Manual$/, '手動執行') || '未設定排程';
 }
 
 const SUCCESS_STATES = ['healthy', 'success', 'succeeded', 'active', 'running', 'enabled'];
@@ -91,33 +93,64 @@ function Pagination({ offset, total, busy, onChange }: { offset: number; total: 
 }
 
 /** 工作排程：每個工作是一個「站」，名稱＋狀態燈、排程與時間（等寬）、結果摘要、右側動作 */
-export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus, onView, state }: { jobs: AdminJob[]; disabled: boolean; onAction: (job: AdminJob, action: 'run' | 'pause' | 'resume') => void; checkedAt?: string; schedulerStatus?: string; onView?: () => void; state?: LightState }) {
+export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus, onView, actionError, state }: { jobs: AdminJob[]; disabled: boolean; onAction: (job: AdminJob, action: 'run' | 'pause' | 'resume', symbol?: string) => void; checkedAt?: string; schedulerStatus?: string; onView?: () => void; actionError?: string | null; state?: LightState }) {
+  const [stocks, setStocks] = useState<StockInfo[]>([]);
+  const [symbol, setSymbol] = useState('');
+  const [stockError, setStockError] = useState(false);
+  const [stockAttempt, setStockAttempt] = useState(0);
+  const hasBrief = jobs.some((job) => job.name === 'text-brief');
+  useEffect(() => {
+    if (!hasBrief) return;
+    let active = true;
+    setStockError(false);
+    fetchStockInfos().then((items) => { if (active) { setStocks(items); setStockError(!items.length); } })
+      .catch(() => { if (active) setStockError(true); });
+    return () => { active = false; };
+  }, [hasBrief, stockAttempt]);
   return (
-    <Ledger title="工作排程" stamp={state ? <StateStamp state={state}>{jobs.length} 項工作</StateStamp> : undefined} actions={<p className="text-xs text-muted-foreground">暫停只停止後續排程，執行中的工作會繼續完成。</p>}>
-      {!jobs.length ? <div className="bg-card"><EmptyState>目前沒有工作排程。</EmptyState></div> : <ul className="divide-y bg-card">
-        {jobs.map((job) => (
-          <li key={job.name} data-stagger className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3 className="text-[15px] font-semibold">{JOB_LABELS[job.name] || job.label || job.name}</h3><Status value={job.paused ? 'paused' : 'enabled'} />{job.active_run_id != null ? <Status value="running" /> : job.queued_run_id != null ? <Status value="queued" /> : null}</div>
-              <p className="mt-1.5 text-xs leading-5 text-subtle">{scheduleText(job.schedule)}<span className="mx-2 text-muted-foreground" aria-hidden>·</span>下次預定：<span className="font-mono tabular-nums">{timeText(job.next_run_at)}</span></p>
-              <p className="text-xs leading-5 text-muted-foreground">{adminScheduleState(job, jobs, checkedAt, schedulerStatus)}</p>
+    <Ledger aria-labelledby="jobs-heading" title={<span id="jobs-heading">工作排程</span>} stamp={state ? <StateStamp state={state}>{jobs.length} 項工作</StateStamp> : undefined} actions={<p className="text-xs text-muted-foreground">工作依序執行。暫停只停止後續排程，執行中與已排入的工作會繼續完成。</p>}>
+      {actionError ? <div className="bg-card px-4 py-3 sm:px-5" role="alert"><Notice tone="warning">{actionError}</Notice></div> : null}
+      {!jobs.length ? <div className="bg-card"><EmptyState>目前沒有工作排程。</EmptyState></div> : <ul className="divide-y bg-card">{jobs.map((job) => {
+        const label = JOB_LABELS[job.name] || job.label || job.name;
+        const manual = job.schedule === 'Manual';
+        const current = job.active_run ?? job.queued_run;
+        const summary = job.result_summary;
+        const latest = [summary?.last_success, summary?.last_failure].filter((run): run is AdminRun => Boolean(run)).sort((a, b) => b.id - a.id)[0];
+        return <li key={job.name} data-stagger className="px-4 py-4 sm:px-5">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3 className="text-[15px] font-semibold">{label}</h3><span className="text-xs text-muted-foreground">{manual ? '手動工作' : '自動排程'}</span>{!manual ? <Status value={job.paused ? 'paused' : 'enabled'} /> : null}{job.active_run_id != null ? <Status value="running" /> : job.queued_run_id != null ? <Status value="queued" /> : null}</div>
+              <p className="text-xs leading-5 text-subtle">{job.name === 'text-brief' && !manual ? '新聞索引完成後自動執行' : scheduleText(job.schedule)}{job.next_run_at ? <> · 下次 <span className="font-mono tabular-nums">{timeText(job.next_run_at)}</span></> : null}</p>
+              <p className="text-xs leading-5">{adminScheduleState(job, jobs, checkedAt, schedulerStatus)}</p>
+              {job.active_run_id != null ? <p className="text-sm font-medium">目前階段：{adminStageLabel(current?.diagnostics?.stage)}{current ? <> · 工作耗時 <span className="font-mono tabular-nums">{adminDuration(current.duration_seconds)}</span></> : null}</p> : null}
+              {current && adminRunScope(current) ? <p className="text-xs">執行範圍：{adminRunScope(current)}</p> : null}
               {job.active_run_id != null || job.queued_run_id != null ? <AdminRunLink id={job.active_run_id ?? job.queued_run_id!} onView={onView} /> : null}
-              <div className="mt-3 border-l-2 border-l-border pl-3 text-xs leading-6">
-                {job.result_summary ? <>
-                  <p>最近成功：{job.result_summary.last_success ? <><AdminRunLink id={job.result_summary.last_success.id} onView={onView} /> · <span className="font-mono tabular-nums">{timeText(job.result_summary.last_success.finished_at)}</span></> : '尚無成功紀錄'}</p>
-                  <p>最近失敗：{job.result_summary.last_failure ? <><AdminRunLink id={job.result_summary.last_failure.id} onView={onView} /> · <span className="font-mono tabular-nums">{timeText(job.result_summary.last_failure.finished_at)}</span></> : '尚無失敗紀錄'} · 連續失敗 {job.result_summary.consecutive_failed} 次</p>
-                  <p className="text-muted-foreground">統計全部已保存紀錄（{job.result_summary.terminal_runs} 筆已結束）；中斷會結束失敗連續計數。</p>
-                </> : <p className="text-muted-foreground">工作結果摘要尚無法取得。</p>}
-                <p className="text-muted-foreground">資料截至日：未知；工作成功時間不代表資料已完整更新。</p>
+              <p className="text-xs text-muted-foreground">{latest ? <>最近結果：<Status value={latest.status} /> · <span className="font-mono tabular-nums">{timeText(latest.finished_at)}</span></> : summary ? '尚無成功或失敗紀錄' : '工作結果摘要尚無法取得。'}{summary?.consecutive_failed ? <span className="text-danger"> · 連續失敗 {summary.consecutive_failed} 次</span> : null}</p>
+            </div>
+            <div className="space-y-2 lg:w-72">
+              {job.name === 'text-brief' ? <div className="space-y-1.5">
+                <label htmlFor="brief-symbol" className="block text-[13px] font-medium tracking-[0.04em] text-subtle">要重跑的股票</label>
+                <select id="brief-symbol" required value={symbol} disabled={disabled || !canStartAdminJob(job) || !stocks.length} onChange={(event) => setSymbol(event.target.value)} aria-describedby="brief-symbol-help" className="h-11 w-full rounded-sm border border-input bg-card px-3 text-sm text-foreground transition-colors duration-(--dur-flash) hover:border-border-strong disabled:cursor-not-allowed disabled:opacity-50">
+                  <option value="">{stockError ? '無法載入股票' : stocks.length ? '請選擇股票' : '載入股票中…'}</option>
+                  {stocks.map((stock) => <option key={stock.symbol} value={stock.symbol}>{stock.symbol} {stock.name}</option>)}
+                </select>
+                <p id="brief-symbol-help" className="text-xs text-muted-foreground">只更新所選股票；資料未變時沿用有效摘要。</p>
+                {stockError ? <p role="alert" className="text-xs text-danger">股票清單讀取失敗。<Button variant="outline" className="ml-2" onClick={() => setStockAttempt((value) => value + 1)}>重新載入</Button></p> : null}
+              </div> : null}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className="flex-1" disabled={disabled || !canStartAdminJob(job) || (job.name === 'text-brief' && !symbol)} onClick={() => onAction(job, 'run', job.name === 'text-brief' ? symbol : undefined)} aria-label={`立即執行${label}`}><Play aria-hidden />{job.name === 'text-brief' ? '重跑所選股票' : '立即執行'}</Button>
+                {!manual ? <Button variant="outline" className="flex-1" disabled={disabled} onClick={() => onAction(job, job.paused ? 'resume' : 'pause')} aria-label={`${job.paused ? '恢復' : '暫停'}${label}排程`}>{job.paused ? <Play aria-hidden /> : <Pause aria-hidden />}{job.paused ? '恢復排程' : '暫停排程'}</Button> : null}
               </div>
             </div>
-            <div className="flex shrink-0 gap-2">
-              <Button variant="outline" className="flex-1 lg:flex-none" disabled={disabled || !canStartAdminJob(job)} onClick={() => onAction(job, 'run')} aria-label={`立即執行${JOB_LABELS[job.name] || job.label || job.name}`}><Play aria-hidden />立即執行</Button>
-              {!['impact', 'text-brief'].includes(job.name) ? <Button variant="outline" className="flex-1 lg:flex-none" disabled={disabled} onClick={() => onAction(job, job.paused ? 'resume' : 'pause')} aria-label={`${job.paused ? '恢復' : '暫停'}${JOB_LABELS[job.name] || job.label || job.name}排程`}>{job.paused ? <Play aria-hidden /> : <Pause aria-hidden />}{job.paused ? '恢復排程' : '暫停排程'}</Button> : null}
-            </div>
-          </li>
-        ))}
-      </ul>}
+          </div>
+          <details className="mt-2 text-xs text-muted-foreground"><summary className="inline-flex min-h-11 cursor-pointer items-center">歷史結果與資料狀態</summary><div className="border-l-2 border-l-border pl-3 leading-6">
+            <p>最近成功：{summary?.last_success ? <AdminRunLink id={summary.last_success.id} onView={onView} /> : '尚無成功紀錄'}</p>
+            <p>最近失敗：{summary?.last_failure ? <AdminRunLink id={summary.last_failure.id} onView={onView} /> : '尚無失敗紀錄'}</p>
+            {summary ? <p>統計全部已保存紀錄（{summary.terminal_runs} 筆已結束）；中斷會結束失敗連續計數。</p> : <p>工作結果摘要尚無法取得。</p>}
+            <p>資料截至日：未知；工作成功時間不代表資料已完整更新。</p>
+          </div></details>
+        </li>;
+      })}</ul>}
     </Ledger>
   );
 }
@@ -147,10 +180,10 @@ export function AdminRunHistory({ runs, jobs, disabled, onRetry }: { runs: Admin
         <tbody>
           {runs.map((run) => <React.Fragment key={run.id}>
             <tr>
-              <td className={cellClass}><span className="font-medium">{JOB_LABELS[run.job_name] ?? run.job_name}</span><span className="mt-1 block font-mono text-xs tabular-nums text-muted-foreground">#{run.id}{run.retry_of != null ? ` · 重跑 #${run.retry_of}` : ''}</span></td>
+              <td className={cellClass}><span className="font-medium">{JOB_LABELS[run.job_name] ?? run.job_name}</span><span className="block text-xs text-muted-foreground">{adminRunScope(run)}</span><span className="mt-1 block font-mono text-xs tabular-nums text-muted-foreground">#{run.id}{run.retry_of != null ? ` · 重跑 #${run.retry_of}` : ''}</span></td>
               <td className={cn(cellClass, 'pt-4')}><Status value={run.status} /></td>
               <td className={cn(cellClass, 'font-mono text-xs leading-6 whitespace-nowrap tabular-nums')}>{timeText(run.started_at)}<span className="block text-muted-foreground">{timeText(run.finished_at)}</span></td>
-              <td className={cn(cellClass, 'text-right font-mono text-[13.5px] whitespace-nowrap tabular-nums')}>{run.duration_seconds == null ? '—' : `${Math.round(run.duration_seconds)} 秒`}</td>
+              <td className={cn(cellClass, 'text-right font-mono text-[13.5px] whitespace-nowrap tabular-nums')}>{adminDuration(run.duration_seconds)}</td>
               <td className={cellClass}>{TRIGGER_LABELS[run.trigger] ?? run.trigger}</td>
               <td className={cn(cellClass, 'py-1.5')}><Button variant="outline" disabled={disabled || !canRetryAdminRun(run, jobs)} onClick={() => onRetry(run)} aria-label={`重跑${JOB_LABELS[run.job_name] ?? run.job_name}執行紀錄 ${run.id}`}><RotateCcw aria-hidden />重跑</Button></td>
             </tr>
@@ -365,13 +398,14 @@ export default function AdminPage() {
     }
   };
 
-  const jobAction = (job: AdminJob, action: 'run' | 'pause' | 'resume') => {
-    const label = JOB_LABELS[job.name] || job.label || job.name;
+  const jobAction = (job: AdminJob, action: 'run' | 'pause' | 'resume', symbol?: string) => {
+    if (action === 'run' && job.name === 'text-brief' && !symbol) return;
+    const label = `${JOB_LABELS[job.name] || job.label || job.name}${symbol ? ` · 股票 ${symbol}` : ''}`;
     if (action === 'run' && !window.confirm(`立即執行「${label}」？這會執行實際工作。`)) return;
-    void mutate((signal) => apiClient.post(`/admin/jobs/${encodeURIComponent(job.name)}/${action}`, undefined, { signal }), action === 'run' ? `已提交「${label}」執行。` : `已${action === 'pause' ? '暫停' : '恢復'}「${label}」排程。`);
+    void mutate((signal) => apiClient.post(`/admin/jobs/${encodeURIComponent(job.name)}/${action}`, symbol ? { symbol } : undefined, { signal }), action === 'run' ? `已提交「${label}」執行。` : `已${action === 'pause' ? '暫停' : '恢復'}「${label}」排程。`);
   };
   const retryRun = (run: AdminRun) => {
-    if (!window.confirm(`重跑「${JOB_LABELS[run.job_name] ?? run.job_name}」執行紀錄 #${run.id}？這會重新執行實際工作。`)) return;
+    if (!window.confirm(`重跑「${JOB_LABELS[run.job_name] ?? run.job_name}」${adminRunScope(run) ? `（${adminRunScope(run)}）` : ''}執行紀錄 #${run.id}？這會重新執行實際工作。`)) return;
     void mutate((signal) => apiClient.post(`/admin/jobs/${encodeURIComponent(run.job_name)}/retry`, { run_id: run.id }, { signal }), `已提交執行紀錄 #${run.id} 的重跑。`);
   };
   const grant = (event: React.FormEvent) => {
@@ -429,7 +463,7 @@ export default function AdminPage() {
       </Ledger>
       <div className="space-y-6">
         <nav aria-label="後台功能" className="flex overflow-x-auto border-b border-border-strong">{TABS.map((item) => <button type="button" key={item.id} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)} className={cn('relative min-h-12 shrink-0 px-4 text-sm font-medium transition-colors duration-(--dur-flash) focus-lamp', tab === item.id ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground')}>{item.label}{/* 選取分頁：下緣 3px 墨色粗線（燈色留給本頁唯一的主要按鈕）；夜班改用前景色才看得見 */}<span aria-hidden className={cn('absolute inset-x-0 bottom-0 h-[3px]', tab === item.id ? 'bg-border-strong dark:bg-foreground' : 'bg-transparent')} /></button>)}</nav>
-        {tab === 'jobs' ? <div className="space-y-10">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <div className="space-y-3 border bg-card p-4 sm:p-5"><h2 ref={runDetailHeading} tabIndex={-1} className="border-b border-border-strong pb-2 font-serif text-xl font-black tracking-[0.06em]">執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</h2>{runDetailLoading && !selectedRun ? <LoadingRows label="讀取執行紀錄中…" className="h-[88px]" /> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="flex flex-wrap items-center gap-x-2 text-sm">{JOB_LABELS[selectedRun.job_name] ?? selectedRun.job_name} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 <span className="font-mono tabular-nums">{timeText(selectedRun.started_at)}</span> · 結束 <span className="font-mono tabular-nums">{timeText(selectedRun.finished_at)}</span>{selectedRun.duration_seconds != null ? ` · ${Math.round(selectedRun.duration_seconds)} 秒` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</div> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} state={dataState} /><Ledger aria-labelledby="runs-heading" title={<span id="runs-heading">執行紀錄</span>} stamp={<StateStamp state={dataState}>台北時間</StateStamp>}><div className="min-w-0 bg-card"><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><Pagination offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></div></Ledger></div> : null}
+        {tab === 'jobs' ? <div className="space-y-10">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <div className="space-y-3 border bg-card p-4 sm:p-5"><h2 ref={runDetailHeading} tabIndex={-1} className="border-b border-border-strong pb-2 font-serif text-xl font-black tracking-[0.06em]">執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</h2>{runDetailLoading && !selectedRun ? <LoadingRows label="讀取執行紀錄中…" className="h-[88px]" /> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="flex flex-wrap items-center gap-x-2 text-sm">{JOB_LABELS[selectedRun.job_name] ?? selectedRun.job_name} {adminRunScope(selectedRun)} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 <span className="font-mono tabular-nums">{timeText(selectedRun.started_at)}</span> · 結束 <span className="font-mono tabular-nums">{timeText(selectedRun.finished_at)}</span>{selectedRun.duration_seconds != null ? ` · ${adminDuration(selectedRun.duration_seconds)}` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</div> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} actionError={actionError} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} state={dataState} /><Ledger aria-labelledby="runs-heading" title={<span id="runs-heading">執行紀錄</span>} stamp={<StateStamp state={dataState}>台北時間</StateStamp>}><div className="min-w-0 bg-card"><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><Pagination offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></div></Ledger></div> : null}
         {tab === 'audit' ? <Ledger aria-labelledby="audit-heading" title={<span id="audit-heading">操作紀錄</span>} stamp={<StateStamp state={dataState}>台北時間</StateStamp>}><div className="min-w-0 bg-card"><div className="overflow-x-auto"><table className="w-full min-w-[660px] text-left text-sm"><caption className="sr-only">後台操作與管理員權限變更，時間為台北時間</caption><thead className="border-b border-border-strong bg-muted"><tr>{['時間', '操作者', '動作／對象', '結果'].map((heading) => <th key={heading} scope="col" className={headCellClass}>{heading}</th>)}</tr></thead><tbody>{audit.items.map((item) => <tr key={item.id} className="border-b last:border-b-0"><td className={cn(cellClass, 'font-mono text-xs whitespace-nowrap tabular-nums')}>{timeText(item.created_at)}</td><td className={cn(cellClass, 'break-all')}>{item.actor_email ?? '系統'}</td><td className={cellClass}>{ACTION_LABELS[item.action] ?? item.action}<span className="mt-1 block font-mono text-xs break-all text-muted-foreground">{item.target}</span>{item.details != null ? <details className="mt-2 text-xs text-muted-foreground"><summary className="inline-flex min-h-11 cursor-pointer items-center">詳細資訊</summary><pre className="max-h-40 max-w-md overflow-auto border bg-muted p-2 font-mono break-words whitespace-pre-wrap">{typeof item.details === 'string' ? item.details : JSON.stringify(item.details, null, 2)}</pre></details> : null}</td><td className={cellClass}><AdminAuditResult item={item} onView={() => setTab('jobs')} /></td></tr>)}</tbody></table>{!audit.items.length ? <EmptyState>目前沒有後台操作紀錄。</EmptyState> : null}</div><Pagination offset={auditOffset} total={audit.total} busy={refreshing || pending} onChange={setAuditOffset} /></div></Ledger> : null}
         {tab === 'admins' ? <Ledger aria-labelledby="admins-heading" title={<span id="admins-heading">管理員權限</span>} actions={<p className="text-xs leading-5 text-muted-foreground">所有管理員權限相同，可控制工作與授予／撤銷管理員資格。</p>}><div className="min-w-0 bg-card"><form onSubmit={grant} className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-end sm:p-5"><div className="flex-1"><label htmlFor="admin-email" className="mb-1.5 block text-[13px] font-medium tracking-[0.04em] text-subtle">授予現有帳號管理員權限</label><Input id="admin-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" maxLength={320} placeholder="輸入帳號電子郵件" disabled={disabled} className="h-11 rounded-sm bg-card dark:bg-card" /></div><Button type="submit" disabled={disabled || !email.trim()}><ShieldCheck aria-hidden />授予權限</Button></form><ul className="divide-y">{admins.map((administrator) => <li key={administrator.user_id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"><div className="min-w-0"><p className="flex flex-wrap items-center gap-x-2 text-sm font-medium break-all"><span className="font-mono text-[13.5px]">{administrator.email}</span>{administrator.user_id === me?.user_id ? <span className="border px-1.5 py-0.5 text-xs font-normal text-subtle">目前帳號</span> : null}</p>{administrator.display_name ? <p className="mt-1 text-xs text-muted-foreground">{administrator.display_name}</p> : null}{administrator.is_active === false ? <p className="mt-1"><Status value="error" label="帳號已停用" /></p> : null}</div><Button variant="outline" className="border-danger-border text-danger hover:bg-danger-muted hover:text-danger" disabled={disabled || (activeAdmins <= 1 && administrator.is_active !== false)} onClick={() => revoke(administrator)} aria-label={`撤銷 ${administrator.email} 的管理員權限`}><Trash2 aria-hidden />撤銷權限</Button></li>)}</ul>{!admins.length ? <EmptyState>沒有管理員資料。</EmptyState> : null}{activeAdmins === 1 ? <p className="border-t px-4 py-3 text-xs text-muted-foreground sm:px-5">至少保留一位管理員；請先授予另一個帳號權限，才能撤銷目前管理員。</p> : null}</div></Ledger> : null}
       </div>

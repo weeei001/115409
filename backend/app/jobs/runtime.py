@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import state_directory
 from app.core.errors import AppError, Conflict, NotFound, ServiceUnavailable
 from app.db.models.admin import AdminJobControl, AdminJobRun
+from app.db.models.stock_info import StockInfo
 from app.features.admin.diagnostics import STAGES
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
@@ -42,6 +43,7 @@ class JobRuntime:
         self.active = {}
         self.pending = {}
         self.run_activity = {}
+        self.next_notifications = 0.0
         self.scheduler = Scheduler(self._scheduled, datetime.now(TAIPEI), clock.monotonic(),
             interval=settings.JOBS_INTERVAL_MINUTES * 60,
             delay=settings.JOBS_RAG_DELAY_MINUTES * 60,
@@ -116,6 +118,7 @@ class JobRuntime:
                             queued_name = queued.job_name if queued else None
                             self.status, self.error = "running", None
                             self.heartbeat = datetime.now(timezone.utc).isoformat()
+                        self._notification_tick()
                         if queued_id is not None:
                             if queued_name == "rag":
                                 self.scheduler.followup = None
@@ -170,12 +173,23 @@ class JobRuntime:
             run_id = row.id
         return self._execute(run_id)
 
+    def _notification_tick(self):
+        if not self.settings.NOTIFICATIONS_ENABLED or self.stop_event.is_set() or clock.monotonic() < self.next_notifications:
+            return
+        self.next_notifications = clock.monotonic() + 60
+        try:
+            result = self._worker(["notifications", "--execute"])
+            if result:
+                logger.warning("Notification worker failed (exit code %s)", result)
+        except Exception as exc:
+            logger.warning("Notification worker failed (%s)", type(exc).__name__)
+
     def _execute(self, run_id):
         with self.lock, self.session_factory() as db:
             row = db.get(AdminJobRun, run_id)
             if row is None or row.status != "queued" or self.stop_event.is_set():
                 return 1
-            name = row.job_name
+            name, symbol = row.job_name, row.symbol
             row.status, row.started_at = "running", utcnow()
             db.commit()
             self.active[name] = run_id
@@ -203,7 +217,7 @@ class JobRuntime:
 
         error = None
         try:
-            result = run_pipeline(name, start=self.settings.JOBS_START_DATE, symbols=None,
+            result = run_pipeline(name, start=self.settings.JOBS_START_DATE, symbols=symbol,
                 output=state_directory() / "market", run=worker,
                 impact_limit=self.settings.JOBS_IMPACT_LIMIT,
                 impact_max_cost_usd=self.settings.JOBS_IMPACT_MAX_COST_USD,
@@ -218,7 +232,18 @@ class JobRuntime:
             with self.lock, self.session_factory() as db:
                 row = db.get(AdminJobRun, run_id)
                 row.status, row.finished_at, row.exit_code, row.error = status, utcnow(), result, error
+                followup = None
+                if name == "rag" and self._enabled("text-brief"):
+                    existing = db.scalar(select(AdminJobRun.id).where(
+                        AdminJobRun.job_name == "text-brief",
+                        AdminJobRun.status.in_(["queued", "running"])).limit(1))
+                    if existing is None:
+                        followup = AdminJobRun(job_name="text-brief", status="queued", trigger="scheduled",
+                                               created_at=utcnow())
+                        db.add(followup)
                 db.commit()
+                if followup is not None:
+                    self.pending["text-brief"] = followup.id
         finally:
             with self.lock:
                 self.active.pop(name, None)
@@ -244,13 +269,18 @@ class JobRuntime:
             with self.lock:
                 self.child = None
 
-    def perform(self, db, actor, job_name, action, run_id=None):
+    def perform(self, db, actor, job_name, action, run_id=None, symbol=None):
         if job_name not in JOBS:
             raise NotFound("Unknown job")
         if action not in {"run", "retry", "pause", "resume"}:
             raise AppError("Unknown job action", 422)
         if action == "retry" and run_id is None or action != "retry" and run_id is not None:
             raise AppError("A run_id is required only for retry", 422)
+        if symbol is not None:
+            if job_name != "text-brief" or action != "run":
+                raise AppError("A symbol is supported only for text-brief run", 422)
+            if db.get(StockInfo, symbol) is None:
+                raise NotFound("Stock not found")
         if self.status != "running" or self.stop_event.is_set():
             raise ServiceUnavailable("Scheduler is not available for job controls")
         if action in {"pause", "resume"}:
@@ -272,8 +302,9 @@ class JobRuntime:
             if previous.status not in {"succeeded", "failed", "interrupted"}:
                 raise Conflict("Only completed runs can be rerun")
             retry_of = previous.id
+            symbol = previous.symbol
         row = AdminJobRun(job_name=job_name, status="queued", trigger="retry" if retry_of else "manual",
-            actor_id=actor.id, retry_of=retry_of, created_at=utcnow())
+            actor_id=actor.id, retry_of=retry_of, symbol=symbol, created_at=utcnow())
         db.add(row)
         db.flush()
         return row
@@ -303,6 +334,8 @@ class JobRuntime:
                     if self.scheduler.followup is not None:
                         next_at = now + timedelta(seconds=self.scheduler.followup - monotonic)
                     schedule = f"After data jobs + {self.settings.JOBS_RAG_DELAY_MINUTES:g} minutes"
+                elif name == "text-brief":
+                    schedule = "After news indexing"
                 jobs.append({"name": name, "label": label, "schedule": schedule,
                     "paused": name in self.paused,
                     "next_run_at": (next_at.isoformat() if next_at and self.status == "running"

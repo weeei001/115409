@@ -5,7 +5,8 @@ import { ArrowRight, Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
 import { parseChatSources } from '@/lib/types/chat';
-import { isChatFollowUpAction, isChatNavigationAction } from '@/lib/nav';
+import { isChatFollowUpAction, isChatNavigationAction, isPaperOrderDraftAction } from '@/lib/nav';
+import { PaperOrderDraft } from '@/features/order/PaperOrderDraft';
 import { MarkdownBlock } from '@/lib/utils/markdown';
 import { isStructuredRagReply } from '@/lib/utils/parseRagStructuredReply';
 import { CHAT_CITATION_RE, chatAnswerBody, newsCitationPath } from '@/lib/utils/chatCitations';
@@ -84,6 +85,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
   const cursor = !isUser && streamActive;
   const navActions = !isUser && (!streamActive || message.dashboard) ? (message.actions ?? []).filter(isChatNavigationAction) : [];
   const followUps = !isUser && !streamActive && onFollowUp ? (message.actions ?? []).filter(isChatFollowUpAction) : [];
+  const drafts = !isUser && !streamActive ? (message.actions ?? []).filter(isPaperOrderDraftAction) : [];
 
   const handleCopy = async () => {
     try {
@@ -215,6 +217,8 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
           </div>
         </div>
       ) : null}
+
+      {drafts.map((action) => <div className="mt-4" key={action.draft_id}><PaperOrderDraft initial={action} requestId={action.draft_id} /></div>)}
 
       {navActions.length > 0 ? (
         <nav className="mt-4" aria-label="相關功能">

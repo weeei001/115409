@@ -19,6 +19,7 @@ from app.features.analysis.service import AnalysisService
 from app.clients.llm import _thinking_extra_body
 from app.db.models.daily_price import DailyPrice
 from app.db.models.news_article import NewsArticle
+from app.db.models.stock_info import StockInfo
 
 
 def test_weighted_regression_and_curve_keep_bobs_shapes():
@@ -81,7 +82,7 @@ def test_analysis_and_stream_llm_environment_groups_are_independent(monkeypatch)
     }
 
 
-def test_service_uses_backend_price_rows_for_bobs_response(monkeypatch, settings):
+def test_service_uses_backend_price_rows_for_bobs_response(monkeypatch, settings, db_session):
     class FakeLlm:
         model_name = "test-model"
 
@@ -98,7 +99,9 @@ def test_service_uses_backend_price_rows_for_bobs_response(monkeypatch, settings
             for day in range(1, 6)]
     monkeypatch.setattr(repository, "trend_inputs",
                         lambda *args, **kwargs: (date(2026, 9, 5), rows, ["headline"]))
-    service = AnalysisService(db=None, settings=settings, http=None, llm=FakeLlm(), rag=object())
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
+    db_session.commit()
+    service = AnalysisService(db=db_session, settings=settings, http=None, llm=FakeLlm(), rag=object())
     result = asyncio.run(service.generate_trend_prediction("2330"))
 
     assert result["stock_id"] == "2330"

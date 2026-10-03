@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { Bot, History } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -19,6 +20,9 @@ const EXAMPLE_QUESTIONS: ExampleQuestionGroup[] = [
 
 export default function AiPage() {
   const chat = useChat();
+  const router = useRouter();
+  /** 其他頁（例如模擬投資）用 /ai?prompt= 帶入的預填問題；只在新對話時填入輸入框 */
+  const initialPrompt = typeof router.query.prompt === 'string' ? router.query.prompt.slice(0, 6000) : '';
   const isMobile = useIsMobile();
   const [historyOpen, setHistoryOpen] = useState(false);
   const columnRef = useRef<HTMLDivElement>(null);
@@ -173,7 +177,10 @@ export default function AiPage() {
             />
             {/* 輸入列（含免責）固定在底部：手機黏在視窗底部、閃開底部手勢區；lg 以上是固定高度面板的最後一列 */}
             <div className="sticky bottom-0 z-20 mt-auto shrink-0">
-              <ChatInput key={chat.conversationId ?? "new"} onSend={chat.send} disabled={chat.loading || !chat.ready}
+              <ChatInput key={`${chat.conversationId ?? 'new'}:${initialPrompt}`} initialValue={chat.conversationId ? '' : initialPrompt} onSend={(text) => {
+                if (initialPrompt) void router.replace('/ai', undefined, { shallow: true });
+                chat.send(text);
+              }} disabled={chat.loading || !chat.ready}
                 onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} />
             </div>
           </div>

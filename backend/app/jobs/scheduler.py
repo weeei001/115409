@@ -48,6 +48,7 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
              "--start", start.isoformat(), "--out", str(output)],
             ["market-import", "--input-dir", str(output)],
             ["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()],
+            ["paper-reconcile", "--execute"],
         ])
     if job in {"cnyes", "all"}:
         commands.append(["crawl-cnyes", "--scheduled-once"])
@@ -66,7 +67,7 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
             commands.append(["news-impact-sync", "--execute",
                 *(["--backfill-days", str(max(1, (datetime.now(TAIPEI).date() - impact_since).days + 1))]
                   if impact_since else [])])
-    if job in {"rag", "text-brief", "all"}:
+    if job in {"text-brief", "all"}:
         commands.append(["cache-warmup", *(["--symbols", symbols] if symbols else [])])
     exit_code = 0
     ingestion_failed = False
@@ -122,6 +123,8 @@ class Scheduler:
         if self.followup is not None and finished_at() >= self.followup and self.enabled("rag"):
             self.followup = None
             self.run("rag")
+            if self.enabled("text-brief"):
+                self.run("text-brief")
 
 
 def main(argv: list[str] | None = None) -> int:

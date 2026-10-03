@@ -16,8 +16,10 @@ export function SiteFooter({ className }: { className?: string }) {
             <BrandMark className="size-7" />
             <span className="font-serif text-xl font-black tracking-[0.14em]">股海明燈</span>
           </p>
+          {/* 英文名對齊中文名（標誌 size-7 加 gap-2.5） */}
+          <p lang="en" className="mt-1 pl-[2.375rem] text-[11px] tracking-[0.25em] text-muted-foreground uppercase">Stock Lighthouse</p>
           <p className="mt-3 max-w-[34em] text-[13px] leading-relaxed text-muted-foreground">
-            本網站為展示與學習用途，不構成投資建議。模擬下單紀錄會儲存在本站伺服器：未登入時以瀏覽器產生的匿名 ID 識別，登入後以帳號 Email 識別。
+            本網站為展示與學習用途，不構成投資建議。模擬投資使用虛擬資金，交易與決策紀錄儲存於登入帳戶。
           </p>
         </div>
         <nav aria-label="頁尾導覽" className="bg-card px-4 py-4 sm:px-6 md:py-6">

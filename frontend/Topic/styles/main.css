@@ -203,9 +203,10 @@
 
   --shadow-raised: var(--elev-raised);
 
-  --font-serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
-  --font-sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* --font-app-* 由 pages/_app.tsx 的 next/font 寫入（本站自架字型）；沒有時退回同一組字族名稱 */
+  --font-serif: var(--font-app-serif, "Noto Serif TC", "Songti TC", "PMingLiU", serif);
+  --font-sans: var(--font-app-sans, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif);
+  --font-mono: var(--font-app-mono, "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
 
   --ease-flash: cubic-bezier(0.2, 0, 0, 1);
   --ease-eclipse: cubic-bezier(0.4, 0, 1, 1);
@@ -280,6 +281,11 @@
     outline-offset: 2px;
     box-shadow: 0 0 0 2px var(--brand);
   }
+}
+
+/* 相容：模擬投資（PaperFunds、PaperOrderDraft、order 頁）的主要按鈕仍寫 bg-brand-gradient；對應到燈色實底（燈色可用於主要按鈕） */
+@utility bg-brand-gradient {
+  background: var(--brand);
 }
 
 /* 燈質列：等寬小字，內容只放真實資料（代號、產業、資料日、單位）或燈質本身 */

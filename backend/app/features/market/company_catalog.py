@@ -42,6 +42,26 @@ TPEX_INDUSTRIES = {
      "32": "文化創意業", "33": "農業科技業"}
 
 
+# Supplemental recognition aliases only; membership always comes from the catalog.
+COMPANY_ALIASES = {
+    "2330": ("TSMC", "台積"),
+    "2317": ("Foxconn", "富士康"),
+    "2454": ("MediaTek",),
+    "2881": ("富邦金控",),
+    "2408": ("南亞科技", "Nanya"),
+}
+
+
+def company_aliases(symbol: str, company: dict) -> list[str]:
+    return list(dict.fromkeys(name for name in (
+        company.get("name"), *(company.get("aliases") or []), *COMPANY_ALIASES.get(symbol, ())
+    ) if isinstance(name, str) and name.strip()))
+
+
+def company_name(symbol: str) -> str:
+    return (load_catalog().get(symbol) or {}).get("name") or symbol
+
+
 def load_catalog(path: Path | None = None) -> dict[str, dict]:
     path = path if path is not None else state_directory() / "company_catalog.json"
     try:

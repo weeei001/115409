@@ -71,10 +71,12 @@ class FakeRetrieval:
 
 
 @pytest.fixture
-def chat(monkeypatch):
+def chat(monkeypatch, chat_session_factory):
     monkeypatch.setattr(chat_module, "taipei_now", lambda: NOW)
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {})
     llm, retrieval = FakeModels(), FakeRetrieval()
-    service = ChatService(http=None, settings=None, retrieval=retrieval, intent_llm=llm, llm=llm)
+    service = ChatService(http=None, settings=None, retrieval=retrieval, intent_llm=llm, llm=llm,
+                          session_factory=chat_session_factory)
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router)
@@ -170,7 +172,6 @@ def test_answer_detail_reaches_answer_model_without_changing_retrieval(chat, str
     call_kind, call = llm.calls[-1]
     assert call_kind == ("stream" if stream else "text")
     assert instruction in call["system_prompt"]
-    assert f"Default answer detail: {detail or 'plain'}" in call["system_prompt"]
     assert "優先於預設值" in call["system_prompt"]
     assert "不得捏造 KD/RSI/MACD 數值" in call["system_prompt"]
     assert query in call["prompt"] and retrieval.calls[-1]["query"] == query
@@ -202,8 +203,9 @@ def test_non_finance_reply_is_visible_without_retrieval_or_answer_model(chat, st
     assert not retrieval.calls and len(llm.calls) == 1
 
 
-def test_malformed_intent_uses_stock_and_calendar_fallback_but_manual_stock_wins(chat):
+def test_malformed_intent_uses_stock_and_calendar_fallback_but_manual_stock_wins(chat, monkeypatch):
     client, _, llm, retrieval = chat
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2024": {"name": "Test steel company"}})
     llm.intent = {"stocks": None, "time_from": "not a date"}
     response = client.post("/api/ask", json={"query": "2024年Q4台積電和鴻海營收"})
     assert response.status_code == 200
@@ -306,11 +308,12 @@ def test_cancelled_consumer_closes_provider_stream(chat):
     assert llm.closed
 
 
-@pytest.mark.parametrize("stage", ["intent", "news", "repair"])
+@pytest.mark.parametrize("stage", ["intent", "news", "repair", "truncation"])
 def test_cancelled_stage_closes_inflight_operation_without_background_work(chat, stage):
     _, service, llm, retrieval = chat
     statuses = {"intent": "正在理解問題與對話脈絡…", "news": "正在搜尋相關新聞與來源…",
-                "repair": "回答未通過核對，正在依據來源重新產生…"}
+                "repair": "回答未通過核對，正在依據來源重新產生…",
+                "truncation": "回答超過長度限制，正在精簡後重新產生…"}
 
     async def cancel():
         started, closed = asyncio.Event(), asyncio.Event()
@@ -328,6 +331,8 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
             retrieval.search_question = waiting
         else:
             llm.answer = "Unverified answer [S99]"
+            if stage == "truncation":
+                llm.metadata["finish_reason"] = "length"
             llm.text = waiting
         stream = service.stream_events(AskRequest(query="台積電", stream=True))
         while True:
@@ -376,14 +381,16 @@ def test_unverifiable_answers_fail_before_any_text_is_sent(chat, stream, answer)
 
 
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("metadata", [
-    {"finish_reason": "length"}, {"finish_reason": "stop", "truncated": True},
-    {"finish_reason": "content_filter"}, {},
+@pytest.mark.parametrize("metadata,expected_attempts", [
+    ({"finish_reason": "length"}, 2), ({"finish_reason": "stop", "truncated": True}, 2),
+    ({"finish_reason": "content_filter"}, 1), ({}, 1),
+    ({"finish_reason": "content_filter", "truncated": True}, 1), ({"truncated": True}, 1),
 ])
-def test_incomplete_answers_fail_with_same_json_and_sse_message(chat, stream, metadata):
+def test_incomplete_answers_fail_with_same_json_and_sse_message(chat, stream, metadata, expected_attempts):
     client, _, llm, _ = chat
     llm.metadata = metadata
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
+    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == expected_attempts
     message = "模型回答未完整生成，請稍後重試。"
     if stream:
         result = events(response)
@@ -480,7 +487,7 @@ def test_source_list_does_not_make_unsafe_source_urls_clickable(chat, url):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream):
+def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream, chat_session_factory):
     requested_models = []
     configured = settings.model_copy(update={"LLM_API_KEY": "test-only-key",
         "LLM_BASE_URL": "https://chat.test/v1", "LLM_MODEL": "test-shared-model",
@@ -506,7 +513,7 @@ def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream):
 
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http:
-            service = ChatService(http=http, settings=configured, retrieval=FakeRetrieval())
+            service = ChatService(http=http, settings=configured, retrieval=FakeRetrieval(), session_factory=chat_session_factory)
             assert service.intent_llm is service.llm
             request = AskRequest(query="台積電營收", stream=stream)
             if stream:

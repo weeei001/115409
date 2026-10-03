@@ -143,7 +143,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "FastAPI MySQL Application"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
-    APP_HOST: str = "0.0.0.0"
+    # Intentional configurable network binding; environment examples use loopback.
+    APP_HOST: str = "0.0.0.0"  # nosec B104
     APP_PORT: int = 8002
     APP_RELOAD: bool = False
 
@@ -155,6 +156,7 @@ class Settings(BaseSettings):
     JOBS_IMPACT_SINCE: date | None = None
     JOBS_IMPACT_LIMIT: int = Field(100, ge=1)
     JOBS_IMPACT_MAX_COST_USD: float = Field(0.50, ge=0, allow_inf_nan=False)
+    JOBS_BRIEF_TIMEOUT_SECONDS: float = Field(180, gt=0, allow_inf_nan=False)
 
     JWT_SECRET: str = "change-me-in-production-use-long-random-string"
     JWT_ALGORITHM: str = "HS256"
@@ -169,6 +171,11 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""
     SMTP_USE_TLS: bool = True
     CORS_ALLOW_ORIGINS: str = "*"
+    NOTIFICATIONS_ENABLED: bool = False
+    FCM_ENABLED: bool = False
+    FCM_PROJECT_ID: str = ""
+    FCM_CREDENTIALS_FILE: str = ""
+    FCM_WEB_ORIGIN: str = ""
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",

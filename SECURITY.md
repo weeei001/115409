@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-StockBeacon provides security fixes for the latest code on the `main` branch.
+Stock Lighthouse provides security fixes for the latest code on the `main` branch.
 Upgrade to the latest `main` revision to receive fixes.
 
 | Version | Supported |
@@ -43,3 +43,27 @@ you may provide additional evidence for reconsideration.
 Please coordinate public disclosure with maintainers so affected users have an
 opportunity to apply a fix. Let maintainers know whether you would like credit
 in any published advisory.
+
+## Automated Checks
+
+Dependabot is configured for security update pull requests only. Routine version
+update pull requests are disabled for Python, npm, and GitHub Actions with
+`open-pull-requests-limit: 0`; maintainers handle ordinary upgrades manually.
+Security updates remain enabled and are grouped by ecosystem. Security checks
+run on pull requests, pushes to `main` and `wei`, and a weekly schedule:
+
+- `pip-audit` checks resolved backend dependencies against known vulnerabilities.
+- Bandit checks backend Python source for medium or higher severity findings
+  with medium or higher confidence.
+- `npm audit` checks the frontend lockfile, including development dependencies,
+  and fails on moderate or higher severity vulnerabilities.
+- Gitleaks scans fetched Git history and redacts detected secrets in its output.
+
+Do not dismiss a real secret finding by adding an exclusion. Revoke or rotate the
+credential first, then coordinate any required history cleanup with maintainers.
+
+CodeQL and dependency review workflows are also included. For this private
+repository, they run only when the repository variable `CODE_SECURITY_ENABLED`
+is `true`. Enable that variable only after GitHub Code Security is available and
+enabled for the repository. These workflows do not enable the GitHub license or
+native secret scanning and push protection themselves.

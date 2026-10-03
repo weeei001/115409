@@ -1,0 +1,15 @@
+# Exact historical false positives only; keep future credentials detectable.
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:18
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:33
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:45
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:77
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:104
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:117
+# Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
+38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:118

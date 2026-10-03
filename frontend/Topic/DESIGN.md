@@ -33,7 +33,7 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 - 顯示標題：`font-serif` = Noto Serif TC 900（只載入 900）。用在 h1、帳頁 h2、旅程標題。
 - 介面與內文：`font-sans` = Noto Sans TC 400／500／700。
 - 數字與代號：`font-mono` = IBM Plex Mono 400／500／600，一律加 `tabular-nums`。
-- 字型由 `pages/_document.tsx` 從 Google Fonts 載入；要換字型時，兩邊一起改。
+- 字型由 `pages/_app.tsx` 用 `next/font/google` 自架載入，寫進 `--font-app-serif／sans／mono`；`styles/main.css` 的 `--font-*` 引用它們，並列同一組字族當退路。要換字型時，兩邊一起改。
 
 | 角色 | class | 用在 |
 |---|---|---|

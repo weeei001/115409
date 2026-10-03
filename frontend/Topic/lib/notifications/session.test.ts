@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import { clearAuth, setAuth, getToken } from '../auth/storage';
+import { DEVICE_KEY } from './session';
+
+const values = new Map<string, string>();
+const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) };
+Object.defineProperty(globalThis, 'window', { value: new EventTarget(), configurable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
+const requests: RequestInit[] = [];
+globalThis.fetch = async (_url, init) => { requests.push(init!); return new Response(null, { status: 204 }); };
+const user = (id: number) => ({ id, email: 'fixture@example.com', display_name: 'Fixture' });
+setAuth('first-session', user(1));
+storage.setItem(DEVICE_KEY, JSON.stringify({ token: 'device-one', owner: 1, platform: 'web' }));
+clearAuth();
+assert.equal(getToken(), null);
+assert.equal(storage.getItem(DEVICE_KEY), null);
+assert.equal((requests[0].headers as Record<string, string>).Authorization, 'Bearer first-session');
+assert.deepEqual(JSON.parse(requests[0].body as string), { token: 'device-one' });
+assert.equal(requests[0].keepalive, true);
+setAuth('second-session', user(1));
+storage.setItem(DEVICE_KEY, JSON.stringify({ token: 'device-two', owner: 1, platform: 'web' }));
+setAuth('third-session', user(2));
+assert.equal((requests[1].headers as Record<string, string>).Authorization, 'Bearer second-session');
+assert.equal(getToken(), 'third-session');
+assert.equal(storage.getItem(DEVICE_KEY), null);
+console.log('Push session tests passed: logout and account replacement detach with the previous credential.');

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,6 +30,16 @@ def db_session():
     with Session(engine, expire_on_commit=False) as session:
         yield session
     engine.dispose()
+
+
+@pytest.fixture
+def chat_session_factory(db_session):
+    from app.db.models.stock_info import StockInfo
+
+    db_session.add_all([StockInfo(symbol=symbol, name=name) for symbol, name in
+                        {"2330": "台積電", "2317": "鴻海", "2454": "聯發科", "2881": "富邦金"}.items()])
+    db_session.commit()
+    return sessionmaker(db_session.get_bind(), expire_on_commit=False)
 
 
 @pytest.fixture

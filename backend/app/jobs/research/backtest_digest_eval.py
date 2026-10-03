@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.jobs.research.digest_core import (
-    STOCK_NAMES, DIGEST_EXTRA_BODY, make_h200_client, read_price_rows,
+    company_name, DIGEST_EXTRA_BODY, make_h200_client, read_price_rows,
 )
 
 
@@ -112,7 +112,7 @@ def _format_safe(template: str, **fields) -> str:
 def build_prediction_prompt(stock_id: str, as_of: str, horizon: int, context_block: str,
                             template: str | None = None) -> str:
     """組出預測 prompt。template=None 時用現行 DEFAULT_PROMPT_TEMPLATE（輸出與舊版 f-string 完全相同）。"""
-    name = STOCK_NAMES.get(stock_id, stock_id)
+    name = company_name(stock_id)
     return _format_safe(
         template if template is not None else DEFAULT_PROMPT_TEMPLATE,
         as_of=as_of, name=name, stock_id=stock_id, horizon=horizon,

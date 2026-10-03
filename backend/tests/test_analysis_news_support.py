@@ -383,6 +383,7 @@ def test_analysis_default_retrieval_checks_sql_content_and_propagates_failure(db
     from sqlalchemy.exc import OperationalError
     from app.core.errors import ServiceUnavailable
     from app.db.models.news_article import NewsArticle
+    from app.db.models.stock_info import StockInfo
     from app.db.models.news_chunk import chunk_metadata
     from app.features.retrieval.chunking import article_chunks
     from app.jobs.ingestion.repository import insert_article_chunks
@@ -392,6 +393,7 @@ def test_analysis_default_retrieval_checks_sql_content_and_propagates_failure(db
     monkeypatch.setattr("app.features.retrieval.service.load_catalog", lambda: {"2330": {"name": "台積電"}})
     settings = settings.model_copy(update={"NEWS_INDEX_VERSION": "news-v1"})
     chunk_metadata.create_all(db_session.get_bind())
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
     article = NewsArticle(article_id="freshness", title="台積電營收", content="台積電營收成長。",
                           content_kind="full_text", pub_time="2026-09-01T12:00:00+08:00")
     db_session.add(article)

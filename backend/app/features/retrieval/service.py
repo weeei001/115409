@@ -17,7 +17,7 @@ from app.features.news.eligibility import contains_simulation
 from app.features.news.versions import source_states
 from . import repository
 from .facts import group_shared_facts
-from .common import STOCK_OPTIONS, TAIPEI, article_identity, get_source_name, parse_timestamp, source_provenance
+from .common import TAIPEI, article_identity, get_source_name, parse_timestamp, source_provenance
 from .impact_metadata import IMPACT_PAYLOAD_KEYS, current_analysis, current_chunk_ids
 from .schemas import NewsSource, QuestionSearchResult, RetrievalRequest, RetrievalResponse
 
@@ -59,15 +59,15 @@ class RetrievalService:
         self.settings = settings
         self.session_factory = session_factory
         self.catalog = load_catalog()
-        if stock_options is None and self.catalog:
+        if stock_options is None:
             stock_options = {symbol: row.get("name") for symbol, row in self.catalog.items()
                              if row.get("name")}
-        self.stock_options = {**STOCK_OPTIONS, **(stock_options or {})}
+        self.stock_options = dict(stock_options)
         self.impact_config = config_hash(settings, self.catalog) if self.session_factory and self.catalog else None
 
     def _stock_descriptor(self, symbol: str) -> tuple[str, dict]:
         row = self.catalog.get(symbol) or load_catalog().get(symbol) or {}
-        name = self.stock_options.get(symbol) or row.get("name")
+        name = self.stock_options.get(symbol)
         if not name:
             raise AppError(f"Invalid stock symbol: {symbol}")
         return str(name), row

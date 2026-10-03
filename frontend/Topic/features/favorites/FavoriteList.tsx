@@ -16,12 +16,12 @@ function taipeiDate(iso: string): string | null {
 }
 
 /**
- * 個人中心的收藏清單：每列可進個股頁，也可直接移除（樂觀更新，失敗會回復並提示）。
+ * 收藏股頁（/favorites）的收藏清單：每列可進個股頁，也可直接移除（樂觀更新，失敗會回復並提示；處理中的那一列先停用移除鈕）。
  * 列的排法跟條目列（LightEntry）一致：代號、名稱，名稱下方的燈質列放收藏日期。
  * 收藏 API（FavoriteStockResponse）只有代號、名稱與收藏時間，所以不顯示收盤與漲跌，也不為此另打 API。
  */
 export function FavoriteList() {
-  const { status, items, loadError, reload, remove } = useFavorites();
+  const { status, items, loadError, reload, remove, isPending } = useFavorites();
 
   let content: React.ReactNode;
   if (status === 'error') {
@@ -53,15 +53,13 @@ export function FavoriteList() {
         <EmptyState
           className="py-6"
           action={
-            <Button asChild variant="outline" className="mt-2">
-              <Link href="/#terminal">
-                到首頁查一檔股票
-                <ArrowRight aria-hidden />
-              </Link>
+            // 搜尋框在同一頁上方（FavoriteStockSearch）
+            <Button variant="outline" className="mt-2" onClick={() => document.getElementById('favorite-stock-query')?.focus()}>
+              搜尋股票
             </Button>
           }
         >
-          尚未收藏任何股票。到個股頁按標題旁的星號，就能加入收藏。
+          尚未收藏股票，從上方搜尋並加入你關注的個股。
         </EmptyState>
       </LedgerPanel>
     );
@@ -100,6 +98,7 @@ export function FavoriteList() {
                 variant="ghost"
                 size="icon"
                 onClick={() => remove(symbol)}
+                disabled={isPending(symbol)}
                 aria-label={`移除收藏 ${label}`}
                 className="mr-1 shrink-0 self-center text-muted-foreground hover:text-foreground sm:mr-2"
               >
@@ -115,8 +114,8 @@ export function FavoriteList() {
 
   return (
     <Ledger
-      aria-labelledby="me-favorites-heading"
-      title={<span id="me-favorites-heading">收藏股</span>}
+      aria-labelledby="favorites-heading"
+      title={<span id="favorites-heading">收藏清單</span>}
       stamp={
         // 燈質記號：讀取中 Q、讀取失敗熄燈、讀到了 F（空清單也是讀到了）
         <span className="inline-flex items-center gap-1.5">

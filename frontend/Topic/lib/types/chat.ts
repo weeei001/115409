@@ -1,10 +1,12 @@
 import type { ChatDashboard } from './chatDashboard';
 import { safeHttpUrl } from '../utils/url';
+import type { PaperDraft } from '../api/paperPortfolio';
 
 /** AI 對話回覆附帶的動作（openapi: ChatAction／ChatFollowUp） */
 export type ChatAction =
   | { type: 'navigate'; label: string; path: string }
-  | { type: 'follow_up'; label: string; query: string };
+  | { type: 'follow_up'; label: string; query: string }
+  | (PaperDraft & { type: 'paper_order_draft'; label: string; draft_id: string });
 
 export interface ChatSource {
   citation_id: string;

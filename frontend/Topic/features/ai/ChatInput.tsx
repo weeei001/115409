@@ -12,13 +12,14 @@ const COUNTER_THRESHOLD = MAX_QUERY_LENGTH - 500;
  * 輸入框下方固定顯示 AI 免責：手機版 /ai 沒有頁尾、副標題也會被截斷（決議 D13）。
  * 送出鈕是這個畫面唯一的燈色主要按鈕。
  */
-export function ChatInput({ onSend, disabled, onStop, stopNotice = false }: {
+export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initialValue = '' }: {
   onSend: (text: string) => void;
   disabled: boolean;
   onStop?: () => void;
   stopNotice?: boolean;
+  initialValue?: string;
 }) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(initialValue.slice(0, MAX_QUERY_LENGTH));
 
   const canSend = Boolean(value.trim()) && !disabled;
 

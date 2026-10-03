@@ -18,6 +18,7 @@ from .finmind_extra import (
 from .user import User
 from .password_reset_token import PasswordResetToken
 from .favorite_stock import FavoriteStock
+from .notification import NotificationPreference, PushDevice, Notification, NotificationDelivery
 from .conversation import Conversation, ConversationMessage
 from .llm_response import LlmResponse
 from .news_sentiment import NewsSentiment
@@ -48,6 +49,10 @@ __all__ = [
     "User",
     "PasswordResetToken",
     "FavoriteStock",
+    "NotificationPreference",
+    "PushDevice",
+    "Notification",
+    "NotificationDelivery",
     "Conversation",
     "ConversationMessage",
     "LlmResponse",
@@ -56,3 +61,6 @@ __all__ = [
     "AdminJobRun",
     "AdminAuditLog",
 ]
+
+from .paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview
+__all__ += ['PaperAccount', 'PaperCashMovement', 'PaperOrder', 'PaperReview']

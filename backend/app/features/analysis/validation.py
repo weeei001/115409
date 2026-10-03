@@ -99,8 +99,37 @@ def _price_mentions(text: str, *, condition: bool = False):
 def _is_price_scenario(text: str, match: re.Match) -> bool:
     start = max(text.rfind(char, 0, match.start()) for char in "。；;，,\n") + 1
     prefix = text[start:match.start()]
-    return bool(re.search(r"情境假設|假設門檻", prefix)) and not re.search(
-        r"已(?:收盤|成交|突破|站上|跌破)|實際(?:收盤|成交)|收盤|歷史(?:高點|低點)", prefix)
+    markers = list(re.finditer(r"情境假設|假設門檻", prefix))
+    return bool(markers) and not re.search(
+        r"已(?:收盤|成交|突破|站上|跌破)|實際(?:收盤|成交)|收盤|歷史(?:高點|低點)",
+        prefix[markers[-1].end():] if markers else prefix)
+
+
+def _percentage_metric(text: str, match: re.Match) -> str | None:
+    """Resolve the local metric, including labels placed after the percentage."""
+    patterns = (
+        (r"一年(?:高低)?區間|收盤價位置|年度高位|年度區間位置", "close_pos_in_1y_pct"),
+        (r"二十日均線|20\s*日均?線|月線|vs_ma20_pct", "vs_ma20_pct"),
+        (r"六十日均線|60\s*日均?線|季線|vs_ma60_pct", "vs_ma60_pct"),
+        (r"二百四十日均線|240\s*日均?線|年線|vs_ma240_pct", "vs_ma240_pct"),
+        (r"成交量|均量|量|vol_vs_ma5_pct", "vol_vs_ma5_pct"),
+        (r"年增|年減|yoy_pct", "yoy_pct"), (r"月增|月減|mom_pct", "mom_pct"),
+        (r"季增|季減|較前季|比上季|qoq_pct", "qoq_pct"),
+        (r"毛利率|gross_margin_pct", "gross_margin_pct"),
+        (r"營業利益率|operating_margin_pct", "operating_margin_pct"),
+        (r"殖利率|dividend_yield", "dividend_yield"),
+        (r"漲|跌|chg_pct", "chg_pct"),
+        (r"分佈|百分位|排名|pct_rank_1y", "pct_rank_1y"),
+    )
+    prefix = re.split(r"[。；;，,\n]", text[:match.start()])[-1][-40:]
+    suffix = text[match.end():]
+    # Only a directly attached noun phrase can override the preceding label.
+    for pattern, metric in patterns:
+        if re.match(r"\s*(?:的)?\s*(?:現金)?(?:" + pattern + r")", suffix, re.I):
+            return metric
+    matches = [(found.end(), metric) for pattern, metric in patterns
+               for found in re.finditer(pattern, prefix, re.I)]
+    return max(matches, default=(0, None), key=lambda item: item[0])[1]
 
 
 def _revenue_growth_values(row: dict, context: str) -> list[float]:
@@ -275,20 +304,7 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
             prefix = text[max(0, match.start() - 24):match.start()]
             if not match.group(1).startswith(("+", "-")) and re.search(r"(?:下跌|下滑|減少|衰退|負成長|跌幅|重挫|年減|月減|季減)\s*$", prefix):
                 number = -number
-            metric_matches = [(found.end(), field) for pattern, field in (
-                (r"一年(?:高低)?區間|收盤價位置|年度高位", "close_pos_in_1y_pct"),
-                (r"二十日均線|月線", "vs_ma20_pct"), (r"六十日均線|季線", "vs_ma60_pct"),
-                (r"二百四十日均線|年線", "vs_ma240_pct"),
-                (r"量|均量", "vol_vs_ma5_pct"), (r"年增|年減", "yoy_pct"),
-                (r"月增|月減", "mom_pct"), (r"季增|季減|較前季|比上季", "qoq_pct"),
-                (r"毛利率", "gross_margin_pct"), (r"營業利益率", "operating_margin_pct"),
-                (r"殖利率", "dividend_yield"), (r"漲|跌", "chg_pct"),
-            ) for found in re.finditer(pattern, prefix)]
-            metric = max(metric_matches, default=(0, None), key=lambda match: match[0])[1]
-            if metric is None and re.search(r"年度高位|年(?:度)?區間位置", text[match.end():match.end() + 12]):
-                metric = "close_pos_in_1y_pct"
-            if re.search(r"分佈|百分位|排名", prefix):
-                metric = "pct_rank_1y"
+            metric = _percentage_metric(text, match)
             if metric in {"chg_pct", "vol_vs_ma5_pct", "vs_ma20_pct"}:
                 candidates = [row.get(metric) for row in dated(timeline, text, match.start())]
             else:
@@ -312,14 +328,21 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                 if quoted:
                     issues.append(f"未核實新聞百分比語義：{match.group(0)}")
                 else:
-                    issues.append(f"百分比未獲同項證據支持：{match.group(0)}")
+                    label = "未核實百分比指標" if metric is None else "百分比未獲同項證據支持"
+                    issues.append(f"{label}：{match.group(0)}")
         for match in re.finditer(
                 r"(?:EPS|每股盈餘)\s*(?:為|是|達|[:：]|較|比|低於|高於|跌破|超過)?\s*"
                 r"(?:\d{4}\s*Q[1-4]\s*)?[（(]?\s*([+-]?\d+(?:\.\d+)?)(?![\d.Q])", text, re.I):
             number = float(match.group(1))
             if not any(row.get("field") == "eps" and isinstance(row.get("value"), (int, float))
                        and abs(row["value"] - number) <= 0.01 for row in dated(rows, text, match.start())):
-                issues.append("EPS 未獲同項證據支持")
+                quoted = any(any(abs(float(found.group(1)) - number) <= 0.01
+                                 for found in re.finditer(
+                                     r"(?:EPS|每股盈餘)\s*(?:為|是|達)?\s*([+-]?\d+(?:\.\d+)?)",
+                                     str(entry.get("quote", "")), re.I))
+                             for entry in item.get("news_support", [])
+                             if entry.get("evidence_id") in {row["id"] for row in news})
+                issues.append("未核實新聞 EPS 期間與語義" if quoted else "EPS 未獲同項證據支持")
         for match in _price_mentions(text, condition=key in FORWARD_CONDITION_KEYS):
             clause_start = max(text.rfind(char, 0, match.start()) for char in "。；;\n") + 1
             clause_end = min((pos for char in "。；;\n" if (pos := text.find(char, match.end())) >= 0), default=len(text))
@@ -372,14 +395,42 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                     issues.append("MACD 趨勢未獲同項日期序列支持")
         for match in re.finditer(r"([+-]?\d[\d,]*(?:\.\d+)?)\s*張", text):
             number = float(match.group(1).replace(",", ""))
-            prefix = text[max(0, match.start() - 18):match.start()]
-            if "賣超" in prefix and not match.group(1).startswith(("+", "-")):
+            start = max(text.rfind(char, 0, match.start()) for char in "。；;，\n") + 1
+            prefix = text[start:match.start()]
+            subjects = list(re.finditer(r"成交量|交易量|量能|外資|投信|自營商|法人", prefix))
+            subject = subjects[-1].group() if subjects else None
+            metric = {"成交量": "vol_lots", "交易量": "vol_lots", "量能": "vol_lots",
+                      "外資": "foreign_net_lots", "投信": "trust_net_lots",
+                      "自營商": "dealer_net_lots"}.get(subject)
+            if metric is None:
+                issues.append("未核實張數主詞，無法判定成交量或法人類別")
+                continue
+            metric_prefix = prefix[subjects[-1].end():]
+            if metric != "vol_lots" and "賣超" in metric_prefix and not match.group(1).startswith(("+", "-")):
                 number = -number
             ten_days = bool(re.search(r"(?:十|10)\s*(?:個)?(?:交易)?日", prefix))
-            candidates = ([row.get("value") for row in dated(rows, text, match.start()) if row.get("field") == "foreign_net_10d_lots"]
-                          if ten_days else [row.get("foreign_net_lots") for row in dated(timeline, text, match.start())])
-            if not any(isinstance(value, (int, float)) and abs(number - value) <= 0.5 for value in candidates):
-                issues.append("法人張數或統計期間未獲同項證據支持")
+            has_period = bool(re.search(r"(?:[二三四五六七八九十百]|\d+)\s*(?:個)?(?:交易)?日|累計|合計", prefix))
+            candidates = ([row.get("value") for row in dated(rows, text, match.start())
+                           if row.get("field") == "foreign_net_10d_lots"]
+                          if ten_days and metric == "foreign_net_lots" else [] if has_period
+                          else [row.get(metric) for row in dated(timeline, text, match.start())])
+            assumption = bool(re.search(r"情境假設|假設門檻", prefix))
+            conditional = key in FORWARD_CONDITION_KEYS and bool(re.search(r"若|如果|一旦|假設", prefix))
+            if assumption and key in FORWARD_CONDITION_KEYS:
+                context = ([row.get(metric) for row in timeline]
+                           + [row.get("value") for row in rows
+                              if metric == "foreign_net_lots" and row.get("field") == "foreign_net_10d_lots"])
+                if any(isinstance(value, (int, float)) for value in context):
+                    issues.append("未核實情境張數；門檻為分析假設，非已發生事實")
+                    continue
+            supported = any(isinstance(value, (int, float)) and abs(number - value) <= 0.5
+                            for value in candidates)
+            if conditional and not supported:
+                issues.append("條件張數須明示為情境假設並引用對應資料脈絡")
+                continue
+            if not supported:
+                issues.append("成交量或統計期間未獲同項證據支持" if metric == "vol_lots"
+                              else "法人張數或統計期間未獲同項證據支持")
     return list(dict.fromkeys(issues))
 
 

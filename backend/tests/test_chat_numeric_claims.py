@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.features.chat.claims import numeric_claims_supported
@@ -58,3 +60,41 @@ def test_percentage_in_uncited_source_does_not_support_claim():
     uncited = source('{"value":0.99}').model_copy(update={"citation_id": "S2"})
     with pytest.raises(CitationValidationError):
         _checked_answer("上漲 0.99%。[S1]", {"finish_reason": "stop"}, [cited, uncited])
+
+
+def portfolio_source(**overrides):
+    portfolio = dict(initialized=True, available_cash=20000, cash=25000, equity=30000,
+                     holdings_value=5000, available_cash_allocation_pct=66.67,
+                     cash_allocation_pct=83.33, reserved_cash_allocation_pct=16.67,
+                     holdings_allocation_pct=16.67)
+    portfolio.update(overrides)
+    return source(json.dumps({"portfolio": portfolio}), "personal")
+
+
+@pytest.mark.parametrize("answer", [
+    "可用資金為 20,000 元，可用資金占比為 66.67%；持股配置比例為 16.67%。[S1]",
+    "可用資金為 2 萬元，現金占比為 83.33%，持股占比為 16.67%。[S1]",
+])
+def test_portfolio_amounts_and_precomputed_allocations_pass_citation_check(answer):
+    assert answer in _checked_answer(answer, {"finish_reason": "stop"}, [portfolio_source()])
+
+
+@pytest.mark.parametrize("answer", [
+    "可用資金為 30,000 元。[S1]",
+    "可用資金占比為 83.33%。[S1]",
+    "持股配置比例為 66.67%。[S1]",
+    "持股占比為 16.7%。[S1]",
+])
+def test_portfolio_wrong_field_or_invented_rounding_remains_rejected(answer):
+    with pytest.raises(CitationValidationError):
+        _checked_answer(answer, {"finish_reason": "stop"}, [portfolio_source()])
+
+
+def test_missing_allocation_is_not_zero_even_if_other_evidence_contains_zero():
+    with pytest.raises(CitationValidationError):
+        _checked_answer("持股占比為 0%。[S1]", {"finish_reason": "stop"},
+                        [portfolio_source(holdings_allocation_pct=None, total_pnl=0)])
+
+
+def test_uninitialized_cash_placeholder_is_not_an_account_balance():
+    assert not numeric_claims_supported("可用資金為 0 元。", [portfolio_source(initialized=False, available_cash=0)])

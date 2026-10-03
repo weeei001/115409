@@ -1,5 +1,6 @@
 /** JWT 存於 localStorage；若網站遭 XSS 可能外洩，正式環境宜評估 httpOnly cookie。 */
 import type { UserPublic } from '../types';
+import { detachPushSession } from '../notifications/session';
 
 const TOKEN_KEY = 'topictest_access_token';
 const USER_KEY = 'topictest_user';
@@ -24,6 +25,7 @@ export function getStoredUser(): UserPublic | null {
 
 export function setAuth(token: string, user: UserPublic): void {
   if (typeof window === 'undefined') return;
+  if (getStoredUser()?.id !== user.id) detachPushSession(getToken());
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
@@ -31,6 +33,7 @@ export function setAuth(token: string, user: UserPublic): void {
 
 export function clearAuth(): void {
   if (typeof window === 'undefined') return;
+  detachPushSession(getToken());
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT, { detail: { logout: true } }));

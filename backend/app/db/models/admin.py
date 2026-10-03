@@ -30,6 +30,7 @@ class AdminJobRun(Base):
     status = Column(String(20), nullable=False, index=True)
     trigger = Column(String(20), nullable=False)
     actor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    symbol = Column(String(10), nullable=True)
     retry_of = Column(Integer, ForeignKey("admin_job_runs.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=utc_now)
     started_at = Column(DateTime, nullable=True)

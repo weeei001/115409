@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -35,7 +37,8 @@ def add_favorite(db: Session, user: User, symbol: str) -> FavoriteStockResponse:
     name = stock.name
     favorite = repository.favorite(db, user_id, symbol)
     if favorite is None:
-        favorite = FavoriteStock(user_id=user_id, symbol=symbol)
+        favorite = FavoriteStock(user_id=user_id, symbol=symbol,
+                                 created_at=datetime.now(timezone.utc).replace(tzinfo=None))
         db.add(favorite)
         try:
             _commit(db)

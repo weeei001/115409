@@ -9,11 +9,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.features.market.company_catalog import company_aliases
+
 from .prompts import SYSTEM_PROMPT
 
 
 ARTICLE_TARGET = "__article__"
-LEGACY_STOCK_NAMES = {"2330": "台積電", "2317": "鴻海", "2454": "聯發科", "2408": "南亞科", "2881": "富邦金", "2615": "萬海"}
 PROMPT_VERSION = "v1.0"
 ANALYSIS_INSTRUCTION = ("For target_stock_id='__article__', judge the overall financial event in this article, "
     "including benefits and harms to different parties; do not average company labels. "
@@ -22,7 +23,8 @@ ANALYSIS_INSTRUCTION = ("For target_stock_id='__article__', judge the overall fi
     "Otherwise set related=true. Quote only exact text from title or content. "
     "A title-only article can be judged with title evidence when sufficiently clear; mention the limited source in reason.")
 NORMALIZATION_VERSION = "norm_v1"
-COMPANY_RECOGNITION_VERSION = "mentions-v1"
+# Supplemental catalog aliases change evidence recognition and cached impact eligibility.
+COMPANY_RECOGNITION_VERSION = "mentions-v2"
 # ponytail: known ambiguous words require tickers; expand from labeled errors, not guessed matches.
 AMBIGUOUS_COMPANY_NAMES = {"世界", "大量", "精確", "進階", "安心", "全新", "聯合", "中華", "大眾", "統一"}
 MAX_INPUT_TOKENS = 8000
@@ -104,7 +106,7 @@ def company_mentions(title: str | None, content: str | None, catalog: dict) -> l
     """Resolve overlapping names at each position without hiding separate mentions."""
     names: dict[str, set[str]] = {}
     for symbol, company in catalog.items():
-        for name in [company.get("name"), *(company.get("aliases") or [])]:
+        for name in company_aliases(symbol, company):
             if isinstance(name, str) and len(name.strip()) >= 2:
                 names.setdefault(name.strip(), set()).add(symbol)
     mentions = []
@@ -195,7 +197,7 @@ def compute_input_hash(*, cleaned_title: str, cleaned_content: str, pub_time_str
 def article_input_hash(article, symbol: str, catalog=None) -> str | None:
     if catalog is None:
         catalog = company_catalog()
-    name = "" if symbol == ARTICLE_TARGET else (catalog.get(symbol) or {}).get("name") or LEGACY_STOCK_NAMES.get(symbol)
+    name = "" if symbol == ARTICLE_TARGET else (catalog.get(symbol) or {}).get("name")
     if name is None:
         return None
     canonical_time = parse_news_pub_time(article.pub_time)[1]

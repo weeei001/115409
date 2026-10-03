@@ -9,7 +9,6 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
-from urllib.parse import quote, urlsplit
 
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,21 +16,31 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.clients.llm import LlmClient
 from app.core.errors import AppError, NotFound, ServiceUnavailable
 from app.features.market.company_catalog import load_catalog
+from app.features.market.repository import stock_names
 from app.features.news.sentiment import extract_candidate_stocks
-from app.features.retrieval.common import (STOCK_KEYWORDS, STOCK_OPTIONS, get_source_name,
-                                            normalize_source_url, source_provenance)
+from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
-from .claims import numeric_claims_supported
-from .comparison_context import collect_comparison_source
+from .answer_validation import AnswerValidationError, CitationValidationError, TruncatedAnswerError, _checked_answer
+from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
+from .personal_context import personal_scopes, read_personal_context, paper_draft
 
-from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
-                      INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER,
+from .prompts import (ANSWER_PROMPT, answer_system_prompt, recovery_system_prompt, INTENT_SYSTEM_PROMPT,
+                      INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
                       NO_NEWS_MESSAGE, TIME_FALLBACK_WARNING)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
+
+
+def _is_recommendation(query: str) -> bool:
+    return bool(re.search(
+        r"推薦|推荐|買哪|买哪|哪.{0,12}[買买]|"
+        r"(?:該|该|應該|应该|適合|适合|值得|能不能|可不可以).{0,6}[買买賣卖]|"
+        r"[買买賣卖](?:進|进|出)?(?:嗎|吗)|值得.{0,8}投資|"
+        r"\brecommend\w*\b|\b(?:should I|which\b.{0,40})\s+(?:buy|sell)\b",
+        query, re.IGNORECASE))
 
 
 def _is_forward_outlook(query: str) -> bool:
@@ -39,11 +48,6 @@ def _is_forward_outlook(query: str) -> bool:
     has_direction = re.search(r"漲|跌|上漲|下跌|走勢|行情|表現|看多|看空", query)
     asks_direction = re.search(r"會不會|是否|能否|可能", query) and has_direction
     return bool((has_future and has_direction) or asks_direction)
-
-
-def _is_insufficient_only(raw_text: str) -> bool:
-    without_citations = re.sub(r"\s*\[S[1-9][0-9]*\]", "", raw_text).strip()
-    return without_citations == INSUFFICIENT_EVIDENCE_ANSWER
 
 
 def taipei_now() -> datetime:
@@ -108,82 +112,17 @@ def _intent_time_range(intent: Intent, query: str, now: datetime) -> tuple[str |
     return extract_time_filter(query, now)
 
 
+def _token_usage(metadata: dict) -> dict:
+    reasoning = metadata.get("reasoning_tokens")
+    return {"prompt_tokens": metadata.get("prompt_tokens"),
+            "completion_tokens": metadata.get("completion_tokens"),
+            "reasoning_tokens": reasoning if reasoning is not None else metadata.get("thinking_tokens")}
+
+
 def _tokens(metadata: dict) -> dict:
-    return {"input": metadata.get("prompt_tokens"), "output": metadata.get("completion_tokens"),
-            "thinking": metadata.get("thinking_tokens")}
-
-
-class CitationValidationError(ServiceUnavailable):
-    pass
-
-
-def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "") -> str:
-    if metadata.get("truncated") or metadata.get("finish_reason") != "stop":
-        raise ServiceUnavailable("模型回答未完整生成，請稍後重試。")
-    answer = raw_text.strip()
-    if not answer:
-        raise ServiceUnavailable("模型服務未回傳有效內容，請稍後重試")
-    if _is_insufficient_only(answer):
-        return INSUFFICIENT_EVIDENCE_ANSWER + warning
-
-    # Normalize citation typography only; every resulting ID is still checked below.
-    answer = re.sub(
-        r"\[\s*[sS]\d+(?:\s*[,，、]\s*[sS]\d+)*\s*\]|［\s*[sS]\d+(?:\s*[,，、]\s*[sS]\d+)*\s*］|【\s*[sS]\d+(?:\s*[,，、]\s*[sS]\d+)*\s*】",
-        lambda match: "".join(f"[{token.upper()}]" for token in re.findall(r"[sS]\d+", match.group())),
-        answer,
-    )
-    # ponytail: structural checks cannot prove entailment; add semantic evaluation when needed.
-    citation_pattern = r"\[S[1-9][0-9]*\]"
-    cited = list(dict.fromkeys(re.findall(citation_pattern, answer)))
-    available = {f"[{source.citation_id}]": source for source in sources if source.content.strip()}
-    remainder = re.sub(citation_pattern, "", answer)
-    if (not cited or any(citation not in available for citation in cited)
-            or re.search(r"[\[\]［］]|【\s*[sS]\d|[a-z][a-z0-9+.-]*://|www\.|<\s*/?[a-z]",
-                         remainder, re.IGNORECASE)
-            or "【引用來源】" in answer):
-        raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
-
-    headings = {"【綜合摘要】", "【市場情緒】", "【關鍵事件】", "【投資提示】",
-                "【重點】", "【技術解讀】", "【資料限制】"}
-    prose = "\n".join("" if line.strip().lstrip("# ").strip("*_ ") in headings else line
-                      for line in answer.splitlines())
-    paragraphs = re.split(r"\n\s*\n|\n(?=\s*(?:[-*•·]|\d+[.)])\s)", prose)
-    list_marker = re.compile(r"\s*(?:[-*•·]|\d+[.)])\s")
-    for index, paragraph in enumerate(paragraphs):
-        stripped = paragraph.strip()
-        next_paragraph = next((candidate.strip() for candidate in paragraphs[index + 1:] if candidate.strip()), "")
-        compact = stripped.strip("*_ ")
-        is_structural_list_intro = (compact.endswith(("：", ":")) and bool(list_marker.match(next_paragraph)))
-        if (stripped and stripped not in {INSUFFICIENT_EVIDENCE_ANSWER, "非投資建議。"}
-                and not is_structural_list_intro
-                and not re.search(citation_pattern, paragraph)):
-            raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
-
-    for paragraph in paragraphs:
-        paragraph_sources = [available[citation] for citation in re.findall(citation_pattern, paragraph)
-                             if citation in available]
-        if paragraph_sources and not numeric_claims_supported(paragraph, paragraph_sources):
-            raise CitationValidationError("回答的數值與所引用資料無法核對，請稍後重試。")
-
-    references = []
-    for citation in cited:
-        source = available[citation]
-        title = re.sub(r"https?://\S+", "", " ".join(source.title.split()), flags=re.IGNORECASE)
-        reference = f"- {citation} {title or source.source_name or source.citation_id}"
-        if source.article_id:
-            reference += f"：/news/{quote(source.article_id, safe='')}"
-        else:
-            try:
-                url = urlsplit(source.url)
-                if (url.scheme in {"http", "https"} and url.hostname and not url.username and not url.password
-                        and not re.search(r"[\s<>]", source.url)):
-                    reference += f"：{source.url}"
-            except ValueError:
-                pass
-        references.append(reference)
-    if warning:
-        answer += "\n\n【資料限制】\n" + warning.strip()
-    return answer + "\n\n【引用來源】\n" + "\n".join(references)
+    usage = _token_usage(metadata)
+    return {"input": usage["prompt_tokens"], "output": usage["completion_tokens"],
+            "thinking": usage["reasoning_tokens"]}
 
 
 def _conversation_history(request: AskRequest) -> list[dict[str, str]]:
@@ -220,6 +159,12 @@ class ChatService:
         self.intent_llm.require_enabled()
         self.llm.require_enabled()
 
+    def _stock_options(self) -> dict[str, str]:
+        if self.session_factory is None:
+            raise ServiceUnavailable("股票服務名單暫時無法讀取")
+        with self.session_factory() as db:
+            return stock_names(db)
+
     def _market_sources(self, symbols, as_of, start_date):
         if self.session_factory is None:
             raise ServiceUnavailable("行情資料暫時無法讀取")
@@ -250,26 +195,57 @@ class ChatService:
                      "current_time": now.strftime("%Y-%m-%d %H:%M:%S")},
             schema=Intent,
         )
+        completed = not result.metadata.get("truncated") and result.metadata.get("finish_reason") in {None, "stop"}
+        fallback = Intent(is_finance=not (completed and result.raw_text.strip().upper() == "NO"))
         try:
-            intent = Intent.model_validate(result.payload) if result.payload else Intent(
-                is_finance="NO" not in result.raw_text.upper())
+            intent = Intent.model_validate(result.payload) if completed and result.payload else fallback
         except ValidationError:
-            intent = Intent(is_finance="NO" not in result.raw_text.upper())
+            intent = fallback
         response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[],
                                tokens={"input": 0, "output": 0, "thinking": None}, duration_ms=0,
                                current_time=now.strftime("%Y年%m月%d日 %H:%M"))
         needs = set(intent.data_needs or ["news"])
-        if not intent.is_finance and "help" not in needs:
+        scopes = personal_scopes(request.query, needs)
+        personal_symbols = []
+        if scopes:
+            if request._user_id is None:
+                response.answer = "登入後即可讓 AI 讀取你的收藏與模擬持股；目前尚未讀取任何個人資料。"
+                yield response, "", ""
+                return
+            try:
+                personal_symbols, personal_source = await asyncio.to_thread(
+                    read_personal_context, self.session_factory, request._user_id, scopes, query=request.query)
+                response.sources.append(personal_source)
+            except (SQLAlchemyError, ServiceUnavailable):
+                response.answer = "目前無法讀取你的個人資料，請稍後再試。"
+                yield response, "", ""
+                return
+        if not intent.is_finance and "help" not in needs and not scopes:
             response.answer = NON_FINANCE_ANSWER
             yield response, "", ""
             return
 
         query = (intent.standalone_query or request.query).strip() if history else request.query
+        if _is_recommendation(request.query) or _is_recommendation(query):
+            needs.update({"market", "news"})
         forward_outlook = _is_forward_outlook(query)
         if forward_outlook:
             needs.update({"market", "news"})
+        stock_options_available = True
+        try:
+            stock_options = await asyncio.to_thread(self._stock_options)
+        except (SQLAlchemyError, ServiceUnavailable):
+            if needs & {"market", "news"}:
+                response.answer = "目前無法讀取股票服務名單，請稍後再試。"
+                yield response, "", ""
+                return
+            stock_options = {}
+            stock_options_available = False
         catalog = load_catalog()
-        known_symbols = set(catalog) | set(STOCK_OPTIONS)
+        catalog = {**catalog, **{symbol: {**catalog.get(symbol, {}), "name": name}
+                               for symbol, name in stock_options.items()}}
+        response._company_catalog = catalog
+        known_symbols = set(catalog)
         symbols = list(dict.fromkeys(symbol for symbol in intent.stocks if symbol in known_symbols))
         if request.stock_id:
             if request.stock_id not in known_symbols:
@@ -278,13 +254,19 @@ class ChatService:
                 return
             symbols = [request.stock_id]
         elif not symbols:
-            supported = [symbol for symbol, words in STOCK_KEYWORDS.items()
-                         if any(word.casefold() in query.casefold() for word in words)]
+            supported = [symbol for symbol in re.findall(
+                r"(?<![A-Za-z0-9])\d{4,6}(?![A-Za-z0-9]|年|[/.-]\d)", query)
+                         if symbol in known_symbols]
             listed = extract_candidate_stocks(None, None, query, None, catalog) if catalog else []
             symbols = list(dict.fromkeys([*supported, *listed]))
+        if scopes and not symbols:
+            symbols = personal_symbols
+        if scopes and not symbols:
+            needs.discard("market")
+            needs.discard("news")
         response.detected_stocks = symbols
-        response.actions = [ChatAction(label=f"{STOCK_OPTIONS[symbol]}個股分析", path=f"/stock/{symbol}")
-                            for symbol in symbols if symbol in STOCK_OPTIONS]
+        response.actions = [ChatAction(label=f"{stock_options[symbol]}個股分析", path=f"/stock/{symbol}")
+                            for symbol in symbols if symbol in stock_options]
         if len(symbols) > 1 or "help" in needs:
             response.actions.append(ChatAction(label="多股比較", path="/compare"))
         if "help" in needs:
@@ -292,15 +274,24 @@ class ChatService:
                                      ChatAction(label="模擬下單", path="/order")])
         response.actions.extend(ChatFollowUp(label=question.strip(), query=question.strip())
                                 for question in dict.fromkeys(intent.suggested_questions) if question.strip())
-        market_symbols = [symbol for symbol in symbols if symbol in STOCK_OPTIONS]
+        draft = paper_draft(request.query, symbols, request)
+        if draft:
+            response.actions.append(draft)
+            response.sources.append(reference_source("模擬單草稿", "已準備可編輯草稿，尚未下單或成交。使用者必須確認金額、股數、理由與觀察期間，再由系統驗證資金和庫存。", category="help"))
+        market_symbols = [symbol for symbol in symbols if symbol in stock_options]
+        if "market" in needs and len(market_symbols) > MAX_COMPARISON_STOCKS:
+            response.answer = f"單次最多比較 {MAX_COMPARISON_STOCKS} 檔股票，請縮小本次比較範圍。"
+            yield response, "", ""
+            return
         if ("market" in needs and not market_symbols and not symbols
                 and re.search(r"台股|大盤|加權指數|櫃買|央行|利率|通膨|關稅|匯率|Fed|聯準會", query, re.I)):
             needs.add("news")
-        if "market" in needs and not market_symbols and "news" in needs:
+        if "market" in needs and not symbols and "news" in needs:
             needs.remove("market")
-        if "market" in needs and not market_symbols:
+        if "market" in needs and not symbols:
             response.answer = ("想分析或比較哪幾檔股票？目前可查詢：" +
-                               "、".join(f"{name}（{code}）" for code, name in STOCK_OPTIONS.items()) + "。")
+                               "、".join(f"{name}（{code}）" for code, name in stock_options.items()) + "。"
+                               if stock_options else "目前股票服務名單為空，無法查詢行情與基本面。")
             yield response, "", ""
             return
 
@@ -312,7 +303,8 @@ class ChatService:
         if time_from or time_to:
             response.time_range = {"from": time_from, "to": time_to}
         warning = ""
-        unavailable = []
+        unavailable = (["股票服務名單暫時無法讀取，無法確認可查詢的股票範圍。"]
+                       if not stock_options_available and "help" in needs else [])
         if "market" in needs:
             unsupported = [symbol for symbol in symbols if symbol not in market_symbols]
             if unsupported:
@@ -345,7 +337,7 @@ class ChatService:
                 news_error = exc
                 unavailable.append("未找到符合問題的新聞。" if exc.status_code == 404 else "新聞服務暫時無法使用。")
 
-        if "market" in needs:
+        if "market" in needs and market_symbols:
             yield "正在讀取行情、技術指標與基本面資料…"
             as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
             start_date = datetime.fromisoformat(time_from).date() if time_from else None
@@ -372,7 +364,8 @@ class ChatService:
         if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
             unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
         response.sources.extend(collect_knowledge_sources(
-            query, include_help="help" in needs, include_knowledge=bool(needs & {"market", "knowledge"})))
+            query, stock_options=stock_options if stock_options_available else None, include_help="help" in needs,
+            include_knowledge=bool(needs & {"market", "knowledge"})))
         if news_error and needs == {"news"}:
             raise news_error
         if unavailable:
@@ -402,15 +395,14 @@ class ChatService:
         )
         time_focus = ""
         if response.time_range:
-            time_focus = f"Requested time range: {json.dumps(response.time_range, ensure_ascii=False)}"
+            time_focus = f"使用者指定期間：{json.dumps(response.time_range, ensure_ascii=False)}"
         if "market" in needs:
-            time_focus += ("\nMarket data are dated daily observations, not live prices. Compare using the supplied "
-                           "common window; without an explicit range the price comparison uses the last 30 calendar "
-                           "days. Individual technical timelines contain at most 40 observations. State actual dates.")
+            time_focus += ("\n行情資料為附日期的每日觀測，並非即時報價。請使用提供的共同期間比較；"
+                           "未指定期間時，價格比較採最近 30 個日曆日。各股技術指標時序最多包含 "
+                           "40 筆觀測，回答時請列明實際日期。")
         if forward_outlook:
-            time_focus += ("\nThis is a future direction question. Distinguish observations from predictions. "
-                           "Abstain when the evidence cannot support a direction; source availability alone "
-                           "does not establish predictive evidence.")
+            time_focus += ("\n這是未來走勢問題，請區分已觀測事實與預測。證據不足以支持方向時，"
+                           "應明確說明無法判定；有資料來源不代表足以預測走勢。")
         time_focus += "\n本輪介面呈現的資料面板：" + json.dumps(
             [block.model_dump(include={"kind", "title", "description", "source_ids"})
              for block in response.dashboard.blocks] if response.dashboard else [], ensure_ascii=False)
@@ -427,30 +419,33 @@ class ChatService:
     async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning):
         yield "正在核對回答的引用與數值…"
         try:
-            response.answer = _checked_answer(raw_text, metadata, response.sources, warning)
-        except CitationValidationError:
+            response.answer = _checked_answer(raw_text, metadata, response.sources, warning,
+                                              company_catalog=response._company_catalog)
+        except AnswerValidationError as exc:
             # Retry once from the same evidence; never publish or attach citations to rejected prose.
-            yield "回答未通過核對，正在依據來源重新產生…"
+            truncated = isinstance(exc, TruncatedAnswerError)
+            yield ("回答超過長度限制，正在精簡後重新產生…" if truncated
+                   else "回答未通過核對，正在依據來源重新產生…")
+            logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
+                                             exc.reason, metadata.get("finish_reason"), len(response.sources))
             result = await self.llm.text(
-                system_prompt=answer_system_prompt(request.answer_detail) + (
-                    "\nThe previous attempt failed citation validation. Write a fresh concise answer from "
-                    "the supplied evidence. Use no headings, links or reference list. Every paragraph "
-                    "and bullet, including uncertainty and limitations, must end with a supporting "
-                     "[S1] style citation from the supplied sources. Use [S1][S2] for multiple sources. "
-                     "If the evidence cannot answer the question, use the exact insufficient-evidence reply. "
-                ),
+                system_prompt=recovery_system_prompt(request.answer_detail, exc.reason),
                 prompt=prompt,
             )
             yield "正在重新核對回答的引用與數值…"
             try:
-                response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning)
+                response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning,
+                                                  company_catalog=response._company_catalog)
             except CitationValidationError:
                 if not _is_forward_outlook(request.query):
                     raise
                 response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
-            metadata = {key: (metadata.get(key) or 0) + (result.metadata.get(key) or 0)
-                        if metadata.get(key) is not None or result.metadata.get(key) is not None else None
-                        for key in ("prompt_tokens", "completion_tokens", "thinking_tokens")}
+            first_usage, retry_usage = _token_usage(metadata), _token_usage(result.metadata)
+            metadata = {key: (first_usage[key] or 0) + (retry_usage[key] or 0)
+                        if first_usage[key] is not None or retry_usage[key] is not None else None
+                        for key in first_usage}
+        if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
+            response.answer += "\n\n" + INVESTMENT_DISCLAIMER
         response.tokens = _tokens(metadata)
 
     async def ask(self, request: AskRequest) -> AskResponse:

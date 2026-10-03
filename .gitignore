@@ -123,6 +123,7 @@ backend/finmind_output
 /frontend/Topic/.env.production.example
 
 /artifacts/
+/.state/
 backend/.state
 
 # Generated reports and local experiment exports
