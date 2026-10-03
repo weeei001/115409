@@ -20,7 +20,7 @@ requests==2.33.0
 firebase-admin>=6.6,<8
 urllib3>=2.8.0,<3
 # Verification (no external service access).
-pytest>=8,<10
+pytest>=9.1.1,<10
 pytest-asyncio>=0.24,<2
 # Jobs
 beautifulsoup4==4.15.0
