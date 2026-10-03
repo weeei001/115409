@@ -18,6 +18,7 @@ const EvidenceRow: React.FC<{ item: ResolvedEvidence }> = ({ item }) => {
       role="button"
       tabIndex={0}
       aria-pressed={on}
+      data-selected={on ? 'true' : undefined}
       aria-label={`${item.label}：${item.summary}`}
       onClick={() => toggleEvidence(item.id)}
       onKeyDown={(e) => {
@@ -25,11 +26,7 @@ const EvidenceRow: React.FC<{ item: ResolvedEvidence }> = ({ item }) => {
         e.preventDefault();
         toggleEvidence(item.id);
       }}
-      className={`border-b border-l-2 px-3 py-3 text-sm transition-[background-color,border-color,opacity] focus-visible:outline-2 focus-visible:outline-brand ${
-        on
-          ? 'border-border border-l-brand bg-muted'
-          : `border-transparent hover:border-border hover:bg-muted/50`
-      }`}
+      className="lamp-row border-b border-border px-3 py-3 text-sm"
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="font-semibold text-foreground">{item.label}</span>
@@ -61,12 +58,12 @@ export const EvidenceCatalog: React.FC<{ limitations?: string[] }> = ({ limitati
         return (
           <div key={group.key}>
             <div className="flex items-baseline gap-2">
-              <h4 className="text-xs font-bold text-muted-foreground">{group.label}</h4>
-              <span className="text-[11px] text-muted-foreground tabular-nums">
+              <h4 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">{group.label}</h4>
+              <span className="characteristic">
                 {group.items.length} 筆
               </span>
             </div>
-            <div className="mt-1.5 space-y-1">
+            <div className="mt-1.5 border-t border-border">
               {preview.map((item) => (
                 <EvidenceRow key={item.id} item={item} />
               ))}
@@ -76,7 +73,7 @@ export const EvidenceCatalog: React.FC<{ limitations?: string[] }> = ({ limitati
                 expandLabel={`展開更多 ${group.label}（${rest.length} 筆）`}
                 collapseLabel="收起"
                 className="mt-3"
-                contentClassName="mt-1.5 space-y-1"
+                contentClassName="mt-1.5 border-t border-border"
               >
                 {rest.map((item) => (
                   <EvidenceRow key={item.id} item={item} />
@@ -89,7 +86,7 @@ export const EvidenceCatalog: React.FC<{ limitations?: string[] }> = ({ limitati
 
       {limitations?.length ? (
         <div>
-          <h4 className="text-xs font-bold text-muted-foreground">分析限制</h4>
+          <h4 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">分析限制</h4>
           <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-7 text-subtle">
             {limitations.map((text, index) => (
               <li key={index}>{text}</li>
@@ -126,7 +123,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
         <button
           type="button"
           onClick={clear}
-          className="mb-4 inline-flex items-center gap-1 py-1 text-xs font-semibold text-subtle transition-colors hover:border-brand/40 hover:text-brand-text"
+          className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-xs font-semibold text-subtle transition-colors hover:text-foreground"
         >
           <ArrowLeft size={12} aria-hidden />
           回到來源清單
@@ -147,10 +144,10 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
         <p className="mt-0.5 text-sm font-semibold leading-7 text-foreground">
           {ref?.text}
         </p>
-        <p className="mt-3 text-xs font-bold text-muted-foreground">
+        <p className="mt-3 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
           這句話的引用依據（{usable.length}）
         </p>
-        <div className="mt-1.5 space-y-1">
+        <div className="mt-1.5 border-t border-border">
           {usable.map((id) => {
             const item = evidence.resolve(id)!;
             return (
@@ -158,7 +155,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
                 key={id}
                 type="button"
                 onClick={() => selectEvidence(id, focus.key)}
-                className="w-full rounded-lg border border-border px-2.5 py-2 text-left transition-colors hover:border-brand/40 hover:bg-accent focus-visible:outline-2 focus-visible:outline-brand"
+                className="lamp-row w-full border-b border-border px-2.5 py-2.5 text-left"
               >
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-sm font-semibold text-foreground">
@@ -208,9 +205,8 @@ export const EvidenceRail: React.FC<{ limitations?: string[]; showCatalog?: bool
   showCatalog = true,
 }) => (
   <div className="hidden lg:block lg:sticky lg:top-0">
-    <div className="rounded-lg bg-muted/50 p-5">
-      <h3 className="inline-flex items-center gap-2 text-sm font-bold text-foreground">
-
+    <div className="border bg-card p-5">
+      <h3 className="border-b border-border-strong pb-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
         證據詳情
       </h3>
       <div
@@ -264,18 +260,17 @@ export const EvidenceSheet: React.FC = () => {
       role="dialog"
       aria-modal="true"
       aria-label="證據詳情"
-      className="fixed inset-x-0 bottom-0 z-[70] max-h-[78dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-card px-4 pb-[calc(1rem+var(--app-safe-area-bottom))] pt-3 shadow-raised lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-[70] max-h-[78dvh] overflow-y-auto border-t border-border-strong bg-card px-4 pb-[calc(1rem+var(--app-safe-area-bottom))] pt-3 shadow-raised lg:hidden"
     >
       <div className="sticky top-0 -mx-4 mb-2 flex items-center justify-between gap-2 border-b border-border bg-card px-4 pb-2">
-        <h3 className="inline-flex items-center gap-2 text-sm font-bold text-foreground">
-
+        <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
           證據詳情
         </h3>
         <button
           type="button"
           onClick={clear}
           aria-label="關閉證據詳情"
-          className="flex size-11 items-center justify-center rounded-full bg-muted text-subtle transition-colors hover:bg-accent hover:text-brand-text"
+          className="flex size-11 items-center justify-center rounded-md border border-input bg-card text-subtle transition-colors hover:border-border-strong hover:bg-accent hover:text-foreground"
         >
           <X size={16} aria-hidden />
         </button>

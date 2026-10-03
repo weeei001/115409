@@ -3,6 +3,7 @@ import { ExternalLink, Quote } from 'lucide-react';
 import { EVIDENCE_CATEGORY, type ResolvedEvidence } from '@/lib/brief/textBriefEvidence';
 import type { ClaimRef } from '@/lib/brief/textBriefClaims';
 import { ClaimTypeBadge } from './BriefAtoms';
+import { taipeiDateTime } from './taipeiTime';
 
 const EXCERPT_LIMIT = 180;
 
@@ -34,8 +35,8 @@ export const EvidenceDetail: React.FC<{
 
   return (
     <div className="min-w-0">
-      {selectedClaim ? <div className="mb-5 border-l-2 border-border pl-3">
-        <p className="text-xs font-semibold text-brand-text">目前核對的結論 · {selectedClaim.section}</p>
+      {selectedClaim ? <div className="mb-5 border-l-2 border-border-strong pl-3">
+        <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">目前核對的結論 · {selectedClaim.section}</p>
         <p className="mt-1 text-sm leading-7">{selectedClaim.text}</p>
         <ClaimTypeBadge claimType={selectedClaim.claimType} />
         <p className="mt-1 text-xs text-muted-foreground">以下是這句話引用的資料；引用關係不代表結論已被證實。</p>
@@ -47,7 +48,7 @@ export const EvidenceDetail: React.FC<{
       {item.kind === 'guidance' ? <p className="mt-1 text-xs text-muted-foreground">公司展望，非已實現數據</p> : null}
 
       {item.futureDated ? (
-        <p className="border-warning-border bg-warning-muted text-warning mt-3 rounded-xl border px-3 py-2 text-xs leading-6">
+        <p className="border-warning-border bg-warning-muted text-warning mt-3 border border-l-2 px-3 py-2 text-xs leading-6">
           這筆資料的日期晚於分析基準日，系統已不把它當成可用來源。
         </p>
       ) : null}
@@ -66,7 +67,7 @@ export const EvidenceDetail: React.FC<{
               type="button"
               onClick={() => setShowFullExcerpt((v) => !v)}
               aria-expanded={showFullExcerpt}
-              className="mt-1.5 text-xs font-semibold text-brand-text hover:underline"
+              className="inline-flex min-h-11 items-center text-xs font-semibold text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
             >
               {showFullExcerpt ? '收起摘錄' : '展開更多'}
             </button>
@@ -95,8 +96,8 @@ export const EvidenceDetail: React.FC<{
           </span>
         </Row>
         {item.dateText ? <Row label="日期／期間">{item.dateText}</Row> : null}
-        {item.collectedAt ? <Row label="快照取得時間">{item.collectedAt}</Row> : null}
-        {item.publishedAt ? <Row label="發布時間">{item.publishedAt}</Row> : null}
+        {item.collectedAt ? <Row label="快照取得時間">{taipeiDateTime(item.collectedAt)}</Row> : null}
+        {item.publishedAt ? <Row label="發布時間">{taipeiDateTime(item.publishedAt)}</Row> : null}
         {item.publicationBasis ? <Row label="時間判定">{item.publicationBasis}</Row> : null}
         {item.publisher ? <Row label="發布者">{item.publisher}</Row> : null}
 
@@ -108,7 +109,7 @@ export const EvidenceDetail: React.FC<{
         </Row> : null}
         {item.savedVersionUrl ? <Row label="保存的原文">
           <a href={item.savedVersionUrl} target="_blank" rel="noopener noreferrer"
-            className="text-brand-text underline decoration-dotted underline-offset-2 hover:decoration-solid">
+            className="text-foreground underline decoration-brand decoration-2 underline-offset-4 hover:decoration-foreground">
             查看此證據保存的新聞版本
           </a>
           <p className="text-xs text-muted-foreground">保存版本可供追溯，不代表現在仍為有效來源。</p>
@@ -118,9 +119,9 @@ export const EvidenceDetail: React.FC<{
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex max-w-full items-center gap-1 text-brand-text underline decoration-dotted underline-offset-2 break-all hover:decoration-solid"
+            className="inline-flex max-w-full items-center gap-1 text-foreground underline decoration-brand decoration-2 underline-offset-4 break-all hover:decoration-foreground"
           >
-            <ExternalLink size={13} aria-hidden className="shrink-0" />
+            <ExternalLink size={13} aria-hidden className="shrink-0 text-muted-foreground" />
             <span className="truncate">{item.url}</span>
           </a>
         </Row> : null}
@@ -136,7 +137,7 @@ export const EvidenceDetail: React.FC<{
                 {onSelectClaim ? <button
                   type="button"
                   onClick={() => onSelectClaim?.(ref.key)}
-                  className="w-full border-b border-border py-3 text-left text-sm leading-6 transition-colors hover:border-brand/40 hover:bg-accent focus-visible:outline-2 focus-visible:outline-brand"
+                  className="lamp-row w-full border-b border-border px-2 py-3 text-left text-sm leading-6"
                 >
                   <span className="block text-xs text-muted-foreground">{ref.section}</span>
                   <span className="line-clamp-2 text-foreground">{ref.text}</span>

@@ -14,7 +14,7 @@ export const TONE_CLASS: Record<BriefTone, string> = {
   ok: 'border-up/25 bg-up-muted text-up-emphasis',
   bad: 'border-down/25 bg-down-muted text-down-emphasis',
   warn: 'border-warning-border bg-warning-muted text-warning',
-  info: 'border-brand/30 bg-accent text-accent-foreground',
+  info: 'border-input bg-accent text-accent-foreground',
   plain:
     'border-border bg-muted text-subtle',
 };
@@ -77,9 +77,9 @@ export const SectionCard: React.FC<{
   actions?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ title, hint, actions, children }) => (
-  <section className="border-t border-border py-5">
+  <section className="border-t border-border-strong py-5">
     <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-      <h3 className="inline-flex items-center gap-2 text-sm font-bold text-foreground">
+      <h3 className="inline-flex items-center gap-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
         {title}
       </h3>
       {actions}
@@ -162,7 +162,7 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
             aria-pressed={active}
             aria-label={`查看來源：${item.label}`}
             title={`原始代號 ${id}`}
-            className={`inline-flex max-w-full items-center gap-1 px-0.5 py-1 text-xs leading-5 underline underline-offset-4 decoration-border transition-colors focus-visible:outline-2 focus-visible:outline-brand ${
+            className={`inline-flex min-h-11 max-w-full items-center gap-1 px-0.5 py-1 text-xs leading-5 underline underline-offset-4 decoration-border transition-colors ${
               active
                 ? 'font-semibold text-foreground decoration-2'
                 : 'text-muted-foreground hover:text-foreground hover:decoration-current'
@@ -176,7 +176,7 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
       {broken.map((id) => (
         <span
           key={id}
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-0.5 text-[11px] leading-5 text-muted-foreground"
+          className="inline-flex items-center gap-1 rounded-sm border border-dashed border-input px-1.5 py-0.5 text-xs leading-5 text-muted-foreground"
           title={
             index.resolve(id)
               ? `原始代號 ${id}：資料日期晚於分析基準日，已停用`
@@ -189,7 +189,7 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
       ))}
 
       {warnWhenEmpty && !usable.length && !broken.length ? (
-        <span className="inline-flex items-center gap-1 text-[11px] leading-5 text-muted-foreground">
+        <span className="inline-flex items-center gap-1 text-xs leading-5 text-muted-foreground">
           <AlertTriangle size={11} aria-hidden />
           沒有附上來源，僅供參考
         </span>

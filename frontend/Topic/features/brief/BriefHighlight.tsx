@@ -174,7 +174,7 @@ export const BriefHighlightProvider: React.FC<{
 
 /**
  * 可點擊、會亮出對應證據的結論條目。
- * 選中狀態同時有左側色條（形狀）與底色，不只靠顏色表示。
+ * 選中狀態同時有左側燈色標線（形狀）與底色（lamp-row），不只靠顏色表示。
  */
 export const ClaimRow: React.FC<{
   claimKey: string;
@@ -193,17 +193,14 @@ export const ClaimRow: React.FC<{
       role="button"
       tabIndex={0}
       aria-pressed={on}
+      data-selected={on ? 'true' : undefined}
       onClick={() => toggleClaim(claimKey)}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
         e.preventDefault();
         toggleClaim(claimKey);
       }}
-      className={`border-l-2 px-3 py-3 transition-[background-color,border-color,opacity] focus-visible:outline-2 focus-visible:outline-brand ${
-        on
-          ? 'border-l-brand bg-muted/60'
-          : `border-transparent hover:border-border hover:bg-muted/50`
-      } ${className ?? ''}`}
+      className={`lamp-row px-3 py-3 ${className ?? ''}`}
     >
       {children}
       <EvidenceTagList
