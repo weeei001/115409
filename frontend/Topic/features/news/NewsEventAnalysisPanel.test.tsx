@@ -22,7 +22,9 @@ const html = renderToStaticMarkup(<NewsEventAnalysisPanel analysis={analysis} />
 for (const [label, count] of [['大盤', 1], ['產業', 1], ['個股', 2]] as const) {
   assert.match(html, new RegExp(`<h3[^>]*>${label}<span[^>]*>${count} 筆影響</span></h3>`));
 }
-assert.equal((html.match(/<details\b/g) ?? []).length, 8);
+// 3 個分類 + 3 個影響對象（大盤、產業、TSMC 兩筆歸併為一個）+ 其他事件
+assert.equal((html.match(/<details\b/g) ?? []).length, 7);
+assert.equal((html.match(/查看 TSMC 個股/g) ?? []).length, 1, 'A company appears once, with all its impacts listed under it');
 assert.doesNotMatch(html, /<details[^>]*\bopen(?:=|\s|>)/);
 for (const item of analysis.impacts) {
   assert.equal(html.split(`</span>${item.reason}</p>`).length - 1, 1, 'Each impact, including repeated targets, is preserved exactly once');
