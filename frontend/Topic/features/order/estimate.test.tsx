@@ -33,4 +33,9 @@ const missing = { ...history(today, null), total: 0, data: [] };
 assert.match(renderToStaticMarkup(<OrderEstimateContent state={estimateFromHistory(missing, '2330', today, 1, today)} />), /今日尚無可用收盤行情/);
 assert.match(renderToStaticMarkup(<OrderEstimateContent state={estimateFromHistory(missing, '2330', '2026-09-27', 1, today)} />), /不會改用其他日期价格|不會改用其他日期價格/);
 assert.match(renderToStaticMarkup(<OrderEstimateContent state={{ kind: 'loading' }} />), /aria-busy="true"/);
+// 還沒填代號／張數：一行一般字級的說明，不放大字的「--」
+const idleMarkup = renderToStaticMarkup(<OrderEstimateContent state={{ kind: 'unavailable', reason: 'x' }} idle />);
+assert.match(idleMarkup, /填好代號與張數後會顯示預估金額/);
+assert.doesNotMatch(idleMarkup, />--</);
+assert.doesNotMatch(renderToStaticMarkup(<OrderEstimateContent state={{ kind: 'loading' }} />), />--</);
 console.log('Order estimate fixtures passed: exact date/symbol, no fallback, missing/invalid data, integer lots and shares, TWD, safe bounds, and backend decimal rounding.');

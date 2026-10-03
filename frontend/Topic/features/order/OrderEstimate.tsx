@@ -5,18 +5,38 @@ import { estimateFromHistory, orderEstimateInput, type OrderEstimateState } from
 
 const format = new Intl.NumberFormat('zh-TW');
 
-export function OrderEstimateContent({ state }: { state: OrderEstimateState }) {
-  return <section aria-label="預估金額與試算" aria-busy={state.kind === 'loading'} className="min-w-0 flex-1 rounded-lg border bg-muted/50 px-4 py-2.5">
-    <h3 className="mb-1 text-xs text-muted-foreground">預估金額與試算</h3>
+/** 收據的一列：左側項目、右側等寬數字；列與列之間是 1px 線（父層 gap-px bg-border） */
+const receiptRow = 'flex min-h-11 items-baseline justify-between gap-4 bg-card px-3 py-2.5';
+const receiptValue = 'text-right font-mono text-[13.5px] tabular-nums text-foreground';
+
+/** 收據頂端的讀數：預估金額用 Figure XL，是委託單帳頁的視覺重心 */
+const figureXl = 'font-mono text-[clamp(30px,3vw,40px)] leading-tight font-semibold tabular-nums';
+
+/** 還沒有數字時的一行說明：一般字級、不放大字的「--」，上下是收據的線 */
+const quietLine = 'border-y px-3 py-2.5 text-[13px] leading-relaxed';
+
+/**
+ * 預估金額與試算：有估值時才出現大字的預估金額，下面是一張有線的收據（依據），數字等寬靠右。
+ * 還沒填代號或張數（idle）、查詢中、無法估算時，只有一行一般字級的說明。
+ */
+export function OrderEstimateContent({ state, idle = false }: { state: OrderEstimateState; idle?: boolean }) {
+  return <section aria-label="預估金額與試算" aria-busy={state.kind === 'loading'} className="min-w-0">
+    <h3 className="mb-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">預估金額與試算</h3>
     <div role="status" className="text-sm leading-relaxed text-subtle">
-      {state.kind === 'loading' ? <p>正在查詢指定日收盤行情…</p> : state.kind === 'unavailable' ? <p>{state.reason}</p> : <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
-        <div><dt className="inline">參考收盤價：</dt><dd className="inline font-mono">{state.price} TWD／股</dd></div>
-        <div><dt className="inline">採價日期：</dt><dd className="inline font-mono">{state.date}</dd></div>
-        <div><dt className="inline">數量：</dt><dd className="inline">{format.format(state.lots)} 張（{format.format(state.shares)} 股）</dd></div>
-        <div><dt className="inline">預估金額：</dt><dd className="inline font-mono font-semibold">{format.format(state.amount)} TWD</dd></div>
-      </dl>}
+      {idle ? <p className={`${quietLine} text-muted-foreground`}>填好代號與張數後會顯示預估金額</p>
+        : state.kind === 'loading' ? <p className={`${quietLine} q-rows`}>正在查詢指定日收盤行情…</p>
+        : state.kind === 'unavailable' ? <p className={quietLine}>{state.reason}</p>
+          : <dl className="grid gap-px border-b bg-border">
+            <div className="bg-card pb-3">
+              <dt className="sr-only">預估金額</dt>
+              <dd className={`${figureXl} break-all text-foreground`}>{format.format(state.amount)} TWD</dd>
+            </div>
+            <div className={`${receiptRow} border-t border-border-strong`}><dt className="text-muted-foreground">參考收盤價</dt><dd className={receiptValue}>{state.price} TWD／股</dd></div>
+            <div className={receiptRow}><dt className="text-muted-foreground">採價日期</dt><dd className={receiptValue}>{state.date}</dd></div>
+            <div className={receiptRow}><dt className="text-muted-foreground">數量</dt><dd className={receiptValue}>{format.format(state.lots)} 張（{format.format(state.shares)} 股）</dd></div>
+          </dl>}
     </div>
-    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">依已儲存的指定日收盤價估算，每張 1,000 股；一般模擬單目前不計手續費與交易稅。不是即時報價或保證成交值，送出時仍由後端驗證並計算。</p>
+    <p className="mt-3 text-xs leading-relaxed text-muted-foreground">依已儲存的指定日收盤價估算，每張 1,000 股；一般模擬單目前不計手續費與交易稅。不是即時報價或保證成交值，送出時仍由後端驗證並計算。</p>
   </section>;
 }
 
@@ -49,5 +69,6 @@ export function OrderEstimate({ symbol, tradeDate, quantity, today }: { symbol: 
 
   const state: OrderEstimateState = 'reason' in input ? { kind: 'unavailable', reason: input.reason }
     : result?.key === key ? result.state : { kind: 'loading' };
-  return <OrderEstimateContent state={state} />;
+  // 代號或張數還空著：還沒開始試算，只放一行安靜的說明
+  return <OrderEstimateContent state={state} idle={!symbol || !quantity.trim()} />;
 }
