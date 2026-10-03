@@ -20,6 +20,9 @@ updates:
       timezone: Asia/Taipei
     open-pull-requests-limit: 5
     groups:
+      # Keep coupled SDKs together even when their major versions differ.
+      llm-runtime:
+        patterns: ['langchain-*', 'openai']
       compatible-updates:
         patterns: ['*']
         update-types: [minor, patch]
