@@ -14,4 +14,12 @@ assert.deepEqual(searchStockOptions(stocks.map((stock) => stock.symbol), stocks,
 assert.deepEqual(searchStockOptions(['2454', '2330'], stocks, '').map((stock) => stock.symbol), ['2454', '2330']);
 assert.equal(searchStockOptions(['9999'], stocks, '9999')[0].name, '');
 assert.deepEqual(searchStockOptions(stocks.map((stock) => stock.symbol), stocks, '不存在'), []);
+const catalog: StockInfo[] = Array.from({ length: 35 }, (_, index) => ({
+  symbol: String(1000 + index), name: `Company ${index}`, industry: 'Technology',
+}));
+const catalogSymbols = catalog.map((stock) => stock.symbol);
+assert.equal(searchStockOptions(catalogSymbols, catalog, '1034')[0].symbol, '1034');
+assert.equal(searchStockOptions(catalogSymbols, catalog, 'Company 34')[0].symbol, '1034');
+assert.equal(searchStockOptions(catalogSymbols, catalog, '', catalog.length).length, 35);
+assert.equal(searchStockOptions(catalogSymbols, catalog, 'Technology', catalog.length).length, 35);
 console.log('Stock search ranking and metadata checks passed.');

@@ -8,7 +8,7 @@ import { useFavorites } from '@/lib/favorites/FavoritesContext';
 
 /** Saved stocks with direct stock links and optimistic removal. */
 export function FavoriteList() {
-  const { status, items, loadError, reload, remove } = useFavorites();
+  const { status, items, loadError, reload, remove, isPending } = useFavorites();
 
   let content: React.ReactNode;
   if (status === 'error') {
@@ -37,9 +37,9 @@ export function FavoriteList() {
   } else if (items.length === 0) {
     content = (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-6">
-        <EmptyState className="py-0">尚未收藏任何股票。到個股頁按標題旁的星號，就能加入收藏。</EmptyState>
-        <Button asChild size="sm" variant="outline" className="min-h-9">
-          <Link href="/">到首頁挑選股票</Link>
+        <EmptyState className="py-0">尚未收藏股票，從上方搜尋並加入你關注的個股。</EmptyState>
+        <Button size="sm" variant="outline" className="min-h-11" onClick={() => document.getElementById('favorite-stock-query')?.focus()}>
+          搜尋股票
         </Button>
       </div>
     );
@@ -63,6 +63,7 @@ export function FavoriteList() {
                 variant="ghost"
                 size="icon"
                 onClick={() => remove(symbol)}
+                disabled={isPending(symbol)}
                 aria-label={`移除收藏 ${label}`}
                 className="size-11 shrink-0 rounded-full"
               >
