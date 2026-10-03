@@ -30,9 +30,10 @@ export function FavoriteToggle({ symbol }: { symbol: string }) {
       onPressedChange={handlePressedChange}
       aria-label={pressed ? '取消收藏' : '加入收藏'}
       aria-busy={busy || undefined}
-      className="size-11 shrink-0 rounded-full [&_svg:not([class*='size-'])]:size-5"
+      className="size-11 shrink-0 text-muted-foreground hover:text-foreground data-[state=on]:text-foreground [&_svg:not([class*='size-'])]:size-5"
     >
-      <Star className={cn(pressed && 'fill-current text-brand')} aria-hidden />
+      {/* 已收藏：實心星；圖示用文字色，不用燈色（燈只當光用） */}
+      <Star className={cn(pressed && 'fill-current')} aria-hidden />
     </Toggle>
   );
 }
