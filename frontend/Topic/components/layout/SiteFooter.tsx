@@ -1,90 +1,57 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React from 'react';
 import Link from 'next/link';
+import { BrandMark } from '@/components/common/BrandMark';
 import { FOOTER_NAV } from '@/lib/nav';
-import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
+import { useLatestCloseDate } from '@/lib/hooks/useLatestCloseDate';
 import { cn } from '@/lib/cn';
 
-const BARS = [40, 55, 35, 65, 50, 72, 48, 80, 60, 90, 70, 95, 60, 90, 70, 95];
-
-function SparkBars({ gradientId, animate }: { gradientId: string; animate: boolean }) {
-  return (
-    <svg viewBox={`0 0 ${BARS.length * 10} 100`} className="h-6 w-20 opacity-30 dark:opacity-20" aria-hidden preserveAspectRatio="none">
-      {BARS.map((h, i) => (
-        <rect key={i} x={i * 10 + 1} y={100 - h} width={7} height={h} rx={2} fill={`url(#${gradientId})`} style={{ transformOrigin: `${i * 10 + 4.5}px 100px` }}>
-          {animate ? (
-            <animateTransform
-              attributeName="transform"
-              type="scale"
-              values={`1 1;1 ${Math.min(100, h + 15) / h};1 1`}
-              dur={`${2 + i * 0.15}s`}
-              repeatCount="indefinite"
-            />
-          ) : null}
-        </rect>
-      ))}
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--brand)" />
-          <stop offset="100%" stopColor="var(--brand-light)" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
-
+/** 頁尾＝海圖的圖名欄：品牌、資料說明、導覽、免責，用線分格 */
 export function SiteFooter({ className }: { className?: string }) {
-  const lineRef = useRef<HTMLDivElement>(null);
-  const gradientId = useId().replace(/:/g, '');
-  const reduce = usePrefersReducedMotion();
-
-  useEffect(() => {
-    const el = lineRef.current;
-    if (!el) return;
-    if (reduce) {
-      el.style.transform = 'scaleX(1)';
-      return;
-    }
-    el.style.transform = 'scaleX(0)';
-    el.style.transformOrigin = 'left';
-    el.style.transition = 'transform 0.8s cubic-bezier(0.16,1,0.3,1)';
-    requestAnimationFrame(() => requestAnimationFrame(() => (el.style.transform = 'scaleX(1)')));
-  }, [reduce]);
-
+  const latestClose = useLatestCloseDate();
   return (
-    <footer className={cn('relative mt-auto overflow-hidden bg-muted', className)}>
-      <div ref={lineRef} className="h-[2px] w-full bg-brand-gradient" aria-hidden />
-      <div className="relative mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-xl font-bold tracking-[0.15em] text-brand-gradient sm:text-2xl">股海明燈</p>
-            <p className="mt-1 text-[11px] tracking-[0.25em] text-muted-foreground uppercase">Stock Market Beacon</p>
-          </div>
-          <SparkBars gradientId={gradientId} animate={!reduce} />
+    <footer className={cn('mt-auto border-t border-border-strong bg-card', className)}>
+      <div className="mx-auto grid max-w-[1320px] gap-px bg-border px-0 md:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)]">
+        <div className="bg-card px-4 py-6 sm:px-6 lg:px-10">
+          <p className="flex items-center gap-2.5">
+            <BrandMark className="size-7" />
+            <span className="font-serif text-xl font-black tracking-[0.14em]">股海明燈</span>
+          </p>
+          <p className="mt-3 max-w-[34em] text-[13px] leading-relaxed text-muted-foreground">
+            本網站為展示與學習用途，不構成投資建議。模擬下單紀錄會儲存在本站伺服器：未登入時以瀏覽器產生的匿名 ID 識別，登入後以帳號 Email 識別。
+          </p>
         </div>
-        <div className="mb-4 h-px w-full bg-gradient-to-r from-transparent via-brand/20 to-transparent" aria-hidden />
-        <nav aria-label="頁尾導覽" className="mb-4 flex flex-wrap items-center justify-center gap-y-1">
-          {FOOTER_NAV.map((item, i) => (
-            <React.Fragment key={item.path}>
-              {i > 0 ? (
-                <span className="mx-3 text-xs text-border select-none sm:mx-5" aria-hidden>
-                  ·
-                </span>
-              ) : null}
-              <Link href={item.path} className="group relative text-[13px] text-subtle transition-colors hover:text-brand-text sm:text-sm">
-                {item.label}
-                <span className="absolute -bottom-0.5 left-0 h-px w-0 bg-brand transition-[width] duration-300 group-hover:w-full" aria-hidden />
-              </Link>
-            </React.Fragment>
-          ))}
+        <nav aria-label="頁尾導覽" className="bg-card px-4 py-4 sm:px-6 md:py-6">
+          <ul className="grid grid-cols-2 gap-x-4 md:grid-cols-1">
+            {FOOTER_NAV.map((item) => (
+              <li key={item.path}>
+                <Link
+                  href={item.path}
+                  className="inline-flex min-h-11 items-center text-sm text-subtle underline-offset-4 transition-colors duration-(--dur-flash) hover:text-foreground hover:underline"
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </nav>
-        <p className="mx-auto mb-3 max-w-xl text-center text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-          本網站為展示與學習用途，不構成投資建議。模擬下單紀錄會儲存在本站伺服器：未登入時以瀏覽器產生的匿名 ID 識別，登入後以帳號 Email 識別。
-        </p>
-        <div className="mb-2 h-px w-full bg-gradient-to-r from-transparent via-border to-transparent" aria-hidden />
-        <p className="text-center text-[11px] tracking-wide text-muted-foreground sm:text-xs">
-          &copy; {new Date().getFullYear()} <span className="text-subtle">國立臺北商業大學 資訊管理系 115409 專題組</span>
-        </p>
+        <dl className="bg-card px-4 py-4 text-[13px] sm:px-6 md:py-6 lg:px-10">
+          <div className="flex justify-between gap-4 border-b py-2">
+            <dt className="text-muted-foreground">大盤資料</dt>
+            <dd className="text-right font-mono tabular-nums">{latestClose ? `收盤 ${latestClose}` : '最近儲存的收盤'} · 非即時</dd>
+          </div>
+          <div className="flex justify-between gap-4 border-b py-2">
+            <dt className="text-muted-foreground">大盤基準</dt>
+            <dd className="text-right">TWSE 加權指數（不含息）</dd>
+          </div>
+          <div className="flex justify-between gap-4 py-2">
+            <dt className="text-muted-foreground">用途</dt>
+            <dd className="text-right">學習與專題</dd>
+          </div>
+        </dl>
       </div>
+      <p className="border-t px-4 py-3 text-center text-xs text-muted-foreground">
+        &copy; {new Date().getFullYear()} 國立臺北商業大學 資訊管理系 115409 專題組
+      </p>
     </footer>
   );
 }

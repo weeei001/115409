@@ -8,18 +8,18 @@ export function Breadcrumbs({ items, className }: { items: BreadcrumbItem[]; cla
   if (!items.length) return null;
   return (
     <nav aria-label="麵包屑導覽" className={cn('min-w-0', className)}>
-      <ol className="flex flex-wrap items-center gap-1 text-xs text-subtle">
+      <ol className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
           return (
             <li key={`${item.label}-${index}`} className="flex min-w-0 items-center gap-1">
               {index > 0 ? <ChevronRight size={12} className="shrink-0 text-muted-foreground" aria-hidden /> : null}
               {item.href && !isLast ? (
-                <Link href={item.href} className="truncate rounded px-0.5 font-medium transition-colors hover:text-brand-text">
+                <Link href={item.href} className="inline-flex min-h-11 items-center truncate px-0.5 underline-offset-4 transition-colors hover:text-foreground hover:underline">
                   {item.label}
                 </Link>
               ) : (
-                <span className={cn('truncate', isLast && 'font-medium')} aria-current={isLast ? 'page' : undefined}>
+                <span className={cn('truncate', isLast && 'font-medium text-subtle')} aria-current={isLast ? 'page' : undefined}>
                   {item.label}
                 </span>
               )}
