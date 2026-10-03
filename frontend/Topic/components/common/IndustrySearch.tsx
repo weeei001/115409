@@ -126,7 +126,7 @@ export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, 
 
   return (
     <div ref={rootRef} className={cn('relative w-full min-w-0', className)}>
-      <Factory size={17} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-brand" />
+      <Factory size={17} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
       <input
         type="text"
         role="combobox"
@@ -144,10 +144,11 @@ export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, 
         onKeyDown={handleKeyDown}
         onFocus={() => setOpen(true)}
         placeholder="搜尋產業並加入..."
-        className="h-11 w-full min-w-0 rounded-xl border border-input bg-muted pr-4 pl-10 text-base text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-brand focus:ring-2 focus:ring-brand/25 sm:text-sm"
+        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus:border-border-strong focus-lamp sm:text-sm"
       />
       {expanded ? (
-        <ul id={listboxId} role="listbox" aria-label="產業選擇" className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border bg-popover py-1 shadow-md">
+        <ul id={listboxId} role="listbox" aria-label="產業選擇" className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-border-strong bg-popover shadow-raised">
+          {/* 可選的產業用 lamp-row（反白時淺色底＋左側 2px 燈色標線）；已全部加入或無可加入的產業不反白 */}
           {filtered.map((option, index) => (
             <li
               key={option.industry}
@@ -158,21 +159,21 @@ export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, 
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectOption(option)}
               onMouseEnter={() => setActiveIndex(option.symbols.length > 0 ? index : -1)}
-              className={cn('px-4 py-2.5 text-subtle transition-colors', option.symbols.length === 0 ? 'cursor-default text-muted-foreground' : 'cursor-pointer', option.symbols.length > 0 && index === activeIndex && 'bg-accent text-accent-foreground')}
+              className={cn('flex min-h-11 flex-col justify-center border-b px-4 py-1.5', option.symbols.length === 0 ? 'cursor-default text-muted-foreground' : 'lamp-row cursor-pointer text-foreground')}
             >
               <span className="flex min-w-0 items-baseline justify-between gap-3">
                 <span className="min-w-0 truncate text-sm font-medium">{option.industry}</span>
                 {option.symbols.length > 0 ? <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{option.symbols.length} 檔</span> : null}
               </span>
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">{option.symbols.length > 0 ? '加入該產業尚未選取的支援股票' : option.allAdded ? '此產業的支援股票已全部加入。' : '目前沒有可加入的支援股票。'}</span>
+              <span className="block text-xs text-muted-foreground">{option.symbols.length > 0 ? '加入該產業尚未選取的支援股票' : option.allAdded ? '此產業的支援股票已全部加入。' : '目前沒有可加入的支援股票。'}</span>
             </li>
           ))}
           {filtered.length === 0 ? (
-            <li role="status" className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+            <li role="status" className="px-4 py-3 text-[13px] leading-relaxed text-muted-foreground">
               {options.length === 0 ? '目前沒有支援股票的產業資料。' : `找不到「${query.trim()}」相關產業。`}
             </li>
           ) : (
-            <li role="status" className="border-t px-4 py-2 text-[11px] text-muted-foreground">
+            <li role="status" className="bg-muted px-4 py-2 text-xs text-muted-foreground">
               選取後會加入該產業尚未選取的支援股票
             </li>
           )}
