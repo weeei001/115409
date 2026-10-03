@@ -1,11 +1,5 @@
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-export function fmt(val: string | number | null | undefined, fallback = '--'): string {
-  if (val == null || val === '') return fallback;
-  const n = Number(val);
-  return Number.isFinite(n) ? n.toLocaleString() : fallback;
-}
-
 export function fmtPrice(v: string | number | null | undefined, fallback = '--'): string {
   if (v == null || v === '') return fallback;
   const n = Number(v);
@@ -66,10 +60,4 @@ export function fmtPercent(
   const value = fromRatio ? v * 100 : v;
   const prefix = sign && value > 0 ? '+' : '';
   return `${prefix}${value.toFixed(decimals)}%`;
-}
-
-/** 帶正負號的數值（漲跌、損益） */
-export function fmtSigned(v: number | null | undefined, decimals = 2, fallback = '--'): string {
-  if (!isNum(v)) return fallback;
-  return `${v > 0 ? '+' : ''}${v.toFixed(decimals)}`;
 }

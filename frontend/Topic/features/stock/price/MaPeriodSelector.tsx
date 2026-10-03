@@ -27,7 +27,7 @@ export function MaPeriodSelector({ value, onChange, disabled }: { value: string;
             key={p}
             value={p}
             aria-label={`MA${p}`}
-            className="h-9 min-w-12 rounded-md border px-3 text-xs data-[state=on]:border-brand/50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+            className="h-11 min-w-12 rounded-sm border border-input px-3 font-mono text-xs tabular-nums data-[state=on]:border-border-strong data-[state=on]:bg-accent data-[state=on]:font-semibold data-[state=on]:text-foreground"
           >
             MA{p}
           </ToggleGroupItem>

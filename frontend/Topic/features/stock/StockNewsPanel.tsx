@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Info, Newspaper, RefreshCw } from 'lucide-react';
+import { Info, RefreshCw } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { NewsCard, type NewsRelation } from '@/features/news/NewsCard';
 import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
+import { LightGlyph } from '@/components/common/Ledger';
 import { Button } from '@/components/ui/button';
 import { loadStockNewsPosition, saveStockNewsPosition, stockNewsViewHref, type StockNewsView } from '@/lib/news/stockNewsView';
 
@@ -47,13 +48,17 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
   }, [newsList.loading, newsList.error, newsList.data, router, returnTo]);
 
   return (
-    <section ref={sectionRef} className="rounded-xl border bg-card p-4 shadow-card sm:p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Newspaper size={18} className="text-brand" aria-hidden />
-          <h3 className="text-lg font-bold tracking-tight">相關新聞</h3>
-          {newsList.data ? <span className="text-xs text-muted-foreground tabular-nums">{newsList.data.total_is_exact === false ? '檢索結果' : '共'} {newsList.data.total.toLocaleString()} 則</span> : null}
-        </div>
+    <section ref={sectionRef} className="min-w-0">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border-strong pb-2">
+        {/* 抽屜標題已是「相關新聞」，這裡不再重複標題，直接從筆數與篩選開始 */}
+        <p className="characteristic inline-flex min-w-0 items-center gap-1.5" aria-live="polite">
+          <LightGlyph state={!hydrated || newsList.loading ? 'loading' : newsList.error ? 'error' : 'ready'} />
+          {newsList.data && !newsList.loading
+            ? `${newsList.data.total_is_exact === false ? '檢索結果' : '共'} ${newsList.data.total.toLocaleString()} 則`
+            : newsList.loading || !hydrated
+              ? '讀取中…'
+              : '尚無筆數'}
+        </p>
         <div className="flex items-center gap-2">
           <NewsFilters
             applied={newsList.filters}
@@ -70,7 +75,7 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
             onClick={newsList.reload}
             disabled={newsList.loading}
             aria-label="重新整理新聞"
-            className="inline-flex size-11 items-center justify-center rounded-lg border text-muted-foreground transition-colors hover:border-border-strong hover:text-brand-text disabled:opacity-50"
+            className="inline-flex size-11 items-center justify-center rounded-md border border-input bg-card text-subtle transition-colors duration-(--dur-flash) hover:border-border-strong hover:bg-accent hover:text-foreground disabled:opacity-50"
           >
             <RefreshCw size={16} className={newsList.loading ? 'animate-spin' : ''} aria-hidden />
           </button>
@@ -79,8 +84,8 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
 
       <AppliedNewsFilters applied={newsList.filters} fixedRelation disabled={newsList.loading} triggerRef={filterTrigger} onClearAdvanced={newsList.clearAdvanced} />
 
-      <p className="mb-4 flex items-center gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5 text-[11px] text-muted-foreground">
-        <Info size={12} className="shrink-0 text-brand" aria-hidden />
+      <p className="mb-4 flex items-start gap-1.5 border-l-2 border-border px-3 py-1 text-xs leading-5 text-muted-foreground">
+        <Info size={13} className="mt-0.5 shrink-0" aria-hidden />
         事件影響不代表股價預測。此處僅列出檢索範圍內的相關結果，查無結果不代表沒有新聞。
       </p>
 
@@ -95,7 +100,7 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
             type="button"
             aria-pressed={relation === value}
             onClick={() => setRelation(value)}
-            className={`min-h-9 rounded-lg border px-3 py-1 text-xs transition-colors ${relation === value ? 'border-brand bg-accent font-semibold text-accent-foreground' : 'text-muted-foreground hover:border-border-strong hover:text-brand-text'}`}
+            className={`min-h-11 rounded-sm border px-3 py-1 text-xs transition-colors duration-(--dur-flash) ${relation === value ? 'border-border-strong bg-accent font-semibold text-foreground' : 'border-input bg-card text-subtle hover:border-border-strong hover:text-foreground'}`}
           >
             {label}
           </button>
@@ -105,7 +110,17 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
       {!hydrated || newsList.loading ? (
         <NewsListSkeleton count={4} />
       ) : newsList.error ? (
-        <Notice tone="danger">{newsList.error}</Notice>
+        <Notice
+          tone="danger"
+          action={
+            <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-11">
+              <RefreshCw aria-hidden />
+              重試
+            </Button>
+          }
+        >
+          {newsList.error}
+        </Notice>
       ) : newsList.data?.items.length ? (
         <>
           <div>
@@ -116,7 +131,7 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
           </div>
           {totalPages > 1 ? (
             <div className="mt-4 flex items-center justify-between border-t pt-3">
-              <span className="text-xs text-muted-foreground tabular-nums">
+              <span className="characteristic">
                 第 {newsList.page} / {totalPages} 頁
               </span>
               <div className="flex gap-2">
@@ -131,7 +146,17 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
           ) : null}
         </>
       ) : (
-        <EmptyState className="py-6">暫無相關新聞</EmptyState>
+        <EmptyState
+          className="py-6"
+          action={
+            <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-11">
+              <RefreshCw aria-hidden />
+              重新載入
+            </Button>
+          }
+        >
+          檢索範圍內暫無相關新聞
+        </EmptyState>
       )}
     </section>
   );

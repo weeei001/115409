@@ -1,49 +1,61 @@
 import React from 'react';
 import { Landmark } from 'lucide-react';
 import type { InstitutionalDay } from '@/lib/types/view';
-import { fmtInstitutionalShares } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
+import { Button } from '@/components/ui/button';
+import { signedShares } from '../signedShares';
 import { CardShell } from './CardShell';
+import type { LightState } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
 
 interface Props {
   latest: InstitutionalDay | null;
   loading?: boolean;
+  /** 燈質記號（Q／F／熄燈） */
+  state?: LightState;
   onOpenDetail: () => void;
+  /** 沒有資料時的「重新載入」 */
+  onRetry?: () => void;
+  className?: string;
 }
 
-export function TodayInstitutionalCard({ latest, loading, onOpenDetail }: Props) {
+/** 最近交易日（最近一筆已儲存資料）的三大法人買賣超；資料不是即時，所以不叫「今日」 */
+export function TodayInstitutionalCard({ latest, loading, state, onOpenDetail, onRetry, className }: Props) {
   const rows = [
     { label: '外資', value: latest?.foreign_net },
     { label: '投信', value: latest?.investment_trust_net },
     { label: '自營', value: latest?.dealer_net },
-    { label: '法人合計', value: latest?.total_institutional_net, emphasis: true },
   ];
+  const total = latest?.total_institutional_net;
   return (
     <CardShell
       icon={Landmark}
-      title="今日法人"
-      rightSlot={latest?.date ? <span className="text-[11px] text-muted-foreground tabular-nums">{latest.date}</span> : null}
+      title="最近交易日法人"
+      unit="萬股"
+      stampDate={latest ? latest.date : undefined}
+      stampLabel="法人"
       loading={loading}
+      state={state}
       loadingRows={4}
       isEmpty={!latest}
-      emptyText="尚無今日法人資料"
+      emptyText="尚無最近交易日的法人資料"
+      emptyAction={onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry} className="min-h-11">重新載入</Button> : undefined}
       action={{ label: '詳細籌碼分析', onClick: onOpenDetail }}
+      className={className}
     >
-      <ul className="flex flex-1 flex-col gap-2">
+      {/* 讀數：法人合計；底下三列明細用細線分隔，只有淨額上漲跌色 */}
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className={cn('font-mono text-2xl leading-none font-semibold whitespace-nowrap tabular-nums', valueToneText(total))}>{signedShares(total)}</span>
+        <span className="text-[13px] text-muted-foreground">三大法人合計買賣超</span>
+      </p>
+      <dl className="mt-4 flex-1 border-t">
         {rows.map((row) => (
-          <li
-            key={row.label}
-            className={cn(
-              'flex items-center justify-between gap-2 rounded-lg border px-3 py-2',
-              row.emphasis ? 'border-brand/25 bg-muted' : 'bg-muted/40',
-            )}
-          >
-            <span className={cn('text-xs', row.emphasis ? 'font-semibold' : 'text-subtle')}>{row.label}</span>
-            <span className={cn('font-mono text-sm font-semibold tabular-nums', valueToneText(row.value))}>{fmtInstitutionalShares(row.value)}</span>
-          </li>
+          <div key={row.label} className="flex min-h-11 items-center justify-between gap-2 border-b">
+            <dt className="text-[13px] text-subtle">{row.label}</dt>
+            <dd className={cn('font-mono text-[13.5px] font-medium whitespace-nowrap tabular-nums', valueToneText(row.value))}>{signedShares(row.value)}</dd>
+          </div>
         ))}
-      </ul>
+      </dl>
     </CardShell>
   );
 }

@@ -1,22 +1,28 @@
 import React from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { CalendarRange, RefreshCw } from 'lucide-react';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { MA_KEYS, type MaKey } from '@/lib/types/view';
 import { PriceChart } from '@/components/charts/PriceChart';
+import { plottedSpan, plottedSpanText } from '@/lib/charts/adapters';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
-import { EmptyState, Notice } from '@/components/common/Notice';
+import { Ledger, LedgerPanel, LightGlyph } from '@/components/common/Ledger';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { MaPeriodSelector } from './MaPeriodSelector';
 import { HistoryTable, PriceChangeTable, StatisticsPanel, VolumeTable } from './PriceTables';
 
-/** 「價量走勢與統計」抽屜內容 */
+/**
+ * 「價量走勢與統計」抽屜內容：控制列 → K 線 → 量能／漲跌表 → 所選日期區間統計 → 歷史股價。
+ * 頁面首屏已有框在圖廓裡的 K 線，這裡的圖只用一般邊框（一頁只有一個圖廓）。
+ */
 export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }) {
   const {
     priceChart,
     chartLoading,
     chartError,
     reloadCharts,
+    widenDateRange,
     startDate,
     endDate,
     setStartDate,
@@ -38,15 +44,16 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
   } = dashboard;
 
   const activeMa = MA_KEYS.filter((key) => maPeriods.split(',').includes(key.slice(2))) as MaKey[];
-  const lastDate = priceChart?.candles[priceChart.candles.length - 1]?.time;
+  // 圖說取自圖上實際畫出的 K 棒，不是日期選擇器的查詢區間
+  const span = plottedSpan(priceChart?.candles.map((c) => c.time));
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-10">
       {chartError ? (
         <Notice
           tone="danger"
           action={
-            <Button size="sm" variant="outline" onClick={reloadCharts} className="min-h-9">
+            <Button size="sm" variant="outline" onClick={reloadCharts} className="min-h-11">
               <RefreshCw aria-hidden />
               重試
             </Button>
@@ -56,15 +63,19 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
         </Notice>
       ) : null}
 
-      <section className="rounded-xl border bg-card p-4 shadow-card sm:p-5">
-        <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-xl font-semibold">價量走勢</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {lastDate ? `資料截至 ${lastDate}` : '尚無資料日期'}；非即時行情，依已匯入資料顯示；展示用途，非投資建議。
-            </p>
-          </div>
-          <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
+      {/* 抽屜標題是「價量走勢與統計」：第一段不再叫「價量走勢」，直接寫它的內容 */}
+      <Ledger
+        as="h3"
+        title="K 線與成交量"
+        stamp={
+          <span className="inline-flex items-center gap-1.5">
+            <LightGlyph state={chartLoading ? 'loading' : chartError && !priceChart ? 'error' : 'ready'} />
+            {span ? <span data-plotted-span>K 線 {plottedSpanText(span)}</span> : chartLoading ? '讀取中…' : '尚無資料日期'}
+          </span>
+        }
+      >
+        <LedgerPanel>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <DateRangePicker startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <MaPeriodSelector value={maPeriods} onChange={setMaPeriods} disabled={chartLoading} />
@@ -74,40 +85,53 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
               </label>
             </div>
           </div>
-        </div>
+        </LedgerPanel>
 
-        {chartLoading ? (
-          <div className="flex h-[50dvh] max-h-[420px] min-h-[280px] items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 size={20} className="animate-spin text-brand" aria-hidden />
-            載入圖表中…
-          </div>
-        ) : priceChart ? (
-          <PriceChart data={priceChart} activeMa={activeMa} volumeInsight={volumeInsight} />
-        ) : (
-          <EmptyState className="py-16">尚無 K 線資料</EmptyState>
-        )}
+        <LedgerPanel className="px-3 sm:px-5">
+          {chartLoading ? (
+            <LoadingRows label="讀取 K 線中…" className="h-[50dvh] max-h-[420px] min-h-[280px] border-y" />
+          ) : priceChart ? (
+            <PriceChart data={priceChart} activeMa={activeMa} volumeInsight={volumeInsight} frame="plain" />
+          ) : (
+            <EmptyState
+              className="py-16"
+              action={
+                <span className="flex flex-wrap items-center justify-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={widenDateRange} className="min-h-11">
+                    <CalendarRange aria-hidden />
+                    拉長日期區間
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={reloadCharts} className="min-h-11">
+                    <RefreshCw aria-hidden />
+                    重新載入
+                  </Button>
+                </span>
+              }
+            >
+              所選日期區間沒有 K 線資料
+            </EmptyState>
+          )}
+        </LedgerPanel>
 
         {!chartLoading ? (
-          <div className="mt-6 space-y-6 border-t pt-6">
+          <LedgerPanel className="space-y-8">
             <VolumeTable data={volumeData} />
             {showPriceChange ? <PriceChangeTable data={priceChangeData} /> : null}
-          </div>
+          </LedgerPanel>
         ) : null}
-      </section>
+      </Ledger>
 
       {statistics ? <StatisticsPanel stats={statistics} /> : null}
 
-      <section className="rounded-xl border bg-card p-4 shadow-card sm:p-5">
+      <section>
         {historyLoading ? (
-          <p className="text-sm text-muted-foreground" role="status">載入歷史股價…</p>
+          <LoadingRows label="讀取歷史股價中…" className="h-[132px] border-y" />
         ) : historyError ? (
           <Notice tone="danger">{historyError}</Notice>
         ) : history ? (
           <HistoryTable data={history} page={historyPage} pageSize={historyPageSize} onPageChange={setHistoryPage} />
         ) : (
-          <p className="text-sm text-muted-foreground" aria-live="polite">
-            載入歷史股價…
-          </p>
+          <LoadingRows label="讀取歷史股價中…" className="h-[132px] border-y" />
         )}
       </section>
     </div>

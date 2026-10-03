@@ -1,84 +1,139 @@
 import React from 'react';
 import type { InstitutionalDay, PriceChartData, TechnicalDay } from '@/lib/types/view';
-import { fmtInstitutionalShares, fmtPercent } from '@/lib/utils/format';
+import { signedText } from '@/components/common/LightEntry';
+import { LightGlyph, type LightState } from '@/components/common/Ledger';
 import { getValueTone, type ValueTone } from '@/lib/utils/tone';
 import { rsiZone } from '@/lib/utils/indicatorSignals';
 import { cn } from '@/lib/cn';
+import { signedShares } from './signedShares';
 
 interface Props {
   priceChart: PriceChartData | null;
   institutionalLatest: InstitutionalDay | null;
   indicatorLatest: TechnicalDay | null;
+  /** 區間列（K 線）與最近交易日列（法人、指標）各自的資料狀態，寫成燈質記號 */
+  chartState?: LightState;
+  chipsState?: LightState;
 }
 
-interface Tile {
+interface Cell {
   label: string;
   value: string;
   /** 只有有正負方向的數值才上漲跌色（決議 D8） */
   tone: ValueTone | 'warning';
-  sub?: string;
+  /** 判讀門檻：直接寫在格子裡，觸控也看得到 */
+  hint?: string;
 }
 
-const TONE_CLASS: Record<Tile['tone'], string> = {
+interface Group {
+  /** 這一列數字的時間窗，用文字寫出來（例如「近 63 個交易日」） */
+  window: string;
+  /** 時間窗的實際日期 */
+  dates?: string;
+  state?: LightState;
+  cells: Cell[];
+}
+
+const TONE_CLASS: Record<Cell['tone'], string> = {
   up: 'text-up',
   down: 'text-down',
   neutral: 'text-foreground',
   warning: 'text-warning',
 };
 
-function rangeTiles(priceChart: PriceChartData | null): Tile[] {
+function rangeGroup(priceChart: PriceChartData | null): Group {
   const candles = priceChart?.candles ?? [];
   const first = candles[0]?.close;
   const last = candles[candles.length - 1]?.close;
   const pct = candles.length && first ? ((last - first) / first) * 100 : null;
   const highs = candles.map((c) => c.high).filter(Number.isFinite);
   const lows = candles.map((c) => c.low).filter(Number.isFinite);
-  return [
-    {
-      label: '區間漲跌幅',
-      value: fmtPercent(pct, { sign: true, fallback: '—' }),
-      tone: getValueTone(pct),
-      sub: candles.length ? `${candles.length} 個交易日` : undefined,
-    },
-    { label: '區間最高', value: highs.length ? Math.max(...highs).toFixed(2) : '—', tone: 'neutral' },
-    { label: '區間最低', value: lows.length ? Math.min(...lows).toFixed(2) : '—', tone: 'neutral' },
-  ];
+  const firstDate = candles[0]?.time;
+  const lastDate = candles[candles.length - 1]?.time;
+  return {
+    window: candles.length ? `近 ${candles.length} 個交易日` : '近期交易日',
+    dates: firstDate && lastDate ? `${firstDate} → ${lastDate}` : undefined,
+    cells: [
+      // 個股頁預設畫面唯一的區間漲跌幅：標籤直接寫出實際筆數（K 線載入的交易日數）
+      { label: candles.length ? `近 ${candles.length} 個交易日漲跌幅` : '區間漲跌幅', value: pct == null || !Number.isFinite(pct) ? '—' : signedText(pct, 2, '%'), tone: getValueTone(pct) },
+      { label: '區間最高', value: highs.length ? Math.max(...highs).toFixed(2) : '—', tone: 'neutral' },
+      { label: '區間最低', value: lows.length ? Math.min(...lows).toFixed(2) : '—', tone: 'neutral' },
+    ],
+  };
 }
 
-/** 個股關鍵指標 6 格 */
-export function StockKpiStrip({ priceChart, institutionalLatest, indicatorLatest }: Props) {
+/**
+ * 個股關鍵指標：一張只有橫豎細線的燈質表（不另外框成方塊，直接印在頁面底色上）。每一列先寫時間窗（列首），再列三格「標籤靠左、數字靠右」。
+ * 桌機每列 4 格（列首＋3），手機 2 欄（列首佔一格），格數剛好整除，不露灰底。
+ */
+export function StockKpiStrip({ priceChart, institutionalLatest, indicatorLatest, chartState, chipsState }: Props) {
   const rsi = indicatorLatest?.rsi10 ?? null;
   const zone = rsiZone(rsi);
   const macd = indicatorLatest?.macd_hist ?? null;
-  const tiles: Tile[] = [
-    ...rangeTiles(priceChart),
+  const dates = [...new Set([institutionalLatest?.date, indicatorLatest?.date].filter(Boolean))];
+  const groups: Group[] = [
+    { ...rangeGroup(priceChart), state: chartState },
     {
-      label: '法人合計',
-      value: fmtInstitutionalShares(institutionalLatest?.total_institutional_net, '—'),
-      tone: getValueTone(institutionalLatest?.total_institutional_net),
-      sub: institutionalLatest?.date ? `截至 ${institutionalLatest.date}` : undefined,
-    },
-    {
-      label: 'RSI10',
-      value: rsi != null ? rsi.toFixed(1) : '—',
-      tone: zone === 'overbought' || zone === 'oversold' ? 'warning' : 'neutral',
-      sub: '≥70 超買 / ≤30 超賣',
-    },
-    {
-      label: 'MACD 動能',
-      value: macd != null ? macd.toFixed(3) : '—',
-      tone: getValueTone(macd),
-      sub: '正值偏多 / 負值偏空',
+      window: '最近交易日',
+      dates: dates.length ? dates.join('／') : undefined,
+      state: chipsState,
+      cells: [
+        {
+          label: '法人合計',
+          value: signedShares(institutionalLatest?.total_institutional_net, '—'),
+          tone: getValueTone(institutionalLatest?.total_institutional_net),
+          hint: '三大法人買賣超',
+        },
+        {
+          label: 'RSI10',
+          value: rsi != null ? rsi.toFixed(1) : '—',
+          tone: zone === 'overbought' || zone === 'oversold' ? 'warning' : 'neutral',
+          hint: '≥70 超買／≤30 超賣',
+        },
+        {
+          label: 'MACD 柱',
+          value: macd != null ? signedText(macd, 3) : '—',
+          tone: getValueTone(macd),
+          hint: '正值偏多／負值偏空',
+        },
+      ],
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6" aria-label="個股關鍵指標">
-      {tiles.map((tile) => (
-        <div key={tile.label} data-stagger className="rounded-lg border bg-card px-3 py-2.5 shadow-card">
-          <p className="text-[11px] leading-tight text-muted-foreground">{tile.label}</p>
-          <p className={cn('mt-1 font-mono text-lg leading-tight font-semibold tabular-nums', TONE_CLASS[tile.tone])}>{tile.value}</p>
-          {tile.sub ? <p className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground tabular-nums">{tile.sub}</p> : null}
+    <div className="grid gap-px border-y bg-border" role="group" aria-label="個股關鍵指標">
+      {groups.map((group) => (
+        <div key={group.window} data-stagger className="grid grid-cols-2 gap-px lg:grid-cols-[minmax(0,0.8fr)_repeat(3,minmax(0,1fr))]">
+          {/* 列首：時間窗 */}
+          <p className="flex min-h-11 min-w-0 flex-col justify-center bg-background px-3 py-2 sm:px-4 lg:pl-0">
+            <span className="inline-flex items-center gap-1.5 text-[13px] leading-tight font-medium tracking-[0.04em] text-foreground">
+              {group.window}
+              {group.state ? <LightGlyph state={group.state} className="text-muted-foreground" /> : null}
+            </span>
+            {group.dates ? (
+              // 日期不在中間斷行：每個日期各自不換行，必要時在箭頭處換行
+              <span className="characteristic mt-0.5">
+                {group.dates.split(' → ').map((d, i) => (
+                  <React.Fragment key={d}>
+                    {i > 0 ? ' → ' : null}
+                    <span className="whitespace-nowrap">{d}</span>
+                  </React.Fragment>
+                ))}
+              </span>
+            ) : null}
+          </p>
+          <dl className="contents">
+            {group.cells.map((cell) => (
+              <div key={cell.label} className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 bg-background px-3 py-2 sm:px-4">
+                <dt className="min-w-0">
+                  <span className="sr-only">{group.window}</span>
+                  <span className="block text-[13px] leading-tight text-subtle">{cell.label}</span>
+                  {cell.hint ? <span className="characteristic mt-0.5 block">{cell.hint}</span> : null}
+                </dt>
+                <dd className={cn('ml-auto font-mono text-[15px] font-semibold whitespace-nowrap tabular-nums', TONE_CLASS[cell.tone])}>{cell.value}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       ))}
     </div>
