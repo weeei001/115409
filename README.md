@@ -217,9 +217,9 @@ npm run build
 npm run lint -- --incremental false
 ```
 
-`lint` 執行 TypeScript 型別檢查。先建置可在全新 checkout 產生 Next.js 所需型別。`npm test`、`test:all` 與 `sync:openapi` 的現有限制見[驗證說明](docs/README.md#已知驗證限制)。
+`lint` 執行 TypeScript 型別檢查。先建置可在全新 checkout 產生 Next.js 所需型別。`npm test` 的現有限制見[驗證說明](docs/README.md#已知驗證限制)。
 
-[GitHub Actions](.github/workflows/ci-cd.yml) 執行後端架構、啟動與串流測試，以及前端對話、比較、建置和型別檢查。
+[GitHub Actions](.github/workflows/ci-cd.yml) 執行後端架構、啟動與串流測試，以及前端的功能測試、建置和型別檢查；前端實際跑哪些 `test:*` 以 workflow 為準。
 
 ## 相關文件
 

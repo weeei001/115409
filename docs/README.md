@@ -108,7 +108,7 @@ python -m pytest backend/tests -q
 目前保留以下已知問題（2026-09-26）：
 
 - `backend/tests/test_contract.py` 的部分案例需要已移除的 legacy 模組，例如 `backend/config.py`。
-- `npm test` 與 `npm run sync:openapi` 指向缺失的 `scripts/openapiMapper.test.ts`、`scripts/sync-openapi.mjs`；`test:all` 也會因先執行 `npm test` 而中止。
+- `npm test` 指向缺失的 `scripts/openapiMapper.test.ts`（2026-10-03 確認）。
 
 判讀完整測試結果時，應區分上述既有問題與新變更造成的失敗。手動 benchmark 與實際 worker 不屬於離線測試。
 
