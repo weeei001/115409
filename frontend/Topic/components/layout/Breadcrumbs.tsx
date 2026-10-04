@@ -1,4 +1,3 @@
-import React from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import type { BreadcrumbItem } from '@/lib/nav';
@@ -15,7 +14,7 @@ export function Breadcrumbs({ items, className }: { items: BreadcrumbItem[]; cla
             <li key={`${item.label}-${index}`} className="flex min-w-0 items-center gap-1">
               {index > 0 ? <ChevronRight size={12} className="shrink-0 text-muted-foreground" aria-hidden /> : null}
               {item.href && !isLast ? (
-                <Link href={item.href} className="inline-flex min-h-11 items-center truncate px-0.5 underline-offset-4 transition-colors hover:text-foreground hover:underline">
+                <Link href={item.href} className="inline-flex min-h-11 items-center truncate px-0.5 underline-offset-4 transition-colors duration-(--dur-flash) hover:text-foreground hover:underline">
                   {item.label}
                 </Link>
               ) : (

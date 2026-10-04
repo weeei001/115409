@@ -6,7 +6,6 @@ import {
   LineStyle,
   TickMarkType,
   createChart,
-  type BusinessDay,
   type CandlestickData,
   type HistogramData,
   type IChartApi,
@@ -18,10 +17,11 @@ import {
 } from 'lightweight-charts';
 import type { MaKey, PriceChartData } from '@/lib/types/view';
 import { MA_KEYS } from '@/lib/types/view';
-import { fmtVolume } from '@/lib/utils/format';
+import { fmtPrice, fmtVolume } from '@/lib/utils/format';
 import {
   DEFAULT_PRICE_CHART_SERIES_VISIBILITY,
   getNextPriceChartSeriesVisibility,
+  timeToYmd,
   toBusinessDay,
   toCandlestickSeriesData,
   type PriceChartSeriesKey,
@@ -77,18 +77,11 @@ interface Overlay {
   changeLabel: ChangeLabel;
 }
 
-function formatTimeLabel(time: Time): string {
-  if (typeof time === 'string') return time;
-  if (typeof time === 'number') return new Date(time * 1000).toISOString().slice(0, 10);
-  const d = time as BusinessDay;
-  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
-}
-
 const LEFT_EDGE_BARS = 2;
 
 /** 時間軸刻度：只寫 MM-DD（年初寫年份）。 */
 function formatTickLabel(time: Time, type: TickMarkType, index: Map<string, number>, total: number): string {
-  const full = formatTimeLabel(time);
+  const full = timeToYmd(time);
   const i = index.get(full);
   // 最左兩根的刻度會被畫布左緣切掉一半，不寫字；右側已用 rightOffset 留白，最後一根的日期可以完整寫出
   if (i !== undefined && i < LEFT_EDGE_BARS && total > LEFT_EDGE_BARS) return '';
@@ -142,7 +135,6 @@ function volumeInterpretation(state: string, date: string | null): string {
   return '目前成交量資料不足，暫時無法判斷量能是否支持趨勢。';
 }
 
-const fmt2 = (v: number | null) => (v === null ? '--' : v.toFixed(2));
 const roundOrNull = (v: number | null) => (v === null || !Number.isFinite(v) ? null : Math.round(v));
 
 export function PriceChart({
@@ -267,7 +259,7 @@ export function PriceChart({
     const narrow = el.clientWidth > 0 && el.clientWidth < MOBILE_BREAKPOINT;
     const chart = createChart(el, {
       autoSize: true,
-      localization: { timeFormatter: (t: Time) => formatTimeLabel(t) },
+      localization: { timeFormatter: (t: Time) => timeToYmd(t) },
       crosshair: { mode: 1 },
       timeScale: {
         tickMarkFormatter: (t: Time, type: TickMarkType) => formatTickLabel(t, type, tickIndexRef.current.index, tickIndexRef.current.total),
@@ -306,7 +298,7 @@ export function PriceChart({
           return;
         }
         const { open, high, low, close } = candle;
-        setHover(buildOverlay(formatTimeLabel(param.time), { open, high, low, close }));
+        setHover(buildOverlay(timeToYmd(param.time), { open, high, low, close }));
       });
     });
     // 拖曳、縮放、改變尺寸時重新量圖廓邊緣的起訖日與最高／最低價
@@ -388,11 +380,11 @@ export function PriceChart({
   }, [data, palette]);
 
   const readout = [
-    { label: '開', value: fmt2(overlay?.open ?? null) },
-    { label: '高', value: fmt2(overlay?.high ?? null) },
-    { label: '低', value: fmt2(overlay?.low ?? null) },
-    { label: '收', value: fmt2(overlay?.close ?? null) },
-    ...activeMa.map((key) => ({ label: key, value: fmt2(overlay?.ma[key] ?? null) })),
+    { label: '開', value: fmtPrice(overlay?.open ?? null) },
+    { label: '高', value: fmtPrice(overlay?.high ?? null) },
+    { label: '低', value: fmtPrice(overlay?.low ?? null) },
+    { label: '收', value: fmtPrice(overlay?.close ?? null) },
+    ...activeMa.map((key) => ({ label: key, value: fmtPrice(overlay?.ma[key] ?? null) })),
     { label: '成交量', value: fmtVolume(overlay?.volume ?? null, '無資料') },
   ];
 
@@ -405,7 +397,7 @@ export function PriceChart({
       aria-pressed={visibility[key]}
       onClick={() => setVisibility((cur) => getNextPriceChartSeriesVisibility(cur, key))}
       className={cn(
-        'inline-flex min-h-11 shrink-0 items-center gap-1 rounded-sm px-1 font-mono text-xs whitespace-nowrap tabular-nums transition-colors duration-(--dur-flash) hover:bg-accent focus-lamp sm:gap-1.5 sm:px-1.5',
+        'inline-flex min-h-11 shrink-0 items-center gap-1 rounded-sm px-1 font-mono text-xs whitespace-nowrap tabular-nums transition-colors duration-(--dur-flash) hover:bg-accent focus-lamp-inset sm:gap-1.5 sm:px-1.5',
         visibility[key] ? 'text-foreground' : 'text-muted-foreground line-through decoration-1',
       )}
     >
@@ -514,12 +506,12 @@ export function PriceChart({
         </div>
         <div className="bg-card py-4 lg:pl-4">
           <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">輔助資訊｜成交量</p>
-          <p className="mt-2 text-subtle">基準日：{volumeInsight.date ?? '無資料'}（結束日前最後交易日）</p>
+          <p className="mt-2 text-subtle">基準日：<span className="font-mono tabular-nums">{volumeInsight.date ?? '無資料'}</span>（結束日前最後交易日）</p>
           <p className="mt-1 text-subtle">
-            基準日成交量：<span className="whitespace-nowrap">{fmtVolume(volumeInsight.latestVolume, '無資料')}</span>
+            基準日成交量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.latestVolume, '無資料')}</span>
           </p>
           <p className="mt-1 text-subtle">
-            20 日均量：<span className="whitespace-nowrap">{fmtVolume(volumeInsight.ma20, `資料不足（有效 ${volumeInsight.count20}/20 個交易日）`)}</span>
+            20 日均量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.ma20, `資料不足（有效 ${volumeInsight.count20}/20 個交易日）`)}</span>
             {volumeInsight.vsMa20 === null
               ? ''
               : `（${volumeInsight.vsMa20 >= 0 ? '高於' : '低於'} ${Math.abs(volumeInsight.vsMa20).toFixed(1)}%）`}

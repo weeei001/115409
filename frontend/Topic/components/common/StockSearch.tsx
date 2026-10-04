@@ -48,7 +48,7 @@ export function searchStockOptions(symbols: string[], stockInfos: StockInfo[] = 
  * focus 就展開；空白時照清單順序；可用代號、公司名稱與產業搜尋；最多 20 筆；方向鍵／Home／End／Esc；
  * Enter：有反白項目就選它；否則有輸入時交給 onBulkSelect，沒輸入時選第一筆。
  */
-export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, placeholder = '搜尋代號或公司名稱...', className }: Props) {
+export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, placeholder = '搜尋代號或公司名稱…', className }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -154,16 +154,17 @@ export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, 
         }}
         onFocus={() => setOpen(true)}
         placeholder={placeholder}
-        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus:border-border-strong focus-lamp sm:text-sm"
+        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus-lamp sm:text-sm"
       />
       {expanded ? (
         <ul
           id={listboxId}
           role="listbox"
           aria-label="股票代號"
+          tabIndex={-1}
           className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-border-strong bg-popover shadow-raised"
         >
-          {/* 反白／hover 的選項：淺色底＋左側 2px 燈色標線（lamp-row 讀 aria-selected） */}
+          {/* 反白的選項：淺色底＋左側 2px 燈色標線（lamp-row 讀 aria-selected）；清單 tabIndex -1，焦點一直留在輸入框 */}
           {filtered.map((stock, i) => (
             <li
               key={stock.symbol}

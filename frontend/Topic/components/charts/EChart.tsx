@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { LabelLayout } from 'echarts/features';
 import { echarts, type EChartsOption } from '@/lib/charts/echarts';
 import { CHART_SANS } from '@/lib/charts/adapters';

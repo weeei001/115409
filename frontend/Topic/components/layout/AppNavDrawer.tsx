@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { Bell, Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShieldCheck, ShoppingCart, Star, UserRound, type LucideIcon } from 'lucide-react';
+import { Bell, BookOpen, Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShieldCheck, Star, UserRound, type LucideIcon } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from './ThemeToggle';
+import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/common/BrandMark';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken } from '@/lib/auth/storage';
 import { adminMe } from '@/lib/api/admin';
@@ -17,7 +18,7 @@ const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/favorites': Star,
   '/notifications': Bell,
   '/ai': Bot,
-  '/order': ShoppingCart,
+  '/order': BookOpen,
   '/compare': GitCompareArrows,
 };
 
@@ -27,7 +28,7 @@ function avatarLetter(user: UserPublic): string {
 }
 
 const itemClass =
-  'lamp-row group flex min-h-12 w-full items-center gap-3 border-b px-5 py-3 text-left text-sm font-medium';
+  'lamp-row group flex min-h-12 w-full items-center gap-3 border-b px-5 py-3 text-left text-sm font-medium focus-lamp-inset';
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -90,14 +91,10 @@ export function AppNavDrawer() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <button
-          type="button"
-          aria-label="開啟主選單"
-          className="flex min-h-11 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium transition-colors duration-(--dur-flash) hover:border-border-strong hover:bg-accent"
-        >
-          <Menu size={20} className="shrink-0" aria-hidden />
+        <Button type="button" variant="outline" aria-label="開啟主選單" className="px-3">
+          <Menu className="size-5" aria-hidden />
           <span className="hidden sm:inline">選單</span>
-        </button>
+        </Button>
       </SheetTrigger>
       <SheetContent
         side="right"
@@ -151,7 +148,7 @@ export function AppNavDrawer() {
                     </p>
                   </div>
                 </motion.div>
-                <motion.button type="button" {...enter(1)} onClick={() => go('/me')} className={cn(itemClass, 'text-subtle')}>
+                <motion.button type="button" {...enter(1)} onClick={() => go('/me')} aria-current={isActive('/me') ? 'page' : undefined} className={cn(itemClass, isActive('/me') ? 'text-foreground' : 'text-subtle')}>
                   <UserRound size={18} className="shrink-0 text-muted-foreground" aria-hidden />
                   個人中心
                 </motion.button>
@@ -167,22 +164,20 @@ export function AppNavDrawer() {
                     setUser(null);
                     setOpen(false);
                   }}
-                  className={cn(itemClass, 'text-subtle')}
+                  className={cn(itemClass, 'text-danger')}
                 >
-                  <LogOut size={18} className="shrink-0 text-muted-foreground" aria-hidden />
+                  {/* 登出與個人中心的「登出」同一個語意色（danger），不用漲跌色 */}
+                  <LogOut size={18} className="shrink-0" aria-hidden />
                   登出
                 </motion.button>
               </div>
             ) : (
-              <motion.button
-                type="button"
-                {...enter(0)}
-                onClick={() => go(loginHref)}
-                className="mx-5 mt-4 flex min-h-12 w-[calc(100%-2.5rem)] items-center justify-center gap-2 rounded-md border border-brand-deep bg-brand px-4 py-3 text-sm font-medium text-on-brand transition-colors duration-(--dur-flash) hover:bg-brand-deep"
-              >
-                <LogIn size={18} aria-hidden />
-                登入
-              </motion.button>
+              <Button asChild size="lg" className="mx-5 mt-4 w-[calc(100%-2.5rem)]">
+                <motion.button type="button" {...enter(0)} onClick={() => go(loginHref)}>
+                  <LogIn className="size-[18px]" aria-hidden />
+                  登入
+                </motion.button>
+              </Button>
             )}
           </section>
         </div>

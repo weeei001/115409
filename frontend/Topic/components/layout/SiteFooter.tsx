@@ -1,4 +1,3 @@
-import React from 'react';
 import Link from 'next/link';
 import { BrandMark } from '@/components/common/BrandMark';
 import { FOOTER_NAV } from '@/lib/nav';

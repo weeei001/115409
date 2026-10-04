@@ -143,11 +143,11 @@ export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, 
         }}
         onKeyDown={handleKeyDown}
         onFocus={() => setOpen(true)}
-        placeholder="搜尋產業並加入..."
-        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus:border-border-strong focus-lamp sm:text-sm"
+        placeholder="搜尋產業並加入…"
+        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus-lamp sm:text-sm"
       />
       {expanded ? (
-        <ul id={listboxId} role="listbox" aria-label="產業選擇" className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-border-strong bg-popover shadow-raised">
+        <ul id={listboxId} role="listbox" aria-label="產業選擇" tabIndex={-1} className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-border-strong bg-popover shadow-raised">
           {/* 可選的產業用 lamp-row（反白時淺色底＋左側 2px 燈色標線）；已全部加入或無可加入的產業不反白 */}
           {filtered.map((option, index) => (
             <li

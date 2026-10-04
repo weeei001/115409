@@ -23,8 +23,9 @@ const STAGGER_DELAY_MS = 25;
 const STAGGER_CLEANUP_MS = 1300;
 let staggerTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** 切換主題時卡片依序過渡；卡片以 data-stagger 標記 */
+/** 切換主題時卡片依序過渡；卡片以 data-stagger 標記。減少動態時直接換色，不過渡 */
 function applyThemeStagger() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   if (staggerTimer) clearTimeout(staggerTimer);
   document.body.classList.add('theme-transitioning');
   const cells = document.querySelectorAll<HTMLElement>('[data-stagger]');

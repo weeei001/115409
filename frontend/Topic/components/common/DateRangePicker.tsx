@@ -1,6 +1,7 @@
-import React, { useId } from 'react';
+import { useId } from 'react';
 import { Calendar } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { inputClass } from '@/components/ui/input';
 
 interface Props {
   startDate: string;
@@ -13,8 +14,7 @@ interface Props {
   className?: string;
 }
 
-const inputClass =
-  'h-11 w-full min-w-0 rounded-sm border border-input bg-card px-3 font-mono text-sm tabular-nums text-foreground transition-colors duration-(--dur-flash) hover:border-border-strong md:w-[10.5rem]';
+const dateInputClass = cn(inputClass, 'font-mono tabular-nums md:w-[10.5rem]');
 
 /** 開始／結束日期；兩者交叉時自動把另一端對齊 */
 export function DateRangePicker({ startDate, endDate, onStartChange, onEndChange, startLabel = '開始日期', endLabel = '結束日期', className }: Props) {
@@ -38,11 +38,11 @@ export function DateRangePicker({ startDate, endDate, onStartChange, onEndChange
       </span>
       <label className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
         <span className="shrink-0 text-xs font-medium text-subtle">{startLabel}</span>
-        <input type="date" value={startDate} onChange={(e) => handleStart(e.target.value)} className={inputClass} />
+        <input type="date" value={startDate} onChange={(e) => handleStart(e.target.value)} className={dateInputClass} />
       </label>
       <label className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
         <span className="shrink-0 text-xs font-medium text-subtle">{endLabel}</span>
-        <input type="date" value={endDate} onChange={(e) => handleEnd(e.target.value)} className={inputClass} />
+        <input type="date" value={endDate} onChange={(e) => handleEnd(e.target.value)} className={dateInputClass} />
       </label>
     </div>
   );

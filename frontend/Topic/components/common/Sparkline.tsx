@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { cn } from '@/lib/cn';
 
 export type SparklineTrend = 'up' | 'down' | 'flat';

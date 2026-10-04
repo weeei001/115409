@@ -1,32 +1,13 @@
-import { useEffect, useState } from 'react';
-import { fetchStockInfos } from '../api/stock';
+import { useStockInfos } from '../hooks/useStockInfos';
 
+/** 公司名稱（來自 /stocks/info）；查不到或還沒載入時回傳代號 */
 export function useStockDisplayName(symbol: string): string {
   const normalizedSymbol = symbol.trim().toUpperCase();
-  const [displayName, setDisplayName] = useState(normalizedSymbol);
-
-  useEffect(() => {
-    let active = true;
-    setDisplayName(normalizedSymbol);
-
-    if (!normalizedSymbol) return () => { active = false; };
-
-    fetchStockInfos()
-      .then((stocks) => {
-        if (!active) return;
-        setDisplayName(stocks.find((stock) => stock.symbol === normalizedSymbol)?.name ?? normalizedSymbol);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [normalizedSymbol]);
-
-  return displayName;
+  const { data } = useStockInfos({ enabled: Boolean(normalizedSymbol) });
+  return data?.find((stock) => stock.symbol === normalizedSymbol)?.name ?? normalizedSymbol;
 }
 
-/** 股票名稱由 stock info API 提供；沒有名稱時只顯示代號。 */
+/** 股票代號的顯示形式（去空白、轉大寫）；公司名稱另由 useStockDisplayName 取得。 */
 export function formatStockLabel(symbol: string): string {
   return symbol.trim().toUpperCase();
 }

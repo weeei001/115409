@@ -7,6 +7,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { Breadcrumbs } from './Breadcrumbs';
 import { HeaderStockSearch, PrimaryNav } from './PrimaryNav';
 import { BrandMark } from '@/components/common/BrandMark';
+import { Button } from '@/components/ui/button';
 import { DataStamp } from '@/components/common/Ledger';
 import { breadcrumbsForPath, type BreadcrumbItem } from '@/lib/nav';
 import { useSyncAppHeaderHeight } from '@/lib/hooks/useClientEnv';
@@ -50,14 +51,9 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
       <header ref={headerRef} className="sticky top-0 z-50 shrink-0 border-b bg-card pt-[var(--app-safe-area-top)]">
         <div className="mx-auto flex h-14 max-w-[1320px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-10">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <button
-              type="button"
-              onClick={handleBack}
-              aria-label="返回上一頁"
-              className="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-md text-subtle transition-colors duration-(--dur-flash) hover:bg-accent hover:text-foreground"
-            >
-              <ArrowLeft size={20} aria-hidden />
-            </button>
+            <Button type="button" variant="ghost" size="icon" onClick={handleBack} aria-label="返回上一頁" className="-ml-2 text-subtle hover:text-foreground">
+              <ArrowLeft className="size-5" aria-hidden />
+            </Button>
             <Link href="/" aria-label="股海明燈首頁" className="flex min-h-11 shrink-0 items-center gap-2">
               <BrandMark />
               <span className="font-serif text-lg font-black tracking-[0.14em]">股海明燈</span>

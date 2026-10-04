@@ -45,11 +45,36 @@ export function formatTime(iso: string | null): string {
   return d.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '';
+/**
+ * 後端時間戳 → 台北時間字串。固定 Asia/Taipei，任何地區的瀏覽器都顯示同一個時間；
+ * options 是 toLocaleString 的顯示格式（各處沿用原本的格式），解析不了時回傳 fallback。
+ */
+export function formatTaipei(
+  value: string | null | undefined,
+  options: Intl.DateTimeFormatOptions = { hour12: false },
+  fallback = '',
+): string {
+  if (!value) return fallback;
   const d = parseNewsDate(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleString('zh-TW', { ...options, timeZone: 'Asia/Taipei' }).replace(/\s+/g, ' ');
+}
+
+const MINUTE_FORMAT: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+
+/** 新聞發布時間：年月日時分（台北時間）；解析不了時顯示原字串 */
+export function formatDateTime(value: string | null | undefined): string {
+  return formatTaipei(value, MINUTE_FORMAT, value ?? '');
+}
+
+/**
+ * 同上加「台北時間」字樣（例如 2026-10-02T05:01:14+00:00 →「台北時間 2026/10/02 13:01」），
+ * 用在畫面上沒有其他地方交代時區的位置；解析不了時顯示原字串。
+ */
+export function taipeiDateTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const text = formatTaipei(value, { ...MINUTE_FORMAT, hour12: false });
+  return text ? `台北時間 ${text}` : value;
 }
 
 export function formatDate(value: string | null | undefined): string {

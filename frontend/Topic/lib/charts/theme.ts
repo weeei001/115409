@@ -64,7 +64,7 @@ export function getChartPalette(isDark: boolean): ChartPalette {
 }
 
 /**
- * 均線色：避開漲跌的紅綠（決議 D8），也避開燈色（金色只當光用）；對應 --chart-1…5。
+ * 均線色：避開漲跌的紅綠（決議 D8），也避開燈色（金色只當光用）。
  * MA5 藍、MA10 紫、MA20 青、MA60 褐、MA120 灰藍。
  */
 export function getMaColors(isDark: boolean) {

@@ -1,6 +1,13 @@
 import type { BusinessDay, CandlestickData, Time } from 'lightweight-charts';
 import type { ChartCandle } from '../types/view';
 
+/** lightweight-charts 的 Time → YYYY-MM-DD（K 線與觀測台共用） */
+export function timeToYmd(time: Time): string {
+  if (typeof time === 'string') return time;
+  if (typeof time === 'number') return new Date(time * 1000).toISOString().slice(0, 10);
+  return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
+}
+
 export function toBusinessDay(dateText: string): BusinessDay {
   const [year, month, day] = dateText.split('-').map(Number);
   return { year, month, day };
