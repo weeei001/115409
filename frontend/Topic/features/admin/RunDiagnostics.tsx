@@ -1,5 +1,6 @@
-import { ChevronRight } from 'lucide-react';
+import { Disclosure } from '@/components/common/Disclosure';
 import type { AdminRun } from '@/lib/api/admin';
+import { formatTaipei } from '@/lib/utils/date';
 
 const CATEGORIES: Record<string, string> = {
   stage_nonzero: '子工作非零結束；根因待查', service_restart: '服務重新啟動前未完成',
@@ -20,14 +21,13 @@ export function adminStageLabel(stage?: string | null): string {
 
 export function AdminRunDiagnostics({ run }: { run: AdminRun }) {
   const data = run.diagnostics;
-  const time = (value: string | null) => value && Number.isFinite(Date.parse(value))
-    ? new Date(value).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }).replace(/\s+/g, ' ') : '未知';
+  const time = (value: string | null) => formatTaipei(value, { hour12: false }, '未知');
   // 帳頁語法：方角細線框，摘要列 44px，內容用細線分段；代號、結束碼與時間用等寬字
-  return <details className="group border bg-card text-xs">
-    <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 font-medium transition-colors duration-(--dur-flash) hover:bg-accent focus-lamp [&::-webkit-details-marker]:hidden">
-      <ChevronRight size={14} className="shrink-0 text-muted-foreground transition-transform duration-(--dur-flash) group-open:rotate-90" aria-hidden />
-      <span>安全診斷 · 執行紀錄 <span className="font-mono tabular-nums">#{run.id}</span>{run.exit_code != null ? <> · 結束碼 <span className="font-mono tabular-nums">{run.exit_code}</span></> : ''}</span>
-    </summary>
+  return <Disclosure
+    className="border bg-card text-xs"
+    summaryProps={{ className: 'px-3 font-medium text-foreground hover:bg-accent' }}
+    summary={<>安全診斷 · 執行紀錄 <span className="font-mono tabular-nums">#{run.id}</span>{run.exit_code != null ? <> · 結束碼 <span className="font-mono tabular-nums">{run.exit_code}</span></> : ''}</>}
+  >
     <div className="divide-y border-t leading-5 [&>*]:px-3 [&>*]:py-2">
       {data?.error_category ? <p className="font-medium">{CATEGORIES[data.error_category] ?? '原因未知'}</p> : null}
       <p>目前階段：{adminStageLabel(data?.stage)} · 最後階段活動：<span className="font-mono tabular-nums">{time(data?.last_activity_at ?? null)}</span></p>
@@ -36,5 +36,5 @@ export function AdminRunDiagnostics({ run }: { run: AdminRun }) {
       {run.error ? <p className="border-l-2 border-l-danger-border font-mono break-words text-danger">{run.error}</p> : null}
       <p className="text-muted-foreground">受控服務日誌關聯：<code className="font-mono">admin_run={run.id}</code>。舊紀錄可能沒有此關聯；沒有階段證據時保持未知。</p>
     </div>
-  </details>;
+  </Disclosure>;
 }
