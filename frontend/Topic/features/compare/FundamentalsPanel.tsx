@@ -1,4 +1,3 @@
-import React from 'react';
 import { LedgerPanel } from '@/components/common/Ledger';
 import type { CompareFundamentalsData } from '@/lib/api/compareFundamentals';
 import { buildFundamentalsComparison, epsPeriodLabel } from '@/lib/utils/compareFundamentals';

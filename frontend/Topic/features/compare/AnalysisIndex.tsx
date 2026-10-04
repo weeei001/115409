@@ -1,6 +1,7 @@
 import React, { useId, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Ledger, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
 
 export interface AnalysisEntry {
@@ -31,7 +32,7 @@ export function AnalysisIndex({ title, entries }: { title: string; entries: Anal
         {/* 桌機欄名；手機每列自帶名稱與發現 */}
         <div aria-hidden className="hidden border-b px-5 md:grid md:grid-cols-[13rem_minmax(0,1fr)_6.5rem] md:gap-x-6">
           {['分析', '這次比較的發現', ''].map((h, i) => (
-            <span key={i} className="flex h-10 items-center text-xs font-medium tracking-[0.04em] text-muted-foreground">
+            <span key={i} className="flex h-11 items-center text-xs font-medium tracking-[0.04em] text-muted-foreground">
               {h}
             </span>
           ))}
@@ -65,17 +66,19 @@ export function AnalysisIndex({ title, entries }: { title: string; entries: Anal
                   >
                     {entry.finding ?? entry.description}
                   </p>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
                     aria-expanded={open}
                     aria-controls={regionId}
                     aria-describedby={headingId}
                     onClick={() => setOpenKey(open ? null : entry.key)}
-                    className="col-start-2 row-start-1 inline-flex min-h-11 items-center justify-end gap-1 justify-self-end rounded-sm px-2 text-[13px] text-subtle transition-colors duration-(--dur-flash) hover:bg-background hover:text-foreground focus-lamp md:col-start-3"
+                    className="col-start-2 row-start-1 justify-end gap-1 justify-self-end px-2 font-normal tracking-normal text-subtle hover:text-foreground md:col-start-3"
                   >
                     {open ? '收合' : '展開'}
-                    <ChevronDown size={16} aria-hidden className={cn('transition-transform duration-(--dur-sweep) ease-flash', open && 'rotate-180')} />
-                  </button>
+                    <ChevronDown aria-hidden className={cn('transition-transform duration-(--dur-sweep) ease-flash', open && 'rotate-180')} />
+                  </Button>
                 </div>
                 <div id={regionId} role="region" aria-labelledby={headingId} hidden={!open} className="border-t">
                   {open ? entry.content() : null}

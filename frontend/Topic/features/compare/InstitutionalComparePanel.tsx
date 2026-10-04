@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { EChart } from '@/components/charts/EChart';
 import { LedgerPanel } from '@/components/common/Ledger';
 import { EmptyState } from '@/components/common/Notice';
@@ -7,8 +7,8 @@ import { useTheme } from '@/lib/theme/ThemeContext';
 import type { InstitutionalAggregate } from '@/lib/types/compare';
 import type { InstitutionalDay } from '@/lib/types/view';
 import { buildInstitutionalCumulative } from '@/lib/utils/compare';
-import { fmtInstitutionalShares } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
+import { signedShares } from '@/features/stock/signedShares';
 import { cn } from '@/lib/cn';
 
 interface Props {
@@ -17,9 +17,6 @@ interface Props {
   aggregateMap: Record<string, InstitutionalAggregate>;
   symbolColors: Record<string, string>;
 }
-
-/** 買賣超依正負上色，所以一律帶正負號（DESIGN.md 第 7 節）；格式化字串已帶負號，只補正號 */
-const signedShares = (v: number | null | undefined) => `${v != null && Number.isFinite(v) && v > 0 ? '+' : ''}${fmtInstitutionalShares(v)}`;
 
 const num = 'h-11 px-3 py-2.5 text-right font-mono text-[13.5px] tabular-nums whitespace-nowrap sm:px-4';
 const th = 'h-11 px-3 text-right text-[13px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground sm:px-4';
@@ -62,7 +59,7 @@ export function InstitutionalComparePanel({ symbols, institutionalMap, aggregate
                     <th scope="col" className={th}>自營</th>
                     <th scope="col" className={th}>合計</th>
                     <th scope="col" className={th}>最大單日</th>
-                    <th scope="col" className={th} title="自期末日往回計算的連續買超天數，僅反映期末的最新動能">
+                    <th scope="col" className={th}>
                       期末連續買超
                     </th>
                   </tr>
@@ -86,7 +83,7 @@ export function InstitutionalComparePanel({ symbols, institutionalMap, aggregate
                           {signedShares(agg?.maxDailyTotalNet)}
                           {agg?.maxDailyTotalNetDate ? <span className="block text-[11px] text-muted-foreground">{agg.maxDailyTotalNetDate}</span> : null}
                         </td>
-                        <td className={num} title="自期末日往回計算的連續買超天數">
+                        <td className={num}>
                           {agg && agg.consecutiveBuyDays > 0 ? `${agg.consecutiveBuyDays} 天` : '—'}
                         </td>
                       </tr>
@@ -95,6 +92,7 @@ export function InstitutionalComparePanel({ symbols, institutionalMap, aggregate
                 </tbody>
               </table>
             </div>
+            <p className="border-t px-4 py-2.5 text-xs leading-5 text-muted-foreground">期末連續買超：自期末日往回計算的連續買超天數，僅反映期末的最新動能。</p>
           </LedgerPanel>
         </>
       )}

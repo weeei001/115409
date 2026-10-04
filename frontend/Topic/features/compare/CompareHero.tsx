@@ -1,8 +1,9 @@
 import React from 'react';
 import { AlertTriangle, Info, RotateCcw } from 'lucide-react';
 import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/cn';
+import type { BadgeTone } from '@/lib/utils/tone';
 import type { StockInfo } from '@/lib/types/api';
 
 interface Props {
@@ -39,11 +40,7 @@ function alignedHint(tone: AlignedTone, days: number): string {
   return `共同日漲跌樣本 ${days} 筆`;
 }
 
-const TONE_TAG: Record<AlignedTone, string> = {
-  ok: 'border-border bg-muted text-subtle',
-  warn: 'border-warning-border bg-warning-muted text-warning',
-  danger: 'border-danger-border bg-danger-muted text-danger',
-};
+const TONE_TAG: Record<AlignedTone, BadgeTone> = { ok: 'neutral', warn: 'warning', danger: 'danger' };
 
 /**
  * 比較結果帳頁：最上方是航跡圖（本頁唯一的圖廓），緊接著參與比較的條目，最後一格是產業背景與實際比較期間。
@@ -117,10 +114,10 @@ export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange,
             查詢條件：{requestedRange.startDate} 起，查詢到 {requestedRange.endDate}
           </p>
           <p>
-            <span className={cn('inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs tabular-nums', TONE_TAG[tone])}>
+            <Badge tone={TONE_TAG[tone]} className="gap-1.5 px-2 font-normal whitespace-normal tabular-nums">
               {tone !== 'ok' ? <AlertTriangle size={12} aria-hidden /> : null}
               {analysisRange ? alignedHint(tone, alignedDays) : '共同日漲跌樣本不足'}
-            </span>
+            </Badge>
           </p>
         </div>
         </div>

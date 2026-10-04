@@ -3,7 +3,7 @@ import { EChart } from '@/components/charts/EChart';
 import { NeatlineSoundings, SOUNDING_FRAME_STYLE, SOUNDING_PAD, sameMarks, type SoundingMarks } from '@/components/charts/NeatlineSoundings';
 import { LedgerPanel } from '@/components/common/Ledger';
 import { EmptyState } from '@/components/common/Notice';
-import { Button } from '@/components/ui/button';
+import { Button, textLinkClass } from '@/components/ui/button';
 import { compareLineOption, plottedSpan, plottedSpanText } from '@/lib/charts/adapters';
 import type { EChartsOption, echarts } from '@/lib/charts/echarts';
 import { useTheme } from '@/lib/theme/ThemeContext';
@@ -11,6 +11,7 @@ import type { MultiStockResponse } from '@/lib/types/api';
 import type { CompareChartMode } from '@/lib/types/compare';
 import { toCompareChartSeries, toggleHiddenSymbol, visibleSymbolsFromHidden } from '@/lib/utils/compare';
 import { cn } from '@/lib/cn';
+import { tabListClass, tabTriggerActiveClass, tabTriggerClass } from '@/components/ui/tabs';
 import type { BenchmarkHistoryResponse } from '@/lib/api/benchmark';
 import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
 import { getChartPalette } from '@/lib/charts/theme';
@@ -45,7 +46,7 @@ function ModeTabs({ mode, onModeChange }: { mode: CompareChartMode; onModeChange
       ref={listRef}
       role="tablist"
       aria-label="圖表顯示模式"
-      className="flex w-full shrink-0 border border-input sm:w-fit"
+      className={cn(tabListClass, 'w-full shrink-0 sm:w-fit')}
       onKeyDown={(e) => {
         const idx = keys.indexOf(mode);
         if (e.key === 'ArrowRight' || e.key === 'ArrowDown') move(idx + 1);
@@ -65,12 +66,8 @@ function ModeTabs({ mode, onModeChange }: { mode: CompareChartMode; onModeChange
           aria-selected={mode === m.key}
           tabIndex={mode === m.key ? 0 : -1}
           onClick={() => onModeChange(m.key)}
-          className={cn(
-            // 選取的分頁：淺色底＋下緣 2px 墨色標線。這裡緊鄰各檔代表色，不用燈色以免和橘、褐色的線混在一起
-            'relative min-h-11 flex-1 px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-(--dur-flash) ease-flash not-first:border-l focus-lamp sm:flex-none sm:px-4',
-            'after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground after:opacity-0 after:transition-opacity after:duration-(--dur-sweep)',
-            mode === m.key ? 'bg-accent text-foreground after:opacity-100' : 'bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
-          )}
+          // 選取的分頁：下緣 2px 墨色標線（全站分頁同一套）。這裡緊鄰各檔代表色，不用燈色以免和代表色混在一起
+          className={cn(tabTriggerClass, 'flex-1 sm:flex-none sm:px-4', mode === m.key && tabTriggerActiveClass)}
         >
           {m.label}
         </button>
@@ -278,7 +275,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
           大盤基準：臺灣加權股價指數（TAIEX，不含現金股利）。
           {benchmarkLoading ? '載入中…' : comparison.returnPct == null ? comparison.warning : `同期間漲跌幅 ${fmtPercent(comparison.returnPct, { sign: true })}。${comparison.warning ?? ''}`}
           {mode === 'price' ? ' 指數走勢顯示於「指數化」與「區間漲跌幅」模式。' : ''}
-          {' '}<a href="https://www.twse.com.tw/zh/indices/taiex/mi-5min-hist.html" target="_blank" rel="noreferrer" className="text-subtle underline underline-offset-4 hover:text-foreground">證交所資料來源</a>
+          {' '}<a href="https://www.twse.com.tw/zh/indices/taiex/mi-5min-hist.html" target="_blank" rel="noreferrer" className={cn('text-subtle hover:text-foreground', textLinkClass)}>證交所資料來源</a>
         </p>
       </div>
       <div className="sr-only">

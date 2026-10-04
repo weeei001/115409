@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { compareLineOption, institutionalCompareOption } from '../../lib/charts/adapters';
 import { CorrelationPanel } from './CorrelationPanel';

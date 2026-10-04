@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import { GitCompare, X } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
@@ -6,7 +6,8 @@ import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
 import { IndustrySearch } from '@/components/common/IndustrySearch';
 import { Ledger, LedgerPanel, LightGlyph, NextStep, type LightState } from '@/components/common/Ledger';
-import { EmptyState, Notice } from '@/components/common/Notice';
+import { LightEntry } from '@/components/common/LightEntry';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { StockSearch } from '@/components/common/StockSearch';
 import { Button } from '@/components/ui/button';
 import { CategoryLeaders } from '@/features/compare/CategoryLeaders';
@@ -39,14 +40,14 @@ import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
 /** 載入＝燈質 Q：有線的空白列（DESIGN.md 第 10 節） */
 function QRows({ label, className }: { label: string; className?: string }) {
   return (
-    <section aria-hidden className="min-w-0">
+    <section className="min-w-0">
       <div className="border-b border-border-strong pb-2">
         <span className="characteristic inline-flex items-center gap-1.5">
           <LightGlyph state="loading" />
           {label}
         </span>
       </div>
-      <div className={cn('q-rows border-x border-b bg-card', className)} />
+      <LoadingRows label={`${label}…`} className={cn('border-x border-b bg-card', className)} />
     </section>
   );
 }
@@ -61,13 +62,13 @@ const OUTPUTS: Array<[string, string]> = [
 function CompareOutputs() {
   return (
     <section aria-labelledby="compare-outputs-heading" className="-mt-4 min-w-0 lg:-mt-8">
-      <h2 id="compare-outputs-heading" className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
+      <p id="compare-outputs-heading" className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
         加入兩檔以上股票並按「開始比較」，會產出
-      </h2>
+      </p>
       <dl className="mt-2 divide-y border-y border-t-border-strong">
         {OUTPUTS.map(([term, desc]) => (
           <div key={term} className="grid gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
-            <dt className="font-serif text-[17px] font-black tracking-[0.06em]">{term}</dt>
+            <dt className="text-[15px] font-bold">{term}</dt>
             <dd className="text-[15px] leading-relaxed text-subtle">{desc}</dd>
           </div>
         ))}
@@ -218,11 +219,11 @@ export default function ComparePage() {
                     disabled={loading || c.selected.length === 0}
                     className="w-full sm:w-auto sm:min-w-40"
                   >
-                    {c.chartLoading ? '載入主圖資料...' : c.metricsLoading ? '計算比較指標...' : '開始比較'}
+                    {c.chartLoading ? '載入主圖資料…' : c.metricsLoading ? '計算比較指標…' : '開始比較'}
                   </Button>
                   {loading ? (
                     <div className="characteristic" aria-live="polite" aria-atomic="true">
-                      {c.chartLoading ? <p>主圖資料載入中...</p> : null}
+                      {c.chartLoading ? <p>主圖資料載入中…</p> : null}
                       {c.metricsLoading && c.metricsProgress ? (
                         <p>
                           指標資料載入中：{c.metricsProgress.done}/{c.metricsProgress.total}
@@ -241,22 +242,28 @@ export default function ComparePage() {
                 {c.selected.length > 0 ? (
                   <ul className="divide-y" aria-label="已選股票">
                     {c.selected.map((sym) => (
-                      <li key={sym} className="relative flex min-h-14 items-center gap-3 bg-card py-1.5 pr-1.5 pl-5 sm:pl-6">
-                        {/* 代表色只當一條 3px 的「燈色條」，不用彩色膠囊 */}
-                        <span aria-hidden className="absolute inset-y-2 left-0 w-[3px]" style={{ backgroundColor: selectedColors[sym] }} />
-                        <span className="w-12 shrink-0 font-mono text-[13.5px] font-medium tabular-nums">{sym}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{c.stockInfos[sym]?.name ?? ''}</span>
-                          <span className="block truncate text-xs text-muted-foreground">{c.stockInfos[sym]?.industry?.trim() || '產業未提供'}</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => c.removeSymbol(sym)}
-                          aria-label={`移除 ${sym}`}
-                          className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-(--dur-flash) hover:bg-danger-muted hover:text-danger"
-                        >
-                          <X size={16} aria-hidden />
-                        </button>
+                      <li key={sym}>
+                        <LightEntry
+                          symbol={sym}
+                          name={c.stockInfos[sym]?.name}
+                          meta={c.stockInfos[sym]?.industry?.trim() || '產業未提供'}
+                          hideQuote
+                          className="relative py-1.5 pr-1.5 pl-5 sm:pl-6"
+                          // 代表色只當一條 3px 的「燈色條」，不用彩色膠囊
+                          leading={<span aria-hidden className="absolute inset-y-2 left-0 w-[3px]" style={{ backgroundColor: selectedColors[sym] }} />}
+                          trailing={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => c.removeSymbol(sym)}
+                              aria-label={`移除 ${sym}`}
+                              className="text-muted-foreground hover:bg-danger-muted hover:text-danger"
+                            >
+                              <X aria-hidden />
+                            </Button>
+                          }
+                        />
                       </li>
                     ))}
                   </ul>

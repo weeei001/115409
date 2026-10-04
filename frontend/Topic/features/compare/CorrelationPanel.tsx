@@ -1,4 +1,3 @@
-import React from 'react';
 import { LedgerPanel } from '@/components/common/Ledger';
 import { EmptyState } from '@/components/common/Notice';
 import { correlationColor, correlationGradient, getChartPalette } from '@/lib/charts/theme';

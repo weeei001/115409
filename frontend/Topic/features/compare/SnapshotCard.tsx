@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Sparkline } from '@/components/common/Sparkline';
 import { plottedSpan, plottedSpanText } from '@/lib/charts/adapters';
 import { signedText } from '@/components/common/LightEntry';

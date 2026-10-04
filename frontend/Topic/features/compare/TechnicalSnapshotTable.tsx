@@ -1,21 +1,19 @@
-import React from 'react';
 import { LedgerPanel } from '@/components/common/Ledger';
 import { EmptyState } from '@/components/common/Notice';
 import type { TechnicalDay } from '@/lib/types/view';
 import { kdSignal, macdSignal, maPositionSignal, rsiSignal } from '@/lib/utils/compareSignals';
 import { fmtPercent } from '@/lib/utils/format';
-import { signalBadgeClass, type Signal } from '@/lib/utils/indicatorSignals';
+import type { Signal } from '@/lib/utils/indicatorSignals';
+import { SignalTag } from '@/components/common/SignalTag';
 import { cn } from '@/lib/cn';
 
-const fmtNum = (v: number | null | undefined, decimals = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(decimals));
+const fmtFixed = (v: number | null | undefined, decimals = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(decimals));
 
 function SignalCell({ value, signal }: { value: string; signal: Signal }) {
   return (
     <div className="flex flex-col items-end gap-1">
       <span className="font-mono text-[13.5px] font-medium tabular-nums">{value}</span>
-      <span className={cn('inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap', signalBadgeClass(signal.tone, true))}>
-        {signal.label}
-      </span>
+      <SignalTag signal={signal} />
     </div>
   );
 }
@@ -60,7 +58,7 @@ export function TechnicalSnapshotTable({
                   // 收盤與均線取同一列（同一天），不拿比較主圖的最後收盤（決議 D9-c24）
                   const ma20 = maPositionSignal(row?.close, row?.ma20, 'MA20');
                   const ma60 = maPositionSignal(row?.close, row?.ma60, 'MA60');
-                  const kdText = row?.kd_k9 != null && row?.kd_d9 != null ? `${fmtNum(row.kd_k9)} / ${fmtNum(row.kd_d9)}` : '—';
+                  const kdText = row?.kd_k9 != null && row?.kd_d9 != null ? `${fmtFixed(row.kd_k9)} / ${fmtFixed(row.kd_d9)}` : '—';
                   return (
                     <tr key={sym} className="border-b align-top last:border-b-0">
                       <td className="px-3 py-3 whitespace-nowrap sm:px-4">
@@ -71,10 +69,10 @@ export function TechnicalSnapshotTable({
                         {row?.date ? <span className="characteristic mt-1 block pl-3">{row.date}</span> : null}
                       </td>
                       <td className={td}>
-                        <SignalCell value={fmtNum(row?.rsi10)} signal={rsiSignal(row?.rsi10)} />
+                        <SignalCell value={fmtFixed(row?.rsi10)} signal={rsiSignal(row?.rsi10)} />
                       </td>
                       <td className={td}>
-                        <SignalCell value={fmtNum(row?.macd_hist, 3)} signal={macdSignal(row?.macd_hist)} />
+                        <SignalCell value={fmtFixed(row?.macd_hist, 3)} signal={macdSignal(row?.macd_hist)} />
                       </td>
                       <td className={td}>
                         <SignalCell value={kdText} signal={kdSignal(row?.kd_k9, row?.kd_d9)} />

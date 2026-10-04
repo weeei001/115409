@@ -1,12 +1,8 @@
-import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { CompareQualityMeta } from '@/lib/types/compare';
 import { fmtPercent } from '@/lib/utils/format';
-
-function toLocalTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('zh-TW', { hour12: false });
-}
+import { formatTaipei } from '@/lib/utils/date';
+import { cn } from '@/lib/cn';
 
 const th = 'h-11 px-3 text-[13px] font-medium tracking-[0.04em] text-muted-foreground sm:px-4';
 
@@ -37,7 +33,7 @@ export function MethodologyPanel({ qualityMeta }: { qualityMeta: CompareQualityM
                 查詢條件：{qualityMeta.requestedRange.startDate} 起，查詢到 {qualityMeta.requestedRange.endDate}（查詢到的日期不一定有儲存資料）
               </p>
               <p>所有標的共同有效日漲跌幅：{qualityMeta.alignedDays} 筆；各配對樣本數以相關性面板為準。</p>
-              <p>資料時間戳：{toLocalTime(qualityMeta.generatedAt)}</p>
+              <p>資料時間戳：{formatTaipei(qualityMeta.generatedAt, { hour12: false }, qualityMeta.generatedAt)}</p>
             </div>
           </section>
 
@@ -47,9 +43,9 @@ export function MethodologyPanel({ qualityMeta }: { qualityMeta: CompareQualityM
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border-strong">
-                    <th scope="col" className={`${th} pl-0 text-left sm:pl-0`}>股票</th>
-                    <th scope="col" className={`${th} text-right`}>有效日漲跌幅</th>
-                    <th scope="col" className={`${th} pr-0 text-right sm:pr-0`}>日漲跌幅缺值率</th>
+                    <th scope="col" className={cn(th, 'pl-0 text-left sm:pl-0')}>股票</th>
+                    <th scope="col" className={cn(th, 'text-right')}>有效日漲跌幅</th>
+                    <th scope="col" className={cn(th, 'pr-0 text-right sm:pr-0')}>日漲跌幅缺值率</th>
                   </tr>
                 </thead>
                 <tbody>

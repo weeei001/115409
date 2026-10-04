@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { CompareMetricsRow } from '@/lib/types/compare';
 import { buildMetricsRow, sortMetricsRows } from '@/lib/utils/compare';

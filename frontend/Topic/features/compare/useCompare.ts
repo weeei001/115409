@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   fetchInstitutionalTrades,
   fetchMultipleStocks,
-  fetchStockInfos,
   fetchSymbols,
   fetchTechnicalIndicators,
   fetchVolume,
@@ -16,6 +15,7 @@ import type { CategoryLeader, CompareViewModel, InstitutionalAggregate } from '@
 import type { InstitutionalDay, TechnicalDay } from '@/lib/types/view';
 import { aggregateInstitutional, alignComparePrices, buildCategoryLeaders, buildCompareViewModel, buildInstitutionalRankingAggregates } from '@/lib/utils/compare';
 import { getDefaultDateRange } from '@/lib/utils/date';
+import { useStockInfos } from '@/lib/hooks/useStockInfos';
 import { applyBulkSelection } from '@/lib/utils/stockSelection';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
@@ -125,8 +125,12 @@ const errorMessage = (err: unknown, fallback: string) => userFacingMessage(err, 
 export function useCompare() {
   const [defaults] = useState(() => getDefaultDateRange());
   const [allSymbols, setAllSymbols] = useState<string[]>([]);
-  const [stockInfos, setStockInfos] = useState<Record<string, StockInfo>>({});
-  const [metadataWarning, setMetadataWarning] = useState<string | null>(null);
+  const stockInfoList = useStockInfos();
+  const stockInfos = useMemo<Record<string, StockInfo>>(
+    () => Object.fromEntries((stockInfoList.data ?? []).map((stock) => [stock.symbol, stock])),
+    [stockInfoList.data],
+  );
+  const metadataWarning = stockInfoList.status === 'error' ? '公司與產業資料載入失敗，仍可使用股票代號比較。' : null;
   const [selected, setSelected] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
@@ -147,9 +151,6 @@ export function useCompare() {
     fetchSymbols()
       .then((symbols) => { if (active) setAllSymbols(symbols); })
       .catch((err) => { if (active) setError(errorMessage(err, '無法載入股票清單')); });
-    fetchStockInfos()
-      .then((stocks) => { if (active) setStockInfos(Object.fromEntries(stocks.map((stock) => [stock.symbol, stock]))); })
-      .catch(() => { if (active) setMetadataWarning('公司與產業資料載入失敗，仍可使用股票代號比較。'); });
     return () => { active = false; };
   }, []);
 

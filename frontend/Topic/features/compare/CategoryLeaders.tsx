@@ -55,7 +55,7 @@ export function CategoryLeaders({
         {/* 桌機的欄名；手機每列自帶類別名，不需要表頭 */}
         <div aria-hidden className="hidden border-b px-5 md:grid md:grid-cols-[12rem_minmax(12rem,15rem)_9rem_minmax(0,1fr)] md:gap-x-6">
           {['類別', '股票', '讀數', '註記'].map((h, i) => (
-            <span key={h} className={cn('flex h-10 items-center text-xs font-medium tracking-[0.04em] text-muted-foreground', i === 2 && 'justify-end')}>
+            <span key={h} className={cn('flex h-11 items-center text-xs font-medium tracking-[0.04em] text-muted-foreground', i === 2 && 'justify-end')}>
               {h}
             </span>
           ))}

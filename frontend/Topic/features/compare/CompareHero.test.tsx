@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { StockInfo } from '../../lib/types/api';
 import { CompareHero } from './CompareHero';

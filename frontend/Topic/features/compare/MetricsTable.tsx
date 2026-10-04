@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { FoldSection, TableScrollHint } from '@/components/common/CollapsibleSection';
 import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
@@ -141,7 +141,7 @@ export function MetricsTable({
                         title={h.title}
                         onClick={() => toggleSort(h.key)}
                         className={cn(
-                          'inline-flex min-h-11 items-center gap-1 text-[13px] font-medium tracking-[0.04em] transition-colors duration-(--dur-flash) hover:text-foreground focus-lamp',
+                          'inline-flex min-h-11 items-center gap-1 text-[13px] font-medium tracking-[0.04em] transition-colors duration-(--dur-flash) hover:text-foreground focus-lamp-inset',
                           active ? 'text-foreground' : 'text-muted-foreground',
                         )}
                       >
