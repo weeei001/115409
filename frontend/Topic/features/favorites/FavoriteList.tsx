@@ -1,7 +1,7 @@
 import React from 'react';
-import Link from 'next/link';
 import { ArrowRight, RefreshCw, X } from 'lucide-react';
 import { Ledger, LedgerPanel, LightGlyph } from '@/components/common/Ledger';
+import { LightEntry } from '@/components/common/LightEntry';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
@@ -53,13 +53,13 @@ export function FavoriteList() {
         <EmptyState
           className="py-6"
           action={
-            // 搜尋框在同一頁上方（FavoriteStockSearch）
+            // 搜尋框在同一頁的「加入收藏股」（FavoriteStockSearch；桌機在右欄、手機在清單下方）
             <Button variant="outline" className="mt-2" onClick={() => document.getElementById('favorite-stock-query')?.focus()}>
               搜尋股票
             </Button>
           }
         >
-          尚未收藏股票，從上方搜尋並加入你關注的個股。
+          尚未收藏股票，用「加入收藏股」搜尋並加入你關注的個股。
         </EmptyState>
       </LedgerPanel>
     );
@@ -73,37 +73,40 @@ export function FavoriteList() {
           const label = name ? `${symbol} ${name}` : symbol;
           const savedOn = taipeiDate(created_at);
           return (
-            <li key={symbol} className="flex items-stretch">
-              <Link
+            <li key={symbol}>
+              <LightEntry
+                symbol={symbol}
+                name={name || symbol}
+                meta={savedOn ? `收藏於 ${savedOn}` : undefined}
+                hideQuote
                 href={`/stock/${symbol}`}
-                aria-label={`看 ${label} 的收盤與走勢`}
-                className="lamp-row group flex min-h-14 min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left sm:px-5"
-              >
-                <span className="w-14 shrink-0 font-mono text-[13.5px] font-medium tabular-nums">{symbol}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{name || symbol}</span>
-                  {savedOn ? <span className="characteristic block truncate">收藏於 {savedOn}</span> : null}
-                </span>
-                <span aria-hidden className="hidden shrink-0 text-[13px] text-muted-foreground sm:inline">
-                  收盤與走勢
-                </span>
-                <ArrowRight
-                  size={16}
-                  className="shrink-0 text-muted-foreground transition-transform duration-(--dur-flash) group-hover:translate-x-0.5"
-                  aria-hidden
-                />
-              </Link>
-              {/* 列尾：取消收藏，44px 的 ghost 圖示鈕，放在連結外面避免巢狀互動元素 */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => remove(symbol)}
-                disabled={isPending(symbol)}
-                aria-label={`移除收藏 ${label}`}
-                className="mr-1 shrink-0 self-center text-muted-foreground hover:text-foreground sm:mr-2"
-              >
-                <X aria-hidden />
-              </Button>
+                label={`看 ${label} 的收盤與走勢`}
+                extra={
+                  <>
+                    <span aria-hidden className="hidden shrink-0 text-[13px] text-muted-foreground sm:inline">
+                      收盤與走勢
+                    </span>
+                    <ArrowRight
+                      size={16}
+                      className="shrink-0 text-muted-foreground transition-transform duration-(--dur-flash) group-hover:translate-x-0.5"
+                      aria-hidden
+                    />
+                  </>
+                }
+                // 列尾：取消收藏，44px 的 ghost 圖示鈕，放在連結外面避免巢狀互動元素
+                trailing={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => remove(symbol)}
+                    disabled={isPending(symbol)}
+                    aria-label={`移除收藏 ${label}`}
+                    className="mr-1 shrink-0 self-center text-muted-foreground hover:text-foreground sm:mr-2"
+                  >
+                    <X aria-hidden />
+                  </Button>
+                }
+              />
             </li>
           );
         })}

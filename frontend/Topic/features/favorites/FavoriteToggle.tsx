@@ -1,4 +1,3 @@
-import React from 'react';
 import { useRouter } from 'next/router';
 import { Star } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
