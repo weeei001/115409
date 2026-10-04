@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { AxiosHeaders } from 'axios';
 import { renderToStaticMarkup } from 'react-dom/server';
 import apiClient from '../../lib/api/client';
