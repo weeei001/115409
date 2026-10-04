@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { TrendingUp } from 'lucide-react';
@@ -14,7 +14,7 @@ import { breadcrumbsForStock, breadcrumbsTrail } from '@/lib/nav';
 function BackHome({ message }: { message: string }) {
   const router = useRouter();
   return (
-    <main id="stock-page-main" className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 py-10 sm:px-6 lg:px-10 lg:py-16">
+    <main id="stock-page-main" className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
       <div className="flex w-full max-w-xl flex-col gap-4">
         <Notice tone="danger">{message}</Notice>
         <Button variant="outline" onClick={() => void router.push('/')} className="self-start">
@@ -31,7 +31,7 @@ function StockDashboardView({ symbol }: { symbol: string }) {
   // 頁面標題用公司名稱；查不到名稱時維持代號
   const displayName = useStockDisplayName(symbol);
   const stockName = displayName === label ? null : displayName;
-  const title = `股海明燈｜${label}`;
+  const title = `股海明燈｜${stockName ? `${label} ${stockName}` : label}`;
   const description = `查詢 ${label} 最近儲存收盤行情、K 線、籌碼、技術指標、AI 投資分析與新聞（非即時；展示／專題用途）。`;
   const header = (subtitle: string, titleWrap = false) => (
     <SiteHeader
@@ -94,7 +94,7 @@ function StockDashboardView({ symbol }: { symbol: string }) {
       <a href="#stock-page-main" className="skip-link">
         跳至個股內容
       </a>
-      <main id="stock-page-main" tabIndex={-1} aria-label="個股儀表板內容" className="mx-auto w-full max-w-[1320px] flex-1 px-4 pt-4 pb-6 outline-none sm:px-6 sm:pt-6 lg:px-10 lg:py-10">
+      <main id="stock-page-main" tabIndex={-1} aria-label="個股儀表板內容" className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 outline-none focus-visible:shadow-none sm:px-6 lg:px-10 lg:py-10">
         <StockDashboard dashboard={dashboard} stockName={stockName} />
       </main>
     </div>
@@ -114,7 +114,7 @@ export default function StockDetailPage() {
 
   if (!router.isReady || isArticleId) {
     return (
-      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-4" aria-busy="true">
+      <div className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 lg:px-10 lg:py-10" aria-busy="true">
         <LoadingRows label={isArticleId ? '偵測到新聞文章代碼，正在轉向新聞閱讀頁面…' : '讀取中…'} className="h-[132px] w-full max-w-md border bg-card" />
       </div>
     );

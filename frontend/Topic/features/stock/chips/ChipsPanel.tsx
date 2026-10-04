@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { CalendarRange, RefreshCw } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import type { ChipsVolumeData } from '@/lib/types/api';
 import type { InstitutionalDay } from '@/lib/types/view';
@@ -24,34 +24,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/cn';
 import { signedShares, signedWanShares, wanShares } from '../signedShares';
-
-interface EmptyActions {
-  onRetry: () => void;
-  onWidenRange: () => void;
-}
-
-/** 空狀態的兩個下一步：拉長日期區間、重新載入 */
-function EmptyActionsRow({ onRetry, onWidenRange }: EmptyActions) {
-  return (
-    <span className="flex flex-wrap items-center justify-center gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={onWidenRange} className="min-h-11">
-        <CalendarRange aria-hidden />
-        拉長日期區間
-      </Button>
-      <Button type="button" size="sm" variant="outline" onClick={onRetry} className="min-h-11">
-        <RefreshCw aria-hidden />
-        重新載入
-      </Button>
-    </span>
-  );
-}
+import { EmptyRangeActions, type EmptyRangeActionsProps as EmptyActions } from '../EmptyRangeActions';
 
 /** 最近交易日四格：用 1px 線分隔，標籤靠左、數字靠右，只有淨額上漲跌色 */
 function KpiCards({ latest, loading, actions }: { latest: InstitutionalDay | null; loading: boolean; actions: EmptyActions }) {
   if (loading) return <LoadingRows className="h-[88px] bg-card" />;
   if (!latest) {
     return (
-      <EmptyState className="bg-card py-6" action={<EmptyActionsRow {...actions} />}>
+      <EmptyState className="bg-card py-6" action={<EmptyRangeActions {...actions} />}>
         暫無法人籌碼資料
       </EmptyState>
     );
@@ -74,10 +54,10 @@ function KpiCards({ latest, loading, actions }: { latest: InstitutionalDay | nul
   );
 }
 
-function TodayCard({ latest, actions }: { latest: InstitutionalDay | null; actions: EmptyActions }) {
+function LatestCard({ latest, actions }: { latest: InstitutionalDay | null; actions: EmptyActions }) {
   if (!latest) {
     return (
-      <EmptyState className="py-12" action={<EmptyActionsRow {...actions} />}>
+      <EmptyState className="py-12" action={<EmptyRangeActions {...actions} />}>
         尚無最近交易日的法人資料
       </EmptyState>
     );
@@ -130,11 +110,11 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
       collapseLabel="收合法人明細"
     >
       {hasBuySell ? (
-        <ToggleGroup type="single" value={mode} onValueChange={(v) => v && setMode(v as 'net' | 'detail')} className="mb-2 gap-1" aria-label="明細檢視方式">
-          <ToggleGroupItem value="net" className="h-11 rounded-sm border border-input px-3 text-xs data-[state=on]:border-border-strong data-[state=on]:bg-accent data-[state=on]:font-semibold data-[state=on]:text-foreground">
+        <ToggleGroup type="single" variant="square" spacing={1} value={mode} onValueChange={(v) => v && setMode(v as 'net' | 'detail')} className="mb-2" aria-label="明細檢視方式">
+          <ToggleGroupItem value="net" className="text-xs">
             淨額
           </ToggleGroupItem>
-          <ToggleGroupItem value="detail" className="h-11 rounded-sm border border-input px-3 text-xs data-[state=on]:border-border-strong data-[state=on]:bg-accent data-[state=on]:font-semibold data-[state=on]:text-foreground">
+          <ToggleGroupItem value="detail" className="text-xs">
             買賣明細
           </ToggleGroupItem>
         </ToggleGroup>
@@ -145,9 +125,9 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
           <table className="w-full min-w-[520px] text-sm">
             <thead>
               <tr className="border-b border-border-strong bg-muted text-xs text-muted-foreground">
-                <th className="px-3 py-2.5 text-left font-medium">日期</th>
+                <th className="h-11 px-3 py-2.5 text-left font-medium">日期</th>
                 {['外資（萬股）', '投信（萬股）', '自營（萬股）', '合計（萬股）'].map((h) => (
-                  <th key={h} className="px-3 py-2 text-right font-medium">
+                  <th key={h} className="h-11 px-3 py-2 text-right font-medium">
                     {h}
                   </th>
                 ))}
@@ -169,7 +149,7 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
           <table className="w-full min-w-[860px] text-sm">
             <thead>
               <tr className="bg-muted text-xs text-muted-foreground">
-                <th className="px-3 py-2.5 text-left font-medium" rowSpan={2}>
+                <th className="h-11 px-3 py-2.5 text-left font-medium" rowSpan={2}>
                   日期
                 </th>
                 {['外資（萬股）', '投信（萬股）', '自營（萬股）'].map((h) => (
@@ -177,7 +157,7 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
                     {h}
                   </th>
                 ))}
-                <th className="px-3 py-2 text-right font-medium" rowSpan={2}>
+                <th className="h-11 px-3 py-2 text-right font-medium" rowSpan={2}>
                   合計（萬股）
                 </th>
               </tr>
@@ -256,7 +236,7 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
 
   const body = (key: string) => {
     if (loading && key !== 'today') return <LoadingRows className="h-[300px] border-y" />;
-    const empty = (text: string) => <EmptyState action={<EmptyActionsRow {...actions} />}>{text}</EmptyState>;
+    const empty = (text: string) => <EmptyState action={<EmptyRangeActions {...actions} />}>{text}</EmptyState>;
     switch (key) {
       case 'flow':
         if (error) return empty(error);
@@ -267,7 +247,7 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
       case 'chips':
         return chips ? <EChart title="股價與法人合計" option={chips} height={300} /> : empty('尚無價量籌碼整合資料');
       case 'today':
-        return <TodayCard latest={latest} actions={actions} />;
+        return <LatestCard latest={latest} actions={actions} />;
       default:
         return rows?.length ? <HistoryTable rows={rows} /> : empty('尚無法人歷史明細');
     }
@@ -276,9 +256,9 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
   return (
     <Tabs value={tab} onValueChange={setTab}>
       {/* 手機分頁換行、不截字；sm 以上一列 */}
-      <TabsList variant="line" aria-label="籌碼面分頁" className="h-auto w-full flex-wrap justify-start gap-0 border-b p-0 group-data-[orientation=horizontal]/tabs:h-auto">
+      <TabsList aria-label="籌碼面分頁" className="w-full flex-wrap">
         {TABS.map((t) => (
-          <TabsTrigger key={t.key} value={t.key} className="min-h-11 flex-none rounded-none px-2.5 group-data-[orientation=horizontal]/tabs:after:bottom-0 data-[state=active]:font-semibold sm:px-4">
+          <TabsTrigger key={t.key} value={t.key} className="px-2.5 sm:px-4">
             {t.label}
           </TabsTrigger>
         ))}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { parseStockNewsView, stockNewsViewHref, STOCK_NEWS_VIEW_PARAM } from '@/lib/news/stockNewsView';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
@@ -11,7 +11,7 @@ import { StockTextBriefPanel } from '@/features/brief/StockTextBriefPanel';
 import { StockHero } from './StockHero';
 import { StockKpiStrip } from './StockKpiStrip';
 import { DetailDrawer } from './DetailDrawer';
-import { TodayInstitutionalCard } from './cards/TodayInstitutionalCard';
+import { LatestInstitutionalCard } from './cards/LatestInstitutionalCard';
 import { IndicatorSignalsCard } from './cards/IndicatorSignalsCard';
 import { TopNewsCard } from './cards/TopNewsCard';
 import { PricePanel } from './price/PricePanel';
@@ -67,7 +67,7 @@ export function StockDashboard({ dashboard, stockName }: Props) {
   const subtitle = stockName ? `${symbol} ${stockName}` : symbol;
 
   return (
-    <div className="flex flex-col gap-12 lg:gap-16">
+    <div className="flex flex-col gap-10 lg:gap-16">
       {/* 首屏：本頁唯一的主圖（收盤價＋K 線圖廓＋開高低），緊接一張關鍵指標表 */}
       <AnimatedSection delay={0.05} className="flex flex-col gap-6">
         <StockHero dashboard={dashboard} onOpenDetail={() => setDrawer('chart')} />
@@ -88,7 +88,7 @@ export function StockDashboard({ dashboard, stockName }: Props) {
       {/* 帳頁：法人 6／指標 6；手機單欄。日期寫在各格底部的戳記 */}
       <AnimatedSection delay={0.05}>
         <Ledger title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
-          <TodayInstitutionalCard latest={institutionalLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('institutional')} onRetry={dashboard.reloadChips} />
+          <LatestInstitutionalCard latest={institutionalLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('institutional')} onRetry={dashboard.reloadChips} />
           <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('indicators')} />
         </Ledger>
       </AnimatedSection>

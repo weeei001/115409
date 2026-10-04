@@ -1,11 +1,10 @@
-import React from 'react';
 import { Activity } from 'lucide-react';
 import type { TechnicalDay } from '@/lib/types/view';
-import { kdSignal, macdSignal, rsiSignal, signalBadgeClass, type Signal } from '@/lib/utils/indicatorSignals';
+import { kdSignal, macdSignal, rsiSignal, type Signal } from '@/lib/utils/indicatorSignals';
+import { SignalTag } from '@/components/common/SignalTag';
 import { signedText } from '@/components/common/LightEntry';
 import { CardShell } from './CardShell';
 import type { LightState } from '@/components/common/Ledger';
-import { cn } from '@/lib/cn';
 
 interface Props {
   latest: TechnicalDay | null;
@@ -45,9 +44,7 @@ export function IndicatorSignalsCard({ latest, loading, state, onOpenDetail, cla
               <span className="block text-[13px] text-subtle">{row.label}</span>
               <span className="block font-mono text-[13.5px] font-medium whitespace-nowrap tabular-nums">{row.value}</span>
             </span>
-            <span className={cn('inline-flex shrink-0 items-center rounded-sm border px-1.5 py-0.5 text-xs font-medium', signalBadgeClass(row.signal.tone))}>
-              {row.signal.value == null ? '無資料' : row.signal.label}
-            </span>
+            <SignalTag signal={row.signal}>{row.signal.value == null ? '無資料' : row.signal.label}</SignalTag>
           </li>
         ))}
       </ul>

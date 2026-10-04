@@ -1,5 +1,4 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { PriceChangeResponse, VolumeAnalysisResponse } from '@/lib/types/api';
 import type { PriceStats } from '@/lib/types/view';
 import type { HistoryPage } from '@/lib/hooks/useStockDashboard';
@@ -9,10 +8,11 @@ import { valueToneText } from '@/lib/utils/tone';
 import { CollapsibleTableSection, TableScrollHint } from '@/components/common/CollapsibleSection';
 import { Ledger } from '@/components/common/Ledger';
 import { EmptyState } from '@/components/common/Notice';
+import { Pagination } from '@/components/common/Pagination';
 import { cn } from '@/lib/cn';
 
 const RECENT_ROWS = 15;
-const th = 'px-3 py-2.5 text-right font-medium';
+const th = 'h-11 px-3 py-2.5 text-right font-medium';
 const td = 'h-11 px-3 py-2 text-right font-mono text-[13.5px] tabular-nums';
 const tdDate = 'h-11 px-3 py-2 font-mono text-[13.5px] tabular-nums';
 const headRow = 'border-b border-border-strong bg-muted text-xs text-muted-foreground';
@@ -48,7 +48,7 @@ export function VolumeTable({ data }: { data: VolumeAnalysisResponse | null }) {
       <TableFrame minWidth="min-w-[520px]">
         <thead>
           <tr className={headRow}>
-            <th className="px-3 py-2.5 text-left font-medium">日期</th>
+            <th className="h-11 px-3 py-2.5 text-left font-medium">日期</th>
             <th className={th}>成交量</th>
             <th className={th}>成交金額</th>
             <th className={th}>收盤</th>
@@ -80,7 +80,7 @@ export function PriceChangeTable({ data }: { data: PriceChangeResponse | null })
       <TableFrame minWidth="min-w-[400px]">
         <thead>
           <tr className={headRow}>
-            <th className="px-3 py-2.5 text-left font-medium">日期</th>
+            <th className="h-11 px-3 py-2.5 text-left font-medium">日期</th>
             <th className={th}>收盤</th>
             <th className={th}>漲跌</th>
             <th className={th}>漲跌幅</th>
@@ -139,28 +139,17 @@ interface HistoryProps {
 /** 歷史股價（全部歷史，依頁數往回翻；決議 c23 移到價量抽屜） */
 export function HistoryTable({ data, page, pageSize, onPageChange }: HistoryProps) {
   const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-  const pageButton = 'inline-flex size-11 items-center justify-center rounded-sm border border-input bg-card text-foreground transition-colors duration-(--dur-flash) hover:border-border-strong hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40';
   return (
     <CollapsibleTableSection
       title={`歷史股價（共 ${data.total} 筆）`}
       expandLabel={`顯示歷史股價表（第 ${page}/${totalPages} 頁）`}
       collapseLabel="收合歷史股價表"
     >
-      <nav className="flex items-center justify-end gap-2" aria-label="歷史股價分頁">
-        <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1} aria-label="上一頁歷史股價" className={pageButton}>
-          <ChevronLeft size={16} aria-hidden />
-        </button>
-        <span className="characteristic">
-          {page} / {totalPages}
-        </span>
-        <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} aria-label="下一頁歷史股價" className={pageButton}>
-          <ChevronRight size={16} aria-hidden />
-        </button>
-      </nav>
+      <Pagination label="歷史股價分頁" page={page} totalPages={totalPages} onPageChange={onPageChange} />
       <TableFrame minWidth="min-w-[640px]">
         <thead>
           <tr className={headRow}>
-            <th scope="col" className="px-4 py-3 text-left font-medium">日期</th>
+            <th scope="col" className="h-11 px-4 py-3 text-left font-medium">日期</th>
             {['開盤', '最高', '最低', '收盤', '漲跌', '成交量（股）', '成交金額'].map((h) => (
               <th key={h} scope="col" className="px-4 py-3 text-right font-medium">
                 {h}
@@ -177,8 +166,8 @@ export function HistoryTable({ data, page, pageSize, onPageChange }: HistoryProp
               <td className="px-4 py-2.5 text-right font-mono">{fmtPrice(row.low)}</td>
               <td className="px-4 py-2.5 text-right font-mono font-semibold">{fmtPrice(row.close)}</td>
               <td className={cn('px-4 py-2.5 text-right font-mono', valueToneText(row.change))}>{signedText(row.change)}</td>
-              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{fmtNum(row.volume_shares)}</td>
-              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
+              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">{fmtNum(row.volume_shares)}</td>
+              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">
                 {row.amount != null ? `${(row.amount / 1e8).toFixed(2)} 億元` : '--'}
               </td>
             </tr>

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Landmark } from 'lucide-react';
 import type { InstitutionalDay } from '@/lib/types/view';
 import { valueToneText } from '@/lib/utils/tone';
@@ -20,7 +19,7 @@ interface Props {
 }
 
 /** 最近交易日（最近一筆已儲存資料）的三大法人買賣超；資料不是即時，所以不叫「今日」 */
-export function TodayInstitutionalCard({ latest, loading, state, onOpenDetail, onRetry, className }: Props) {
+export function LatestInstitutionalCard({ latest, loading, state, onOpenDetail, onRetry, className }: Props) {
   const rows = [
     { label: '外資', value: latest?.foreign_net },
     { label: '投信', value: latest?.investment_trust_net },

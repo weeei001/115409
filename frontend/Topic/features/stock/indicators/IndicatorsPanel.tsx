@@ -1,5 +1,4 @@
-import React, { useMemo } from 'react';
-import { CalendarRange, RefreshCw } from 'lucide-react';
+import { useMemo } from 'react';
 import type { EChartsOption } from '@/lib/charts/echarts';
 import type { TechnicalDay } from '@/lib/types/view';
 import { bollOption, kdOption, plottedSpan, plottedSpanText, rsiMacdOptions } from '@/lib/charts/adapters';
@@ -7,11 +6,11 @@ import { fmtPrice } from '@/lib/utils/format';
 import { kdSignal, macdSignal, rsiSignal, rsiZone, type SignalTone } from '@/lib/utils/indicatorSignals';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { EChart } from '@/components/charts/EChart';
-import { Button } from '@/components/ui/button';
 import { EmptyState, LoadingRows } from '@/components/common/Notice';
 import { signedText } from '@/components/common/LightEntry';
-import { LightGlyph } from '@/components/common/Ledger';
+import { LedgerHeading, LightGlyph } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
+import { EmptyRangeActions } from '../EmptyRangeActions';
 
 interface Actions {
   onRetry: () => void;
@@ -37,21 +36,6 @@ interface Indicator {
   tone: SignalTone;
   /** 判讀的一句說明（門檻或位置） */
   note: string;
-}
-
-function EmptyActions({ onRetry, onWidenRange }: Actions) {
-  return (
-    <span className="flex flex-wrap items-center justify-center gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={onWidenRange} className="min-h-11">
-        <CalendarRange aria-hidden />
-        拉長日期區間
-      </Button>
-      <Button type="button" size="sm" variant="outline" onClick={onRetry} className="min-h-11">
-        <RefreshCw aria-hidden />
-        重新載入
-      </Button>
-    </span>
-  );
 }
 
 /** 讀數＋判讀：數字用等寬字，判讀詞依訊號上色（RSI 超買超賣用 warning，不是漲跌色） */
@@ -153,7 +137,7 @@ export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows
   const available = indicators?.filter((item) => item.option) ?? [];
   if (!indicators || available.length === 0) {
     return (
-      <EmptyState className="border-y py-16" action={<EmptyActions {...actions} />}>
+      <EmptyState className="border-y py-16" action={<EmptyRangeActions {...actions} />}>
         所選日期區間尚無技術指標資料。
       </EmptyState>
     );
@@ -166,18 +150,20 @@ export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows
     <div className="flex flex-col gap-8">
       {/* 主圖：全寬，判讀寫在圖上方 */}
       <section aria-labelledby="indicator-primary" className="min-w-0">
-        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-border-strong pb-2">
-          <h3 id="indicator-primary" className="font-serif text-xl leading-snug font-black tracking-[0.06em]">
-            {primary.title}
-          </h3>
-          {span ? (
-            <span className="characteristic inline-flex items-center gap-1.5">
-              {/* 走到這裡代表指標已載入：燈質 F */}
-              <LightGlyph state="ready" />
-              <span data-plotted-span>圖上 {span}</span>
-            </span>
-          ) : null}
-        </div>
+        <LedgerHeading
+          as="h3"
+          title={primary.title}
+          headingProps={{ id: 'indicator-primary' }}
+          stamp={
+            span ? (
+              <span className="inline-flex items-center gap-1.5">
+                {/* 走到這裡代表指標已載入：燈質 F */}
+                <LightGlyph state="ready" />
+                <span data-plotted-span>圖上 {span}</span>
+              </span>
+            ) : null
+          }
+        />
         <div className="mt-3 space-y-1">
           <Reading item={primary} large />
           <p className="text-[13px] leading-relaxed text-muted-foreground">
@@ -211,7 +197,7 @@ export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows
                 {item.option ? (
                   <EChart title={`${item.title}走勢`} option={item.option} height={170} />
                 ) : (
-                  <EmptyState className="py-6" action={<EmptyActions {...actions} />}>
+                  <EmptyState className="py-6" action={<EmptyRangeActions {...actions} />}>
                     此指標在所選日期區間沒有有效數值（其他指標可能有資料）。
                   </EmptyState>
                 )}

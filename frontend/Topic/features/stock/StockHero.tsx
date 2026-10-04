@@ -1,5 +1,4 @@
-import React from 'react';
-import { CalendarRange, Minus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
+import { Minus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { MA_KEYS, type MaKey } from '@/lib/types/view';
 import { fmtPrice } from '@/lib/utils/format';
@@ -10,6 +9,7 @@ import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { signedText } from '@/components/common/LightEntry';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
+import { EmptyRangeActions } from './EmptyRangeActions';
 
 interface Props {
   dashboard: UseStockDashboardResult;
@@ -100,15 +100,7 @@ export function StockHero({ dashboard, onOpenDetail }: Props) {
         ) : (
           <EmptyState
             className={cn('border bg-card', HERO_PLOT_HEIGHT)}
-            action={
-              <span className="flex flex-wrap items-center justify-center gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={widenDateRange}>
-                  <CalendarRange aria-hidden />
-                  拉長日期區間
-                </Button>
-                {retry}
-              </span>
-            }
+            action={<EmptyRangeActions onWidenRange={widenDateRange} onRetry={reloadCharts} />}
           >
             所選日期區間沒有 K 線資料
           </EmptyState>

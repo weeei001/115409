@@ -1,14 +1,14 @@
-import React from 'react';
 import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { formatDate } from '@/lib/utils/date';
-import { newsHref } from '@/lib/news/sentiment';
-import { DIRECTION_CLASSES, DIRECTION_LABELS, impactTarget, visibleImpacts } from '@/lib/utils/newsImpact';
+import { newsHref } from '@/lib/news/newsLinks';
+import { impactTarget, visibleImpacts } from '@/lib/utils/newsImpact';
+import { ImpactDirectionTag } from '@/features/news/ImpactTag';
+import { Badge } from '@/components/ui/badge';
 import { Ledger, LightGlyph, NextStep } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/cn';
 
 /** 相關新聞帳頁：三則一列（手機單欄），每則是一格有線分隔的條目，結尾一列「更多相關新聞」 */
 export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDetail: () => void }) {
@@ -69,14 +69,11 @@ export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDe
             >
               <span className="line-clamp-2 text-sm leading-6 font-medium">{news.title}</span>
               <span className="flex flex-wrap items-center gap-1.5">
-                <span
-                  className={cn(
-                    'inline-flex rounded-sm border px-1.5 py-0.5 text-xs font-medium',
-                    impact ? DIRECTION_CLASSES[impact.direction] : 'border-border bg-muted text-subtle',
-                  )}
-                >
-                  {impact ? `${impactTarget(impact)} · ${DIRECTION_LABELS[impact.direction]}` : '尚無分析'}
-                </span>
+                {impact ? (
+                  <ImpactDirectionTag direction={impact.direction}>{impactTarget(impact)} ·</ImpactDirectionTag>
+                ) : (
+                  <Badge>尚無分析</Badge>
+                )}
                 {news.pub_time ? <span className="characteristic">{formatDate(news.pub_time)}</span> : null}
               </span>
               {impact?.reason ? (

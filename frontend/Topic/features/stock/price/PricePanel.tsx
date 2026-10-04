@@ -1,5 +1,4 @@
-import React from 'react';
-import { CalendarRange, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { MA_KEYS, type MaKey } from '@/lib/types/view';
 import { PriceChart } from '@/components/charts/PriceChart';
@@ -9,6 +8,7 @@ import { Ledger, LedgerPanel, LightGlyph } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
+import { EmptyRangeActions } from '../EmptyRangeActions';
 import { MaPeriodSelector } from './MaPeriodSelector';
 import { HistoryTable, PriceChangeTable, StatisticsPanel, VolumeTable } from './PriceTables';
 
@@ -95,18 +95,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
           ) : (
             <EmptyState
               className="py-16"
-              action={
-                <span className="flex flex-wrap items-center justify-center gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={widenDateRange} className="min-h-11">
-                    <CalendarRange aria-hidden />
-                    拉長日期區間
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={reloadCharts} className="min-h-11">
-                    <RefreshCw aria-hidden />
-                    重新載入
-                  </Button>
-                </span>
-              }
+              action={<EmptyRangeActions onWidenRange={widenDateRange} onRetry={reloadCharts} />}
             >
               所選日期區間沒有 K 線資料
             </EmptyState>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Info, RefreshCw } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
@@ -8,6 +8,8 @@ import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/ne
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { LightGlyph } from '@/components/common/Ledger';
 import { Button } from '@/components/ui/button';
+import { toggleVariants } from '@/components/ui/toggle';
+import { cn } from '@/lib/cn';
 import { loadStockNewsPosition, saveStockNewsPosition, stockNewsViewHref, type StockNewsView } from '@/lib/news/stockNewsView';
 
 const PAGE_SIZE = 8;
@@ -70,15 +72,9 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
             onClearAdvanced={newsList.clearAdvanced}
             disabled={newsList.loading}
           />
-          <button
-            type="button"
-            onClick={newsList.reload}
-            disabled={newsList.loading}
-            aria-label="重新整理新聞"
-            className="inline-flex size-11 items-center justify-center rounded-md border border-input bg-card text-subtle transition-colors duration-(--dur-flash) hover:border-border-strong hover:bg-accent hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={newsList.loading ? 'animate-spin' : ''} aria-hidden />
-          </button>
+          <Button type="button" variant="outline" size="icon" onClick={newsList.reload} disabled={newsList.loading} aria-busy={newsList.loading || undefined} aria-label="重新整理新聞" className="text-subtle hover:text-foreground">
+            <RefreshCw aria-hidden />
+          </Button>
         </div>
       </div>
 
@@ -100,7 +96,7 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
             type="button"
             aria-pressed={relation === value}
             onClick={() => setRelation(value)}
-            className={`min-h-11 rounded-sm border px-3 py-1 text-xs transition-colors duration-(--dur-flash) ${relation === value ? 'border-border-strong bg-accent font-semibold text-foreground' : 'border-input bg-card text-subtle hover:border-border-strong hover:text-foreground'}`}
+            className={cn(toggleVariants({ variant: 'square' }), 'text-xs')}
           >
             {label}
           </button>
