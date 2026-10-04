@@ -1,5 +1,13 @@
 import apiClient from './client';
 
+export interface AdminStock {
+  symbol: string;
+  name: string;
+  industry: string | null;
+  market: string | null;
+  supported: boolean;
+}
+
 export interface Administrator {
   user_id: number;
   email: string;
@@ -119,7 +127,7 @@ export function adminDuration(seconds?: number | null): string {
 }
 
 export function adminRunScope(run: Pick<AdminRun, 'job_name' | 'symbol'>): string {
-  return run.job_name === 'text-brief' ? (run.symbol ? `股票 ${run.symbol}` : '全部股票') : '';
+  return ['text-brief', 'stock-backfill'].includes(run.job_name) ? (run.symbol ? `股票 ${run.symbol}` : '全部股票') : '';
 }
 
 export function adminRunId(value: unknown): number | null {

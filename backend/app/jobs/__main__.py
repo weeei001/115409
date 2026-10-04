@@ -15,6 +15,7 @@ COMMANDS = (
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
+    "stock-backfill",
     "news-source-versions",
 )
 
@@ -39,6 +40,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "stock-backfill":
+        from app.jobs.stock_backfill import main as backfill
+        return backfill(argv)
     if job == "paper-reconcile":
         from app.jobs.paper_portfolio import main as reconcile
         return reconcile(argv)

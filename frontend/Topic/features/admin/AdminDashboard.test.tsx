@@ -125,3 +125,10 @@ const scopedHistory = renderToStaticMarkup(<AdminRunHistory runs={[{ ...run, job
 assert.match(scopedHistory, /股票 2330/);
 assert.match(scopedHistory, /全部股票/);
 console.log('Admin checks passed: paused manual runs, overlap guards, completed retries, unavailable actions, manual-only jobs, Taipei timestamps, and escaped errors.');
+
+const backfillJob = { ...job, name: 'stock-backfill', schedule: 'Manual', paused: false };
+const backfillMarkup = renderToStaticMarkup(<AdminJobs jobs={[backfillJob]} disabled={false} onAction={() => undefined} />);
+assert.match(backfillMarkup, /label for="stock-backfill-symbol"/);
+assert.match(backfillMarkup, /disabled=""[^>]*aria-label="立即執行個股市場資料回補"/);
+assert.equal(adminRunScope({ job_name: 'stock-backfill', symbol: '2330' }), '股票 2330');
+assert.equal(canRetryAdminRun({ ...run, job_name: 'stock-backfill', symbol: '2330' }, [backfillJob]), true);

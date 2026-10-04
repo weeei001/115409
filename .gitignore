@@ -131,3 +131,4 @@ backend/.state
 /cited_news_*.json
 /cited_news_*.md
 /fake_news_*_result.json
+AGENTS.md

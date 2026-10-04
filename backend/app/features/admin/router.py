@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, Path, Query, Request
 from app.core.config import application_environment, require_development_names
 from app.db.models.user import User
 from app.features.admin import service
-from app.features.admin.schemas import ActionResponse, GrantAdministratorRequest, JobActionRequest
+from app.features.admin.schemas import ActionResponse, AddStockRequest, GrantAdministratorRequest, JobActionRequest
 from app.features.auth.router import CurrentUser, Database
 
 
@@ -32,6 +32,16 @@ Administrator = Annotated[User, Depends(get_administrator)]
 @router.get("/me")
 def me(user: Administrator):
     return {"user_id": user.id, "email": user.email}
+
+
+@router.get("/stocks")
+def stocks(user: Administrator, db: Database, query: str = Query("", max_length=100)):
+    return service.list_stocks(db, query)
+
+
+@router.post("/stocks", response_model=ActionResponse)
+def add_stock(body: AddStockRequest, user: Administrator, db: Database):
+    return service.add_stock(db, user, body.symbol)
 
 
 @router.get("/overview")

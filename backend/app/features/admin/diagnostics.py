@@ -3,7 +3,7 @@ import re
 
 
 STAGES = frozenset({"market-fetch", "market-import", "market-backfill", "paper-reconcile", "crawl-cnyes", "crawl-ltn",
-    "migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"})
+    "migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup", "stock-backfill"})
 _FAILURE = re.compile(r"([a-z-]+) exited with code (-?\d{1,10})")
 _INTERRUPTIONS = {
     "Service restarted before this run completed": "service_restart",
