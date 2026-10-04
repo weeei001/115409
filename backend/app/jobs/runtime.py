@@ -21,6 +21,7 @@ from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 JOBS = {
     "market": "Market data", "cnyes": "Cnyes news", "ltn": "Liberty Times news",
     "rag": "News indexing and analysis", "impact": "Event analysis", "text-brief": "Brief warmup",
+    "stock-backfill": "Stock market history",
 }
 logger = logging.getLogger(__name__)
 
@@ -277,10 +278,15 @@ class JobRuntime:
         if action == "retry" and run_id is None or action != "retry" and run_id is not None:
             raise AppError("A run_id is required only for retry", 422)
         if symbol is not None:
-            if job_name != "text-brief" or action != "run":
-                raise AppError("A symbol is supported only for text-brief run", 422)
+            if job_name not in {"text-brief", "stock-backfill"} or action != "run":
+                raise AppError("A symbol is supported only for text-brief or stock-backfill run", 422)
             if db.get(StockInfo, symbol) is None:
                 raise NotFound("Stock not found")
+        if job_name == "stock-backfill":
+            if action in {"pause", "resume"}:
+                raise AppError("Stock backfill is a manual job", 422)
+            if action == "run" and symbol is None:
+                raise AppError("Stock backfill requires a symbol", 422)
         if self.status != "running" or self.stop_event.is_set():
             raise ServiceUnavailable("Scheduler is not available for job controls")
         if action in {"pause", "resume"}:
@@ -303,6 +309,8 @@ class JobRuntime:
                 raise Conflict("Only completed runs can be rerun")
             retry_of = previous.id
             symbol = previous.symbol
+            if job_name == "stock-backfill" and (not symbol or db.get(StockInfo, symbol) is None):
+                raise NotFound("Stock not found")
         row = AdminJobRun(job_name=job_name, status="queued", trigger="retry" if retry_of else "manual",
             actor_id=actor.id, retry_of=retry_of, symbol=symbol, created_at=utcnow())
         db.add(row)

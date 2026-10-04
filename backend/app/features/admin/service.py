@@ -10,10 +10,53 @@ from app.db.models.user import User
 from app.features.admin import repository
 from app.features.admin.schemas import AuditPublic, RunPublic
 from app.features.admin.diagnostics import run_diagnostics
+from app.features.market.company_catalog import load_catalog
+from app.features.market.repository import stock_names
 
 
 # ponytail: one API process serializes membership changes; database row locks also protect separate processes.
 _administrators_lock = RLock()
+
+
+def list_stocks(db: Session, query: str = "") -> dict:
+    catalog = load_catalog()
+    supported = {row.symbol: row for row in repository.supported_stocks(db)}
+    needle = query.strip().casefold()
+    items = []
+    for symbol in sorted(catalog.keys() | supported.keys()):
+        company = catalog.get(symbol, {})
+        row = supported.get(symbol)
+        name = row.name if row is not None else company.get("name")
+        if not name or (row is None and company.get("market") not in {"TWSE", "TPEx"}):
+            continue
+        if needle and needle not in f"{symbol} {name}".casefold():
+            continue
+        items.append({"symbol": symbol, "name": name,
+                      "industry": row.industry if row is not None else company.get("industry_name"),
+                      "market": company.get("market"), "supported": row is not None})
+    return {"items": items, "total": len(items), "catalog_available": bool(catalog)}
+
+
+def add_stock(db: Session, actor: User, symbol: str) -> dict:
+    actor_snapshot = (actor.id, actor.email)
+    with _administrators_lock:
+        try:
+            _lock_actor(db, actor_snapshot[0])
+            if symbol in stock_names(db):
+                raise AppError("Stock is already supported", 409)
+            catalog = load_catalog()
+            if not catalog:
+                raise AppError("Company catalog unavailable; run the market update first", 503)
+            company = catalog.get(symbol)
+            if not company or not company.get("name") or company.get("market") not in {"TWSE", "TPEx"}:
+                raise AppError("Stock not found in the listed company catalog", 422)
+            repository.add_stock(db, symbol, company)
+            audit(db, *actor_snapshot, "stock.add", symbol, "succeeded", {"name": company["name"]})
+            _commit(db)
+        except (AppError, SQLAlchemyError) as exc:
+            _failed(db, actor_snapshot, "stock.add", symbol, exc)
+            raise
+    return {"message": "Stock added", "run_id": None}
 
 
 def require_admin(db: Session, user: User) -> None:

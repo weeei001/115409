@@ -35,6 +35,10 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
                  backfill=False, impact_since: date | None = None) -> int:
     run = run or run_worker
     commands = []
+    if job == "stock-backfill":
+        if not symbols:
+            raise ValueError("Stock backfill requires a symbol")
+        commands.append(["stock-backfill", "--symbol", symbols])
     if job in {"market", "all"}:
         if backfill:
             backfill_output = output / "backfill"
