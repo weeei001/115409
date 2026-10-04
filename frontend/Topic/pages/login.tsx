@@ -12,6 +12,7 @@ import {
   AuthLinkRow,
   AuthPanel,
   AuthPlate,
+  EMAIL_INVALID_MESSAGE,
   EMAIL_PATTERN,
   FieldRows,
   FormActions,
@@ -74,7 +75,7 @@ export default function LoginPage() {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !password.trim()) return setError('請填寫所有欄位');
     if (normalizedEmail.length > 254) return setError('電子郵件長度過長');
-    if (!EMAIL_PATTERN.test(normalizedEmail)) return setError('請輸入有效的電子郵件格式');
+    if (!EMAIL_PATTERN.test(normalizedEmail)) return setError(EMAIL_INVALID_MESSAGE);
     // 密碼長度上限由 maxLength 擋；下限交給後端，登入頁不透露密碼規則
 
     setLoading(true);
@@ -95,7 +96,7 @@ export default function LoginPage() {
         <title>股海明燈｜登入</title>
         <meta name="description" content="登入股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={LogIn} title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬委託" />
+      <SiteHeader icon={LogIn} title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬投資" />
 
       <AuthLedger
         aside={

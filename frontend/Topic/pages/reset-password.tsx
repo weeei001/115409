@@ -5,7 +5,7 @@ import { KeyRound } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { NextStep } from '@/components/common/Ledger';
 import { LoadingRows, Notice } from '@/components/common/Notice';
-import { AuthLedger, AuthLinkRow, AuthPanel, AuthSteps, FieldRows, FormActions, FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { AuthLedger, AuthLinkRow, AuthPanel, AuthSteps, FieldRows, FormActions, FormError, PASSWORD_MIN_LENGTH, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
 import { authResetPassword } from '@/lib/api/auth';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { userFacingMessage } from '@/lib/api/errorDetail';
@@ -35,7 +35,7 @@ export default function ResetPasswordPage() {
 
   const validate = (): string | null => {
     if (!password || !confirmPassword) return '請填寫所有欄位';
-    if (password.length < 8) return '密碼至少需要 8 個字元';
+    if (password.length < PASSWORD_MIN_LENGTH) return `密碼至少需要 ${PASSWORD_MIN_LENGTH} 個字元`;
     if (password.length > 128) return '密碼長度過長';
     if (password !== confirmPassword) return '兩次輸入的密碼不一致';
     return null;

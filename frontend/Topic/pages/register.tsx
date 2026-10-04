@@ -10,10 +10,12 @@ import {
   AuthLinkRow,
   AuthPanel,
   AuthPlate,
+  EMAIL_INVALID_MESSAGE,
   EMAIL_PATTERN,
   FieldRows,
   FormActions,
   FormError,
+  PASSWORD_MIN_LENGTH,
   PasswordField,
   SubmitButton,
 } from '@/features/auth/AuthForm';
@@ -49,8 +51,8 @@ export default function RegisterPage() {
     if (!normalizedEmail || !password || !confirmPassword) return '請填寫所有欄位';
     if (normalizedName.length > 255) return '顯示名稱長度過長';
     if (normalizedEmail.length > 254) return '電子郵件長度過長';
-    if (!EMAIL_PATTERN.test(normalizedEmail)) return '請輸入有效的電子郵件格式';
-    if (password.length < 8) return '密碼至少需要 8 個字元';
+    if (!EMAIL_PATTERN.test(normalizedEmail)) return EMAIL_INVALID_MESSAGE;
+    if (password.length < PASSWORD_MIN_LENGTH) return `密碼至少需要 ${PASSWORD_MIN_LENGTH} 個字元`;
     // 上限由 maxLength 擋；後端也會回覆超長錯誤
     if (password !== confirmPassword) return '兩次輸入的密碼不一致';
     return null;
@@ -107,7 +109,7 @@ export default function RegisterPage() {
         aside={
           // 守燈人的桌前：帳號就是這張桌上的值班紀錄
           <AuthPlate poster={4} caption="守燈人的桌前" ratio="square">
-            註冊後，值班日誌、收藏股與模擬委託都記在這個帳號。
+            註冊後，值班日誌、收藏股與模擬投資都記在這個帳號。
           </AuthPlate>
         }
         form={

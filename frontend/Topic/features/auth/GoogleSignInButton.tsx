@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Notice } from '@/components/common/Notice';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
@@ -94,7 +94,7 @@ export function GoogleSignInButton({ onCredential }: { onCredential: (credential
           {loadError}
         </Notice>
       ) : null}
-      <div ref={divRef} className="flex min-h-10 justify-start" />
+      <div ref={divRef} className="flex min-h-11 items-center justify-start" />
     </div>
   );
 }

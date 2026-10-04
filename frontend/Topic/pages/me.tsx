@@ -2,14 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import ErrorPage from 'next/error';
 import { useRouter } from 'next/router';
-import { KeyRound, Loader2, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
+import { KeyRound, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
-import { FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { FormError, PASSWORD_MIN_LENGTH, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -131,7 +131,7 @@ export default function MePage() {
 
   const validatePasswordChange = (): string | null => {
     if (!currentPassword || !newPassword || !confirmNewPassword) return '請填寫所有欄位';
-    if (newPassword.length < 8) return '新密碼至少需要 8 個字元';
+    if (newPassword.length < PASSWORD_MIN_LENGTH) return `新密碼至少需要 ${PASSWORD_MIN_LENGTH} 個字元`;
     if (newPassword.length > 128) return '新密碼長度過長';
     if (newPassword !== confirmNewPassword) return '兩次輸入的新密碼不一致';
     return null;
@@ -194,7 +194,7 @@ export default function MePage() {
       <>
         {head}
         {header}
-        <main className="flex flex-1 items-center justify-center px-4 py-20">
+        <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
           <p className="text-sm text-muted-foreground">導向登入中…</p>
         </main>
       </>
@@ -247,9 +247,9 @@ export default function MePage() {
                 ) : null}
 
                 <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Button type="button" variant="outline" disabled={refreshing} onClick={() => void handleRefresh()}>
-                    {refreshing ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <RefreshCw size={18} aria-hidden />}
-                    重新整理資料
+                  <Button type="button" variant="outline" disabled={refreshing} aria-busy={refreshing || undefined} onClick={() => void handleRefresh()}>
+                    <RefreshCw size={18} aria-hidden />
+                    {refreshing ? '更新中…' : '重新整理資料'}
                   </Button>
                   <Button type="button" variant="destructive" onClick={handleLogout}>
                     <LogOut size={18} aria-hidden />

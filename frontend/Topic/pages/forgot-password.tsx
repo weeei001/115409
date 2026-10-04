@@ -4,7 +4,7 @@ import { KeyRound, Mail } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { NextStep } from '@/components/common/Ledger';
 import { Notice } from '@/components/common/Notice';
-import { AuthField, AuthLedger, AuthLinkRow, AuthPanel, AuthSteps, EMAIL_PATTERN, FieldRows, FormActions, FormError, SubmitButton } from '@/features/auth/AuthForm';
+import { AuthField, AuthLedger, AuthLinkRow, AuthPanel, AuthSteps, EMAIL_INVALID_MESSAGE, EMAIL_PATTERN, FieldRows, FormActions, FormError, SubmitButton } from '@/features/auth/AuthForm';
 import { authForgotPassword } from '@/lib/api/auth';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
@@ -21,7 +21,7 @@ export default function ForgotPasswordPage() {
     setError(null);
     const normalized = email.trim().toLowerCase();
     if (!normalized) return setError('請輸入電子郵件');
-    if (!EMAIL_PATTERN.test(normalized)) return setError('請輸入有效的電子郵件格式');
+    if (!EMAIL_PATTERN.test(normalized)) return setError(EMAIL_INVALID_MESSAGE);
 
     setLoading(true);
     try {

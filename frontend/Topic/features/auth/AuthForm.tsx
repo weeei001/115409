@@ -1,9 +1,11 @@
 import React from 'react';
 import Link from 'next/link';
-import { Check, Eye, EyeOff, Loader2, type LucideIcon } from 'lucide-react';
+import { Check, Eye, EyeOff, type LucideIcon } from 'lucide-react';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Notice } from '@/components/common/Notice';
-import { Button } from '@/components/ui/button';
+import { LedgerHeading } from '@/components/common/Ledger';
+import { Button, textLinkClass } from '@/components/ui/button';
+import { fieldLabelClass, inputClass } from '@/components/ui/input';
 import { cn } from '@/lib/cn';
 
 /**
@@ -13,10 +15,12 @@ import { cn } from '@/lib/cn';
  */
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_INVALID_MESSAGE = '請輸入有效的電子郵件格式';
+/** 密碼長度下限（與後端一致；上限 128 寫在欄位提示） */
+export const PASSWORD_MIN_LENGTH = 8;
 
 /** 文字連結：中性色加底線，不用燈色（燈色留給主要按鈕） */
-export const authLinkClass =
-  'font-medium text-foreground underline decoration-input underline-offset-4 transition-colors duration-(--dur-flash) hover:decoration-foreground';
+export const authLinkClass = cn('font-medium text-foreground', textLinkClass);
 
 /* ───────────── 版面：表單為主、圖版為輔 ───────────── */
 
@@ -30,7 +34,7 @@ export function AuthLedger({ form, aside, asideOnMobile = false }: { form: React
   return (
     <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
       <AnimatedSection>
-        <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-12 lg:gap-x-16">
+        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
           <div className="min-w-0 lg:col-span-7">{form}</div>
           <div className={cn('min-w-0 lg:col-span-5', asideOnMobile ? undefined : 'hidden lg:block')}>{aside}</div>
         </div>
@@ -46,11 +50,9 @@ export function AuthLedger({ form, aside, asideOnMobile = false }: { form: React
 export function AuthPanel({ id, title, children, footer }: { id: string; title: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
   return (
     <section data-stagger aria-labelledby={id} className="min-w-0">
-      <h2 id={id} className="border-b border-border-strong pb-2 font-serif text-xl leading-snug font-black tracking-[0.06em]">
-        {title}
-      </h2>
+      <LedgerHeading title={title} headingProps={{ id }} />
       <div className="border-x border-b bg-card">
-        <div className="px-4 pt-2 pb-6 sm:px-6 sm:pb-7">{children}</div>
+        <div className="px-4 pt-2 pb-6 sm:px-5 sm:pb-7">{children}</div>
         {footer ? <div className="grid gap-px border-t bg-border">{footer}</div> : null}
       </div>
     </section>
@@ -120,9 +122,9 @@ export function AuthSteps({ current, done = false }: { current: 1 | 2 | 3; done?
   return (
     <section data-stagger aria-labelledby="auth-steps-heading" className="min-w-0">
       {/* 行高 28px：粗線與左欄表單標題的粗線對齊 */}
-      <h2 id="auth-steps-heading" className="border-b border-border-strong pb-2 text-[13px] leading-7 font-medium tracking-[0.04em] text-muted-foreground">
+      <p id="auth-steps-heading" className="border-b border-border-strong pb-2 text-[13px] leading-7 font-medium tracking-[0.04em] text-muted-foreground">
         重設密碼的三個步驟
-      </h2>
+      </p>
       <ol className="border-x border-b bg-card">
         {RESET_STEPS.map((step, i) => {
           const n = i + 1;
@@ -209,13 +211,10 @@ export function FieldRows({ children }: { children: React.ReactNode }) {
   return <div>{children}</div>;
 }
 
-/** 方角輸入框：border-input（對比 ≥ 3:1），focus 用 focus-lamp */
-const inputClass =
-  'h-11 w-full rounded-sm border border-input bg-card text-base text-foreground outline-none transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus-lamp disabled:opacity-60 aria-invalid:border-danger sm:text-sm';
-const labelClass = 'mb-1.5 block text-[13px] font-medium tracking-[0.04em] text-subtle';
+const labelClass = cn('mb-1.5', fieldLabelClass);
 /** 登記簿列：手機標籤在上，sm 以上標籤在左欄 */
 const rowClass = 'grid gap-1.5 border-b py-4 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-center sm:gap-x-4 sm:gap-y-0';
-const rowLabelClass = 'block text-[13px] font-medium tracking-[0.04em] text-subtle';
+const rowLabelClass = fieldLabelClass;
 
 interface FieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'id'> {
   id: string;
@@ -279,12 +278,12 @@ export function FormActions({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pt-6 sm:pl-[8.5rem]">{children}</div>;
 }
 
-/** 表單的主要按鈕：燈色、一個畫面只放一顆 */
+/** 表單的主要按鈕：燈色、一個畫面只放一顆；送出中改寫「處理中…」並加 aria-busy，不用轉圈 */
 export function SubmitButton({ loading, icon: Icon, className, children }: { loading: boolean; icon?: LucideIcon; className?: string; children: React.ReactNode }) {
   return (
     <Button type="submit" disabled={loading} aria-busy={loading} className={cn('w-full', className)}>
       {loading ? (
-        <Loader2 size={18} className="animate-spin" aria-hidden />
+        '處理中…'
       ) : (
         <>
           {Icon ? <Icon size={18} aria-hidden /> : null}
