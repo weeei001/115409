@@ -90,8 +90,7 @@ function useLoadable<T>(fn: (() => Promise<T>) | null, deps: readonly unknown[],
     return () => {
       active = false;
     };
-    // fn 每次 render 都是新的函式，由呼叫端傳入的 deps 決定何時重抓
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 依賴刻意不含 fn：fn 每次 render 都是新的函式，由呼叫端傳入的 deps 決定何時重抓
   }, [...deps, attempt]);
 
   return { ...state, reload };

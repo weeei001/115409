@@ -1,15 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Router from 'next/router';
 import { useMotionValue, useMotionValueEvent } from 'motion/react';
 import { ArrowDown, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { fetchStockInfos } from '@/lib/api/stock';
+import { useStockInfos } from '@/lib/hooks/useStockInfos';
 import { cn } from '@/lib/cn';
 import { toneText } from '@/lib/utils/tone';
 import { useCanHoverTilt, useHtmlDarkClass, useIsMobile } from '@/lib/hooks/useClientEnv';
 import type { BeaconJourneyProps } from './types';
-import { boardFigures, countsText, monitorFigures } from './boardFormat';
+import { CLOSE_DATA_NOTE, boardFigures, countsText, monitorFigures } from './boardFormat';
 import {
   CAPTION_HIDE_BELOW,
   CHAPTERS,
@@ -29,6 +29,7 @@ import {
 import { clearHandoff } from './handoffVar';
 import { decideJourneyMode, probeWebGL2, readJourneyEnv, type JourneyMode, type PosterReason } from './journeyMode';
 import type { SparkLine, WatchItem } from './scene/screens';
+import { DAWN_CAPTION_TINT } from './scene/theme';
 
 /**
  * 首頁旅程：從海上的燈塔一路捲進觀測室，最後交給下方的觀測台（#terminalId）。
@@ -50,7 +51,7 @@ import type { SparkLine, WatchItem } from './scene/screens';
  * 捲動進度是手動 set 的 MotionValue（不用 useTransform 綁 style：motion 會升級成 ViewTimeline 而算錯）。
  */
 
-const BeaconScene = dynamic(() => import('./BeaconScene'), { ssr: false, loading: () => null });
+const BeaconScene = dynamic(() => import('./BeaconScene').then((m) => m.BeaconScene), { ssr: false, loading: () => null });
 
 type Mode = 'pending' | JourneyMode;
 
@@ -175,16 +176,8 @@ const DAWN_OPACITY = {
   desk: 'opacity-[calc(var(--scrim-k,1)*0.22)] max-lg:opacity-[calc(var(--scrim-k,1)*0.6)]',
   handoff: 'opacity-[calc(var(--scrim-k,1)*0.32)] max-lg:opacity-[calc(var(--scrim-k,1)*0.5)]',
 } as const;
-/** 晨班各章取樣的色調（從晨班海報與畫面在文案位置量到的天色、牆色，調到同一個明度） */
-const DAWN_TINT = {
-  hero: 'rgb(208 218 233)',
-  tower: 'rgb(204 217 234)',
-  window: 'rgb(226 230 236)',
-  desk: 'rgb(222 226 232)',
-  handoff: 'rgb(220 223 229)',
-  /** 晨班 rail 在天空上（海面、燈塔兩章）：字是淺色，底下是比天色深一點的藍（光束掃過時字還讀得到） */
-  skyDeep: 'rgb(30 48 80)',
-} as const;
+/** 晨班各章取樣的色調（數值在 scene/theme.ts，與場景美術的色值放在一起） */
+const DAWN_TINT = DAWN_CAPTION_TINT;
 type DawnTint = keyof typeof DAWN_TINT;
 
 /** 橢圓遮罩：中心到 inner（比例）完全不透明，之後用 smoothstep 取樣的漸層淡到 0 */
@@ -489,7 +482,7 @@ function MarketBoard({ board, monitor, stockCount, industryCount }: BoardProps) 
   return (
     <div data-board>
       <div className="flex items-baseline justify-between gap-3 border-b border-border-strong pb-2">
-        <h3 className="text-[13px] font-medium tracking-[0.12em] text-muted-foreground">看板</h3>
+        <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">看板</h3>
         <span className="characteristic">{b ? `收盤 ${b.date} · 非即時` : '最近儲存的收盤 · 非即時'}</span>
       </div>
       <dl className="grid gap-px border-x border-b bg-border lg:grid-cols-[300px_minmax(0,1fr)_320px]">
@@ -557,7 +550,7 @@ function Plate({ n, stop, stamp, flip = false, isDark, plateRef, children }: Pla
   return (
     <article ref={plateRef} className="grid grid-cols-1 gap-y-5 lg:grid-cols-12 lg:gap-x-10 lg:gap-y-6">
       <div className="flex items-end justify-between gap-4 border-b border-border-strong pb-2 lg:col-span-12 lg:row-start-1">
-        <p className="text-[13px] font-medium tracking-[0.12em] text-muted-foreground">{stop}</p>
+        <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">{stop}</p>
         {stamp ? <p className="characteristic">{stamp}</p> : null}
       </div>
       <figure
@@ -624,7 +617,8 @@ function Rail({ variant, rail, chapter, onGo, navRef }: RailProps) {
               <span
                 className={cn(
                   'block shrink-0 transition-[width,background-color] duration-(--dur-sweep) ease-flash max-lg:h-0.5',
-                  on ? 'w-5 bg-brand lg:h-[3px] lg:w-[22px]' : i < rail ? 'w-3 bg-foreground lg:h-px lg:w-3 lg:bg-(--rail-ink)' : 'w-3 bg-muted-foreground lg:h-px lg:w-3 lg:bg-(--rail-ink)',
+                  // hover：刻度線伸長到和目前那一站一樣長（仍是細線、不換燈色）
+                  on ? 'w-5 bg-brand lg:h-[3px] lg:w-[22px]' : i < rail ? 'w-3 bg-foreground lg:h-px lg:w-3 lg:bg-(--rail-ink) lg:group-hover:w-[22px]' : 'w-3 bg-muted-foreground lg:h-px lg:w-3 lg:bg-(--rail-ink) lg:group-hover:w-[22px]',
                 )}
               />
             </span>
@@ -700,21 +694,11 @@ function Rail({ variant, rail, chapter, onGo, navRef }: RailProps) {
  * 中間螢幕要寫的產業，以及交接終點左欄的觀測清單（代號、名稱、產業）。只在 3D 版面需要時才讀。
  */
 function useStockList(enabled: boolean, symbol: string | null): { industry: string | null; watch: WatchItem[] | null } {
-  const [list, setList] = useState<WatchItem[] | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    fetchStockInfos()
-      .then((rows) => {
-        if (active) setList(rows.map((s) => ({ symbol: s.symbol, name: s.name, industry: s.industry ?? null })));
-      })
-      .catch(() => {
-        if (active) setList(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [enabled]);
+  const { data } = useStockInfos({ enabled });
+  const list = useMemo<WatchItem[] | null>(
+    () => (data ? data.map((s) => ({ symbol: s.symbol, name: s.name, industry: s.industry ?? null })) : null),
+    [data],
+  );
   const industry = symbol && list ? (list.find((s) => s.symbol === symbol)?.industry ?? null) : null;
   return { industry, watch: list };
 }
@@ -806,7 +790,7 @@ function useTerminalShape(terminalId: string, enabled: boolean, isDark: boolean)
   return shape;
 }
 
-export default function BeaconJourney({ terminalId, stockCount, industryCount, board, monitor }: BeaconJourneyProps) {
+export function BeaconJourney({ terminalId, stockCount, industryCount, board, monitor }: BeaconJourneyProps) {
   const [mode, setMode] = useState<Mode>('pending');
   const [reason, setReason] = useState<PosterReason | null>(null);
   const [loadScene, setLoadScene] = useState(false);
@@ -1089,7 +1073,7 @@ export default function BeaconJourney({ terminalId, stockCount, industryCount, b
     else goToProgress(target, i);
   };
 
-  const characteristic = board ? `大盤收盤 ${board.date} · 非即時` : '最近儲存的收盤資料 · 非即時';
+  const characteristic = board ? `大盤收盤 ${board.date} · 非即時` : CLOSE_DATA_NOTE;
   const counts =
     stockCount != null && industryCount != null
       ? `${stockCount.toLocaleString('zh-TW')} 檔股票、${industryCount.toLocaleString('zh-TW')} 個產業，每一筆都標著資料日期。`
@@ -1269,7 +1253,7 @@ export default function BeaconJourney({ terminalId, stockCount, industryCount, b
             {/* 最後一張：章名與標題 → 裁在三台螢幕上的圖 → 一行一欄的看板（真實資料） → 「進入觀測台」，往下就是觀測台 */}
             <article ref={(el) => void (plateRefs.current[2] = el)} className="grid grid-cols-1 gap-y-5 lg:gap-y-6">
               <div className="flex items-end justify-between gap-4 border-b border-border-strong pb-2">
-                <p className="text-[13px] font-medium tracking-[0.12em] text-muted-foreground">觀測台</p>
+                <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">觀測台</p>
               </div>
               <div className="min-w-0">
                 <h2 className={HEADING_PLATE}>

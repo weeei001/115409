@@ -42,7 +42,7 @@ export function HomeHeader({ terminalId, symbols, stockInfos, boardDate, onSelec
       <a
         href={`#${terminalId}`}
         onClick={skipToTerminal}
-        className="sr-only focus:not-sr-only focus:absolute focus:top-[calc(var(--app-safe-area-top)+0.375rem)] focus:left-4 focus:z-10 focus:flex focus:min-h-11 focus:items-center focus:rounded-md focus:border focus:border-border-strong focus:bg-card focus:px-4 focus:text-sm focus:font-medium"
+        className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:top-[calc(var(--app-safe-area-top)+0.375rem)] focus-visible:left-4 focus-visible:z-10 focus-visible:flex focus-visible:min-h-11 focus-visible:items-center focus-visible:rounded-md focus-visible:border focus-visible:border-border-strong focus-visible:bg-card focus-visible:px-4 focus-visible:text-sm focus-visible:font-medium"
       >
         跳到觀測台
       </a>

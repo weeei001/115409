@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   HistogramSeries,
@@ -13,19 +13,13 @@ import {
   type Time,
 } from 'lightweight-charts';
 import type { MaKey, PriceChartData } from '@/lib/types/view';
-import { toBusinessDay, toCandlestickSeriesData } from '@/lib/charts/priceChart';
+import { timeToYmd, toBusinessDay, toCandlestickSeriesData } from '@/lib/charts/priceChart';
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { fmtPrice, fmtVolume } from '@/lib/utils/format';
 
 /** 觀測台只畫這三條均線（和請求的 ma_periods 一致） */
 const MA: MaKey[] = ['MA5', 'MA20', 'MA60'];
-
-function timeLabel(time: Time): string {
-  if (typeof time === 'string') return time;
-  if (typeof time === 'number') return new Date(time * 1000).toISOString().slice(0, 10);
-  return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
-}
 
 interface Readout {
   date: string;
@@ -68,9 +62,9 @@ export function TerminalKline({ data, title }: { data: PriceChartData; title: st
     if (!el) return;
     const chart = createChart(el, {
       autoSize: true,
-      localization: { timeFormatter: (t: Time) => timeLabel(t) },
+      localization: { timeFormatter: (t: Time) => timeToYmd(t) },
       crosshair: { mode: 1 },
-      timeScale: { tickMarkFormatter: (t: Time) => timeLabel(t).slice(5), rightOffset: 3, fixLeftEdge: true },
+      timeScale: { tickMarkFormatter: (t: Time) => timeToYmd(t).slice(5), rightOffset: 3, fixLeftEdge: true },
       rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.24 } },
       layout: { attributionLogo: false, background: { color: 'transparent' }, fontFamily: 'IBM Plex Mono, Noto Sans TC, monospace', fontSize: 11 },
       handleScroll: { vertTouchDrag: false },
@@ -89,7 +83,7 @@ export function TerminalKline({ data, title }: { data: PriceChartData; title: st
       frame = requestAnimationFrame(() => {
         const candle = candleRef.current ? (param.seriesData.get(candleRef.current) as CandlestickData<Time> | undefined) : undefined;
         if (!param.time || !param.point || !candle || !('open' in candle)) return setHover(null);
-        const date = timeLabel(param.time);
+        const date = timeToYmd(param.time);
         setHover({ date, open: candle.open, high: candle.high, low: candle.low, close: candle.close, volume: volumeRefMap.current.get(date) ?? null });
       });
     });

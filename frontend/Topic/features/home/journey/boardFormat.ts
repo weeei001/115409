@@ -7,6 +7,9 @@ import { fmtNum, fmtPrice } from '@/lib/utils/format';
 import { getValueTone, type ValueTone } from '@/lib/utils/tone';
 import type { BeaconJourneyProps } from './types';
 
+/** 還沒有大盤日期時，旅程文案與螢幕上的燈質列 */
+export const CLOSE_DATA_NOTE = '最近儲存的收盤資料 · 非即時';
+
 export interface BoardFigures {
   /** 收盤（加權指數用 fmtNum，有千分位；個股用 fmtPrice，兩位小數） */
   close: string;

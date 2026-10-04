@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
@@ -6,7 +6,11 @@ import { NewsCard } from '@/features/news/NewsCard';
 import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
 import { summarizeNewsFilters } from '@/lib/utils/newsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
+import { Pagination } from '@/components/common/Pagination';
+import { LedgerHeading } from '@/components/common/Ledger';
 import { Button } from '@/components/ui/button';
+import { inputClass } from '@/components/ui/input';
+import { cn } from '@/lib/cn';
 
 const PAGE_SIZE = 10;
 
@@ -31,10 +35,7 @@ export function HomeNews() {
   return (
     <section aria-labelledby="home-news-heading" className="flex h-full flex-col">
       {/* 帳頁標題：襯線 h2＋右側燈質列（則數）＋一條粗線，與「觀測台以外」同一套語法 */}
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-border-strong pb-2">
-        <h2 id="home-news-heading" className="font-serif text-xl leading-snug font-black tracking-[0.06em]">最新財經新聞</h2>
-        {data ? <span className="characteristic">共 {data.total.toLocaleString()} 則</span> : null}
-      </div>
+      <LedgerHeading title="最新財經新聞" headingProps={{ id: 'home-news-heading' }} stamp={data ? `共 ${data.total.toLocaleString()} 則` : null} />
 
       <div className="mt-3 mb-3 flex justify-end">
         <div className="flex w-full items-center gap-2 sm:w-auto">
@@ -56,9 +57,9 @@ export function HomeNews() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') search();
               }}
-              placeholder="股票代號或關鍵字..."
+              placeholder="股票代號或關鍵字…"
               aria-label="搜尋新聞：股票代號或關鍵字"
-              className="h-11 w-full rounded-sm border border-input bg-card pr-3 pl-9 text-base text-foreground outline-none transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus:border-border-strong focus-lamp sm:text-sm"
+              className={cn(inputClass, 'pr-3 pl-9')}
             />
           </div>
           <Button type="button" variant="outline" size="icon" onClick={search} aria-label="搜尋新聞" className="text-muted-foreground hover:text-foreground">
@@ -107,42 +108,16 @@ export function HomeNews() {
       </div>
 
       {data && totalPages > 1 ? (
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t pt-3">
-          {/* 直接跳頁：輸入頁碼後按「前往」或 Enter；超出範圍會落在第一頁或最後一頁 */}
-          <form
-            key={data.page}
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = Number(new FormData(event.currentTarget).get('page'));
-              if (!Number.isFinite(value)) return;
-              const target = Math.min(Math.max(1, Math.trunc(value)), totalPages);
-              if (target !== newsList.page) newsList.goToPage(target);
-            }}
-            className="flex items-center gap-2"
-          >
-            <label htmlFor="home-news-page" className="characteristic">第</label>
-            <input
-              id="home-news-page"
-              name="page"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              defaultValue={data.page}
-              aria-label={`頁碼，共 ${totalPages.toLocaleString()} 頁`}
-              className="h-11 w-20 rounded-sm border border-input bg-card px-2 text-center font-mono text-base tabular-nums text-foreground outline-none transition-colors duration-(--dur-flash) hover:border-border-strong focus:border-border-strong focus-lamp sm:text-sm"
-            />
-            <span className="characteristic">/ {totalPages.toLocaleString()} 頁</span>
-            <Button type="submit" variant="outline" size="sm" disabled={newsList.loading}>前往</Button>
-          </form>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={newsList.page <= 1} onClick={() => newsList.goToPage(newsList.page - 1)} className="min-w-[4.5rem]">
-              上一頁
-            </Button>
-            <Button variant="outline" disabled={newsList.page >= totalPages} onClick={() => newsList.goToPage(newsList.page + 1)} className="min-w-[4.5rem]">
-              下一頁
-            </Button>
-          </div>
-        </div>
+        // 直接跳頁：輸入頁碼後按「前往」或 Enter；超出範圍會落在第一頁或最後一頁
+        <Pagination
+          jump
+          label="新聞分頁"
+          className="mt-1 border-t pt-3"
+          page={newsList.page}
+          totalPages={totalPages}
+          disabled={newsList.loading}
+          onPageChange={newsList.goToPage}
+        />
       ) : null}
     </section>
   );

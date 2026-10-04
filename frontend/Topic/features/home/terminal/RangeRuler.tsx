@@ -1,4 +1,3 @@
-import React from 'react';
 import { fmtPrice } from '@/lib/utils/format';
 
 interface Props {

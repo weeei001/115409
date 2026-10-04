@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
 import { EChart } from '@/components/charts/EChart';
@@ -7,12 +7,15 @@ import { signedText } from '@/components/common/LightEntry';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Sparkline } from '@/components/common/Sparkline';
 import { Button } from '@/components/ui/button';
+import { toggleVariants } from '@/components/ui/toggle';
 import { HomeNews } from '@/features/home/HomeNews';
 import { chipsVolumeOption } from '@/lib/charts/adapters';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { useTheme } from '@/lib/theme/ThemeContext';
-import { fmtAmount, fmtInstitutionalShares, fmtNum, fmtPrice, fmtVolume } from '@/lib/utils/format';
-import { kdSignal, macdSignal, rsiSignal, signalBadgeClass, type Signal } from '@/lib/utils/indicatorSignals';
+import { signedShares } from '@/features/stock/signedShares';
+import { fmtAmount, fmtNum, fmtPrice, fmtVolume } from '@/lib/utils/format';
+import { kdSignal, macdSignal, rsiSignal } from '@/lib/utils/indicatorSignals';
+import { SignalTag } from '@/components/common/SignalTag';
 import { getValueTone, toneText, valueToneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
 import { RangeRuler } from './RangeRuler';
@@ -65,8 +68,31 @@ function PanelBody<T>({
   return <>{children(state.data)}</>;
 }
 
-function SignalTag({ signal }: { signal: Signal }) {
-  return <span className={cn('rounded-sm border px-1.5 py-0.5 text-xs font-medium', signalBadgeClass(signal.tone, true))}>{signal.label}</span>;
+/** 捲動清單下方還沒露出來的列數（lg 以上的觀測清單用，取代漸層淡出）；不能捲動時是 0 */
+function useRowsBelow(ref: React.RefObject<HTMLDivElement | null>, key: unknown): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      if (el.scrollHeight <= el.clientHeight + 1) return setCount(0);
+      const bottom = el.getBoundingClientRect().bottom;
+      let n = 0;
+      el.querySelectorAll('ul > li').forEach((row) => {
+        if (row.getBoundingClientRect().top >= bottom - 1) n += 1;
+      });
+      setCount(n);
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [ref, key]);
+  return count;
 }
 
 /** 以 0 為中線、往左右長的橫條；依數值正負上色（買超紅、賣超綠） */
@@ -84,8 +110,7 @@ function FlowRow({ label, value, max, strong }: { label: string; value: number |
         />
       </span>
       <span className={cn(numeral, 'text-right text-[13.5px]', toneText(tone))}>
-        {value != null && value > 0 ? '+' : ''}
-        {fmtInstitutionalShares(value).replace('-', '−')}
+        {signedShares(value)}
       </span>
     </div>
   );
@@ -99,6 +124,8 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
   const quoteRef = useRef<HTMLDivElement>(null);
   const { boardState, watchState, watchDates, selected, selectedInfo, quote, priceChart, stats, institutional, technical, chips, range, setRange } = data;
 
+  const watchListRef = useRef<HTMLDivElement>(null);
+  const rowsBelow = useRowsBelow(watchListRef, `${watchState.status}:${data.stockInfos.length}`);
   const pick = useCallback(
     (symbol: string) => {
       data.select(symbol);
@@ -171,7 +198,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
     );
 
   return (
-    <section id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="scroll-mt-14 bg-background outline-none">
+    <section id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="scroll-mt-14 bg-background outline-none focus-visible:shadow-none">
       <div className="mx-auto w-full max-w-[1320px] px-4 py-10 sm:px-6 lg:px-10 lg:py-16">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <h2 id={`${id}-title`} className="font-serif text-[clamp(28px,3.3vw,46px)] leading-[1.22] font-black tracking-[0.02em]">
@@ -199,16 +226,16 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
           </Notice>
         ) : null}
 
-        {gridDown && !allDown ? <div className="mt-6 border bg-card p-4 sm:p-5">{boardBlock}</div> : null}
+        {gridDown && !allDown ? <LedgerPanel framed className="mt-6">{boardBlock}</LedgerPanel> : null}
 
         {board && q?.date && board.date !== q.date ? (
           <p className="mt-3 text-[13px] text-muted-foreground">
-            大盤（{board.date}）和個股（{q.date}）的最後收盤日不同：大盤資料由另一支匯入工作更新，兩者都是各自最近儲存的一筆。
+            大盤（<span className="font-mono tabular-nums">{board.date}</span>）和個股（<span className="font-mono tabular-nums">{q.date}</span>）的最後收盤日不同：大盤資料由另一支匯入工作更新，兩者都是各自最近儲存的一筆。
           </p>
         ) : null}
         {watchDates.length > 1 ? (
           <Notice tone="info" className="mt-3">
-            部分個股資料日期不同：最新 {watchDates[watchDates.length - 1]}，最舊 {watchDates[0]}。日期不同的列會另外標示。
+            部分個股資料日期不同：最新 <span className="font-mono tabular-nums">{watchDates[watchDates.length - 1]}</span>，最舊 <span className="font-mono tabular-nums">{watchDates[0]}</span>。日期不同的列會另外標示。
           </Notice>
         ) : null}
 
@@ -244,9 +271,15 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                   {data.stockInfos.length ? `${data.stockInfos.length} 檔 · 依產業` : ''}
                 </span>
               </div>
-              <div className="min-h-0 flex-1 lg:snap-y lg:snap-proximity lg:overflow-y-auto lg:[mask-image:linear-gradient(to_bottom,#000_calc(100%-2.5rem),transparent)]">
-                <Watchlist data={data} onPick={pick} quiet={allDown} />
+              <div ref={watchListRef} className="min-h-0 flex-1 lg:snap-y lg:snap-proximity lg:overflow-y-auto">
+                <Watchlist data={data} onSelect={pick} quiet={allDown} />
               </div>
+              {/* 清單還有更多：寫出還有幾檔（不用漸層淡出） */}
+              {rowsBelow ? (
+                <p className="hidden border-t px-4 py-2 text-xs text-muted-foreground sm:px-5 lg:block">
+                  還有 <span className="font-mono tabular-nums">{rowsBelow}</span> 檔，捲動清單查看
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -266,7 +299,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                 </a>
                 <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
                   <div className="min-w-0">
-                    <h3 className="truncate font-serif text-2xl leading-tight font-black tracking-[0.06em]">{selectedInfo?.name ?? selected}</h3>
+                    <h3 className="truncate text-2xl leading-tight font-bold tracking-[0.02em]">{selectedInfo?.name ?? selected}</h3>
                     <p className="characteristic mt-1 flex flex-wrap gap-x-2">
                       {[selected, selectedInfo?.industry, q?.date ? `收盤 ${q.date}` : null].filter(Boolean).map((seg, i) => (
                         <span key={seg} className="whitespace-nowrap">
@@ -317,17 +350,14 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                 )}
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <div role="group" aria-label="K 線區間" className="flex">
+                  <div role="group" aria-label="K 線區間" className="flex gap-1">
                     {CHART_RANGES.map((r) => (
                       <button
                         key={r.key}
                         type="button"
                         aria-pressed={range === r.key}
                         onClick={() => setRange(r.key)}
-                        className={cn(
-                          'min-h-11 border-b-2 px-3 text-sm transition-colors duration-(--dur-flash)',
-                          range === r.key ? 'border-border-strong font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-                        )}
+                        className={toggleVariants({ variant: 'square' })}
                       >
                         {r.label}
                       </button>
@@ -446,22 +476,22 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
         </div>
 
         {allDown ? null : (
-          <div className="mt-10 border bg-card p-4 sm:p-5 lg:mt-16">
+          <LedgerPanel framed className="mt-10 lg:mt-16">
             <HomeNews />
-          </div>
+          </LedgerPanel>
         )}
 
         <Ledger title="觀測台以外" className="mt-10 lg:mt-16">
           <NextStep href="/ai">AI 對話：用一句話問個股、比較或技術指標</NextStep>
           <NextStep href="/compare">多股比較：把幾檔股票放在同一張圖上，看報酬、風險與相關性</NextStep>
-          <NextStep href="/order">模擬下單：用收盤價練習下單流程</NextStep>
+          <NextStep href="/order">模擬投資：登入後用虛擬資金練習買賣，日後回顧當初的理由</NextStep>
         </Ledger>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
           <p className="max-w-[46em] text-[13px] leading-relaxed text-muted-foreground">
             所有數字為資料庫最近儲存的收盤資料，非即時行情；僅供學習與專題用途，不構成投資建議。紅漲綠跌依台股慣例。
           </p>
-          <Button variant="ghost" size="sm" className="min-h-11" onClick={() => window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })}>
+          <Button variant="ghost" size="sm" className="min-h-11 border border-transparent hover:border-border-strong" onClick={() => window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })}>
             <ArrowUp aria-hidden />
             回到海面
           </Button>

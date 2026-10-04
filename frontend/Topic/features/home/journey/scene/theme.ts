@@ -261,3 +261,23 @@ export function lookWeights(dawn: number, hour: number): [number, number, number
   const h = Math.min(1, Math.max(0, hour));
   return [(1 - d) * (1 - h), (1 - d) * h, d * (1 - h), d * h];
 }
+
+/** 晨班各章文案襯底的色調（從晨班海報與畫面在文案位置量到的天色、牆色，調到同一個明度；BeaconJourney 用） */
+export const DAWN_CAPTION_TINT = {
+  hero: 'rgb(208 218 233)',
+  tower: 'rgb(204 217 234)',
+  window: 'rgb(226 230 236)',
+  desk: 'rgb(222 226 232)',
+  handoff: 'rgb(220 223 229)',
+  /** 晨班 rail 在天空上（海面、燈塔兩章）：字是淺色，底下是比天色深一點的藍（光束掃過時字還讀得到） */
+  skyDeep: 'rgb(30 48 80)',
+} as const;
+
+/**
+ * 螢幕畫面讀不到頁面 token（SSR、離屏擷取）時用的解析值：styles/main.css 的 --background、--muted、--accent、--subtle。
+ * 改 token 時要跟著改（DESIGN.md 開頭的同步清單）。
+ */
+export const PAGE_TOKEN_FALLBACK = {
+  dark: { background: '#080b0f', muted: '#131a21', accent: '#16202a', subtle: '#b4bec8' },
+  light: { background: '#f3f6f8', muted: '#e6edf1', accent: '#e6edf1', subtle: '#2c3a46' },
+} as const;

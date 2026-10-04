@@ -1,14 +1,12 @@
-import React, { useCallback, useMemo } from 'react';
-import Head from 'next/head';
+import { useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { StockSearch } from '@/components/common/StockSearch';
 import { HomeHeader } from '@/features/home/HomeHeader';
-import BeaconJourney from '@/features/home/journey/BeaconJourney';
+import { BeaconJourney } from '@/features/home/journey/BeaconJourney';
 import { ObservationTerminal } from '@/features/home/terminal/ObservationTerminal';
 import { useTerminalData } from '@/features/home/terminal/useTerminalData';
 import { parseBulkSymbolInput } from '@/lib/utils/stockSelection';
 
-const DESCRIPTION = '最近儲存收盤行情（非即時）、財經新聞、多股比較與模擬下單等展示功能（學習／專題用途）。';
 const TERMINAL_ID = 'terminal';
 
 /** 首頁：燈塔旅程（海面 → 燈塔 → 觀測室）之後接上用真實資料的觀測台 */
@@ -30,11 +28,6 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-[100dvh] flex-col">
-      <Head>
-        <title>股海明燈｜最近儲存收盤行情與財經新聞</title>
-        <meta name="description" content={DESCRIPTION} />
-      </Head>
-
       <HomeHeader
         terminalId={TERMINAL_ID}
         symbols={symbols}

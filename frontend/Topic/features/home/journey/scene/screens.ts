@@ -15,7 +15,8 @@ import { signedText } from '@/components/common/LightEntry';
 import { getChartPalette, type ChartPalette } from '@/lib/charts/theme';
 import { fmtNum, fmtPrice } from '@/lib/utils/format';
 import type { BeaconJourneyProps } from '../types';
-import { changeText, quoteCharacteristic } from '../boardFormat';
+import { CLOSE_DATA_NOTE, changeText, quoteCharacteristic } from '../boardFormat';
+import { PAGE_TOKEN_FALLBACK } from './theme';
 
 export const SANS = '"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif';
 export const MONO = '"IBM Plex Mono","Noto Sans TC",ui-monospace,Menlo,Consolas,monospace';
@@ -117,17 +118,18 @@ export function resizeScreenCanvases(c: ScreenCanvases, sizes: ScreenSizes): Set
 /** 讀頁面的 token（--card、--background…）；SSR 或讀不到時用色盤 */
 export function readTokens(isDark: boolean): ScreenTokens {
   const pal = getChartPalette(isDark);
+  const page = isDark ? PAGE_TOKEN_FALLBACK.dark : PAGE_TOKEN_FALLBACK.light;
   const fallback: ScreenTokens = {
     card: pal.tooltipBg,
-    background: isDark ? '#080b0f' : '#f3f6f8',
+    background: page.background,
     border: pal.grid,
     strong: pal.tooltipBorder,
     text: pal.text,
     muted: pal.tickMuted,
-    mutedBg: isDark ? '#131a21' : '#e6edf1',
-    accent: isDark ? '#16202a' : '#e6edf1',
+    mutedBg: page.muted,
+    accent: page.accent,
     brand: pal.brand,
-    subtle: isDark ? '#b4bec8' : '#2c3a46',
+    subtle: page.subtle,
   };
   if (typeof document === 'undefined') return fallback;
   const cs = getComputedStyle(document.documentElement);
@@ -719,7 +721,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, w: number, h: number, data: Sc
       { t: ' · 非即時 · 最近儲存的收盤', c: pal.brand, f: label(66) },
     ]);
   } else {
-    lines.push([{ t: '最近儲存的收盤資料 · 非即時', c: pal.brand, f: label(80) }]);
+    lines.push([{ t: CLOSE_DATA_NOTE, c: pal.brand, f: label(80) }]);
   }
   const widthOf = (segs: Seg[]) =>
     segs.reduce((s, g) => {

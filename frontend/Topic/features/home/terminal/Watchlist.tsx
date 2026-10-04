@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import { LightEntry } from '@/components/common/LightEntry';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
@@ -31,7 +31,7 @@ function groupRows(rows: WatchRow[]): Group[] {
 }
 
 /** 觀測清單：全部收錄的股票，一檔一列條目，點了切換右邊的報價與圖表 */
-export function Watchlist({ data, onPick, quiet = false }: { data: TerminalData; onPick: (symbol: string) => void; /** 上方已經有整體錯誤提示時，不再重複一次 */ quiet?: boolean }) {
+export function Watchlist({ data, onSelect, quiet = false }: { data: TerminalData; onSelect: (symbol: string) => void; /** 上方已經有整體錯誤提示時，不再重複一次 */ quiet?: boolean }) {
   const { infos, watchState, watchRows, watchDates, selected } = data;
   const [expanded, setExpanded] = useState(false);
   const groups = useMemo(() => groupRows(watchRows), [watchRows]);
@@ -100,7 +100,8 @@ export function Watchlist({ data, onPick, quiet = false }: { data: TerminalData;
                     changePercent={row.changePercent}
                     date={row.date && row.date !== commonDate ? row.date : undefined}
                     selected={row.symbol === selected}
-                    onSelect={onPick}
+                    onSelect={onSelect}
+                    className="focus-lamp-inset"
                   />
                 </li>
               ))}

@@ -263,7 +263,7 @@ function World({ progress, low, canHover, data, handoff, poster, activeRef, onRe
   return null;
 }
 
-export default function BeaconScene({
+export function BeaconScene({
   progress,
   running,
   mobile,
@@ -293,12 +293,13 @@ export default function BeaconScene({
   );
   const frameloop = running && !parked ? 'always' : 'never';
 
-  // loop 停了（捲出畫面、分頁隱藏）就拿掉 --handoff：場景沒在跑的時候，觀測台一定是平常的樣子
+  // loop 停了（捲出畫面、分頁隱藏、停在終點）就拿掉 --handoff：場景沒在跑的時候，觀測台一定是平常的樣子
   const activeRef = useRef(running);
+  const looping = frameloop === 'always';
   useEffect(() => {
     activeRef.current = running;
-    if (!running) clearHandoff();
-  }, [running]);
+    if (!looping) clearHandoff();
+  }, [running, looping]);
 
   // R3F 卸載時只會 forceContextLoss，不會 dispose renderer：等它收完（500ms）再釋放；--handoff 也一起拿掉
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
