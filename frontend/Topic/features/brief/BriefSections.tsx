@@ -6,6 +6,7 @@ import { FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/
 import { forwardViewKey } from '@/lib/brief/textBriefClaims';
 import { signedText } from '@/components/common/LightEntry';
 import { ClaimRow } from './BriefHighlight';
+import { cn } from '@/lib/cn';
 import { ClaimTypeBadge, DirectionMark, Empty, SectionCard, StanceIcon, Tag } from './BriefAtoms';
 
 /** 每段預設顯示幾項，其餘收在「展開更多」 */
@@ -97,7 +98,7 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
           <span className="font-mono text-xs tabular-nums text-subtle">
             {item.date}
           </span>
-          <span className={`font-mono text-sm font-semibold tabular-nums ${moveClass(item.move_pct)}`}>
+          <span className={cn('font-mono text-sm font-semibold tabular-nums', moveClass(item.move_pct))}>
             {item.move_pct == null
               ? '—'
               : signedText(item.move_pct, 2, '%')}

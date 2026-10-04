@@ -12,6 +12,10 @@ import type { Brief } from '@/lib/types/textBrief';
 import { buildClaimIndex, claimsUsingEvidence, type ClaimRef } from '@/lib/brief/textBriefClaims';
 import type { EvidenceIndex } from '@/lib/brief/textBriefEvidence';
 import { EvidenceTagList } from './BriefAtoms';
+import { cn } from '@/lib/cn';
+
+/** 程式捲動：減少動態時直接跳過去（同 NewsEventAnalysisPanel） */
+const scrollBehavior = (): ScrollBehavior => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
 
 /**
  * 雙向反查，也就是「為什麼」那一層：
@@ -107,7 +111,7 @@ export const BriefHighlightProvider: React.FC<{
       for (const id of claims.get(focus.key)?.evidenceIds ?? []) {
         const node = nodes.current.get(`ev:${id}`);
         if (node) {
-          node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          node.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
           return;
         }
       }
@@ -116,7 +120,7 @@ export const BriefHighlightProvider: React.FC<{
     if (focus.claimKey) {
       const selectedNode = nodes.current.get(`claim:${focus.claimKey}`);
       if (selectedNode) {
-        selectedNode.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        selectedNode.scrollIntoView({ block: 'center', behavior: scrollBehavior() });
         return;
       }
     }
@@ -124,7 +128,7 @@ export const BriefHighlightProvider: React.FC<{
       if (!ref.evidenceIds.includes(focus.id)) continue;
       const node = nodes.current.get(`claim:${ref.key}`);
       if (node) {
-        node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        node.scrollIntoView({ block: 'center', behavior: scrollBehavior() });
         return;
       }
     }
@@ -200,7 +204,7 @@ export const ClaimRow: React.FC<{
         e.preventDefault();
         toggleClaim(claimKey);
       }}
-      className={`lamp-row px-3 py-3 ${className ?? ''}`}
+      className={cn('lamp-row px-3 py-3', className)}
     >
       {children}
       <EvidenceTagList

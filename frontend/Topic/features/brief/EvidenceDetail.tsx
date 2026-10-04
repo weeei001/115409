@@ -3,7 +3,9 @@ import { ExternalLink, Quote } from 'lucide-react';
 import { EVIDENCE_CATEGORY, type ResolvedEvidence } from '@/lib/brief/textBriefEvidence';
 import type { ClaimRef } from '@/lib/brief/textBriefClaims';
 import { ClaimTypeBadge } from './BriefAtoms';
-import { taipeiDateTime } from './taipeiTime';
+import { taipeiDateTime } from '@/lib/utils/date';
+import { textLinkClass } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
 const EXCERPT_LIMIT = 180;
 
@@ -67,7 +69,7 @@ export const EvidenceDetail: React.FC<{
               type="button"
               onClick={() => setShowFullExcerpt((v) => !v)}
               aria-expanded={showFullExcerpt}
-              className="inline-flex min-h-11 items-center text-xs font-semibold text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+              className={cn('inline-flex min-h-11 items-center text-xs font-semibold text-foreground', textLinkClass)}
             >
               {showFullExcerpt ? '收起摘錄' : '展開更多'}
             </button>
@@ -109,7 +111,7 @@ export const EvidenceDetail: React.FC<{
         </Row> : null}
         {item.savedVersionUrl ? <Row label="保存的原文">
           <a href={item.savedVersionUrl} target="_blank" rel="noopener noreferrer"
-            className="text-foreground underline decoration-brand decoration-2 underline-offset-4 hover:decoration-foreground">
+            className={cn('text-foreground', textLinkClass)}>
             查看此證據保存的新聞版本
           </a>
           <p className="text-xs text-muted-foreground">保存版本可供追溯，不代表現在仍為有效來源。</p>
@@ -119,7 +121,7 @@ export const EvidenceDetail: React.FC<{
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex max-w-full items-center gap-1 text-foreground underline decoration-brand decoration-2 underline-offset-4 break-all hover:decoration-foreground"
+            className={cn('inline-flex max-w-full items-center gap-1 text-foreground break-all', textLinkClass)}
           >
             <ExternalLink size={13} aria-hidden className="shrink-0 text-muted-foreground" />
             <span className="truncate">{item.url}</span>
@@ -137,7 +139,7 @@ export const EvidenceDetail: React.FC<{
                 {onSelectClaim ? <button
                   type="button"
                   onClick={() => onSelectClaim?.(ref.key)}
-                  className="lamp-row w-full border-b border-border px-2 py-3 text-left text-sm leading-6"
+                  className="lamp-row w-full border-b border-border px-2 py-3 text-left text-sm leading-6 focus-lamp-inset"
                 >
                   <span className="block text-xs text-muted-foreground">{ref.section}</span>
                   <span className="line-clamp-2 text-foreground">{ref.text}</span>

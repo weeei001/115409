@@ -1,5 +1,7 @@
 import React, { useMemo } from 'react';
-import { ArrowRight, ChevronDown, RefreshCw } from 'lucide-react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
+import { Disclosure } from '@/components/common/Disclosure';
+import { cn } from '@/lib/cn';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import type { Claim } from '@/lib/types/textBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
@@ -92,13 +94,13 @@ const RetryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
 
 /** 收合段落裡的小標（段落本身是 h3）：sans、字距加寬、次要色 */
 const Caption: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => (
-  <h4 className={`text-[13px] font-medium tracking-[0.04em] ${className ?? 'text-muted-foreground'}`}>{children}</h4>
+  <h4 className={cn('text-[13px] font-medium tracking-[0.04em]', className ?? 'text-muted-foreground')}>{children}</h4>
 );
 
 const FacetRow: React.FC<{ facet: Facet }> = ({ facet }) => (
   <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5 py-2.5 sm:grid-cols-[7rem_7rem_minmax(0,1fr)]">
     <dt className="text-[13px] leading-tight tracking-[0.04em] text-muted-foreground">{facet.label}</dt>
-    <dd className={`text-sm leading-tight font-bold ${facetToneClass(facet)}`}>{facet.levelLabel}</dd>
+    <dd className={cn('text-sm leading-tight font-bold', facetToneClass(facet))}>{facet.levelLabel}</dd>
     <dd className="col-span-2 text-xs leading-5 text-muted-foreground sm:col-span-1">{facet.basis}</dd>
   </div>
 );
@@ -140,7 +142,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   if (error && !data) {
     return (
       <CardFrame asOfDate={endDate} state="error">
-        <div className="p-4 sm:p-6">
+        <div className="p-4 sm:p-5">
           <Notice tone="danger" action={<RetryButton onClick={() => void run()} />}>
             {error}
           </Notice>
@@ -164,7 +166,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   if (!b) {
     return (
       <CardFrame asOfDate={data.as_of_date} state="ready">
-        <div className="p-4 sm:p-6">
+        <div className="p-4 sm:p-5">
           <Notice tone="warning">{data.limitations?.[0] ?? '這次沒有產出分析，AI 寫的內容沒通過系統檢查。'}</Notice>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenDetail()}>
@@ -219,7 +221,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
 
   return (
     <CardFrame asOfDate={data.as_of_date} state="ready">
-      <div className="p-4 sm:p-6">
+      <div className="p-4 sm:p-5">
         {stale ? (
           <p role="status" className="mb-3 text-[13px] leading-relaxed text-muted-foreground">
             最新交易日已到 {latestTradeDate}，這份分析的基準日較早，內容可能已經過期。
@@ -231,10 +233,11 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
             <StanceIcon tone={stanceTone} />
             {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
           </Tag>
-          <span className="text-[13px] text-muted-foreground" title={CONF_HINT}>
+          <span className="text-[13px] text-muted-foreground">
             分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}
           </span>
         </div>
+        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">分析信心：{CONF_HINT}</p>
 
         <p className="mt-3 max-w-[40em] text-xl leading-8 font-semibold text-foreground">{b.headline}</p>
 
@@ -271,7 +274,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
         summary={`正面 ${positives.length} 項 · 風險 ${negatives.length} 項 · 分歧 ${divergence.length} 項 · 面向分級 ${facets.length} 項，各附來源`}
         className="border-t"
       >
-        <div className="space-y-5 p-4 sm:p-6">
+        <div className="space-y-5 p-4 sm:p-5">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             {factorBlock('正面', positives, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
             {factorBlock('風險', negatives, '沒有通過檢查的依據，不代表沒有風險。', 'text-warning')}
@@ -298,12 +301,11 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
               面向分級由固定門檻套用在上面列出的原始數字上，不是 AI 給的分數。
             </p>
             {/* 規則一律可點開（觸控也能看），不靠滑鼠懸停 */}
-            <details className="group mt-1 border-b text-xs text-muted-foreground">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 font-medium text-subtle [&::-webkit-details-marker]:hidden">
-                <ChevronDown size={14} aria-hidden className="shrink-0 text-muted-foreground transition-transform duration-(--dur-sweep) group-open:rotate-180" />
-                分級規則
-                <span className="characteristic">（{facets.length} 項，點開看門檻）</span>
-              </summary>
+            <Disclosure
+              className="mt-1 border-b text-xs text-muted-foreground"
+              summaryProps={{ className: 'font-medium' }}
+              summary={<>分級規則 <span className="characteristic">（{facets.length} 項，點開看門檻）</span></>}
+            >
               <dl className="divide-y border-t pb-1">
                 {facets.map((facet) => (
                   <div key={facet.key} className="grid grid-cols-1 gap-x-3 gap-y-0.5 py-2 sm:grid-cols-[6rem_minmax(0,1fr)]">
@@ -312,7 +314,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
                   </div>
                 ))}
               </dl>
-            </details>
+            </Disclosure>
           </div>
         </div>
       </FoldSection>

@@ -1,6 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { Expandable } from '@/components/common/CollapsibleSection';
+import { LedgerPanel } from '@/components/common/Ledger';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
+import { useIsMobile } from '@/lib/hooks/useClientEnv';
 import type { ResolvedEvidence } from '@/lib/brief/textBriefEvidence';
 import { useBriefHighlight } from './BriefHighlight';
 import { CategoryTag, Empty } from './BriefAtoms';
@@ -123,7 +127,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
         <button
           type="button"
           onClick={clear}
-          className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-xs font-semibold text-subtle transition-colors hover:text-foreground"
+          className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-xs font-semibold text-subtle transition-colors duration-(--dur-flash) hover:text-foreground"
         >
           <ArrowLeft size={12} aria-hidden />
           回到來源清單
@@ -155,7 +159,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
                 key={id}
                 type="button"
                 onClick={() => selectEvidence(id, focus.key)}
-                className="lamp-row w-full border-b border-border px-2.5 py-2.5 text-left"
+                className="lamp-row w-full border-b border-border px-2.5 py-2.5 text-left focus-lamp-inset"
               >
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-sm font-semibold text-foreground">
@@ -205,7 +209,7 @@ export const EvidenceRail: React.FC<{ limitations?: string[]; showCatalog?: bool
   showCatalog = true,
 }) => (
   <div className="hidden lg:block lg:sticky lg:top-0">
-    <div className="border bg-card p-5">
+    <LedgerPanel framed>
       <h3 className="border-b border-border-strong pb-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
         證據詳情
       </h3>
@@ -216,66 +220,35 @@ export const EvidenceRail: React.FC<{ limitations?: string[]; showCatalog?: bool
       >
         <FocusBody compactCatalog={showCatalog} limitations={limitations} />
       </div>
-    </div>
+    </LedgerPanel>
   </div>
 );
 
-/** 手機底部抽屜：只有選了東西才出現，內容與桌機右欄相同 */
+/**
+ * 手機底部抽屜（lg 以下）：只有選了東西才出現，內容與桌機右欄相同。
+ * 用 ui/sheet：焦點鎖定、Esc、捲動鎖定與關閉後焦點回原處都交給 Radix（疊在 AI 分析抽屜上方）。
+ */
 export const EvidenceSheet: React.FC = () => {
   const { hasFocus, clear } = useBriefHighlight();
-  const sheetRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!hasFocus) return;
-    const sheet = sheetRef.current;
-    if (!sheet || !window.matchMedia('(max-width: 1023px)').matches) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const parentDialog = sheet.parentElement?.closest('[role="dialog"]');
-    const timer = window.setTimeout(() => sheet.querySelector<HTMLButtonElement>('button')?.focus(), 75);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || !sheet.getClientRects().length) return;
-      const controls = [...sheet.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]')]
-        .filter(node => node.getClientRects().length);
-      const first = controls[0], last = controls[controls.length - 1];
-      if (!first) return;
-      event.stopPropagation();
-      if (!sheet.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last)) {
-        event.preventDefault(); first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault(); last.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener('keydown', onKey, true);
-      if (previous?.isConnected && parentDialog?.contains(previous)) previous.focus();
-      else parentDialog?.querySelector<HTMLButtonElement>('button')?.focus();
-    };
-  }, [hasFocus]);
-  if (!hasFocus) return null;
-
+  const isMobile = useIsMobile();
   return (
-    <div
-      ref={sheetRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label="證據詳情"
-      className="fixed inset-x-0 bottom-0 z-[70] max-h-[78dvh] overflow-y-auto border-t border-border-strong bg-card px-4 pb-[calc(1rem+var(--app-safe-area-bottom))] pt-3 shadow-raised lg:hidden"
-    >
-      <div className="sticky top-0 -mx-4 mb-2 flex items-center justify-between gap-2 border-b border-border bg-card px-4 pb-2">
-        <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
-          證據詳情
-        </h3>
-        <button
-          type="button"
-          onClick={clear}
-          aria-label="關閉證據詳情"
-          className="flex size-11 items-center justify-center rounded-md border border-input bg-card text-subtle transition-colors hover:border-border-strong hover:bg-accent hover:text-foreground"
-        >
-          <X size={16} aria-hidden />
-        </button>
-      </div>
-      <FocusBody />
-    </div>
+    <Sheet open={hasFocus && isMobile} onOpenChange={(open) => { if (!open) clear(); }}>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        className="max-h-[78dvh] gap-0 overflow-y-auto border-border-strong bg-card px-4 pt-3 pb-[calc(1rem+var(--app-safe-area-bottom))] lg:hidden"
+      >
+        <div className="sticky top-0 -mx-4 mb-2 flex items-center justify-between gap-2 border-b bg-card px-4 pb-2">
+          <SheetTitle className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">證據詳情</SheetTitle>
+          <SheetClose asChild>
+            <Button type="button" variant="outline" size="icon" aria-label="關閉證據詳情" className="text-subtle hover:text-foreground">
+              <X aria-hidden />
+            </Button>
+          </SheetClose>
+        </div>
+        <SheetDescription className="sr-only">所選論點或來源的原始資料</SheetDescription>
+        <FocusBody />
+      </SheetContent>
+    </Sheet>
   );
 };

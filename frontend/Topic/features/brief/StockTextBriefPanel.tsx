@@ -3,9 +3,12 @@ import { RefreshCw } from 'lucide-react';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
 import { CONF, CONF_HINT, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
-import { EmptyState, LoadingRows, Notice as SharedNotice } from '@/components/common/Notice';
-import { taipeiDateTime } from './taipeiTime';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
+import { taipeiDateTime } from '@/lib/utils/date';
 import { Button } from '@/components/ui/button';
+import { Disclosure } from '@/components/common/Disclosure';
+import { tabListClass, tabTriggerActiveClass, tabTriggerClass } from '@/components/ui/tabs';
+import { cn } from '@/lib/cn';
 import { BriefHighlightProvider, useBriefHighlight } from './BriefHighlight';
 import { SectionCard, StanceIcon, Tag } from './BriefAtoms';
 import { KeyPointsTab, ScenarioTab } from './BriefSections';
@@ -28,17 +31,6 @@ const TABS: [TabKey, string][] = [
   ['scenario', '情境與風險'],
   ['sources', '證據來源'],
 ];
-
-/** 沿用全站的 Notice（航船布告）；這裡只把舊的 tone 名稱對應過去 */
-const Notice: React.FC<{
-  tone: 'warn' | 'error' | 'info';
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}> = ({ tone, children, action }) => (
-  <SharedNotice tone={tone === 'error' ? 'danger' : tone === 'warn' ? 'warning' : 'info'} action={action}>
-    {children}
-  </SharedNotice>
-);
 
 /** 只重讀一次排程產好的分析，不會觸發 LLM 重跑 */
 const RetryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
@@ -63,18 +55,17 @@ const BriefAudit: React.FC = () => {
 
   if (!broken.length && !evidence.futureDatedIds.length) {
     return (
-      <details className="border-t border-border pt-1 text-xs text-muted-foreground">
-        <summary className="flex min-h-11 cursor-pointer items-center">引用檢核與分析限制</summary>
+      <Disclosure className="border-t pt-1 text-xs text-muted-foreground" summary="引用檢核與分析限制">
         <p className="mt-2 leading-6">
         引用可在證據目錄找到（{evidence.total} 筆），未發現晚於基準日的已知日期。
         {evidence.undatedIds.length ? `另有 ${evidence.undatedIds.length} 筆缺少日期。` : ""}
         引用檢核不代表內容已證實。
         </p>
-      </details>
+      </Disclosure>
     );
   }
   return (
-    <Notice tone="warn">
+    <Notice tone="warning">
       {evidence.undatedIds.length ? `另有 ${evidence.undatedIds.length} 筆缺少日期，無法完成時間核對。` : ""}
       {broken.length ? <>有 {broken.length} 筆引用在證據目錄裡找不到（{broken.join('、')}），已不顯示為可點擊來源。</> : null}
       {evidence.futureDatedIds.length ? (
@@ -126,7 +117,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
   if (error && !data) {
     return (
       <div className="flex flex-col gap-3">
-        <Notice tone="error">{error}</Notice>
+        <Notice tone="danger">{error}</Notice>
         <RetryButton onClick={() => void run()} />
       </div>
     );
@@ -149,7 +140,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
   if (!b) {
     return (
       <div className="flex flex-col gap-3">
-        <Notice tone="warn">
+        <Notice tone="warning">
           目前沒有可用的已存 AI 分析，排程更新後才會出現。
         </Notice>
         {data.limitations?.length ? (
@@ -178,7 +169,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
     <BriefHighlightProvider brief={b} evidence={evidence} initialEvidenceId={initialEvidenceId} initialClaimKey={initialClaimKey}>
       <div className="flex min-w-0 flex-col gap-4">
         {stale ? (
-          <Notice tone="warn">
+          <Notice tone="warning">
             這份分析的基準日是 {data.as_of_date}，比最新交易日 {latestTradeDate} 早，內容可能已經過期；
             排程更新後會自動換成最新的一份。
           </Notice>
@@ -202,8 +193,9 @@ export const StockTextBriefPanel: React.FC<Props> = ({
                 <StanceIcon tone={stanceTone} />
                 整體 {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
               </Tag>
-              <Tag title={CONF_HINT}>分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}</Tag>
+              <Tag>分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}</Tag>
             </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">分析信心：{CONF_HINT}</p>
             {b.confidence_reason ? (
               <p className="mt-3 text-sm leading-7 text-subtle">
                 {b.confidence_reason}
@@ -217,7 +209,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
         <div
           role="tablist"
           aria-label="分析內容分頁"
-          className="flex min-w-0 gap-6 overflow-x-auto scrollbar-none border-b border-border"
+          className={cn(tabListClass, 'overflow-x-auto scrollbar-none')}
         >
           {TABS.map(([key, label], index) => (
             <button
@@ -233,11 +225,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
               tabIndex={tab === key ? 0 : -1}
               onClick={() => setTab(key)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
-              className={`-mb-px min-h-[44px] whitespace-nowrap border-b-2 px-1 text-sm font-semibold transition-colors duration-(--dur-sweep) ${
-                tab === key
-                  ? 'border-foreground text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
+              className={cn(tabTriggerClass, 'focus-lamp-inset', tab === key && tabTriggerActiveClass)}
             >
               {label}
             </button>

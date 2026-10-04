@@ -1,6 +1,10 @@
 import React from 'react';
 import { AlertTriangle, FileWarning, Minus, Plus, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Direction } from '@/lib/types/textBrief';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/common/Notice';
+import { cn } from '@/lib/cn';
+import type { BadgeTone } from '@/lib/utils/tone';
 import { claimTypeMeta, type BriefTone } from '@/lib/brief/textBriefLabels';
 import type { EvidenceIndex, ResolvedEvidence } from '@/lib/brief/textBriefEvidence';
 import { EVIDENCE_CATEGORY } from '@/lib/brief/textBriefEvidence';
@@ -10,13 +14,13 @@ import { EVIDENCE_CATEGORY } from '@/lib/brief/textBriefEvidence';
  * 所以標籤樣式、來源標籤的可用性判斷只有一份。
  */
 
-export const TONE_CLASS: Record<BriefTone, string> = {
-  ok: 'border-up/25 bg-up-muted text-up-emphasis',
-  bad: 'border-down/25 bg-down-muted text-down-emphasis',
-  warn: 'border-warning-border bg-warning-muted text-warning',
-  info: 'border-input bg-accent text-accent-foreground',
-  plain:
-    'border-border bg-muted text-subtle',
+/** AI 分析標籤的色調對應到全站的徽章色（lib/utils/tone.ts 的 toneBadge） */
+const BRIEF_BADGE: Record<BriefTone, { tone: BadgeTone; emphasis?: boolean }> = {
+  ok: { tone: 'up', emphasis: true },
+  bad: { tone: 'down', emphasis: true },
+  warn: { tone: 'warning' },
+  info: { tone: 'info' },
+  plain: { tone: 'neutral' },
 };
 
 export const Tag: React.FC<{
@@ -25,12 +29,11 @@ export const Tag: React.FC<{
   className?: string;
   children: React.ReactNode;
 }> = ({ tone = 'plain', title, className, children }) => (
-  <span
-    title={title}
-    className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-semibold ${TONE_CLASS[tone]} ${className ?? ''}`}
-  >
+  <Badge tone={BRIEF_BADGE[tone].tone} emphasis={BRIEF_BADGE[tone].emphasis} title={title} className={className}>
     {children}
-  </span>
+    {/* title 只有滑鼠停住才看得到；同一句說明也給螢幕報讀 */}
+    {title ? <span className="sr-only">（{title}）</span> : null}
+  </Badge>
 );
 
 export function StanceIcon({ tone, size = 14 }: { tone: BriefTone; size?: number }) {
@@ -63,7 +66,7 @@ export const DirectionMark: React.FC<{ direction?: Direction; label?: string }> 
   const Icon = positive ? Plus : Minus;
   const cls = positive ? 'text-up' : negative ? 'text-down' : 'text-muted-foreground';
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${cls}`}>
+    <span className={cn('inline-flex shrink-0 items-center gap-1 text-xs font-semibold', cls)}>
       <Icon size={13} aria-hidden />
       {label ? <span>{label}</span> : null}
     </span>
@@ -90,7 +93,7 @@ export const SectionCard: React.FC<{
 );
 
 export const Empty: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
-  <p className="text-sm text-muted-foreground">{children ?? '這次沒有這一段內容。'}</p>
+  <EmptyState className="py-6">{children ?? '這次沒有這一段內容。'}</EmptyState>
 );
 
 /** 來源分類標籤：文字為主，圖示輔助，不靠顏色分辨 */
@@ -147,7 +150,7 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
   if (!list.length && !warnWhenEmpty) return null;
 
   return (
-    <div className={`flex flex-wrap items-center gap-x-3 gap-y-0 ${className ?? ''}`}>
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-0', className)}>
       {usable.map((id) => {
         const item = index.resolve(id)!;
         const active = activeId === id;
@@ -162,31 +165,28 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
             aria-pressed={active}
             aria-label={`查看來源：${item.label}`}
             title={`原始代號 ${id}`}
-            className={`inline-flex min-h-11 max-w-full items-center gap-1 px-0.5 py-1 text-xs leading-5 underline underline-offset-4 decoration-border transition-colors ${
-              active
-                ? 'font-semibold text-foreground decoration-2'
-                : 'text-muted-foreground hover:text-foreground hover:decoration-current'
-            }`}
+            className={cn(
+              'inline-flex min-h-11 max-w-full items-center gap-1 px-0.5 py-1 text-xs leading-5 underline underline-offset-4 decoration-border transition-colors duration-(--dur-flash)',
+              active ? 'font-semibold text-foreground decoration-2' : 'text-muted-foreground hover:text-foreground hover:decoration-current',
+            )}
           >
             <span className="truncate">{item.label}</span>
           </button>
         );
       })}
 
-      {broken.map((id) => (
-        <span
-          key={id}
-          className="inline-flex items-center gap-1 rounded-sm border border-dashed border-input px-1.5 py-0.5 text-xs leading-5 text-muted-foreground"
-          title={
-            index.resolve(id)
-              ? `原始代號 ${id}：資料日期晚於分析基準日，已停用`
-              : `原始代號 ${id}：在證據目錄中找不到對應資料`
-          }
-        >
-          <FileWarning size={11} aria-hidden />
-          {index.resolve(id) ? '來源日期異常' : '來源缺漏'}
-        </span>
-      ))}
+      {broken.map((id) => {
+        const reason = index.resolve(id)
+          ? `原始代號 ${id}：資料日期晚於分析基準日，已停用`
+          : `原始代號 ${id}：在證據目錄中找不到對應資料`;
+        return (
+          <Badge key={id} tone="outline" className="border-dashed border-input leading-5 font-normal text-muted-foreground" title={reason}>
+            <FileWarning size={11} aria-hidden />
+            {index.resolve(id) ? '來源日期異常' : '來源缺漏'}
+            <span className="sr-only">（{reason}）</span>
+          </Badge>
+        );
+      })}
 
       {warnWhenEmpty && !usable.length && !broken.length ? (
         <span className="inline-flex items-center gap-1 text-xs leading-5 text-muted-foreground">
