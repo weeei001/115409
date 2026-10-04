@@ -1,15 +1,24 @@
 import * as React from "react"
 import { cn } from "@/lib/cn"
 
+/**
+ * 全站文字欄位的外觀：2px 圓角、border-input（對比 ≥ 3:1）、44px 高、focus 用 focus-lamp；
+ * 手機用 16px 字，iOS 聚焦時才不會放大畫面。<input>、<textarea>、<select> 都從這一份組合。
+ */
+export const inputClass =
+  "h-11 w-full min-w-0 rounded-sm border border-input bg-card px-3 text-base text-foreground outline-none transition-colors duration-(--dur-flash) ease-flash placeholder:text-muted-foreground hover:border-border-strong focus-lamp disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger sm:text-sm"
+
+/** 欄位標籤（表單小標） */
+export const fieldLabelClass = "block text-[13px] font-medium tracking-[0.04em] text-subtle"
+
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       type={type}
       data-slot="input"
       className={cn(
-        "h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
-        "focus-lamp",
-        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
+        inputClass,
+        "selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
         className
       )}
       {...props}

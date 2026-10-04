@@ -13,7 +13,6 @@
   --background: #f3f6f8;
   --foreground: #0e1a24;
   --card: #ffffff;
-  --card-foreground: #0e1a24;
   --popover: #ffffff;
   --popover-foreground: #0e1a24;
   --primary: #f2b347;
@@ -29,11 +28,6 @@
   --input: #8696a3;
   --ring: #f2b347;
   --radius: 2px;
-  --chart-1: #4a7fb0;
-  --chart-2: #7a6fb5;
-  --chart-3: #2b8ca3;
-  --chart-4: #8a6a4a;
-  --chart-5: #6b7785;
 
   /* 文字與線 */
   --subtle: #2c3a46;
@@ -42,6 +36,8 @@
   --focus: #0e1a24;
   /* 3D 場景上方文字的襯底 */
   --scrim: rgba(243, 246, 248, 0.82);
+  /* 抽屜等浮層後方的遮罩 */
+  --overlay: rgba(14, 26, 36, 0.5);
 
   /* 燈：只當「光」用（focus、選取標線、主要按鈕、光束），不代表漲跌或狀態 */
   --brand: #f2b347;
@@ -69,7 +65,7 @@
   --warning-border: rgba(110, 74, 44, 0.4);
   --warning-icon: #6e4a2c;
 
-  /* 面板與 sticky 頁首靠線分隔，只有浮在內容上方的層（下拉清單、popover、sheet、dialog、toast）有陰影 */
+  /* 面板與 sticky 頁首靠線分隔，只有浮在內容上方的層（下拉清單、popover、sheet、toast）有陰影 */
   --elev-raised: 0 12px 32px -8px rgba(14, 26, 36, 0.18);
 
   /* 動效：週期 P = 10s（燈質 Fl W 10s），時長都是 P 的分數 */
@@ -78,23 +74,19 @@
   --dur-beam: 625ms;
   --dur-eclipse: 1250ms;
   --dur-quick: 1000ms;
-  --ease-flash: cubic-bezier(0.2, 0, 0, 1);
-  --ease-eclipse: cubic-bezier(0.4, 0, 1, 1);
-  --ease-swell: cubic-bezier(0.37, 0, 0.63, 1);
+  /* 緩動 --ease-flash、--ease-swell 定義在下方 @theme，Tailwind 會一併輸出成 CSS 變數 */
 
   /* 版面 */
   --app-header-height: 3.5rem;
   --app-safe-area-top: env(safe-area-inset-top, 0px);
   --app-safe-area-right: env(safe-area-inset-right, 0px);
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
-  --app-safe-area-left: env(safe-area-inset-left, 0px);
 }
 
 .dark {
   --background: #080b0f;
   --foreground: #dfe4e9;
   --card: #0f141a;
-  --card-foreground: #dfe4e9;
   --popover: #0f141a;
   --popover-foreground: #dfe4e9;
   --secondary: #131a21;
@@ -106,17 +98,13 @@
   --destructive: #e88bb5;
   --border: #1c2630;
   --input: #5b6b79;
-  --chart-1: #7fb0dc;
-  --chart-2: #a79be0;
-  --chart-3: #5fc0d2;
-  --chart-4: #c9a27e;
-  --chart-5: #9aa6b2;
 
   --subtle: #b4bec8;
   /* 夜海的粗線要和晨海一樣撐得起層次：用約五成的墨色 */
   --border-strong: #6b7a88;
   --focus: #f2b347;
   --scrim: rgba(8, 11, 15, 0.72);
+  --overlay: rgba(0, 0, 0, 0.6);
 
   --brand-deep: #f7c464;
   --brand-text: #f2b347;
@@ -147,7 +135,6 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -162,16 +149,11 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
 
   --color-subtle: var(--subtle);
   --color-border-strong: var(--border-strong);
   --color-focus: var(--focus);
-  --color-scrim: var(--scrim);
+  --color-overlay: var(--overlay);
   --color-brand: var(--brand);
   --color-brand-deep: var(--brand-deep);
   --color-brand-text: var(--brand-text);
@@ -209,8 +191,9 @@
   --font-mono: var(--font-app-mono, "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
 
   --ease-flash: cubic-bezier(0.2, 0, 0, 1);
-  --ease-eclipse: cubic-bezier(0.4, 0, 1, 1);
   --ease-swell: cubic-bezier(0.37, 0, 0.63, 1);
+  /* 沒寫 ease-* 的 transition 一律用 ease-flash */
+  --default-transition-timing-function: var(--ease-flash);
 }
 
 /* ═══════════════════════════
@@ -254,11 +237,13 @@
   input[type="radio"] {
     cursor: pointer;
   }
-  /* focus：立即出現、不做動畫。外圈 --focus、內圈燈色，兩套主題都 ≥ 3:1 */
+  /* focus：立即出現、不做動畫。外圈 --focus、內圈燈色，兩套主題都 ≥ 3:1。
+     transition 加 !important：元件的 transition-colors 在 v4 也會轉 outline-color，base 層的一般宣告蓋不過 utilities 層 */
   :where(button, a[href], summary, input, select, textarea, [role="button"], [role="tab"], [tabindex]):focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
     box-shadow: 0 0 0 2px var(--brand);
+    transition: none !important;
   }
   input[type="date"],
   input[type="datetime-local"] {
@@ -280,12 +265,19 @@
     outline: 2px solid var(--focus);
     outline-offset: 2px;
     box-shadow: 0 0 0 2px var(--brand);
+    transition: none;
   }
 }
 
-/* 相容：模擬投資（PaperFunds、PaperOrderDraft、order 頁）的主要按鈕仍寫 bg-brand-gradient；對應到燈色實底（燈色可用於主要按鈕） */
-@utility bg-brand-gradient {
-  background: var(--brand);
+/* 捲動容器（overflow）裡的元件：兩圈都畫在元件內側，外圈貼邊、燈色在內，才不會被容器裁掉。
+   和 focus-lamp 是同一組（lib/cn.ts），後寫的會取代前面的 */
+@utility focus-lamp-inset {
+  &:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 4px var(--brand);
+    transition: none;
+  }
 }
 
 /* 燈質列：等寬小字，內容只放真實資料（代號、產業、資料日、單位）或燈質本身 */
@@ -378,7 +370,8 @@
   opacity: var(--handoff, 1);
 }
 
-/* 可點的列：hover 換淺色底，左側出現 2px 燈色標線；選取狀態加 data-selected */
+/* 可點的列：hover 只換淺色底；左側 2px 燈色標線只給選取（data-selected、aria-current="page"、aria-selected），
+   滑鼠停在別列時才不會看起來有兩列被選取。停用時半透明、不反白 */
 @utility lamp-row {
   position: relative;
   transition: background-color var(--dur-flash) var(--ease-flash);
@@ -399,12 +392,12 @@
       opacity: 1;
     }
   }
+  &:disabled {
+    opacity: 0.5;
+  }
   @media (hover: hover) and (pointer: fine) {
-    &:hover {
+    &:hover:not(:disabled) {
       background: var(--accent);
-      &::before {
-        opacity: 1;
-      }
     }
   }
 }
@@ -433,25 +426,24 @@
   }
 }
 
-/* skip link：一般隱藏，鍵盤聚焦時浮出 */
+/* skip link：一般隱藏，鍵盤聚焦時浮出；focus 框沿用 base 的兩圈，不另外加陰影 */
 .skip-link {
   position: absolute;
   left: -9999px;
   top: 1rem;
   z-index: 100;
 }
-.skip-link:focus {
+.skip-link:focus-visible {
   left: 1rem;
   padding: 0.75rem 1rem;
   border-radius: var(--radius);
   background: var(--card);
   color: var(--foreground);
-  box-shadow: var(--elev-raised);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
-/* 換班（主題切換）時的顏色過渡 */
+/* 換班（主題切換）時的顏色過渡；減少動態時不加這個 class（lib/theme/ThemeContext.tsx） */
 .theme-transitioning * {
   transition:
     background-color var(--dur-beam) var(--ease-swell),
