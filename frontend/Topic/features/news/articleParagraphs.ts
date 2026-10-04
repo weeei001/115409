@@ -1,4 +1,4 @@
-import { stripHtml } from '@/lib/news/sentiment';
+import { stripHtml } from '@/lib/news/newsLinks';
 
 /**
  * 新聞內文的「畫面用」分段與引用標示。只切畫面，不改任何字：

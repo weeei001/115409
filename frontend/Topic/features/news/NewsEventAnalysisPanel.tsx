@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
 import type { NewsEvent, NewsEventAnalysis, NewsEvidence } from '@/lib/types/api';
 import { EmptyState } from '@/components/common/Notice';
 import { cn } from '@/lib/cn';
@@ -12,13 +11,13 @@ import {
 import { ImpactDirectionTag } from './ImpactTag';
 import { groupImpactsByTarget } from './impactGroups';
 import { eventCitationId, groupCitationId, impactCitationId } from './citations';
+import { formatTaipei } from '@/lib/utils/date';
+import { Badge } from '@/components/ui/badge';
+import { textLinkClass } from '@/components/ui/button';
+import { Disclosure } from '@/components/common/Disclosure';
 
-/** 收合列共用：至少 44px、隱藏原生三角形、focus 用燈色圈 */
-const summaryClass =
-  'flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 outline-none transition-colors duration-(--dur-flash) focus-lamp [&::-webkit-details-marker]:hidden';
-
-/** 對照中的項目：中性底色＋左側粗線（與內文的底色同一個 token） */
-const activeItem = 'data-[active=true]:bg-accent data-[active=true]:shadow-[inset_2px_0_0_var(--border-strong)]';
+/** 對照中的項目：中性底色＋左側粗線（與內文的底色同一個 token）。粗線用 ::before 畫，不佔 box-shadow，focus 的燈色內圈才不會被蓋掉 */
+const activeItem = 'relative before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-border-strong before:opacity-0 data-[active=true]:bg-accent data-[active=true]:before:opacity-100';
 
 /** 與內文引用句的雙向對照；不給時面板只是靜態內容（例如測試、其他頁面） */
 export interface CitationLink {
@@ -49,10 +48,6 @@ function previewHandlers(link: CitationLink | undefined, id: string) {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) link.onPreview(null);
     },
   };
-}
-
-function Chevron() {
-  return <ChevronDown size={16} className="shrink-0 text-muted-foreground transition-transform duration-(--dur-sweep) group-open:rotate-180" aria-hidden />;
 }
 
 /** 原文依據：引用句左側一條 2px 中性標線；出現在內文的句子可以點選，在內文中標出並捲到該句 */
@@ -100,7 +95,7 @@ function EventContext({ event, ownerId, link }: { event: NewsEvent; ownerId: str
       <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         <span>{STATEMENT_LABELS[event.statement_type] ?? event.statement_type}</span>
         {event.speaker ? <span>· {event.speaker}</span> : null}
-        {event.topics.map((topic) => <span key={topic} className="rounded-sm border px-1.5 leading-5 text-subtle">{TOPIC_LABELS[topic] ?? topic}</span>)}
+        {event.topics.map((topic) => <Badge key={topic} tone="outline" size="sm" className="py-0 leading-5 font-normal">{TOPIC_LABELS[topic] ?? topic}</Badge>)}
       </div>
       <Evidence items={event.evidence} ownerId={ownerId} link={link} />
     </div>
@@ -155,11 +150,12 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
         {CATEGORIES.map(({ scope, label }) => {
           const impacts = analysis.impacts.filter((impact) => impact.target_type === scope);
           return (
-            <details key={scope} className="group border-b">
-              <summary className={`${summaryClass} py-2`}>
-                <h3 className="inline text-sm font-bold tracking-[0.04em]">{label}<span className="ml-2 font-mono text-xs font-normal tracking-normal text-muted-foreground tabular-nums">{impacts.length} 筆影響</span></h3>
-                <Chevron />
-              </summary>
+            <Disclosure
+              key={scope}
+              className="border-b"
+              summaryProps={{ className: 'py-2 text-foreground' }}
+              summary={<h3 className="inline text-sm font-bold tracking-[0.04em]">{label}<span className="ml-2 font-mono text-xs font-normal tracking-normal text-muted-foreground tabular-nums">{impacts.length} 筆影響</span></h3>}
+            >
               <div className="pb-3">
                 {impacts.length ? (
                   <div className="border">
@@ -167,32 +163,36 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
                       const groupId = groupCitationId(group.key);
                       const memberIds = group.impacts.map((impact) => impactCitationId(analysis.impacts.indexOf(impact)));
                       return (
-                        <details key={group.key} data-citation-id={groupId} className="group/impact border-b bg-card last:border-b-0">
-                          <summary
-                            {...previewHandlers(link, groupId)}
-                            data-active={isActive(groupId)}
-                            aria-current={isSelected(groupId) ? 'true' : undefined}
-                            onClick={link ? (event) => {
+                        <Disclosure
+                          key={group.key}
+                          data-citation-id={groupId}
+                          className="border-b bg-card last:border-b-0"
+                          summaryProps={{
+                            ...previewHandlers(link, groupId),
+                            'data-active': isActive(groupId),
+                            'aria-current': isSelected(groupId) ? 'true' : undefined,
+                            onClick: link ? (event) => {
                               const opening = !(event.currentTarget.parentElement as HTMLDetailsElement).open;
                               // 展開＝選取這個對象（寬版把內文對應句捲進視窗；手機版只加底色，不把人拉離面板）
                               if (opening) link.onSelect({ id: groupId }, isWide());
                               else if (link.selected && [groupId, ...memberIds].includes(link.selected.id)) link.onSelect(null, false);
-                            } : undefined}
-                            className={cn(summaryClass, 'px-3 py-2 text-[13px] hover:bg-accent', activeItem)}
-                          >
+                            } : undefined,
+                            className: cn('px-3 py-2 text-[13px] text-foreground hover:bg-accent', activeItem),
+                          }}
+                          summary={
                             <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="font-medium">{group.label}</span>
                               <ImpactDirectionTag direction={group.direction} />
                               {group.eventCount > 1 ? <span className="text-xs text-muted-foreground"><span className="font-mono tabular-nums">{group.eventCount}</span> 項事件</span> : null}
                               <span className="text-xs text-muted-foreground">{IMPORTANCE_LABELS[group.importance]}</span>
                             </span>
-                            <ChevronDown size={14} className="shrink-0 text-muted-foreground transition-transform duration-(--dur-sweep) group-open/impact:rotate-180" aria-hidden />
-                          </summary>
+                          }
+                        >
                           <div className="border-t px-3 pt-1 pb-3">
                             {group.targetType === 'company' ? (
                               <Link
                                 href={`/stock/${group.targetId}`}
-                                className="inline-flex min-h-11 items-center rounded-sm text-[13px] font-medium underline decoration-border-strong underline-offset-4 outline-none hover:decoration-brand hover:decoration-2 focus-lamp"
+                                className={cn('inline-flex min-h-11 items-center rounded-sm text-[13px] font-medium outline-none focus-lamp', textLinkClass)}
                               >
                                 查看 {group.label} 個股
                               </Link>
@@ -227,21 +227,21 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
                               })}
                             </ol>
                           </div>
-                        </details>
+                        </Disclosure>
                       );
                     })}
                   </div>
                 ) : <p className="text-[13px] text-muted-foreground">目前沒有此類影響。</p>}
               </div>
-            </details>
+            </Disclosure>
           );
         })}
         {otherEvents.length ? (
-          <details className="group border-b">
-            <summary className={`${summaryClass} py-2`}>
-              <h3 className="inline text-sm font-bold tracking-[0.04em]">其他事件<span className="ml-2 font-mono text-xs font-normal tracking-normal text-muted-foreground tabular-nums">{otherEvents.length} 筆</span></h3>
-              <Chevron />
-            </summary>
+          <Disclosure
+            className="border-b"
+            summaryProps={{ className: 'py-2 text-foreground' }}
+            summary={<h3 className="inline text-sm font-bold tracking-[0.04em]">其他事件<span className="ml-2 font-mono text-xs font-normal tracking-normal text-muted-foreground tabular-nums">{otherEvents.length} 筆</span></h3>}
+          >
             <div className="space-y-3 pb-3">
               <p className="text-[13px] text-muted-foreground">以下事件尚無可支持的台股影響。</p>
               {otherEvents.map((event) => {
@@ -253,10 +253,10 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
                 );
               })}
             </div>
-          </details>
+          </Disclosure>
         ) : null}
       </div>
-      {analysis.analyzed_at ? <p className="characteristic mt-3">分析時間：{new Date(analysis.analyzed_at).toLocaleString('zh-TW')}</p> : null}
+      {analysis.analyzed_at ? <p className="characteristic mt-3">分析時間：{formatTaipei(analysis.analyzed_at, {})}</p> : null}
     </div>
   );
 }

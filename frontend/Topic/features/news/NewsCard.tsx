@@ -1,13 +1,15 @@
-import React, { memo, useState } from 'react';
+import { memo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronDown, ExternalLink, Quote } from 'lucide-react';
 import type { News } from '@/lib/types/api';
 import { formatTime } from '@/lib/utils/date';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
-import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/sentiment';
+import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/newsLinks';
 import { IMPORTANCE_LABELS, visibleImpacts } from '@/lib/utils/newsImpact';
 import { safeHttpUrl } from '@/lib/utils/url';
 import { cn } from '@/lib/cn';
+import { Badge } from '@/components/ui/badge';
+import { textLinkClass } from '@/components/ui/button';
 import { ImpactDirectionTag } from './ImpactTag';
 import { groupImpactsByTarget, type ImpactGroup } from './impactGroups';
 
@@ -42,7 +44,7 @@ function ImpactGroupBadge({ group, linkStock, className }: { group: ImpactGroup;
     <span className={cn('inline-flex shrink-0 items-center gap-x-1.5 text-xs whitespace-nowrap', className)}>
       {company && linkStock ? (
         // 觸控目標 44px：連結本身撐滿整行高度，視覺上仍是一段小字
-        <Link href={`/stock/${group.targetId}`} className="inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-subtle underline decoration-border decoration-1 underline-offset-4 outline-none hover:text-foreground hover:decoration-brand focus-lamp">
+        <Link href={`/stock/${group.targetId}`} className={cn('inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-subtle outline-none hover:text-foreground focus-lamp', textLinkClass)}>
           {name}
         </Link>
       ) : <span className="inline-flex items-center gap-1 font-medium text-subtle">{name}</span>}
@@ -77,18 +79,17 @@ function TagLine({ groups, stocks, linkStock }: { groups: ImpactGroup[]; stocks:
       <span className="mr-1 text-xs text-muted-foreground">關聯個股</span>
       {stocks.map((stock) => (linkStock ? (
         <Link key={stock} href={`/stock/${stock}`} className="group/chip inline-flex min-h-11 items-center rounded-sm px-0.5 outline-none focus-lamp" aria-label={`查看 ${formatStockLabel(stock)} 個股`}>
-          <span className="rounded-sm border px-1.5 font-mono text-[11.5px] leading-5 tabular-nums text-subtle transition-colors duration-(--dur-flash) group-hover/chip:border-border-strong group-hover/chip:text-foreground">{formatStockLabel(stock)}</span>
+          <Badge tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums transition-colors duration-(--dur-flash) group-hover/chip:border-border-strong group-hover/chip:text-foreground">{formatStockLabel(stock)}</Badge>
         </Link>
       ) : (
-        <span key={stock} className="rounded-sm border px-1.5 font-mono text-[11.5px] leading-5 tabular-nums text-subtle">{formatStockLabel(stock)}</span>
+        <Badge key={stock} tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums">{formatStockLabel(stock)}</Badge>
       )))}
     </div>
   );
 }
 
-/** 文字連結：平時用細線底線，hover／focus 時底線換成燈色 */
-const textLink =
-  'inline-flex min-h-11 items-center gap-1 rounded-sm underline decoration-border-strong decoration-1 underline-offset-4 transition-colors duration-(--dur-flash) hover:decoration-brand hover:decoration-2 focus-lamp outline-none';
+/** 文字連結：中性細底線，hover 轉墨色（全站的 textLinkClass） */
+const textLink = cn('inline-flex min-h-11 items-center gap-1 rounded-sm outline-none focus-lamp', textLinkClass);
 
 /** 新聞列（航船布告）：燈質列寫時間與來源，下方是標題、事件影響、摘要；列與列之間用細線分隔 */
 export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct', returnTo, onNavigate, layout = 'stack' }: Props) {
@@ -122,7 +123,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   const heading = (
     <>
       <h3 className={cn('leading-[1.55] font-bold text-foreground', ledger ? 'text-[17px]' : 'text-base')}>
-        <Link href={href} onNavigate={onNavigate} className="-my-2.5 block rounded-sm py-2.5 underline-offset-4 outline-none hover:underline hover:decoration-brand focus-lamp">
+        <Link href={href} onNavigate={onNavigate} className="-my-2.5 block rounded-sm py-2.5 underline-offset-4 outline-none hover:underline hover:decoration-foreground focus-lamp">
           <span className="line-clamp-2">{news.title}</span>
         </Link>
       </h3>
@@ -186,7 +187,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   }
 
   return (
-    // 列尾不留線；左右負邊距讓 hover 底色與燈色標線貼齊面板內距（父層內距至少 12px）
+    // 列尾不留線；左右負邊距讓 hover 底色貼齊面板內距（父層內距至少 12px）
     // 層級：燈質列（時間・來源，小字）→ 標題（最醒目）→ 一行標籤 → 摘要 → 文字動作列
     <article data-news-article={news.article_id} className="lamp-row -mx-3 border-b px-3 pt-4 pb-1 last:border-b-0">
       {metaLine}

@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { ArrowLeft, Newspaper, RefreshCw } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { Button } from '@/components/ui/button';
+import { Button, textLinkClass } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
-import { LightGlyph, type LightState } from '@/components/common/Ledger';
+import { LedgerHeading, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { NewsArticle } from '@/features/news/NewsArticle';
 import { NewsEventAnalysisPanel, type CitationLink } from '@/features/news/NewsEventAnalysisPanel';
 import { buildArticleParagraphs } from '@/features/news/articleParagraphs';
@@ -14,11 +15,12 @@ import { TitleWithBreaks } from '@/features/news/titleBreaks';
 import { fetchNewsDetail } from '@/lib/api/news';
 import type { News } from '@/lib/types/api';
 import { breadcrumbsTrail } from '@/lib/nav';
-import { parseRelatedStocks } from '@/lib/news/sentiment';
+import { parseRelatedStocks } from '@/lib/news/newsLinks';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
 import { impactTarget } from '@/lib/utils/newsImpact';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { stockNewsReturnHref } from '@/lib/news/stockNewsView';
+import { formatTaipei } from '@/lib/utils/date';
 
 const isStockCode = (code: string | null | undefined): code is string => Boolean(code && /^\d{4,6}$/.test(code));
 const firstQuery = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) || '';
@@ -133,7 +135,7 @@ export default function NewsDetailPage() {
       : breadcrumbsTrail('新聞內容與事件影響'),
     [selectedStock, stockParam, newsReturn],
   );
-  const pageTitle = news?.title ? `${news.title} - 新聞事件影響 | 股海明燈` : '新聞事件影響 | 股海明燈';
+  const pageTitle = `股海明燈｜${news?.title ?? '新聞內容與事件影響'}`;
 
   return (
     <div className="flex min-h-[100dvh] flex-col">
@@ -147,7 +149,7 @@ export default function NewsDetailPage() {
         title={news?.title || '新聞內容與事件影響'}
         titleNode={news?.title ? <TitleWithBreaks title={news.title} /> : undefined}
         titleWrap={Boolean(news?.title)}
-        subtitle={news?.title ? `${news.source ?? '新聞'} 報導與事件影響分析` : !loading && (error || !news) ? '無法讀取新聞' : '載入中...'}
+        subtitle={news?.title ? `${news.source ?? '新聞'} 報導與事件影響分析` : !loading && (error || !news) ? '無法讀取新聞' : '載入中…'}
         breadcrumbs={breadcrumbs}
       />
 
@@ -161,12 +163,12 @@ export default function NewsDetailPage() {
           </div>
         ) : error || !news ? (
           // 錯誤＝熄燈：不動的錯誤提示，附重試與返回
-          <section className="mx-auto my-10 max-w-xl">
-            <h2 className="mb-3 border-b border-border-strong pb-2 font-serif text-xl font-black tracking-[0.06em]">無法讀取新聞</h2>
+          <section className="max-w-xl">
+            <LedgerHeading title="無法讀取新聞" className="mb-3" />
             <Notice tone="danger">{error ?? '找不到指定的新聞文章。'}</Notice>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => router.reload()}><RefreshCw aria-hidden />重試</Button>
-              <Button variant="ghost" onClick={() => router.back()}><ArrowLeft aria-hidden />返回上一頁</Button>
+              <Button variant="ghost" onClick={() => router.back()} className="border border-transparent hover:border-border-strong"><ArrowLeft aria-hidden />返回上一頁</Button>
             </div>
           </section>
         ) : (
@@ -180,8 +182,8 @@ export default function NewsDetailPage() {
                     : news.source_state.status === 'superseded'
                       ? '此文章已由同來源的其他版本取代，保留原文供追溯；暫不提供 AI 事件影響。'
                       : '來源首次發布與完整修訂歷史可能不明，不能據此保證重建當時可得資訊。'}</span>
-                {news.source_state.observed_at && <span className="mt-1 block font-mono text-xs tabular-nums opacity-90">此版本觀察時間（台灣）：{new Date(news.source_state.observed_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}</span>}
-                {revisionId && <a className="mt-1 inline-flex min-h-11 items-center underline decoration-brand decoration-2 underline-offset-4 outline-none focus-lamp" href={`/news/${encodeURIComponent(articleId)}${stockParam ? `?stock=${encodeURIComponent(stockParam)}` : ''}`}>查看目前文章與來源狀態</a>}
+                {news.source_state.observed_at && <span className="mt-1 block font-mono text-xs tabular-nums opacity-90">此版本觀察時間（台灣）：{formatTaipei(news.source_state.observed_at)}</span>}
+                {revisionId && <a className={cn('mt-1 inline-flex min-h-11 items-center outline-none focus-lamp', textLinkClass)} href={`/news/${encodeURIComponent(articleId)}${stockParam ? `?stock=${encodeURIComponent(stockParam)}` : ''}`}>查看目前文章與來源狀態</a>}
               </Notice>
             )}
             {/* 一張帳頁：左欄內文、右欄事件影響，中間一條細線，不用陰影 */}
@@ -200,14 +202,17 @@ export default function NewsDetailPage() {
                 寬版：分析欄 sticky 在頁首下方（頁首高度＋1rem），高度不超過視窗剩餘高度。
                 標題列固定在欄頂、只有下面的內容在欄內捲動，標題不會被捲走或被頁首切掉。
               */}
-              <aside className="min-w-0 border-t p-5 sm:p-6 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
-                <div className="mb-4 flex shrink-0 flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-border-strong pb-2">
-                  <h2 className="font-serif text-xl leading-snug font-black tracking-[0.06em]">新聞事件影響分析</h2>
-                  <span className="characteristic inline-flex items-center gap-1.5">
-                    <LightGlyph state={analysisState} />
-                    {selectedStock ? formatStockLabel(selectedStock) : null}
-                  </span>
-                </div>
+              <aside className="min-w-0 border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
+                <LedgerHeading
+                  title="新聞事件影響分析"
+                  className="mb-4 shrink-0"
+                  stamp={
+                    <span className="inline-flex items-center gap-1.5">
+                      <LightGlyph state={analysisState} />
+                      {selectedStock ? formatStockLabel(selectedStock) : null}
+                    </span>
+                  }
+                />
                 {/* 欄內捲動區左右各留 4px，focus 圈不會被裁掉 */}
                 <div className="min-w-0 lg:-mx-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain lg:px-1 lg:pb-1">
                   {analysis ? <NewsEventAnalysisPanel analysis={analysis} link={citationLink} /> : <EmptyState className="py-6 text-[13px]">尚無事件影響分析。</EmptyState>}

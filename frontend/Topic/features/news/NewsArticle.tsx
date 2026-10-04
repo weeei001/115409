@@ -110,7 +110,7 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
                 aria-current={current ? 'true' : undefined}
                 className={cn(
                   'inline-flex min-h-11 items-center rounded-sm border px-2.5 font-mono text-[13px] font-medium tabular-nums outline-none transition-colors duration-(--dur-flash) focus-lamp',
-                  current ? 'border-border-strong bg-accent text-foreground' : 'border-input bg-card text-subtle hover:border-border-strong hover:text-foreground',
+                  current ? 'border-border-strong bg-accent text-foreground underline-offset-4 hover:underline' : 'border-input bg-card text-subtle hover:border-border-strong hover:text-foreground',
                 )}
               >
                 {formatStockLabel(code)}

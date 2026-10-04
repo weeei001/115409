@@ -1,9 +1,12 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, ListFilter, XIcon } from 'lucide-react';
+import { ListFilter, XIcon } from 'lucide-react';
 import { LoadingRows } from '@/components/common/Notice';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { inputClass } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { toggleVariants } from '@/components/ui/toggle';
 import type { NewsListFilters } from '@/lib/hooks/useNewsList';
 import { useIsMobile } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
@@ -24,7 +27,7 @@ interface Props {
 
 export type NewsDatePreset = 'today' | '3d' | '7d';
 export const NEWS_DATE_PRESETS: { key: NewsDatePreset; label: string; days: number }[] = [
-  { key: 'today', label: '今天', days: 1 },
+  { key: 'today', label: '近 1 天', days: 1 },
   { key: '3d', label: '近 3 日', days: 3 },
   { key: '7d', label: '近 7 日', days: 7 },
 ];
@@ -51,13 +54,8 @@ export function matchNewsDatePreset(filters: NewsListFilters, now = new Date()):
   return 'custom';
 }
 
-/** 輸入框：2px 圓角、border-input 外框（對比 ≥ 3:1）、44px 高；focus 用全站的燈色 focus 圈 */
-const inputClass =
-  'h-11 w-full min-w-0 rounded-sm border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus:border-border-strong focus-lamp disabled:opacity-50';
-
 /** 方形切換鈕（2px 圓角、不用膠囊）；按下的狀態用粗線＋淺底，不用燈色 */
-const toggleClass =
-  'inline-flex h-11 min-w-0 items-center justify-center rounded-sm border px-2 text-sm whitespace-nowrap outline-none transition-colors duration-(--dur-flash) focus-lamp disabled:opacity-50 aria-pressed:border-border-strong aria-pressed:bg-accent aria-pressed:font-medium aria-pressed:text-foreground border-input bg-card text-subtle hover:border-border-strong hover:text-foreground';
+const toggleClass = cn(toggleVariants({ variant: 'square', size: 'sm' }), 'min-w-0');
 
 /** 一個篩選欄位：小標在上、控制項在下，可選的說明行用 aria-describedby 接上 */
 function Field({ label, hint, hintId, className, children }: { label: string; hint?: string; hintId?: string; className?: string; children: React.ReactNode }) {
@@ -67,18 +65,6 @@ function Field({ label, hint, hintId, className, children }: { label: string; hi
       {children}
       {hint ? <span id={hintId} className="text-[12px] leading-relaxed text-muted-foreground">{hint}</span> : null}
     </label>
-  );
-}
-
-/** 下拉選單：去掉原生外觀，換成與輸入框同一套方角外框，右側用同一個 chevron 圖示 */
-function Select({ className, children, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <span className="relative block min-w-0">
-      <select {...rest} className={cn(inputClass, 'cursor-pointer appearance-none pr-9', className)}>
-        {children}
-      </select>
-      <ChevronDown size={16} aria-hidden className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground" />
-    </span>
   );
 }
 
@@ -144,14 +130,14 @@ function FilterFields({ draft, setDraft, disabled, fixedRelation, layout }: Pick
       <div className={cn('grid gap-x-2 gap-y-3 border-t pt-3', selectGrid)}>
         {selectFields.map((field) => (
           <Field key={field.key} label={field.label}>
-            <Select
+            <NativeSelect
               aria-label={field.label}
               value={String(draft[field.key] ?? '')}
               onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value || undefined }))}
               disabled={disabled}
             >
               {field.options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </Select>
+            </NativeSelect>
           </Field>
         ))}
       </div>
@@ -209,7 +195,7 @@ export function NewsFilters({ draft, applied, setDraft, onApply, onClearAdvanced
     >
       <ListFilter size={16} aria-hidden className="text-muted-foreground" />
       <span>篩選</span>
-      {active ? <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-brand" aria-hidden /> : null}
+      {active ? <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-foreground" aria-hidden /> : null}
     </button>
   );
 
