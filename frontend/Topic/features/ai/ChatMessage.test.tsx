@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseChatSources, type ChatSource } from '../../lib/types/chat';
 import { chatAnswerBody, newsCitationPath } from '../../lib/utils/chatCitations';

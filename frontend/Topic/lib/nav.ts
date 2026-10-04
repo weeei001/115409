@@ -5,7 +5,7 @@ import type { ChatAction } from './types/chat';
 export const PRIMARY_NAV = [
   { path: '/', label: '首頁' },
   { path: '/favorites', label: '收藏股' },
-  { path: '/notifications', label: '通知' },
+  { path: '/notifications', label: '通知中心' },
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬投資' },
   { path: '/compare', label: '多股比較' },
@@ -55,17 +55,12 @@ export const FOOTER_NAV = PRIMARY_NAV;
 
 /** 靜態路由 → 頁面標題（麵包屑與文件標題對照） */
 export const ROUTE_PAGE_LABELS: Record<string, string> = {
-  '/': '首頁',
-  '/ai': 'AI 對話',
-  '/order': '模擬投資',
-  '/compare': '多股比較',
+  ...Object.fromEntries(PRIMARY_NAV.map((item) => [item.path, item.label])),
   '/login': '登入',
   '/register': '註冊',
   '/forgot-password': '忘記密碼',
   '/reset-password': '重設密碼',
   '/me': '個人中心',
-  '/favorites': '收藏股',
-  '/notifications': '通知',
   '/admin': '管理後台',
 };
 

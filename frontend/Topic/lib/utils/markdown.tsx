@@ -2,6 +2,8 @@ import React from 'react';
 import { normalizeMarkdownEscapes } from './parseRagStructuredReply';
 import { safeHttpUrl } from './url';
 import { CHAT_CITATION_PATTERN } from './chatCitations';
+import { textLinkClass } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
 const INLINE_PATTERN = String.raw`\[([^\]\n]+)\]\(((?:[^()\s<>]|\([^()\s<>]*\))+)\)|\*\*\*([^*\n]+?)\*\*\*|\*\*(?!\*)([^\n]+?)\*\*(?!\*)|\*(?!\*)((?:\*\*[^*\n]+?\*\*|[^*\n])+?)\*(?!\*)`;
 const INLINE_RE = new RegExp(INLINE_PATTERN, 'g');
@@ -23,7 +25,7 @@ function renderInline(text: string, allowLinks = true, renderCitation?: Citation
       nodes.push(renderCitation && citation
         ? <React.Fragment key={index}>{renderCitation(citation)}</React.Fragment>
         : !renderCitation && allowLinks && safeUrl
-        ? <a key={index} href={match[2]} className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">{renderInline(match[1], false)}</a>
+        ? <a key={index} href={match[2]} className={cn(textLinkClass, 'focus-visible:outline-2 focus-visible:outline-offset-2')}>{renderInline(match[1], false)}</a>
         : match[0]);
     } else if (match[3] !== undefined) {
       nodes.push(<strong key={index}><em>{renderInline(match[3], allowLinks, renderCitation)}</em></strong>);
@@ -88,8 +90,8 @@ export function MarkdownBlock({ text, renderCitation }: TextProps) {
   return (
     <div className="space-y-3">
       {blocks.map((block, index) => block.type === 'list'
-        ? (block.ordered ? <ol key={index} className="list-decimal space-y-1 pl-5"><ListItems items={block.lines} renderCitation={renderCitation} /></ol>
-          : <ul key={index} className="list-disc space-y-1 pl-5"><ListItems items={block.lines} renderCitation={renderCitation} /></ul>)
+        ? (block.ordered ? <ol key={index} className="list-decimal space-y-1 pl-5 marker:font-mono marker:text-muted-foreground"><ListItems items={block.lines} renderCitation={renderCitation} /></ol>
+          : <ul key={index} className="list-disc space-y-1 pl-5 marker:text-muted-foreground"><ListItems items={block.lines} renderCitation={renderCitation} /></ul>)
         : <p key={index} className="whitespace-pre-wrap"><MarkdownText text={block.lines.join('\n')} renderCitation={renderCitation} /></p>)}
     </div>
   );

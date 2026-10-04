@@ -20,7 +20,7 @@
 - 領域服務不依賴 FastAPI；API 功能與 client 不匯入 `app.jobs`。
 - `main.py` 管理資源生命週期及序列排程器，只有 lifespan 匯入 job runtime。API 啟動不建立資料表；模組匯入時不得連線外部服務或啟動工作。
 - 股票服務名單以 SQL `stock_info` 為準，沿用 `features/market/repository.py` 的 `stock_names`。不得另設重複白名單或退回六檔股票。完整公司目錄供新聞辨識使用；`jobs/market/stock_info.py` 的 `SUPPORTED_SYMBOLS` 定義初始化與同步範圍。
-- 新聞辨識位於 `features/news/sentiment.py`，切段位於 `features/retrieval/chunking.py`，共用切段資料表位於 `db/models/news_chunk.py`。保留離線腳本使用的舊 worker 切段相容匯出。
+- 新聞辨識位於 `features/news/sentiment.py`，切段位於 `features/retrieval/chunking.py`，共用切段資料表位於 `db/models/news_chunk.py`。`jobs/ingestion/chunking.py` 只為離線腳本重新匯出切段名稱；新程式從 `features/retrieval/chunking.py` 匯入。
 - SSE 沿用 `core/streaming.py`。修改串流時，維持既有事件格式、標頭、數值處理規則及迭代器清理行為。
 
 ## 驗證

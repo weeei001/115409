@@ -21,7 +21,7 @@ export function DetailDrawer({ open, onClose, title, subtitle, children }: Props
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
         side="right"
-        className="w-full gap-0 bg-card/95 p-0 pt-[var(--app-safe-area-top)] backdrop-blur-2xl sm:max-w-[min(1100px,90vw)]"
+        className="w-full gap-0 bg-card p-0 pt-[var(--app-safe-area-top)] sm:max-w-[min(1100px,90vw)]"
         onOpenAutoFocus={(event) => {
           returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           // 舊版行為：打開後焦點先放在關閉鈕
@@ -34,9 +34,9 @@ export function DetailDrawer({ open, onClose, title, subtitle, children }: Props
           returnFocus.current = null;
         }}
       >
-        <SheetHeader className="sticky top-0 z-10 border-b bg-card/95 px-5 py-4 pr-16 backdrop-blur-2xl">
-          <SheetTitle className="truncate text-lg font-bold">{title}</SheetTitle>
-          <SheetDescription className={subtitle ? 'text-xs text-muted-foreground' : 'sr-only'}>{subtitle ?? title}</SheetDescription>
+        <SheetHeader className="sticky top-0 z-10 gap-1 border-b border-border-strong bg-card px-4 py-4 pr-16 sm:px-6">
+          <SheetTitle className="truncate font-serif text-xl leading-snug font-black tracking-[0.06em]">{title}</SheetTitle>
+          <SheetDescription className={subtitle ? 'truncate text-[13px] text-muted-foreground' : 'sr-only'}>{subtitle ?? title}</SheetDescription>
         </SheetHeader>
         <div data-detail-scroll className="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-[calc(1.25rem+var(--app-safe-area-bottom))] sm:px-6">
           {open ? children : null}

@@ -7,15 +7,7 @@ export interface RagStructuredReply {
   sections: RagReplySection[];
 }
 
-export interface RagSourceItem {
-  index?: string;
-  title: string;
-  url: string;
-}
-
 const SECTION_HEADER_RE = /【([^】]+)】/g;
-const SOURCE_URL_RE = /(https?:\/\/\S+|\/news\/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+)/;
-const SAFE_INTERNAL_NEWS_PATH_RE = /^\/news\/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+$/;
 const ESCAPED_MARKDOWN_RE = /\\([\\`*_\[\]{}()#+.!>|-])/g;
 
 /** LLM 偶爾會跳脫 Markdown 標記；先還原再交給輕量 renderer 處理。 */
@@ -62,42 +54,6 @@ export function parseBulletList(body: string): string[] {
 
   if (items.length > 0) return items;
   return body.trim() ? [body.trim()] : [];
-}
-
-export function parseSourceItems(body: string): RagSourceItem[] {
-  const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
-  const items: RagSourceItem[] = [];
-
-  for (const line of lines) {
-    const urlMatch = line.match(SOURCE_URL_RE);
-    let url = urlMatch?.[1].replace(/[.,;)\]]+$/, '') ?? '';
-    if (url.startsWith('/news/')) {
-      if (!SAFE_INTERNAL_NEWS_PATH_RE.test(url)) url = '';
-    } else {
-      try {
-        const parsed = new URL(url);
-        if (!parsed.hostname || parsed.username || parsed.password || /[\s<>]/.test(url)) url = '';
-      } catch {
-        url = '';
-      }
-    }
-    const rest = (url ? line.replace(url, '') : line).replace(/^-\s*/, '').trim();
-    const indexMatch = rest.match(/^\[(S[1-9][0-9]*)\]|片段\s*(\d+)/i);
-    if (!url && !indexMatch) continue;
-    const titleFromLabel = rest.match(/標題[：:]\s*(.+?)(?:\s*-\s*)?$/i);
-    const title = (titleFromLabel
-      ? titleFromLabel[1].trim()
-      : rest.replace(/^\[S[1-9][0-9]*\]\s*/i, '').replace(/片段\s*\d+\s*[：:]\s*/i, ''))
-      .replace(/[：:]?\s*-?\s*$/, '').trim() || url || rest;
-
-    items.push({
-      index: indexMatch?.[1]?.toUpperCase() ?? indexMatch?.[2],
-      title,
-      url,
-    });
-  }
-
-  return items;
 }
 
 const SECTION_ICONS: Record<string, string> = {

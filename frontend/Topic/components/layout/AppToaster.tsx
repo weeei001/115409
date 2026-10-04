@@ -4,7 +4,7 @@ import { useTheme } from '@/lib/theme/ThemeContext';
 
 /**
  * sonner 的 richColors 內建紅綠，這裡改接狀態 token（決議 D8），
- * 避免成功／錯誤 toast 看起來像漲跌。
+ * 避免成功／錯誤 toast 看起來像漲跌。2px 圓角（--radius）、放在底部，不蓋住頁首；會自動消失，所以不放小關閉鈕。
  */
 const opaque = (token: string) => `color-mix(in srgb, var(${token}) 12%, var(--popover))`;
 
@@ -14,8 +14,8 @@ export function AppToaster() {
     <Toaster
       theme={theme}
       richColors
-      closeButton
-      position="top-center"
+      position="bottom-center"
+      toastOptions={{ style: { borderRadius: 'var(--radius)', boxShadow: 'var(--elev-raised)' } }}
       style={
         {
           '--normal-bg': 'var(--popover)',

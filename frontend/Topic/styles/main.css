@@ -4,146 +4,137 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ═══════════════════════════════════════════════
-   Design tokens — Midnight Morandi × Beacon Gold
+   Design tokens — 燈塔表 Light List（light = 晨海、dark = 夜海）
    圖表用的解析後色值在 lib/charts/theme.ts，改這裡要一起改那裡。
    ═══════════════════════════════════════════════ */
 
 :root {
   /* shadcn/ui 對應 */
-  --background: #f8f9fa;
-  --foreground: #1a1a1a;
+  --background: #f3f6f8;
+  --foreground: #0e1a24;
   --card: #ffffff;
-  --card-foreground: #1a1a1a;
   --popover: #ffffff;
-  --popover-foreground: #1a1a1a;
-  --primary: #ffa95a;
-  --primary-foreground: #1a1a1a;
-  --secondary: #f1f3f5;
-  --secondary-foreground: #1a1a1a;
-  --muted: #f1f3f5;
-  --muted-foreground: #6b7280;
-  --accent: rgba(255, 169, 90, 0.12);
-  --accent-foreground: #a9521c;
+  --popover-foreground: #0e1a24;
+  --primary: #f2b347;
+  --primary-foreground: #1a1206;
+  --secondary: #e6edf1;
+  --secondary-foreground: #0e1a24;
+  --muted: #e6edf1;
+  --muted-foreground: #4f5f6c;
+  --accent: #e6edf1;
+  --accent-foreground: #0e1a24;
   --destructive: #a3336b;
-  --border: rgba(0, 0, 0, 0.08);
-  --input: rgba(0, 0, 0, 0.1);
-  --ring: #ffa95a;
-  --radius: 0.75rem;
-  --chart-1: #ffa95a;
-  --chart-2: #7b9eb8;
-  --chart-3: #9b8ec4;
-  --chart-4: #a8821f;
-  --chart-5: #9a7550;
+  --border: #cfd8df;
+  --input: #8696a3;
+  --ring: #f2b347;
+  --radius: 2px;
 
-  /* 文字與邊框 */
-  --subtle: #4b5563;
-  --border-strong: rgba(224, 120, 48, 0.35);
+  /* 文字與線 */
+  --subtle: #2c3a46;
+  --border-strong: #0e1a24;
+  /* focus 外圈：晨海用墨色（燈色在白底只有 1.86:1），內圈一律是燈色 */
+  --focus: #0e1a24;
+  /* 3D 場景上方文字的襯底 */
+  --scrim: rgba(243, 246, 248, 0.82);
+  /* 抽屜等浮層後方的遮罩 */
+  --overlay: rgba(14, 26, 36, 0.5);
 
-  /* 品牌 */
-  --brand: #ffa95a;
-  --brand-light: #ffd6b8;
-  --brand-deep: #e07830;
-  --brand-text: #a9521c;
-  --on-brand: #1a1a1a;
-  --brand-gradient: linear-gradient(135deg, #f0a050, #ffa95a);
-  --brand-text-gradient: linear-gradient(135deg, #e07830, #ffa95a);
+  /* 燈：只當「光」用（focus、選取標線、主要按鈕、光束），不代表漲跌或狀態 */
+  --brand: #f2b347;
+  --brand-deep: #b9801f;
+  --brand-text: #6f4c00;
+  --on-brand: #1a1206;
 
   /* 台股漲跌：只用在價格方向、買賣超與多空立場 */
-  --up: #d06565;
-  --up-muted: rgba(208, 101, 101, 0.12);
-  --up-emphasis: #9f3a3a;
-  --down: #649a7e;
-  --down-muted: rgba(100, 154, 126, 0.12);
-  --down-emphasis: #3d6b56;
+  --up: #b8282e;
+  --up-muted: rgba(184, 40, 46, 0.1);
+  --up-emphasis: #8f1d22;
+  --down: #0f7a4a;
+  --down-muted: rgba(15, 122, 74, 0.1);
+  --down-emphasis: #0a5c37;
 
   /* 狀態：刻意避開漲跌色 */
   --danger: #a3336b;
   --danger-muted: rgba(163, 51, 107, 0.08);
-  --danger-border: rgba(163, 51, 107, 0.3);
+  --danger-border: rgba(163, 51, 107, 0.45);
   --success: #2f6a9e;
   --success-muted: rgba(47, 106, 158, 0.08);
-  --success-border: rgba(47, 106, 158, 0.3);
-  --warning: #8a4f1d;
-  --warning-muted: rgba(217, 138, 64, 0.1);
-  --warning-border: rgba(217, 138, 64, 0.3);
-  --warning-icon: #b46a2a;
+  --success-border: rgba(47, 106, 158, 0.45);
+  --warning: #6e4a2c;
+  --warning-muted: rgba(110, 74, 44, 0.07);
+  --warning-border: rgba(110, 74, 44, 0.4);
+  --warning-icon: #6e4a2c;
 
-  /* 質感 */
-  --glass-bg: rgba(255, 255, 255, 0.78);
-  --glass-border: rgba(0, 0, 0, 0.06);
-  --glass-blur: 12px;
-  --glow-brand: rgba(255, 169, 90, 0.25);
-  --glow-brand-strong: rgba(255, 169, 90, 0.45);
-  --elev-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --elev-card-hover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --elev-raised: 0 8px 32px rgba(0, 0, 0, 0.08);
+  /* 面板與 sticky 頁首靠線分隔，只有浮在內容上方的層（下拉清單、popover、sheet、toast）有陰影 */
+  --elev-raised: 0 12px 32px -8px rgba(14, 26, 36, 0.18);
+
+  /* 動效：週期 P = 10s（燈質 Fl W 10s），時長都是 P 的分數 */
+  --dur-flash: 125ms;
+  --dur-sweep: 250ms;
+  --dur-beam: 625ms;
+  --dur-eclipse: 1250ms;
+  --dur-quick: 1000ms;
+  /* 緩動 --ease-flash、--ease-swell 定義在下方 @theme，Tailwind 會一併輸出成 CSS 變數 */
 
   /* 版面 */
-  --app-header-height: 5.5rem;
+  --app-header-height: 3.5rem;
   --app-safe-area-top: env(safe-area-inset-top, 0px);
   --app-safe-area-right: env(safe-area-inset-right, 0px);
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
-  --app-safe-area-left: env(safe-area-inset-left, 0px);
 }
 
 .dark {
-  --background: #0a0a0b;
-  --foreground: #e8e6e3;
-  --card: #161618;
-  --card-foreground: #e8e6e3;
-  --popover: #161618;
-  --popover-foreground: #e8e6e3;
-  --primary: #ffa95a;
-  --primary-foreground: #1a1a1a;
-  --secondary: #1c1c1f;
-  --secondary-foreground: #e8e6e3;
-  --muted: #1c1c1f;
-  --muted-foreground: #9a9896;
-  --accent: rgba(255, 169, 90, 0.12);
-  --accent-foreground: #ffa95a;
+  --background: #080b0f;
+  --foreground: #dfe4e9;
+  --card: #0f141a;
+  --popover: #0f141a;
+  --popover-foreground: #dfe4e9;
+  --secondary: #131a21;
+  --secondary-foreground: #dfe4e9;
+  --muted: #131a21;
+  --muted-foreground: #8a96a2;
+  --accent: #16202a;
+  --accent-foreground: #dfe4e9;
   --destructive: #e88bb5;
-  --border: rgba(255, 255, 255, 0.06);
-  --input: rgba(255, 255, 255, 0.1);
-  --ring: #ffa95a;
-  --chart-4: #d9b44a;
-  --chart-5: #b8946a;
+  --border: #1c2630;
+  --input: #5b6b79;
 
-  --subtle: #a8a6a3;
-  --border-strong: rgba(255, 169, 90, 0.25);
+  --subtle: #b4bec8;
+  /* 夜海的粗線要和晨海一樣撐得起層次：用約五成的墨色 */
+  --border-strong: #6b7a88;
+  --focus: #f2b347;
+  --scrim: rgba(8, 11, 15, 0.72);
+  --overlay: rgba(0, 0, 0, 0.6);
 
-  --brand-text: #ffa95a;
-  --brand-gradient: linear-gradient(135deg, #ffa95a, #ffd6b8);
-  --brand-text-gradient: linear-gradient(135deg, #ffa95a, #ffd6b8);
+  --brand-deep: #f7c464;
+  --brand-text: #f2b347;
 
-  --up-emphasis: #e8a8a8;
-  --down-emphasis: #8fb89a;
+  --up: #ef5b5f;
+  --up-muted: rgba(239, 91, 95, 0.14);
+  --up-emphasis: #f6a3a5;
+  --down: #1fb46f;
+  --down-muted: rgba(31, 180, 111, 0.14);
+  --down-emphasis: #7fd9ae;
 
   --danger: #e88bb5;
   --danger-muted: rgba(232, 139, 181, 0.12);
-  --danger-border: rgba(232, 139, 181, 0.35);
+  --danger-border: rgba(232, 139, 181, 0.45);
   --success: #86b6e0;
   --success-muted: rgba(134, 182, 224, 0.12);
-  --success-border: rgba(134, 182, 224, 0.35);
-  --warning: #e8b884;
-  --warning-muted: rgba(217, 138, 64, 0.14);
-  --warning-border: rgba(217, 138, 64, 0.35);
-  --warning-icon: #f2b572;
+  --success-border: rgba(134, 182, 224, 0.45);
+  /* 警告用偏褐的土色，和燈色（亮金）分開 */
+  --warning: #c9a57e;
+  --warning-muted: rgba(201, 165, 126, 0.1);
+  --warning-border: rgba(201, 165, 126, 0.4);
+  --warning-icon: #c9a57e;
 
-  --glass-bg: rgba(22, 22, 24, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.06);
-  --glass-blur: 20px;
-  --glow-brand: rgba(255, 169, 90, 0.18);
-  --glow-brand-strong: rgba(255, 169, 90, 0.35);
-  --elev-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --elev-card-hover: 0 8px 32px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
-  --elev-raised: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --elev-raised: 0 16px 40px -8px rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -158,16 +149,12 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
 
   --color-subtle: var(--subtle);
   --color-border-strong: var(--border-strong);
+  --color-focus: var(--focus);
+  --color-overlay: var(--overlay);
   --color-brand: var(--brand);
-  --color-brand-light: var(--brand-light);
   --color-brand-deep: var(--brand-deep);
   --color-brand-text: var(--brand-text);
   --color-on-brand: var(--on-brand);
@@ -188,18 +175,25 @@
   --color-warning-border: var(--warning-border);
   --color-warning-icon: var(--warning-icon);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
+  /* 圓角：面板、表格、抽屜 0；按鈕、輸入框、分頁 2px */
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
 
-  --shadow-card: var(--elev-card);
-  --shadow-card-hover: var(--elev-card-hover);
   --shadow-raised: var(--elev-raised);
 
-  --font-sans: var(--font-app-sans, "PingFang TC", system-ui, sans-serif);
-  --font-mono: var(--font-app-mono, ui-monospace, monospace);
+  /* --font-app-* 由 pages/_app.tsx 的 next/font 寫入（本站自架字型）；沒有時退回同一組字族名稱 */
+  --font-serif: var(--font-app-serif, "Noto Serif TC", "Songti TC", "PMingLiU", serif);
+  --font-sans: var(--font-app-sans, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif);
+  --font-mono: var(--font-app-mono, "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+
+  --ease-flash: cubic-bezier(0.2, 0, 0, 1);
+  --ease-swell: cubic-bezier(0.37, 0, 0.63, 1);
+  /* 沒寫 ease-* 的 transition 一律用 ease-flash */
+  --default-transition-timing-function: var(--ease-flash);
 }
 
 /* ═══════════════════════════
@@ -219,6 +213,21 @@
   #__next {
     min-height: 100dvh;
   }
+  /* 中文標題：行長平均、避免行尾孤字；標點依嚴格規則換行 */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+    line-break: strict;
+  }
+  /* 襯線顯示字：標點用比例寬，行尾的「，」「。」才不會留一個洞 */
+  .font-serif {
+    font-feature-settings: "palt";
+  }
+  p {
+    text-wrap: pretty;
+  }
   button:not(:disabled),
   [role="button"],
   a[href],
@@ -228,9 +237,13 @@
   input[type="radio"] {
     cursor: pointer;
   }
-  :where(button, a[href], summary, [role="button"], [role="tab"]):focus-visible {
-    outline: 2px solid var(--brand);
+  /* focus：立即出現、不做動畫。外圈 --focus、內圈燈色，兩套主題都 ≥ 3:1。
+     transition 加 !important：元件的 transition-colors 在 v4 也會轉 outline-color，base 層的一般宣告蓋不過 utilities 層 */
+  :where(button, a[href], summary, input, select, textarea, [role="button"], [role="tab"], [tabindex]):focus-visible {
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--brand);
+    transition: none !important;
   }
   input[type="date"],
   input[type="datetime-local"] {
@@ -246,22 +259,163 @@
    Utilities
    ═══════════════════════════ */
 
-@utility text-brand-gradient {
-  background: var(--brand-text-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+/* shadcn 元件自己關掉 outline 時，用這個補回同一組 focus 樣式 */
+@utility focus-lamp {
+  &:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--brand);
+    transition: none;
+  }
 }
 
-@utility bg-brand-gradient {
-  background: var(--brand-gradient);
+/* 捲動容器（overflow）裡的元件：兩圈都畫在元件內側，外圈貼邊、燈色在內，才不會被容器裁掉。
+   和 focus-lamp 是同一組（lib/cn.ts），後寫的會取代前面的 */
+@utility focus-lamp-inset {
+  &:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 4px var(--brand);
+    transition: none;
+  }
 }
 
-@utility glass {
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+/* 燈質列：等寬小字，內容只放真實資料（代號、產業、資料日、單位）或燈質本身 */
+@utility characteristic {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  word-break: keep-all;
+}
+
+/* 圖廓：每頁只框一個主圖表。雙線框，上緣與左緣有海圖刻度（每 10px 短刻度、每 50px 長刻度） */
+@utility neatline {
+  position: relative;
+  border: 1px solid var(--border-strong);
+  padding: 9px;
+  background:
+    repeating-linear-gradient(90deg, var(--border-strong) 0 1px, transparent 1px 50px) 0 0 / 100% 8px no-repeat,
+    repeating-linear-gradient(90deg, var(--border-strong) 0 1px, transparent 1px 10px) 0 0 / 100% 4px no-repeat,
+    repeating-linear-gradient(0deg, var(--border-strong) 0 1px, transparent 1px 50px) 0 0 / 8px 100% no-repeat,
+    repeating-linear-gradient(0deg, var(--border-strong) 0 1px, transparent 1px 10px) 0 0 / 4px 100% no-repeat,
+    var(--card);
+  & > * {
+    border: 1px solid var(--border-strong);
+    background: var(--card);
+  }
+  /* 進場時一道光由左到右掃過圖廓一次（全站唯一的環境動效） */
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 2px;
+    background: var(--brand);
+    opacity: 0;
+    pointer-events: none;
+    animation: neatline-sweep var(--dur-eclipse) var(--ease-swell) 1 both;
+  }
+}
+
+/* 燈質記號：8px 的燈。F 定光＝實心、Q 急閃＝每秒閃一次（墨色）、熄燈＝空心加斜線 */
+@utility light-glyph {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  border: 1px solid currentColor;
+  flex-shrink: 0;
+  position: relative;
+}
+@utility light-glyph-f {
+  background: currentColor;
+}
+/* 急閃用墨色：一個畫面可能同時有好幾顆在讀取，燈色要留給真正的燈 */
+@utility light-glyph-q {
+  background: currentColor;
+  animation: light-quick var(--dur-quick) steps(2, end) infinite;
+}
+@utility light-glyph-ecl {
+  background: transparent;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 50% -2px auto;
+    height: 1px;
+    background: currentColor;
+    transform: rotate(-45deg);
+  }
+}
+
+/* 交接：首頁 3D 場景在最後 8% 的捲動把 --handoff 從 0 推到 1（其他頁沒有這個值，預設 1）。
+   觀測台頂端有一層燈光餘溫隨之淡出，第一組面板隨之淡入，讓螢幕與面板看起來是同一個東西 */
+#terminal {
+  position: relative;
+  --handoff-tint: color-mix(in srgb, var(--brand) 22%, var(--background));
+}
+#terminal::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 70vh;
+  background: linear-gradient(to bottom, var(--handoff-tint), transparent);
+  opacity: calc(1 - var(--handoff, 1));
+  pointer-events: none;
+  z-index: 1;
+}
+#terminal .handoff-fade {
+  opacity: var(--handoff, 1);
+}
+
+/* 可點的列：hover 只換淺色底；左側 2px 燈色標線只給選取（data-selected、aria-current="page"、aria-selected），
+   滑鼠停在別列時才不會看起來有兩列被選取。停用時半透明、不反白 */
+@utility lamp-row {
+  position: relative;
+  transition: background-color var(--dur-flash) var(--ease-flash);
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 2px;
+    background: var(--brand);
+    opacity: 0;
+    transition: opacity var(--dur-flash) var(--ease-flash);
+  }
+  &[data-selected="true"],
+  &[aria-current="page"],
+  &[aria-selected="true"] {
+    background: var(--accent);
+    &::before {
+      opacity: 1;
+    }
+  }
+  &:disabled {
+    opacity: 0.5;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    &:hover:not(:disabled) {
+      background: var(--accent);
+    }
+  }
+}
+
+/* 載入＝燈質 Q（急閃）：有線的空白列，一道光帶每秒掃過一次 */
+@utility q-rows {
+  position: relative;
+  overflow: hidden;
+  background: repeating-linear-gradient(180deg, transparent 0 43px, var(--border) 43px 44px);
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 45%, var(--accent) 55%, transparent 100%);
+    opacity: 0.7;
+    transform: translateX(-100%);
+    animation: q-band var(--dur-quick) var(--ease-swell) infinite;
+  }
 }
 
 @utility scrollbar-none {
@@ -272,47 +426,36 @@
   }
 }
 
-/* skip link：一般隱藏，鍵盤聚焦時浮出 */
+/* skip link：一般隱藏，鍵盤聚焦時浮出；focus 框沿用 base 的兩圈，不另外加陰影 */
 .skip-link {
   position: absolute;
   left: -9999px;
   top: 1rem;
   z-index: 100;
 }
-.skip-link:focus {
+.skip-link:focus-visible {
   left: 1rem;
   padding: 0.75rem 1rem;
   border-radius: var(--radius);
   background: var(--card);
   color: var(--foreground);
-  box-shadow: var(--elev-raised);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
-/* 主題切換時的顏色過渡（G-02） */
+/* 換班（主題切換）時的顏色過渡；減少動態時不加這個 class（lib/theme/ThemeContext.tsx） */
 .theme-transitioning * {
   transition:
-    background-color 0.4s ease,
-    border-color 0.4s ease,
-    box-shadow 0.4s ease,
-    color 0.3s ease !important;
+    background-color var(--dur-beam) var(--ease-swell),
+    border-color var(--dur-beam) var(--ease-swell),
+    color var(--dur-beam) var(--ease-swell) !important;
 }
 
 /* ═══════════════════════════
    Keyframes
    ═══════════════════════════ */
 
-@keyframes glow-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 8px var(--glow-brand), 0 0 20px transparent;
-  }
-  50% {
-    box-shadow: 0 0 16px var(--glow-brand-strong), 0 0 40px var(--glow-brand);
-  }
-}
-@keyframes shimmer {
+@keyframes q-band {
   0% {
     transform: translateX(-100%);
   }
@@ -320,16 +463,39 @@
     transform: translateX(100%);
   }
 }
-@keyframes thinking-dot {
-  0%,
-  80%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.4;
+/* 頁首粗線：換頁時由左到右畫出，像光束掃過 */
+@keyframes beam-draw {
+  from {
+    transform: scaleX(0);
   }
-  40% {
-    transform: translateY(-6px);
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes light-quick {
+  0%,
+  49% {
     opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.25;
+  }
+}
+@keyframes neatline-sweep {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  88% {
+    opacity: 0.9;
+  }
+  100% {
+    left: calc(100% - 2px);
+    opacity: 0;
   }
 }
 @keyframes cursor-blink {
@@ -343,20 +509,27 @@
   }
 }
 
-.anim-glow-pulse {
-  animation: glow-pulse 3s ease-in-out infinite;
+.anim-beam-draw {
+  transform-origin: left;
+  animation: beam-draw var(--dur-beam) var(--ease-flash) both;
 }
 
-/* reduced motion：壓縮動畫，保留 hover 與主題切換的 transition */
+/* reduced motion：壓縮動畫；Q 光帶改成靜止 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  .anim-glow-pulse {
+  .q-rows::after {
+    animation: none !important;
+    transform: none;
+    opacity: 0.35;
+  }
+  .light-glyph-q {
     animation: none !important;
   }
 }

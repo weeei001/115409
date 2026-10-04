@@ -1,10 +1,12 @@
 import React from 'react';
-import { AlertTriangle, CalendarClock, Eye, Sparkles } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Eye } from 'lucide-react';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import type { Brief, Claim, ForwardViews, KeyDay, Risk, WatchPoint } from '@/lib/types/textBrief';
 import { FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
 import { forwardViewKey } from '@/lib/brief/textBriefClaims';
+import { signedText } from '@/components/common/LightEntry';
 import { ClaimRow } from './BriefHighlight';
+import { cn } from '@/lib/cn';
 import { ClaimTypeBadge, DirectionMark, Empty, SectionCard, StanceIcon, Tag } from './BriefAtoms';
 
 /** 每段預設顯示幾項，其餘收在「展開更多」 */
@@ -96,13 +98,13 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
           <span className="font-mono text-xs tabular-nums text-subtle">
             {item.date}
           </span>
-          <span className={`text-sm font-bold tabular-nums ${moveClass(item.move_pct)}`}>
+          <span className={cn('font-mono text-sm font-semibold tabular-nums', moveClass(item.move_pct))}>
             {item.move_pct == null
               ? '—'
-              : `${item.move_pct > 0 ? '漲 ' : item.move_pct < 0 ? '跌 ' : ''}${Math.abs(item.move_pct).toFixed(2)}%`}
+              : signedText(item.move_pct, 2, '%')}
           </span>
           {item.volume_ratio == null ? null : (
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
               量能 {item.volume_ratio.toFixed(2)} 倍
             </span>
           )}
@@ -156,23 +158,23 @@ const ForwardViewCards: React.FC<{ views?: ForwardViews }> = ({ views }) => {
   const shown = FORWARD_VIEWS.filter(([key]) => views?.[key]);
   if (!shown.length) return <Empty />;
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-px border bg-border sm:grid-cols-3">
       {shown.map(([key, label]) => {
         const view = views![key]!;
         const tone: BriefTone = STANCE_TONE[view.stance] ?? 'plain';
         return (
           <div
             key={key}
-            className="border-l border-border pl-3"
+            className="min-w-0 bg-card p-3"
           >
-            <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+            <div className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">{label}</div>
             <div className="mt-2">
               <Tag tone={tone}>
                 <StanceIcon tone={tone} size={13} />
                 {forwardViewLabel(view)}
               </Tag>
             </div>
-            <ClaimRow claimKey={forwardViewKey(key)} ids={view.evidence_ids} className="mt-2 -mx-1">
+            <ClaimRow claimKey={forwardViewKey(key)} ids={view.evidence_ids} className="-mx-3 mt-2">
               <p className="text-sm leading-7 text-foreground">{view.reason}</p>
             </ClaimRow>
             <p className="mt-2 text-xs leading-6 text-subtle">
@@ -191,7 +193,6 @@ export const KeyPointsTab: React.FC<{ brief: Brief }> = ({ brief }) => (
   <div className="flex flex-col gap-4">
     <SectionCard
       title="現在是什麼狀態"
-      icon={<Sparkles size={15} className="text-brand" aria-hidden />}
       hint="這一段是對目前價量、籌碼與基本面的描述，每一句都可以點開看依據。"
     >
       <ClaimItems items={brief.current_status} label="狀態" />
@@ -222,7 +223,7 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
   <div className="flex flex-col gap-4">
     <SectionCard
       title="不同時間長度的看法"
-      icon={<CalendarClock size={15} className="text-brand" aria-hidden />}
+      icon={<CalendarClock size={15} className="text-muted-foreground" aria-hidden />}
       hint="只講方向與什麼情況下不成立，不給買賣建議與目標價；天數以交易日計算。"
     >
       <ForwardViewCards views={brief.forward_views} />
@@ -238,7 +239,7 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
 
     <SectionCard
       title="接下來觀察什麼"
-      icon={<Eye size={15} className="text-brand" aria-hidden />}
+      icon={<Eye size={15} className="text-muted-foreground" aria-hidden />}
     >
       <WatchItems items={brief.watch_points} />
     </SectionCard>

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { acceptedJobAudit, adminDuration, adminRunScope, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
 import type { AdminAudit, AdminJob, AdminRun } from '../../lib/api/admin';

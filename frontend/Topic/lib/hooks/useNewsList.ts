@@ -184,7 +184,7 @@ export function useNewsList(options: UseNewsListOptions = {}) {
     setPage(initialPage);
     load(initialPage, initial);
     return () => { requestIdRef.current += 1; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- route state initializes once; relation changes preserve applied filters
+    // 依賴刻意省略 load 與篩選值：路由狀態只在這幾個條件改變時重新初始化，relation 改變時保留已套用的篩選
   }, [options.fixedStock, options.fixedRelation, options.defaultSort?.sort_by, options.retrieval]);
 
   const reload = useCallback(() => {

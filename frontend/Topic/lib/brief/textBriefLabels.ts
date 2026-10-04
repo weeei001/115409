@@ -42,12 +42,6 @@ export const CONF: Record<string, string> = { low: '低', medium: '中', high: '
 
 export const CONF_HINT = '模型自評經資料與內容限制調整，未經預測校準；不代表事實已證實或投資勝率。';
 
-/** 只在「沒有產出簡報」時用來補一句原因；verified 一定帶簡報，不會走到這裡。 */
-export const STATUS: Record<string, [BriefTone, string]> = {
-  limited: ['warn', '資料或內容檢查有限制'],
-  unavailable: ['bad', '這次沒有產出結果'],
-};
-
 /**
  * 結論性質 → 標籤。observation 是有證據的觀察，不加標籤；
  * 其餘三種一定要標出來，讓推論與客觀事實分得開。

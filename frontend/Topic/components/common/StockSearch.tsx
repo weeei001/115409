@@ -48,7 +48,7 @@ export function searchStockOptions(symbols: string[], stockInfos: StockInfo[] = 
  * focus 就展開；空白時照清單順序；可用代號、公司名稱與產業搜尋；最多 20 筆；方向鍵／Home／End／Esc；
  * Enter：有反白項目就選它；否則有輸入時交給 onBulkSelect，沒輸入時選第一筆。
  */
-export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, placeholder = '搜尋代號或公司名稱...', className }: Props) {
+export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, placeholder = '搜尋代號或公司名稱…', className }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -154,15 +154,17 @@ export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, 
         }}
         onFocus={() => setOpen(true)}
         placeholder={placeholder}
-        className="h-11 w-full min-w-0 rounded-xl border border-input bg-muted pr-4 pl-10 text-base text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-brand focus:ring-2 focus:ring-brand/25 sm:text-sm"
+        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus-lamp sm:text-sm"
       />
       {expanded ? (
         <ul
           id={listboxId}
           role="listbox"
           aria-label="股票代號"
-          className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border bg-popover py-1 shadow-md"
+          tabIndex={-1}
+          className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-md border border-border-strong bg-popover shadow-raised"
         >
+          {/* 反白的選項：淺色底＋左側 2px 燈色標線（lamp-row 讀 aria-selected）；清單 tabIndex -1，焦點一直留在輸入框 */}
           {filtered.map((stock, i) => (
             <li
               key={stock.symbol}
@@ -171,26 +173,23 @@ export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, 
               aria-selected={i === activeIndex}
               onClick={() => selectItem(stock.symbol)}
               onMouseEnter={() => setActiveIndex(i)}
-              className={cn(
-                'cursor-pointer px-4 py-2.5 text-subtle transition-colors',
-                i === activeIndex && 'bg-accent text-accent-foreground',
-              )}
+              className="lamp-row flex min-h-11 cursor-pointer flex-col justify-center border-b px-4 py-1.5 text-foreground"
             >
               <span className="flex min-w-0 items-baseline gap-3">
-                <span className="shrink-0 font-mono text-sm font-semibold tabular-nums">{stock.symbol}</span>
+                <span className="w-12 shrink-0 font-mono text-[13.5px] font-medium tabular-nums">{stock.symbol}</span>
                 <span className="min-w-0 truncate text-sm font-medium">{stock.name || '公司名稱未提供'}</span>
               </span>
-              <span className="mt-0.5 block truncate pl-[3.75rem] text-[11px] text-muted-foreground">
+              <span className="block truncate pl-[3.75rem] text-xs text-muted-foreground">
                 {stock.industry?.trim() || '產業未提供'}
               </span>
             </li>
           ))}
           {filtered.length === 0 ? (
-            <li role="status" className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+            <li role="status" className="px-4 py-3 text-[13px] leading-relaxed text-muted-foreground">
               {hasBulkDelimiter(query) ? '按 Enter 套用貼上的多個股票代號。' : symbols.length === 0 ? '目前沒有可搜尋的股票。' : `找不到「${query.trim()}」；可改用股票代號或公司名稱。`}
             </li>
           ) : (
-            <li role="status" className="border-t px-4 py-2 text-[11px] text-muted-foreground">
+            <li role="status" className="bg-muted px-4 py-2 text-xs text-muted-foreground">
               可貼上多個代號，以空白、逗號或分號分隔
             </li>
           )}

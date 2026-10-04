@@ -25,4 +25,20 @@ for (const status of ['conflict', 'superseded', 'historical'] as const) {
 const activeHtml = renderToStaticMarkup(React.createElement(NewsCard, { news, targetStock: '2330' }));
 assert.ok(activeHtml.includes('bg-up-muted text-up-emphasis border-up/30'));
 assert.doesNotMatch(activeHtml, /emerald|rose|slate|amber|zinc/);
+// 列表每個影響對象只給一個方向標籤：正負對立時顯示一次中性的「正負並存」，不重複堆疊
+const base = news.event_analysis!.impacts[0];
+const mixedHtml = renderToStaticMarkup(React.createElement(NewsCard, { news: { ...news, event_analysis: { status: 'success', events: [], impacts: [
+  { ...base, event_key: 'e1', direction: 'negative' }, { ...base, event_key: 'e2', direction: 'negative' }, { ...base, event_key: 'e3', direction: 'positive', importance: 'low' },
+] } } }));
+assert.equal((mixedHtml.match(/正負並存/g) ?? []).length, 1);
+assert.ok(!mixedHtml.includes('負向') && !mixedHtml.includes('正向'));
+assert.ok(mixedHtml.includes('項事件') && (mixedHtml.match(/高重要性/g) ?? []).length === 1);
+// 列尾不放沒有文字的圖示鈕：展開與原始來源各只有一個有文字的入口；站內連結不用外連箭頭
+const listHtml = renderToStaticMarkup(React.createElement(NewsCard, { news }));
+assert.equal((listHtml.match(/https:\/\/example\.com\/original/g) ?? []).length, 1);
+assert.equal((listHtml.match(/aria-expanded=/g) ?? []).length, 1);
+assert.ok(listHtml.includes('展開內文') && listHtml.includes('查看原始來源'));
+assert.ok(!listHtml.includes('lucide-arrow-up-right'));
+// 影響對象的個股代號連到個股頁，觸控目標 44px
+assert.ok(/href="\/stock\/2330"[^>]*min-h-11|min-h-11[^>]*href="\/stock\/2330"/.test(listHtml) || /<a[^>]*class="[^"]*min-h-11[^"]*"[^>]*href="\/stock\/2330"/.test(listHtml));
 console.log('NewsCard version state tests passed');

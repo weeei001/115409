@@ -1,18 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { parseStockNewsView, stockNewsViewHref, STOCK_NEWS_VIEW_PARAM } from '@/lib/news/stockNewsView';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
 import { getMaStructureLabel, summarizePricePosition } from '@/lib/utils/technicalSignals';
-import { useStockDisplayName } from '@/lib/utils/symbolNames';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
+import { Ledger, NextStep, type LightState } from '@/components/common/Ledger';
 import { AIBriefSummaryCard } from '@/features/brief/AIBriefSummaryCard';
 import { StockTextBriefPanel } from '@/features/brief/StockTextBriefPanel';
 import { StockHero } from './StockHero';
 import { StockKpiStrip } from './StockKpiStrip';
 import { DetailDrawer } from './DetailDrawer';
-import { MiniPriceCard } from './cards/MiniPriceCard';
-import { TodayInstitutionalCard } from './cards/TodayInstitutionalCard';
+import { LatestInstitutionalCard } from './cards/LatestInstitutionalCard';
 import { IndicatorSignalsCard } from './cards/IndicatorSignalsCard';
 import { TopNewsCard } from './cards/TopNewsCard';
 import { PricePanel } from './price/PricePanel';
@@ -22,13 +21,18 @@ import { StockNewsPanel } from './StockNewsPanel';
 
 type DrawerKey = 'chart' | 'institutional' | 'indicators' | 'ai' | 'news';
 
-const Hairline = () => <div aria-hidden className="h-px w-full bg-border" />;
+interface Props {
+  dashboard: UseStockDashboardResult;
+  /** 查不到中文名為 null（名稱由頁面查一次後傳進來） */
+  stockName: string | null;
+}
 
-export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResult }) {
+export function StockDashboard({ dashboard, stockName }: Props) {
   const router = useRouter();
   const { symbol, latest, loading, baseDate, priceChart, chipsLoading, institutionalLatest, indicators, indicatorLatest } = dashboard;
-  const stockDisplayName = useStockDisplayName(symbol);
-  const stockName = stockDisplayName === symbol ? null : stockDisplayName;
+  // 燈質記號：讀取中＝Q、已載入＝F、讀取失敗（且沒有可顯示的舊資料）＝熄燈；只用 hook 已有的狀態
+  const chartState: LightState = dashboard.chartLoading ? 'loading' : dashboard.chartError && !priceChart ? 'error' : 'ready';
+  const chipsState: LightState = chipsLoading ? 'loading' : dashboard.chipsError ? 'error' : 'ready';
   // The latest analysis cutoff is independent of the last trading day.
   const textBrief = useStockTextBrief({ symbol });
   const maStructureLabel = useMemo(() => getMaStructureLabel(summarizePricePosition(priceChart)), [priceChart]);
@@ -63,9 +67,11 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
   const subtitle = stockName ? `${symbol} ${stockName}` : symbol;
 
   return (
-    <div className="flex flex-col gap-4">
-      <AnimatedSection delay={0.05}>
-        <StockHero symbol={symbol} stockName={stockName} latest={latest} priceChart={priceChart} />
+    <div className="flex flex-col gap-10 lg:gap-16">
+      {/* 首屏：本頁唯一的主圖（收盤價＋K 線圖廓＋開高低），緊接一張關鍵指標表 */}
+      <AnimatedSection delay={0.05} className="flex flex-col gap-6">
+        <StockHero dashboard={dashboard} onOpenDetail={() => setDrawer('chart')} />
+        <StockKpiStrip priceChart={priceChart} institutionalLatest={institutionalLatest} indicatorLatest={indicatorLatest} chartState={chartState} chipsState={chipsState} />
       </AnimatedSection>
 
       <AnimatedSection delay={0.06}>
@@ -79,28 +85,22 @@ export function StockDashboard({ dashboard }: { dashboard: UseStockDashboardResu
         />
       </AnimatedSection>
 
-      <Hairline />
-      <AnimatedSection delay={0.04}>
-        <StockKpiStrip priceChart={priceChart} institutionalLatest={institutionalLatest} indicatorLatest={indicatorLatest} />
+      {/* 帳頁：法人 6／指標 6；手機單欄。日期寫在各格底部的戳記 */}
+      <AnimatedSection delay={0.05}>
+        <Ledger title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
+          <LatestInstitutionalCard latest={institutionalLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('institutional')} onRetry={dashboard.reloadChips} />
+          <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('indicators')} />
+        </Ledger>
       </AnimatedSection>
-      <Hairline />
 
       <AnimatedSection delay={0.05}>
-        <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 lg:grid-cols-12">
-          <div className="h-full md:col-span-2 lg:col-span-6">
-            <MiniPriceCard priceChart={priceChart} onOpenDetail={() => setDrawer('chart')} />
-          </div>
-          <div className="h-full lg:col-span-3">
-            <TodayInstitutionalCard latest={institutionalLatest} loading={chipsLoading} onOpenDetail={() => setDrawer('institutional')} />
-          </div>
-          <div className="h-full lg:col-span-3">
-            <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} onOpenDetail={() => setDrawer('indicators')} />
-          </div>
-          <div className="h-full md:col-span-2 lg:col-span-12">
-            <TopNewsCard symbol={symbol} onOpenDetail={openNews} />
-          </div>
-        </div>
+        <TopNewsCard symbol={symbol} onOpenDetail={openNews} />
       </AnimatedSection>
+
+      {/* 頁尾只有一個下一步 */}
+      <nav aria-label="下一步" className="border-y border-border-strong">
+        <NextStep href="/compare">和同產業的股票比較</NextStep>
+      </nav>
 
       <DetailDrawer open={drawer === 'chart'} onClose={close} title="價量走勢與統計" subtitle={subtitle}>
         <PricePanel dashboard={dashboard} />

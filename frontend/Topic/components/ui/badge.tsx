@@ -1,47 +1,35 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/cn"
-import { Slot } from "radix-ui"
+import { toneBadge, type BadgeTone } from "@/lib/utils/tone"
 
-const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3",
-  {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
-        secondary:
-          "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
-        destructive:
-          "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
-        outline:
-          "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-        ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 [a&]:hover:underline",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-)
-
+/**
+ * 徽章：2px 圓角的小方框標籤（DESIGN.md 第 4 節），配色只來自 toneBadge（lib/utils/tone.ts）。
+ * emphasis 用在漲跌淡底上的小字；size="sm" 是 11px 的表格內小標。
+ */
 function Badge({
   className,
-  variant = "default",
-  asChild = false,
+  tone = "neutral",
+  emphasis = false,
+  size = "default",
   ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot.Root : "span"
-
+}: React.ComponentProps<"span"> & {
+  tone?: BadgeTone
+  emphasis?: boolean
+  size?: "default" | "sm"
+}) {
   return (
-    <Comp
+    <span
       data-slot="badge"
-      data-variant={variant}
-      className={cn(badgeVariants({ variant }), className)}
+      data-tone={tone}
+      className={cn(
+        "inline-flex w-fit shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 font-medium whitespace-nowrap [&>svg]:pointer-events-none [&>svg]:size-3",
+        size === "sm" ? "text-[11px]" : "text-xs",
+        toneBadge(tone, { emphasis }),
+        className
+      )}
       {...props}
     />
   )
 }
 
-export { Badge, badgeVariants }
+export { Badge }

@@ -1,26 +1,26 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { Loader2, TrendingUp } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { Notice } from '@/components/common/Notice';
+import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { FavoriteToggle } from '@/features/favorites/FavoriteToggle';
 import { StockDashboard } from '@/features/stock/StockDashboard';
 import { isStockSymbol, useStockDashboard } from '@/lib/hooks/useStockDashboard';
-import { formatStockLabel } from '@/lib/utils/symbolNames';
+import { formatStockLabel, useStockDisplayName } from '@/lib/utils/symbolNames';
 import { breadcrumbsForStock, breadcrumbsTrail } from '@/lib/nav';
 
 function BackHome({ message }: { message: string }) {
   const router = useRouter();
   return (
-    <main id="stock-page-main" className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-24">
-      <Notice tone="danger" className="max-w-md">
-        {message}
-      </Notice>
-      <Button size="lg" onClick={() => void router.push('/')} className="bg-brand-gradient text-on-brand">
-        返回首頁
-      </Button>
+    <main id="stock-page-main" className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+      <div className="flex w-full max-w-xl flex-col gap-4">
+        <Notice tone="danger">{message}</Notice>
+        <Button variant="outline" onClick={() => void router.push('/')} className="self-start">
+          返回首頁
+        </Button>
+      </div>
     </main>
   );
 }
@@ -28,13 +28,16 @@ function BackHome({ message }: { message: string }) {
 function StockDashboardView({ symbol }: { symbol: string }) {
   const dashboard = useStockDashboard(symbol);
   const label = formatStockLabel(symbol);
-  const title = `股海明燈｜${label}`;
+  // 頁面標題用公司名稱；查不到名稱時維持代號
+  const displayName = useStockDisplayName(symbol);
+  const stockName = displayName === label ? null : displayName;
+  const title = `股海明燈｜${stockName ? `${label} ${stockName}` : label}`;
   const description = `查詢 ${label} 最近儲存收盤行情、K 線、籌碼、技術指標、AI 投資分析與新聞（非即時；展示／專題用途）。`;
   const header = (subtitle: string, titleWrap = false) => (
     <SiteHeader
       icon={TrendingUp}
       breadcrumbs={breadcrumbsForStock(symbol)}
-      title={label}
+      title={stockName ?? label}
       subtitle={subtitle}
       titleWrap={titleWrap}
       titleAction={<FavoriteToggle symbol={symbol} />}
@@ -58,9 +61,15 @@ function StockDashboardView({ symbol }: { symbol: string }) {
       <div className="flex min-h-[100dvh] flex-col">
         {head}
         {header('載入中…')}
-        <main id="stock-page-main" className="flex flex-1 items-center justify-center py-24" aria-busy="true" aria-live="polite">
-          <Loader2 size={40} className="animate-spin text-brand" aria-hidden />
-          <span className="sr-only">載入中...</span>
+        <main
+          id="stock-page-main"
+          className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-10 px-4 py-6 sm:px-6 lg:px-10 lg:py-10"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          {/* 載入＝燈質 Q：有線的空白列，光帶掃過，寫出「讀取中」 */}
+          <LoadingRows label="讀取收盤行情與 K 線中…" className="h-[420px] border bg-card lg:h-[540px]" />
+          <LoadingRows label="讀取法人與指標中…" className="h-[132px] border-y" />
         </main>
       </div>
     );
@@ -79,12 +88,14 @@ function StockDashboardView({ symbol }: { symbol: string }) {
   return (
     <div className="flex min-h-[100dvh] flex-col">
       {head}
-      {header('個股儀表板')}
+      {header(
+        [stockName ? symbol : null, dashboard.latest.date ? `收盤 ${dashboard.latest.date}` : null, '非即時'].filter(Boolean).join(' · '),
+      )}
       <a href="#stock-page-main" className="skip-link">
         跳至個股內容
       </a>
-      <main id="stock-page-main" tabIndex={-1} aria-label="個股儀表板內容" className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8">
-        <StockDashboard dashboard={dashboard} />
+      <main id="stock-page-main" tabIndex={-1} aria-label="個股儀表板內容" className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 outline-none focus-visible:shadow-none sm:px-6 lg:px-10 lg:py-10">
+        <StockDashboard dashboard={dashboard} stockName={stockName} />
       </main>
     </div>
   );
@@ -103,9 +114,8 @@ export default function StockDetailPage() {
 
   if (!router.isReady || isArticleId) {
     return (
-      <div className="flex min-h-[100dvh] flex-col items-center justify-center">
-        <Loader2 size={36} className="mb-3 animate-spin text-brand" aria-hidden />
-        <p className="text-sm text-muted-foreground">{isArticleId ? '偵測到新聞文章代碼，正在轉向至新聞閱讀頁面...' : '載入中...'}</p>
+      <div className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 lg:px-10 lg:py-10" aria-busy="true">
+        <LoadingRows label={isArticleId ? '偵測到新聞文章代碼，正在轉向新聞閱讀頁面…' : '讀取中…'} className="h-[132px] w-full max-w-md border bg-card" />
       </div>
     );
   }

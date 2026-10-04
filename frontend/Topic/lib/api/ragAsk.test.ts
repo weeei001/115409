@@ -5,7 +5,6 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ChatMessage } from '../../features/ai/ChatMessage';
 import { RagStructuredReply } from '../../features/ai/RagStructuredReply';
-import { parseSourceItems } from '../utils/parseRagStructuredReply';
 import type { RagHistoryMessage } from './ragAsk';
 import { parseChatSources, type ChatAction } from '../types/chat';
 import { parseChatDashboard, type ChatDashboard } from '../types/chatDashboard';
@@ -120,12 +119,6 @@ async function check() {
 
   const mixedSources = '- [S1] Market snapshot\n- [S2] News: https://example.com/news\n' +
     '- [S3] Untrusted source: javascript:alert(1)\n- [S4] Internal news: /news/article-1';
-  assert.deepEqual(parseSourceItems(mixedSources), [
-    { index: 'S1', title: 'Market snapshot', url: '' },
-    { index: 'S2', title: 'News', url: 'https://example.com/news' },
-    { index: 'S3', title: 'Untrusted source: javascript:alert(1)', url: '' },
-    { index: 'S4', title: 'Internal news', url: '/news/article-1' },
-  ]);
   const markup = renderToStaticMarkup(createElement(RagStructuredReply, {
     content: `Readable **answer**[S1][S2]\n\n【關鍵事件】\n*   **營收創新高**：受惠於 AI 需求 [S1]\n\n【引用來源】\n${mixedSources}`,
   }));

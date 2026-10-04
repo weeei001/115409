@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ChatMessage } from '../../lib/types/chat';
 import { ChatArea } from './ChatArea';
@@ -14,6 +13,9 @@ for (const messages of [[], [message('empty', '')], [message('short', 'Short ans
 const long = render([message('long', 'Long answer '.repeat(80))]);
 assert.match(long, /aria-label="回答區塊導覽"/);
 assert.equal((long.match(/aria-controls=/g) ?? []).length, 1);
+// 區塊導覽是錨點：目前所在區塊（預設回答）以 aria-current 標示，只有一個
+assert.match(long, /aria-current="location"[^>]*>回答<\/button>/);
+assert.equal((long.match(/aria-current=/g) ?? []).length, 1);
 const multiTurn = render([message('old', 'Older answer [S1]', { sources: [source], dashboard }), message('latest', 'Latest answer [S1]', { sources: [source] })]);
 const controls = [...multiTurn.matchAll(/aria-controls="([^"]+)"/g)].map((match) => match[1]);
 assert.equal(controls.length, 3);

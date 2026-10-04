@@ -1,5 +1,7 @@
 import React, { useMemo } from 'react';
-import { AlertTriangle, ArrowRight, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
+import { Disclosure } from '@/components/common/Disclosure';
+import { cn } from '@/lib/cn';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import type { Claim } from '@/lib/types/textBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
@@ -13,6 +15,10 @@ import {
   STANCE_TONE,
   type BriefTone,
 } from '@/lib/brief/textBriefLabels';
+import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { FoldSection } from '@/components/common/CollapsibleSection';
+import { LoadingRows, Notice } from '@/components/common/Notice';
+import { Button } from '@/components/ui/button';
 import { ClaimTypeBadge, EvidenceTagList, StanceIcon, Tag } from './BriefAtoms';
 
 interface Props {
@@ -32,12 +38,28 @@ interface Props {
 const FACTOR_LIMIT = 2;
 
 const FACET_TONE_CLASS: Record<FacetTone, string> = {
-  good: 'text-brand-text',
+  // 分級是品質高低，不是漲跌方向：不用漲跌色，也不用燈色
+  good: 'text-foreground',
   caution: 'text-warning',
   neutral: 'text-foreground',
   info: 'text-subtle',
   unknown: 'text-muted-foreground',
 };
+
+/**
+ * 法人籌碼的「買超／賣超」是方向，不是品質：買超用 up、賣超用 down（DESIGN.md 第 7 節），
+ * 不借用 warning。其餘面向（偏高、弱、風險）維持上面的品質色。
+ */
+const DIRECTIONAL_FACET_CLASS: Partial<Record<FacetTone, string>> = {
+  good: 'text-up',
+  caution: 'text-down',
+  neutral: 'text-foreground',
+};
+
+function facetToneClass(facet: Facet): string {
+  if (facet.key === 'chips') return DIRECTIONAL_FACET_CLASS[facet.tone] ?? FACET_TONE_CLASS[facet.tone];
+  return FACET_TONE_CLASS[facet.tone];
+}
 
 function topClaims(items?: Claim[]): Claim[] {
   return [...(items ?? [])]
@@ -45,69 +67,48 @@ function topClaims(items?: Claim[]): Claim[] {
     .slice(0, FACTOR_LIMIT);
 }
 
-const CardFrame: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <section
+/** 帳頁外框：襯線標題「AI 投資分析」＋右側分析日戳記，底下一格方角面板 */
+const CardFrame: React.FC<{ asOfDate?: string | null; state: LightState; children: React.ReactNode }> = ({ asOfDate, state, children }) => (
+  <Ledger
+    title="AI 投資分析"
+    stamp={
+      // 燈質記號：讀取中＝Q、已載入＝F、讀取失敗＝熄燈
+      <span className="inline-flex items-center gap-1.5">
+        <LightGlyph state={state} />
+        {asOfDate ? `分析至 ${asOfDate}` : null}
+      </span>
+    }
     aria-label="AI 投資分析摘要"
-    className="rounded-2xl border border-border bg-card p-5 shadow-card sm:p-7"
   >
-    {children}
-  </section>
-);
-
-const CardHeader: React.FC<{
-  asOfDate?: string | null;
-  right?: React.ReactNode;
-}> = ({ asOfDate, right }) => (
-  <div className="flex flex-wrap items-center justify-between gap-2">
-    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-      <Sparkles size={13} aria-hidden className="text-brand" />
-      AI 投資分析
-    </span>
-    <span className="flex items-center gap-2">
-      {asOfDate ? (
-        <span className="text-[11px] tabular-nums text-muted-foreground">
-          分析至 {asOfDate}
-        </span>
-      ) : null}
-      {right}
-    </span>
-  </div>
-);
-
-const Divider: React.FC = () => (
-  <div aria-hidden className="my-3 h-px w-full bg-border" />
+    <LedgerPanel padded={false}>{children}</LedgerPanel>
+  </Ledger>
 );
 
 /** 只重讀一次排程產好的分析，不會觸發 LLM 重跑 */
 const RetryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-subtle transition-colors hover:border-brand hover:text-brand-text"
-  >
-    <RefreshCw size={13} aria-hidden />
+  <Button type="button" size="sm" variant="outline" onClick={onClick} className="min-h-11">
+    <RefreshCw aria-hidden />
     重試
-  </button>
+  </Button>
 );
 
-const FacetCell: React.FC<{ facet: Facet }> = ({ facet }) => (
-  <div
-    className="rounded-lg bg-muted px-3 py-2"
-    title={facet.rule}
-  >
-    <p className="text-[10px] leading-tight text-muted-foreground">{facet.label}</p>
-    <p className={`mt-0.5 text-sm font-bold leading-tight ${FACET_TONE_CLASS[facet.tone]}`}>
-      {facet.levelLabel}
-    </p>
-    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground">
-      {facet.basis}
-    </p>
+/** 收合段落裡的小標（段落本身是 h3）：sans、字距加寬、次要色 */
+const Caption: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => (
+  <h4 className={cn('text-[13px] font-medium tracking-[0.04em]', className ?? 'text-muted-foreground')}>{children}</h4>
+);
+
+const FacetRow: React.FC<{ facet: Facet }> = ({ facet }) => (
+  <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5 py-2.5 sm:grid-cols-[7rem_7rem_minmax(0,1fr)]">
+    <dt className="text-[13px] leading-tight tracking-[0.04em] text-muted-foreground">{facet.label}</dt>
+    <dd className={cn('text-sm leading-tight font-bold', facetToneClass(facet))}>{facet.levelLabel}</dd>
+    <dd className="col-span-2 text-xs leading-5 text-muted-foreground sm:col-span-1">{facet.basis}</dd>
   </div>
 );
 
 /**
- * 股價資訊下方的 AI 摘要卡：不開詳情也能看懂結論、三個時間長度、正面與風險。
- * 每個結論後面都有可讀的來源標籤，點下去會開完整分析並亮出那一筆證據。
+ * 股價資訊下方的 AI 摘要卡：頁面上只放結論（立場、一句標題、三個時間長度）與「查看完整分析」。
+ * 正面、風險、分歧、重新評估條件與面向分級收在下方一列（預設收合）；每個結論後面都有可讀的來源標籤，
+ * 點下去會開完整分析並亮出那一筆證據。
  *
  * 刻意不顯示買賣建議與目標價；面向分級來自寫死的門檻（見 textBriefFacets），
  * 不是 LLM 給的分數。
@@ -140,17 +141,11 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   // data 為 null 只有「還沒發動」與「發動失敗」兩種情況；前者當載入中，避免閃一下空狀態
   if (error && !data) {
     return (
-      <CardFrame>
-        <CardHeader asOfDate={endDate} />
-        <div
-          role="alert"
-          className="mt-3 flex items-start gap-2 rounded-xl border border-danger-border bg-danger-muted px-3 py-2 text-sm leading-6 text-danger"
-        >
-          <AlertTriangle size={15} aria-hidden className="mt-1 shrink-0" />
-          <span>{error}</span>
-        </div>
-        <div className="mt-3">
-          <RetryButton onClick={() => void run()} />
+      <CardFrame asOfDate={endDate} state="error">
+        <div className="p-4 sm:p-5">
+          <Notice tone="danger" action={<RetryButton onClick={() => void run()} />}>
+            {error}
+          </Notice>
         </div>
       </CardFrame>
     );
@@ -158,46 +153,27 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
 
   if (loading || !data) {
     return (
-      <CardFrame>
-        <CardHeader asOfDate={endDate} />
-        <p className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-text">
-          <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
-          正在載入 {symbol} 的分析
-          {seconds > 0 ? (
-            <span className="tabular-nums text-muted-foreground">{seconds} 秒</span>
-          ) : null}
-        </p>
-        <div className="mt-3 space-y-2" aria-hidden>
-          <div className="h-4 max-w-[85%] animate-pulse rounded-full bg-muted" />
-          <div className="h-4 max-w-[60%] animate-pulse rounded-full bg-muted" />
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3" aria-hidden>
-          {[0, 1, 2].map((row) => (
-            <div key={row} className="h-12 animate-pulse rounded-lg bg-muted" />
-          ))}
-        </div>
-        <span className="sr-only">AI 分析載入中</span>
+      <CardFrame asOfDate={endDate} state="loading">
+        {/* 載入＝燈質 Q：有線的空白列，光帶掃過，寫出「讀取中」與秒數 */}
+        <LoadingRows
+          label={`讀取 ${symbol} 的 AI 分析中…${seconds > 0 ? `（${seconds} 秒）` : ''}`}
+          className="h-[176px]"
+        />
       </CardFrame>
     );
   }
 
   if (!b) {
     return (
-      <CardFrame>
-        <CardHeader asOfDate={data.as_of_date} />
-        <div className="border-warning-border bg-warning-muted text-warning mt-3 flex items-start gap-2 rounded-xl border px-3 py-2 text-sm leading-6">
-          <AlertTriangle size={15} aria-hidden className="mt-1 shrink-0 text-warning-icon" />
-          <span>{data.limitations?.[0] ?? '這次沒有產出分析，AI 寫的內容沒通過系統檢查。'}</span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => onOpenDetail()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-brand/30 px-2.5 py-1.5 text-xs font-semibold text-brand-text transition-colors hover:bg-accent"
-          >
-            查看完整分析
-            <ArrowRight size={13} aria-hidden />
-          </button>
+      <CardFrame asOfDate={data.as_of_date} state="ready">
+        <div className="p-4 sm:p-5">
+          <Notice tone="warning">{data.limitations?.[0] ?? '這次沒有產出分析，AI 寫的內容沒通過系統檢查。'}</Notice>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenDetail()}>
+              查看完整分析
+              <ArrowRight aria-hidden />
+            </Button>
+          </div>
         </div>
       </CardFrame>
     );
@@ -217,7 +193,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
     accentClass = 'text-muted-foreground'
   ) => (
     <div className="min-w-0">
-      <p className={`text-xs font-bold ${accentClass}`}>{title}</p>
+      <Caption className={accentClass}>{title}</Caption>
       {items.length ? (
         <ul className="mt-1.5 space-y-2">
           {items.map((item) => (
@@ -244,94 +220,104 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   );
 
   return (
-    <CardFrame>
-      <CardHeader asOfDate={data.as_of_date} />
+    <CardFrame asOfDate={data.as_of_date} state="ready">
+      <div className="p-4 sm:p-5">
+        {stale ? (
+          <p role="status" className="mb-3 text-[13px] leading-relaxed text-muted-foreground">
+            最新交易日已到 {latestTradeDate}，這份分析的基準日較早，內容可能已經過期。
+          </p>
+        ) : null}
 
-      {stale ? (
-        <p role="status" className="mt-2 text-[11px] leading-5 text-muted-foreground">
-          最新交易日已到 {latestTradeDate}，這份分析的基準日較早，內容可能已經過期。
-        </p>
-      ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Tag tone={stanceTone} className="text-sm">
+            <StanceIcon tone={stanceTone} />
+            {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
+          </Tag>
+          <span className="text-[13px] text-muted-foreground">
+            分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}
+          </span>
+        </div>
+        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">分析信心：{CONF_HINT}</p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Tag tone={stanceTone} className="text-sm">
-          <StanceIcon tone={stanceTone} />
-          {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
-        </Tag>
-        <span className="text-[11px] text-muted-foreground" title={CONF_HINT}>
-          分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}
-        </span>
-      </div>
+        <p className="mt-3 max-w-[40em] text-xl leading-8 font-semibold text-foreground">{b.headline}</p>
 
-      <p className="mt-3 border-l-2 border-brand/50 pl-3 text-xl font-semibold leading-8 tracking-tight text-foreground">
-        {b.headline}
-      </p>
+        {/* 三個時間長度：一列細線分隔的讀數，不另外框成方塊 */}
+        <dl className="mt-4 grid grid-cols-1 gap-px border-y bg-border sm:grid-cols-3">
+          {FORWARD_VIEWS.map(([key, label]) => {
+            const view = b.forward_views?.[key];
+            const tone: BriefTone = STANCE_TONE[view?.stance ?? ''] ?? 'plain';
+            return (
+              <div key={key} className="flex min-h-11 items-center justify-between gap-2 bg-card py-2 sm:px-3 sm:first:pl-0">
+                <dt className="text-[13px] text-muted-foreground">{label}</dt>
+                <dd className="inline-flex items-center gap-1 text-sm font-semibold text-foreground">
+                  <StanceIcon tone={tone} size={13} />
+                  {view ? forwardViewLabel(view) : '—'}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
 
-      <Divider />
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {FORWARD_VIEWS.map(([key, label]) => {
-          const view = b.forward_views?.[key];
-          const tone: BriefTone = STANCE_TONE[view?.stance ?? ''] ?? 'plain';
-          return (
-            <div
-              key={key}
-              className="flex items-center justify-between gap-2 rounded-lg bg-muted px-3 py-2"
-            >
-              <span className="text-xs text-muted-foreground">{label}</span>
-              <span className="inline-flex items-center gap-1 text-sm font-semibold text-foreground">
-                <StanceIcon tone={tone} size={13} />
-                {view ? forwardViewLabel(view) : '—'}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <Divider />
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {factorBlock('正面', positives, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
-        {factorBlock('風險', negatives, '沒有通過檢查的依據，不代表沒有風險。', 'text-warning')}
-      </div>
-
-      <Divider />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {factorBlock('主要分歧', divergence, '本次未提供主要分歧，並不代表沒有矛盾。')}
-        <div>
-          <p className="text-xs font-bold text-muted-foreground">重新評估條件 · 短線 1–5 日</p>
-          <p className="mt-1.5 text-sm leading-6">{shortView?.invalidation || '本次未提供短線失效條件。'}</p>
-          {shortView?.invalidation ? <EvidenceTagList ids={shortView.evidence_ids} index={evidence}
-            onSelect={(id) => onOpenDetail(id, 'iv:short_1_5')} warnWhenEmpty className="mt-1" /> : null}
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          {/* 這一屏唯一的燈色主要按鈕 */}
+          <Button type="button" onClick={() => onOpenDetail()}>
+            查看完整分析
+            <ArrowRight aria-hidden />
+          </Button>
+          <span className="text-[13px] leading-5 text-muted-foreground">僅供研究參考，不是投資建議。</span>
         </div>
       </div>
 
-      <Divider />
+      {/* 正面／風險／分歧／重新評估與面向分級：收在一列裡，頁面上只留結論 */}
+      <FoldSection
+        title="正面、風險與面向分級"
+        summary={`正面 ${positives.length} 項 · 風險 ${negatives.length} 項 · 分歧 ${divergence.length} 項 · 面向分級 ${facets.length} 項，各附來源`}
+        className="border-t"
+      >
+        <div className="space-y-5 p-4 sm:p-5">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            {factorBlock('正面', positives, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
+            {factorBlock('風險', negatives, '沒有通過檢查的依據，不代表沒有風險。', 'text-warning')}
+          </div>
+          <div className="grid grid-cols-1 gap-5 border-t pt-5 sm:grid-cols-2">
+            {factorBlock('主要分歧', divergence, '本次未提供主要分歧，並不代表沒有矛盾。')}
+            <div>
+              <Caption>重新評估條件 · 短線 1–5 日</Caption>
+              <p className="mt-1.5 text-sm leading-6">{shortView?.invalidation || '本次未提供短線失效條件。'}</p>
+              {shortView?.invalidation ? <EvidenceTagList ids={shortView.evidence_ids} index={evidence}
+                onSelect={(id) => onOpenDetail(id, 'iv:short_1_5')} warnWhenEmpty className="mt-1" /> : null}
+            </div>
+          </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        {facets.map((facet) => (
-          <FacetCell key={facet.key} facet={facet} />
-        ))}
-      </div>
-      <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
-        面向分級由固定門檻套用在上面列出的原始數字上，不是 AI 給的分數；滑到標題可看規則。
-      </p>
-
-      <Divider />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onOpenDetail()}
-          className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 bg-brand-gradient text-sm font-semibold text-on-brand shadow-card transition-opacity hover:opacity-90"
-        >
-          查看完整分析
-          <ArrowRight size={14} aria-hidden />
-        </button>
-        <span className="text-[11px] leading-5 text-muted-foreground">
-          僅供研究參考，不是投資建議。
-        </span>
-      </div>
+          <div className="border-t pt-5">
+            <Caption>面向分級</Caption>
+            {/* 一面向一列：名稱／分級／依據，用細線分隔 */}
+            <dl className="mt-2 divide-y border-y">
+              {facets.map((facet) => (
+                <FacetRow key={facet.key} facet={facet} />
+              ))}
+            </dl>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              面向分級由固定門檻套用在上面列出的原始數字上，不是 AI 給的分數。
+            </p>
+            {/* 規則一律可點開（觸控也能看），不靠滑鼠懸停 */}
+            <Disclosure
+              className="mt-1 border-b text-xs text-muted-foreground"
+              summaryProps={{ className: 'font-medium' }}
+              summary={<>分級規則 <span className="characteristic">（{facets.length} 項，點開看門檻）</span></>}
+            >
+              <dl className="divide-y border-t pb-1">
+                {facets.map((facet) => (
+                  <div key={facet.key} className="grid grid-cols-1 gap-x-3 gap-y-0.5 py-2 sm:grid-cols-[6rem_minmax(0,1fr)]">
+                    <dt className="font-medium text-subtle">{facet.label}</dt>
+                    <dd className="leading-5">{facet.rule}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Disclosure>
+          </div>
+        </div>
+      </FoldSection>
     </CardFrame>
   );
 };

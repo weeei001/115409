@@ -1,6 +1,9 @@
 import React from 'react';
-import { AlertTriangle, Info, Layers, RotateCcw } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { AlertTriangle, Info, RotateCcw } from 'lucide-react';
+import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import type { BadgeTone } from '@/lib/utils/tone';
 import type { StockInfo } from '@/lib/types/api';
 
 interface Props {
@@ -10,7 +13,15 @@ interface Props {
   requestedRange: { startDate: string; endDate: string };
   analysisRange: { startDate: string; endDate: string } | null;
   alignedDays: number;
+  /** 實際比較期間內的交易日數（主圖畫出的點數） */
+  tradingDays?: number | null;
   onJumpToControls: () => void;
+  /** 主圖（航跡圖）面板；放在帳頁最上方，是整個比較結果的主體 */
+  chart?: React.ReactNode;
+  /** 主圖下方的條目（個股快照）；省略時列出代號、名稱與產業 */
+  entries?: React.ReactNode;
+  /** 燈質記號：重新比較中＝Q、已載入＝F（寫在「實際比較期間」旁） */
+  state?: LightState;
 }
 
 function summarize(symbols: string[]): string {
@@ -29,14 +40,12 @@ function alignedHint(tone: AlignedTone, days: number): string {
   return `共同日漲跌樣本 ${days} 筆`;
 }
 
-const TONE_PILL: Record<AlignedTone, string> = {
-  ok: 'border-border bg-muted text-subtle',
-  warn: 'border-warning-border bg-warning-muted text-warning',
-  danger: 'border-danger-border bg-danger-muted text-danger',
-};
+const TONE_TAG: Record<AlignedTone, BadgeTone> = { ok: 'neutral', warn: 'warning', danger: 'danger' };
 
-/** Summarize company context and the actual comparison window. */
-export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange, analysisRange, alignedDays, onJumpToControls }: Props) {
+/**
+ * 比較結果帳頁：最上方是航跡圖（本頁唯一的圖廓），緊接著參與比較的條目，最後一格是產業背景與實際比較期間。
+ */
+export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange, analysisRange, alignedDays, tradingDays = null, onJumpToControls, chart, entries, state = 'ready' }: Props) {
   const tone = alignedTone(alignedDays);
   const industries = symbols.map((symbol) => stockInfos[symbol]?.industry?.trim());
   const context = symbols.length < 2
@@ -47,58 +56,72 @@ export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange,
         ? '同產業比較：可觀察價格表現與風險差異；相同產業分類不代表商業模式相同。'
         : '跨產業比較：先看價格表現與風險差異；產業背景不同，不能據此判斷公司經營優劣。';
   return (
-    <section data-stagger className="relative overflow-hidden rounded-2xl border border-brand/25 bg-card shadow-card">
-      <div aria-hidden className="bg-brand-gradient pointer-events-none absolute inset-x-0 top-0 h-px" />
-      <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-6">
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Layers size={14} className="text-brand" aria-hidden />
-            <span>比較概覽</span>
-          </div>
-          <h2 className="text-base font-bold tracking-tight sm:text-lg">
-            {summarize(symbols)} 的{symbols.length >= 2 ? '價格表現比較' : '價格表現'}
-          </h2>
-          <p className="text-xs leading-relaxed text-subtle">{context}</p>
-          <p className="text-xs text-muted-foreground tabular-nums">選擇期間：{requestedRange.startDate} 至 {requestedRange.endDate}</p>
-          <p className="text-xs text-subtle tabular-nums">
-            {analysisRange
-              ? `實際比較期間：${analysisRange.startDate} 至 ${analysisRange.endDate}`
-              : '共同價格資料不足，無法建立實際比較期間或計算期間漲跌。'}
-          </p>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-subtle tabular-nums">
-            <span>已選 {symbols.length} 檔</span>
-            <span aria-hidden>·</span>
-            <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5', TONE_PILL[tone])}>
-              {tone !== 'ok' ? <AlertTriangle size={11} aria-hidden /> : null}
-              {analysisRange ? alignedHint(tone, alignedDays) : '共同日漲跌樣本不足'}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {symbols.map((sym) => (
-              <span key={sym} className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-2.5 py-1 font-mono text-xs tabular-nums">
-                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: symbolColors[sym] }} aria-hidden />
-                {sym} {stockInfos[sym]?.name?.trim() || ''}
-                <span className="font-sans text-muted-foreground">{stockInfos[sym]?.industry?.trim() || '產業未提供'}</span>
-              </span>
-            ))}
-          </div>
-          <div className="space-y-1 pt-2 text-[11px] leading-snug text-muted-foreground">
-            <p className="flex items-start gap-1.5">
-              <Info size={12} className="mt-0.5 shrink-0" aria-hidden />
-              <span>以產業背景輔助解讀價格、基本面與籌碼差異，並以加權價格指數對照。個股價格漲跌不含股息，未調整除權息與分割；各項資料期間另行標示。</span>
-            </p>
-            <p className="pl-[18px]">※ 資料為市場資訊呈現，非投資建議。</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onJumpToControls}
-          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border bg-muted px-4 py-2 text-sm text-subtle transition-colors hover:border-brand/50 hover:text-brand-text"
-        >
-          <RotateCcw size={15} aria-hidden />
+    <Ledger
+      title={`${summarize(symbols)} 的${symbols.length >= 2 ? '價格表現比較' : '價格表現'}`}
+      actions={(
+        <Button type="button" variant="outline" onClick={onJumpToControls} className="-my-1.5">
+          <RotateCcw aria-hidden />
           換股 / 換期間
-        </button>
-      </div>
-    </section>
+        </Button>
+      )}
+      aria-label="比較結果"
+    >
+      {chart}
+
+      {entries ?? (
+        <LedgerPanel padded={false}>
+          <ul className="divide-y" aria-label="比較標的">
+            {symbols.map((sym) => (
+              <li key={sym} className="relative flex min-h-14 items-center gap-3 py-2 pr-4 pl-5 sm:pr-5 sm:pl-6">
+                <span aria-hidden className="absolute inset-y-2 left-0 w-[3px]" style={{ backgroundColor: symbolColors[sym] }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium tabular-nums">{sym} {stockInfos[sym]?.name?.trim() || ''}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{stockInfos[sym]?.industry?.trim() || '產業未提供'}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </LedgerPanel>
+      )}
+
+      <LedgerPanel title="比較概覽">
+        <div className="grid gap-x-8 gap-y-3 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+        <div className="space-y-2">
+          <p className="text-[15px] leading-[1.8]">{context}</p>
+          <p className="flex items-start gap-1.5 text-[13px] leading-relaxed text-muted-foreground">
+            <Info size={14} className="mt-1 shrink-0" aria-hidden />
+            <span>個股價格漲跌不含股息，未調整除權息與分割；各項資料期間另行標示。資料為市場資訊呈現，非投資建議。</span>
+          </p>
+        </div>
+        <div className="space-y-2 lg:border-l lg:pl-8">
+          {/* 主要的日期是資料實際涵蓋的期間；查詢條件（可能是沒有儲存資料的日子）放在下面小字 */}
+          {analysisRange ? (
+            <div>
+              <p className="flex items-center gap-1.5 text-[13px] tracking-[0.04em] text-muted-foreground">
+                實際比較期間
+                <LightGlyph state={state} />
+              </p>
+              <p className="mt-0.5 font-mono text-[15px] font-semibold whitespace-nowrap tabular-nums">
+                <span className="sr-only">實際比較期間 </span>
+                {analysisRange.startDate} → {analysisRange.endDate}
+              </p>
+              {tradingDays ? <p className="characteristic mt-0.5">共 {tradingDays} 個交易日 · 各檔皆有收盤的共同起訖日</p> : null}
+            </div>
+          ) : (
+            <p className="text-[13px] text-subtle">共同價格資料不足，無法建立實際比較期間或計算期間漲跌。</p>
+          )}
+          <p className="font-mono text-xs text-muted-foreground tabular-nums">
+            查詢條件：{requestedRange.startDate} 起，查詢到 {requestedRange.endDate}
+          </p>
+          <p>
+            <Badge tone={TONE_TAG[tone]} className="gap-1.5 px-2 font-normal whitespace-normal tabular-nums">
+              {tone !== 'ok' ? <AlertTriangle size={12} aria-hidden /> : null}
+              {analysisRange ? alignedHint(tone, alignedDays) : '共同日漲跌樣本不足'}
+            </Badge>
+          </p>
+        </div>
+        </div>
+      </LedgerPanel>
+    </Ledger>
   );
 }

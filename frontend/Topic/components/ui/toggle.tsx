@@ -3,19 +3,25 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/cn"
 import { Toggle as TogglePrimitive } from "radix-ui"
 
+/**
+ * 切換鈕。按下的狀態用粗線＋淺底，不用燈色；hover 時文字轉前景色。
+ * square：方框切換鈕（期間、均線、篩選、金額預設）。原生 <button aria-pressed> 也可以直接套
+ * toggleVariants({ variant: "square" })，和 Radix 的 data-state=on 長得一樣。
+ */
 const toggleVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-[color,box-shadow] outline-none hover:bg-muted hover:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex items-center justify-center gap-2 rounded-sm text-sm font-medium whitespace-nowrap outline-none transition-colors duration-(--dur-flash) ease-flash focus-lamp disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-transparent",
+        default: "bg-transparent text-subtle hover:bg-accent hover:text-foreground data-[state=on]:bg-accent data-[state=on]:text-foreground",
         outline:
-          "border border-input bg-transparent shadow-xs hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-transparent text-subtle hover:border-foreground hover:bg-accent hover:text-foreground data-[state=on]:border-border-strong data-[state=on]:bg-accent data-[state=on]:text-foreground",
+        square:
+          "border border-input bg-card text-subtle hover:border-foreground hover:text-foreground aria-pressed:border-border-strong aria-pressed:bg-accent aria-pressed:text-foreground data-[state=on]:border-border-strong data-[state=on]:bg-accent data-[state=on]:text-foreground",
       },
       size: {
-        default: "h-9 min-w-9 px-2",
-        sm: "h-8 min-w-8 px-1.5",
-        lg: "h-10 min-w-10 px-2.5",
+        default: "h-11 min-w-11 px-3",
+        sm: "h-11 min-w-11 px-2",
       },
     },
     defaultVariants: {

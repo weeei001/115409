@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/weeei001/115409/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/weeei001/115409/actions/workflows/ci-cd.yml)
 
-台股資料查詢與 AI 分析平台，提供個股儀表板、多股比較、新聞分析、AI 對話及模擬下單。目前涵蓋 20 個產業、40 檔股票。
+台股資料查詢與 AI 分析平台，提供個股儀表板、多股比較、新聞分析、AI 對話及模擬投資。目前涵蓋 20 個產業、40 檔股票。
 
 ## 目錄
 
@@ -183,7 +183,7 @@ npm run build
 npm run lint -- --incremental false
 ```
 
-`lint` 執行 TypeScript 型別檢查。CI/CD 設定見 [GitHub Actions](.github/workflows/ci-cd.yml)。
+`lint` 執行 TypeScript 型別檢查。`npm test` 等同 `npm run test:all`。CI/CD 設定見 [GitHub Actions](.github/workflows/ci-cd.yml)，前端實際跑哪些 `test:*` 以 workflow 為準。
 
 ## 文件
 

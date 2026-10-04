@@ -1,6 +1,13 @@
 import type { BusinessDay, CandlestickData, Time } from 'lightweight-charts';
 import type { ChartCandle } from '../types/view';
 
+/** lightweight-charts 的 Time → YYYY-MM-DD（K 線與觀測台共用） */
+export function timeToYmd(time: Time): string {
+  if (typeof time === 'string') return time;
+  if (typeof time === 'number') return new Date(time * 1000).toISOString().slice(0, 10);
+  return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
+}
+
 export function toBusinessDay(dateText: string): BusinessDay {
   const [year, month, day] = dateText.split('-').map(Number);
   return { year, month, day };
@@ -28,21 +35,6 @@ export const DEFAULT_PRICE_CHART_SERIES_VISIBILITY: PriceChartSeriesVisibility =
   MA20: true,
   MA60: true,
 };
-
-export function getPriceChartSeriesVisibilityOptions(): Array<{
-  key: PriceChartSeriesKey;
-  label: string;
-  kind: 'candlestick' | 'line';
-}> {
-  return [
-    { key: 'candles', label: 'K 線', kind: 'candlestick' },
-    { key: 'close', label: '收盤價', kind: 'line' },
-    { key: 'MA5', label: 'MA5', kind: 'line' },
-    { key: 'MA10', label: 'MA10', kind: 'line' },
-    { key: 'MA20', label: 'MA20', kind: 'line' },
-    { key: 'MA60', label: 'MA60', kind: 'line' },
-  ];
-}
 
 export function getNextPriceChartSeriesVisibility(
   current: PriceChartSeriesVisibility,

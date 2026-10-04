@@ -1,5 +1,6 @@
 import apiClient from './client';
 import { getToken } from '../auth/storage';
+import { formatTaipei } from '../utils/date';
 
 export interface PaperDraft {
   symbol: string;
@@ -11,6 +12,7 @@ export interface PaperDraft {
   review_after_days: number;
   conversation_id?: string | null;
 }
+/** 以下回應型別 openapi 未列（/paper-portfolio 沒有 response_model），依後端 paper_portfolio/service.py 的 snapshot／_order（決議 F2） */
 export interface PaperOrder extends PaperDraft {
   id: string;
   client_request_id: string;
@@ -117,8 +119,7 @@ export async function acknowledgePaperReview(id: string) {
 }
 export const paperMoney = (value: number | null | undefined) => value == null ? '等待行情' : value.toLocaleString('zh-TW', { maximumFractionDigits: 2 });
 export const paperStatus = (status: PaperOrder['status']) => ({ pending: '待成交', filled: '已成交', cancelled: '已取消' })[status];
-export const paperDateTime = (value: string | null | undefined) => value && Number.isFinite(Date.parse(value))
-  ? new Date(value).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) : '尚未更新';
+export const paperDateTime = (value: string | null | undefined) => formatTaipei(value, { hour12: false }, '尚未更新');
 export function paperDiscussion(symbol: string, orderId?: string) {
   return { pathname: '/ai', query: { prompt: orderId
     ? `請回顧我的模擬交易 ${orderId}（${symbol}），比較原始理由、觀察重點與最新證據，說明損益與同期大盤的比較限制。請先讀取我的模擬投資帳戶。`

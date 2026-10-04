@@ -1,4 +1,3 @@
-import React from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 const PRESETS = ['5', '10', '20', '60'] as const;
@@ -20,14 +19,15 @@ export function MaPeriodSelector({ value, onChange, disabled }: { value: string;
           if (!next.length) return;
           onChange([...next].sort((a, b) => Number(a) - Number(b)).join(','));
         }}
-        className="gap-1.5"
+        variant="square"
+        spacing={1.5}
       >
         {PRESETS.map((p) => (
           <ToggleGroupItem
             key={p}
             value={p}
             aria-label={`MA${p}`}
-            className="h-9 min-w-12 rounded-md border px-3 text-xs data-[state=on]:border-brand/50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+            className="min-w-12 font-mono text-xs tabular-nums"
           >
             MA{p}
           </ToggleGroupItem>

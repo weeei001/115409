@@ -1,6 +1,12 @@
-import React from 'react';
 import Link from 'next/link';
+import { ChevronDown, LogIn, Plus } from 'lucide-react';
 import type { ConversationSummary } from '@/lib/api/conversations';
+import { Button } from '@/components/ui/button';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
+import { LightGlyph } from '@/components/common/Ledger';
+import { cn } from '@/lib/cn';
+import { inputClass } from '@/components/ui/input';
+import { formatTaipei } from '@/lib/utils/date';
 
 interface Props {
   signedIn: boolean;
@@ -16,36 +22,107 @@ interface Props {
   onNew: () => void;
   onRetry: () => void;
   onMore: () => void;
+  /**
+   * panel：lg 以上的左欄（預設）。sheet：放在手機的歷史對話抽屜裡，清單填滿抽屜高度，
+   * 標題列右側留位置給抽屜的關閉鈕，搜尋框換一個 id（避免和隱藏中的左欄重複）。
+   */
+  variant?: 'panel' | 'sheet';
 }
-const buttonClass = 'min-h-11 rounded-lg border px-3 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50';
 
+/** 日誌索引的日期欄：月／日 時:分（24 小時制，等寬對齊） */
+function formatUpdatedAt(value: string): string {
+  return formatTaipei(value, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
+/**
+ * 歷史對話＝值班日誌的索引。
+ * 登入：上方搜尋、每列「日期＋標題」，選取列用燈色標線；訪客：一則定光說明加登入動作。
+ */
 export function ConversationHistory(props: Props) {
-  return <aside aria-label="歷史對話" className="flex shrink-0 flex-col gap-3 rounded-xl border bg-card p-3 lg:min-h-0 lg:w-60">
-    <div className="flex items-center justify-between gap-2">
-      <h2 className="text-sm font-semibold">歷史對話</h2>
-      <button type="button" onClick={props.onNew} disabled={!props.ready} className={buttonClass}>新增對話</button>
-    </div>
-    {!props.ready ? <p role="status" className="text-sm text-muted-foreground">載入中…</p> : !props.signedIn ?
-      <p className="text-sm text-muted-foreground"><Link href="/login?returnUrl=%2Fai" className="text-brand-text underline">登入</Link>後即可儲存、搜尋並繼續先前的對話。訪客對話離頁後不保留。</p> : <>
-        <label htmlFor="conversation-search" className="sr-only">搜尋歷史對話標題與內容</label>
-        <input id="conversation-search" type="search" value={props.search} maxLength={200}
-          onChange={(event) => props.onSearch(event.target.value)} placeholder="搜尋標題與對話內容"
-          className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2" />
-        {props.error ? <div role="alert" className="text-sm"><p>{props.error}</p><button type="button" onClick={props.onRetry} className={`${buttonClass} mt-2`}>重試</button></div> : null}
-        <div className="max-h-60 overflow-y-auto lg:min-h-0 lg:max-h-none lg:flex-1" aria-busy={props.loading}>
-          <ul className="space-y-1">
-            {props.items.map((item) => <li key={item.id}>
-              <button type="button" onClick={() => props.onOpen(item.id)} aria-current={item.id === props.selectedId ? 'true' : undefined}
-                className={`w-full rounded-lg border p-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 ${item.id === props.selectedId ? 'border-brand bg-accent' : 'border-transparent hover:bg-muted'}`}>
-                <span className="line-clamp-2 break-words text-sm">{item.title || '新對話'}</span>
-                <time dateTime={item.updated_at} className="mt-1 block text-xs text-muted-foreground">{new Date(item.updated_at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
-              </button>
-            </li>)}
-          </ul>
-          {props.loading ? <p role="status" className="p-3 text-sm text-muted-foreground">載入中…</p> : !props.error && !props.items.length ?
-            <p role="status" className="p-3 text-sm text-muted-foreground">{props.search.trim() ? '找不到符合的對話。' : '尚無歷史對話，送出問題開始聊天。'}</p> : null}
-          {props.hasMore ? <button type="button" onClick={props.onMore} disabled={props.loading} className={`${buttonClass} mt-2 w-full`}>載入更多</button> : null}
+  const sheet = props.variant === 'sheet';
+  const searchId = sheet ? 'conversation-search-sheet' : 'conversation-search';
+  return (
+    <aside aria-label="歷史對話" className={cn('flex min-w-0 flex-col bg-card', sheet ? 'min-h-0 flex-1' : 'shrink-0 lg:min-h-0 lg:w-72')}>
+      <div className={cn('flex min-h-14 items-center justify-between gap-2 border-b border-border-strong py-1.5 pl-4', sheet ? 'pr-16' : 'pr-1.5')}>
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="font-serif text-xl leading-snug font-black tracking-[0.06em]">歷史對話</h2>
+          {/* 燈質記號：清單讀取中 Q、已載入 F、失敗熄燈；訪客沒有清單就不放 */}
+          {!props.ready ? <LightGlyph state="loading" /> : props.signedIn
+            ? <LightGlyph state={props.loading ? 'loading' : props.error ? 'error' : 'ready'} /> : null}
+        </div>
+        <Button type="button" variant="ghost" onClick={props.onNew} disabled={!props.ready} className="px-3">
+          <Plus aria-hidden className="text-muted-foreground" />
+          新增對話
+        </Button>
+      </div>
+      {/* 載入＝燈質 Q（LoadingRows）；空資料＝燈質 F（EmptyState），能給下一步就附動作 */}
+      {!props.ready ? <LoadingRows label="讀取對話紀錄…" className="h-[132px]" /> : !props.signedIn ? (
+        <EmptyState
+          className="px-4 py-6 text-[13px]"
+          action={(
+            <Button asChild variant="outline">
+              <Link href="/login?returnUrl=%2Fai">
+                <LogIn aria-hidden className="text-muted-foreground" />
+                登入
+              </Link>
+            </Button>
+          )}
+        >
+          登入後即可儲存、搜尋並繼續先前的對話。訪客對話離頁後不保留。
+        </EmptyState>
+      ) : <>
+        <div className="border-b p-3">
+          <label htmlFor={searchId} className="sr-only">搜尋歷史對話標題與內容</label>
+          <input id={searchId} type="search" value={props.search} maxLength={200}
+            onChange={(event) => props.onSearch(event.target.value)} placeholder="搜尋標題與對話內容"
+            className={inputClass} />
+        </div>
+        {props.error ? (
+          <div className="border-b p-3">
+            <Notice tone="danger" action={<Button type="button" variant="outline" size="sm" onClick={props.onRetry} className="min-h-11">重試</Button>}>
+              {props.error}
+            </Notice>
+          </div>
+        ) : null}
+        <div className={cn('overflow-y-auto', sheet ? 'min-h-0 flex-1 overscroll-y-contain' : 'max-h-72 overscroll-y-contain lg:max-h-none lg:min-h-0 lg:flex-1')} aria-busy={props.loading}>
+          {props.items.length ? (
+            <ul className="divide-y border-b">
+              {props.items.map((item) => {
+                const selected = item.id === props.selectedId;
+                return <li key={item.id}>
+                  <button type="button" onClick={() => props.onOpen(item.id)} aria-current={selected ? 'true' : undefined}
+                    data-selected={selected ? 'true' : undefined}
+                    className="lamp-row flex min-h-14 w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left focus-lamp-inset">
+                    <time dateTime={item.updated_at} className="characteristic">{formatUpdatedAt(item.updated_at)}</time>
+                    <span className={cn('line-clamp-2 text-sm break-words', selected ? 'font-medium text-foreground' : 'text-subtle')}>{item.title || '新對話'}</span>
+                  </button>
+                </li>;
+              })}
+            </ul>
+          ) : null}
+          {props.loading ? <LoadingRows label="讀取對話紀錄…" className={props.items.length ? 'h-11' : 'h-[132px]'} /> : !props.error && !props.items.length ? (
+            <div role="status">
+              {props.search.trim() ? (
+                <EmptyState
+                  className="px-4 text-[13px]"
+                  action={<Button type="button" variant="outline" onClick={() => props.onSearch('')}>清除搜尋</Button>}
+                >
+                  找不到符合的對話。
+                </EmptyState>
+              ) : (
+                <EmptyState className="px-4 text-[13px]">尚無歷史對話，送出問題開始聊天。</EmptyState>
+              )}
+            </div>
+          ) : null}
+          {props.hasMore ? (
+            <button type="button" onClick={props.onMore} disabled={props.loading}
+              className="lamp-row flex min-h-11 w-full items-center justify-between gap-3 border-b px-4 py-2.5 text-left text-sm font-medium focus-lamp-inset disabled:opacity-50">
+              <span>載入更多</span>
+              <ChevronDown size={16} className="shrink-0 text-muted-foreground" aria-hidden />
+            </button>
+          ) : null}
         </div>
       </>}
-  </aside>;
+    </aside>
+  );
 }

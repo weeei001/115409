@@ -1,19 +1,17 @@
-import React, { memo, useState } from 'react';
+import { memo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, ChevronDown, Clock, ExternalLink, Quote, Tag } from 'lucide-react';
-import type { News, NewsImpact } from '@/lib/types/api';
+import { ArrowRight, ChevronDown, ExternalLink, Quote } from 'lucide-react';
+import type { News } from '@/lib/types/api';
 import { formatTime } from '@/lib/utils/date';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
-import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/sentiment';
-import {
-  DIRECTION_CLASSES,
-  DIRECTION_LABELS,
-  IMPORTANCE_LABELS,
-  impactTarget,
-  visibleImpacts,
-} from '@/lib/utils/newsImpact';
+import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/newsLinks';
+import { IMPORTANCE_LABELS, visibleImpacts } from '@/lib/utils/newsImpact';
 import { safeHttpUrl } from '@/lib/utils/url';
 import { cn } from '@/lib/cn';
+import { Badge } from '@/components/ui/badge';
+import { textLinkClass } from '@/components/ui/button';
+import { ImpactDirectionTag } from './ImpactTag';
+import { groupImpactsByTarget, type ImpactGroup } from './impactGroups';
 
 export type NewsRelation = 'direct' | 'market_context' | 'industry_context';
 
@@ -23,6 +21,8 @@ interface Props {
   relation?: NewsRelation;
   returnTo?: string;
   onNavigate?: () => void;
+  /** stack：一欄疊放（抽屜、個股頁）；ledger：首頁帳頁列，寬版 8／4 切（只在沒有 targetStock 時使用） */
+  layout?: 'stack' | 'ledger';
 }
 
 function snippet(content: string | null, maxLen = 120): string {
@@ -31,19 +31,68 @@ function snippet(content: string | null, maxLen = 120): string {
   return plain.length > maxLen ? `${plain.slice(0, maxLen)}…` : plain;
 }
 
-function impactLabel(impact: NewsImpact): string {
-  return impact.target_name || (impact.target_type === 'company' ? impact.target_id : impactTarget(impact));
-}
-
-function ImpactBadge({ impact }: { impact: NewsImpact }) {
+/** 影響對象＋一個方向標籤（同方向顯示一次；正負對立顯示中性的「正負並存」）＋事件數＋最高重要性（純文字） */
+function ImpactGroupBadge({ group, linkStock, className }: { group: ImpactGroup; linkStock: boolean; className?: string }) {
+  const company = group.targetType === 'company';
+  const name = company ? (
+    <>
+      <span className="font-mono tabular-nums">{group.targetId}</span>
+      {group.label !== group.targetId ? <span className="max-w-[8em] truncate">{group.label}</span> : null}
+    </>
+  ) : <span className="max-w-[10em] truncate">{group.label}</span>;
   return (
-    <span className={cn('inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-medium', DIRECTION_CLASSES[impact.direction])}>
-      {impactLabel(impact)} · {DIRECTION_LABELS[impact.direction]} · {IMPORTANCE_LABELS[impact.importance]}
+    <span className={cn('inline-flex shrink-0 items-center gap-x-1.5 text-xs whitespace-nowrap', className)}>
+      {company && linkStock ? (
+        // 觸控目標 44px：連結本身撐滿整行高度，視覺上仍是一段小字
+        <Link href={`/stock/${group.targetId}`} className={cn('inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-subtle outline-none hover:text-foreground focus-lamp', textLinkClass)}>
+          {name}
+        </Link>
+      ) : <span className="inline-flex items-center gap-1 font-medium text-subtle">{name}</span>}
+      <ImpactDirectionTag direction={group.direction} />
+      {group.eventCount > 1 ? <span className="text-muted-foreground"><span className="font-mono tabular-nums">{group.eventCount}</span> 項事件</span> : null}
+      <span className="text-muted-foreground">{IMPORTANCE_LABELS[group.importance]}</span>
     </span>
   );
 }
 
-export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct', returnTo, onNavigate }: Props) {
+/**
+ * 一列只放一行標籤：寬版最多 3 個影響對象，手機 1 個，其餘寫「另 N 個」。
+ * 沒有事件影響時，改列關聯個股代號（同一行、最多 3 檔），可點進個股頁。
+ */
+function TagLine({ groups, stocks, linkStock }: { groups: ImpactGroup[]; stocks: string[]; linkStock: boolean }) {
+  if (groups.length) {
+    const restMobile = groups.length - 1;
+    const restWide = groups.length - 3;
+    return (
+      <div className="flex min-h-11 flex-wrap items-center gap-x-4">
+        {groups.slice(0, 3).map((group, index) => (
+          <ImpactGroupBadge key={group.key} group={group} linkStock={linkStock} className={index > 0 ? 'hidden sm:inline-flex' : undefined} />
+        ))}
+        {restMobile > 0 ? <span className="text-xs whitespace-nowrap text-muted-foreground sm:hidden">另 <span className="font-mono tabular-nums">{restMobile}</span> 個</span> : null}
+        {restWide > 0 ? <span className="hidden text-xs whitespace-nowrap text-muted-foreground sm:inline">另 <span className="font-mono tabular-nums">{restWide}</span> 個影響對象</span> : null}
+      </div>
+    );
+  }
+  if (!stocks.length) return null;
+  return (
+    <div className="flex min-h-11 flex-wrap items-center gap-x-1">
+      <span className="mr-1 text-xs text-muted-foreground">關聯個股</span>
+      {stocks.map((stock) => (linkStock ? (
+        <Link key={stock} href={`/stock/${stock}`} className="group/chip inline-flex min-h-11 items-center rounded-sm px-0.5 outline-none focus-lamp" aria-label={`查看 ${formatStockLabel(stock)} 個股`}>
+          <Badge tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums transition-colors duration-(--dur-flash) group-hover/chip:border-border-strong group-hover/chip:text-foreground">{formatStockLabel(stock)}</Badge>
+        </Link>
+      ) : (
+        <Badge key={stock} tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums">{formatStockLabel(stock)}</Badge>
+      )))}
+    </div>
+  );
+}
+
+/** 文字連結：中性細底線，hover 轉墨色（全站的 textLinkClass） */
+const textLink = cn('inline-flex min-h-11 items-center gap-1 rounded-sm outline-none focus-lamp', textLinkClass);
+
+/** 新聞列（航船布告）：燈質列寫時間與來源，下方是標題、事件影響、摘要；列與列之間用細線分隔 */
+export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct', returnTo, onNavigate, layout = 'stack' }: Props) {
   const [expanded, setExpanded] = useState(false);
   const sourceStatus = news.source_state?.status;
   const sourceLabel = sourceStatus === 'conflict' ? '來源版本衝突，尚未確認有效內容'
@@ -61,120 +110,122 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   const originUrl = safeHttpUrl(news.url);
   const panelId = `news-content-${news.article_id}`;
   const impacts = sourceLabel ? [] : visibleImpacts(news, targetStock, relation);
-  const allImpacts = sourceLabel ? [] : visibleImpacts(news).slice(0, 3);
+  const groups = groupImpactsByTarget(impacts);
+  const allGroups = sourceLabel ? [] : groupImpactsByTarget(visibleImpacts(news));
   const baseHref = newsHref(news.article_id, targetStock);
   const versionHref = sourceStatus === 'historical' && /^[0-9a-f]{64}$/.test(news.source_state?.revision_id ?? '')
     ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}revision_id=${news.source_state!.revision_id}` : baseHref;
   const href = returnTo ? `${versionHref}${versionHref.includes('?') ? '&' : '?'}returnTo=${encodeURIComponent(returnTo)}` : versionHref;
+  const meta = [news.pub_time ? formatTime(news.pub_time) : null, news.source ? news.source.toUpperCase() : null].filter(Boolean).join(' · ');
+
+  const ledger = layout === 'ledger';
+  const metaLine = meta ? <p className="characteristic mb-1.5">{meta}</p> : null;
+  const heading = (
+    <>
+      <h3 className={cn('leading-[1.55] font-bold text-foreground', ledger ? 'text-[17px]' : 'text-base')}>
+        <Link href={href} onNavigate={onNavigate} className="-my-2.5 block rounded-sm py-2.5 underline-offset-4 outline-none hover:underline hover:decoration-foreground focus-lamp">
+          <span className="line-clamp-2">{news.title}</span>
+        </Link>
+      </h3>
+      {sourceLabel ? <p className="mt-1 text-xs font-medium text-muted-foreground">{sourceLabel}；不套用現行 AI 影響。</p> : null}
+      {news.event_analysis?.content_truncated ? (
+        <p className="mt-1 text-xs text-muted-foreground">分析僅使用部分內文，可能未涵蓋後段資訊。</p>
+      ) : null}
+    </>
+  );
+  // 摘要與展開的內文都限制行寬（約 40 個全形字），不隨面板拉到整列
+  const excerpt = (
+    <>
+      {!expanded && snippet(news.content) ? <p className={cn('line-clamp-2 max-w-[40em] text-[13px] leading-relaxed text-muted-foreground', (ledger || (!targetStock && !allGroups.length && !stocks.length)) && 'mt-1')}>{snippet(news.content)}</p> : null}
+      {hasContent && expanded ? <p id={panelId} className="mt-1 max-w-[40em] text-[13px] leading-relaxed whitespace-pre-line text-subtle">{stripHtml(news.content ?? '').trim()}</p> : null}
+    </>
+  );
+  const actions = (
+    // 每個動作只有一個入口，而且都有文字：站內用 → 、展開用 ⌄、離站才用外連圖示
+    <div className="flex flex-wrap items-center gap-x-5 text-xs">
+      <Link href={href} onNavigate={onNavigate} className={cn(textLink, 'font-medium text-foreground')}>
+        {sourceLabel ? '查看原文與版本狀態' : '查看事件影響分析'}
+        <ArrowRight size={13} className="text-muted-foreground" aria-hidden />
+      </Link>
+      {hasContent ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          className={cn(textLink, 'text-muted-foreground hover:text-foreground')}
+        >
+          {expanded ? '收起內文' : '展開內文'}
+          <ChevronDown size={13} aria-hidden className={cn('transition-transform duration-(--dur-sweep)', expanded && 'rotate-180')} />
+        </button>
+      ) : null}
+      {originUrl ? (
+        <a href={originUrl} target="_blank" rel="noopener noreferrer" className={cn(textLink, 'text-muted-foreground hover:text-foreground')}>
+          查看原始來源
+          <ExternalLink size={12} aria-hidden />
+          <span className="sr-only">（另開新視窗）</span>
+        </a>
+      ) : null}
+    </div>
+  );
+
+  if (ledger && !targetStock) {
+    // 帳頁列：寬版 8／4 切，左欄是燈質列（時間・來源）→ 標題（最醒目）→ 摘要；右欄是影響標籤與動作，上下疊放。手機單欄。
+    return (
+      <article data-news-article={news.article_id} className="lamp-row -mx-3 border-b px-3 pt-4 pb-1 last:border-b-0 lg:grid lg:grid-cols-12 lg:gap-x-8 lg:pb-3">
+        <div className="min-w-0 lg:col-span-8">
+          {metaLine}
+          {heading}
+          {excerpt}
+        </div>
+        <div className="min-w-0 lg:col-span-4 lg:pt-5">
+          <TagLine groups={allGroups} stocks={stocks} linkStock />
+          {actions}
+        </div>
+      </article>
+    );
+  }
 
   return (
-    <article data-news-article={news.article_id} className="group relative border-b py-4 pl-4 last:border-b-0 first:pt-0">
-      <span className="absolute top-4 bottom-4 left-0 w-0.5 rounded-full bg-gradient-to-b from-brand to-brand-light opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            {stocks.map((stock) => (
-              <span key={stock} className="inline-flex items-center gap-0.5 rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent-foreground">
-                <Tag size={10} aria-hidden />
-                {formatStockLabel(stock)}
-              </span>
-            ))}
-            {news.pub_time ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Clock size={11} aria-hidden />
-                {formatTime(news.pub_time)}
-              </span>
-            ) : null}
-          </div>
+    // 列尾不留線；左右負邊距讓 hover 底色貼齊面板內距（父層內距至少 12px）
+    // 層級：燈質列（時間・來源，小字）→ 標題（最醒目）→ 一行標籤 → 摘要 → 文字動作列
+    <article data-news-article={news.article_id} className="lamp-row -mx-3 border-b px-3 pt-4 pb-1 last:border-b-0">
+      {metaLine}
+      {heading}
 
-          <h3 className="mb-1 line-clamp-2 text-sm leading-snug font-semibold transition-colors group-hover:text-brand-text">
-            <Link href={href} onNavigate={onNavigate} className="hover:underline">
-              {news.title}
-            </Link>
-          </h3>
-          {sourceLabel ? <p className="mb-1 text-xs font-medium text-muted-foreground">{sourceLabel}；不套用現行 AI 影響。</p> : null}
-          {news.event_analysis?.content_truncated ? (
-            <p className="text-xs text-muted-foreground">分析僅使用部分內文，可能未涵蓋後段資訊。</p>
-          ) : null}
-
-          {targetStock ? (
-            <div className="my-2 rounded-lg border bg-muted/60 p-2.5 text-xs">
-              {impacts.length ? (
-                <>
-                  <div className="flex flex-wrap gap-1.5">
-                    {impacts.slice(0, 3).map((impact) => <ImpactBadge key={`${impact.event_key}:${impact.target_id}`} impact={impact} />)}
-                  </div>
-                  {impacts[0]?.reason ? <p className="mt-1 text-[11px] leading-relaxed text-subtle"><span className="font-medium text-foreground">理由：</span>{impacts[0].reason}</p> : null}
-                </>
-              ) : (
-                <span className="inline-flex items-center rounded border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {formatStockLabel(targetStock)} · 尚無事件影響分析
-                </span>
-              )}
-              {expanded && impacts.some((impact) => impact.evidence?.length) ? (
-                <div className="mt-2 space-y-1.5 border-t pt-2">
-                  <p className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
-                    <Quote size={11} className="text-brand" aria-hidden />
-                    原文依據
-                  </p>
-                  {impacts.flatMap((impact) => impact.evidence ?? []).map((ev, i) => (
-                    <p key={i} className="border-l-2 border-brand/50 pl-2 text-[11px] leading-snug text-subtle">
-                      <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">[{ev.field === 'title' ? '標題' : '內文'}]</span>
-                      「{ev.quote}」
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : allImpacts.length ? (
-            <div className="my-1.5 flex flex-wrap items-center gap-1.5">
-              {allImpacts.map((impact) => <ImpactBadge key={`${impact.event_key}:${impact.target_id}`} impact={impact} />)}
+      {targetStock ? (
+        <div className="my-2 border bg-card px-3 py-1 text-xs">
+          {impacts.length ? (
+            <>
+              <TagLine groups={groups} stocks={[]} linkStock={false} />
+              {impacts[0]?.reason ? <p className="mb-1.5 text-xs leading-relaxed text-subtle"><span className="font-medium text-foreground">理由：</span>{impacts[0].reason}</p> : null}
+            </>
+          ) : (
+            <p className="py-1.5 text-xs text-muted-foreground">
+              <span className="font-mono tabular-nums">{formatStockLabel(targetStock)}</span> · 尚無事件影響分析
+            </p>
+          )}
+          {expanded && impacts.some((impact) => impact.evidence?.length) ? (
+            <div className="mt-1 mb-1.5 space-y-1.5 border-t pt-2">
+              <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                <Quote size={12} aria-hidden />
+                原文依據
+              </p>
+              {impacts.flatMap((impact) => impact.evidence ?? []).map((ev, i) => (
+                <p key={i} className="border-l-2 border-input pl-2.5 text-xs leading-relaxed text-subtle">
+                  <span className="mr-1.5 font-mono text-[11px] text-muted-foreground">[{ev.field === 'title' ? '標題' : '內文'}]</span>
+                  「{ev.quote}」
+                </p>
+              ))}
             </div>
           ) : null}
-
-          {!expanded && snippet(news.content) ? <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{snippet(news.content)}</p> : null}
-          {hasContent && expanded ? <p id={panelId} className="mt-1 text-xs leading-relaxed whitespace-pre-line text-subtle">{stripHtml(news.content ?? '').trim()}</p> : null}
-
-          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <Link href={href} onNavigate={onNavigate} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-text hover:underline">
-              {sourceLabel ? '查看原文與版本狀態' : '查看事件影響分析'}
-              <ArrowUpRight size={12} aria-hidden />
-            </Link>
-            {originUrl ? (
-              <a href={originUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-brand-text hover:underline">
-                查看原始來源
-                <ExternalLink size={11} aria-hidden />
-              </a>
-            ) : null}
-          </div>
         </div>
+      ) : (
+        <TagLine groups={allGroups} stocks={stocks} linkStock />
+      )}
 
-        <div className="flex shrink-0 flex-col items-center gap-1 pt-1">
-          {hasContent ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((value) => !value)}
-              aria-expanded={expanded}
-              aria-controls={panelId}
-              aria-label={expanded ? '收起新聞內文' : '展開新聞內文'}
-              className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-subtle"
-            >
-              <ChevronDown size={16} aria-hidden className={cn('transition-transform', expanded && 'rotate-180')} />
-            </button>
-          ) : null}
-          {originUrl ? (
-            <a
-              href={originUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`開啟原始來源：${news.title ?? '新聞'}`}
-              className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-brand-text"
-            >
-              <ExternalLink size={16} aria-hidden />
-            </a>
-          ) : null}
-        </div>
-      </div>
+      {excerpt}
+      {actions}
     </article>
   );
 });

@@ -57,9 +57,3 @@ export async function fetchNewsDetail(articleId: string, stock?: string, revisio
     return data;
   });
 }
-export async function fetchNewsIndustries(): Promise<{ items: { id: string; name: string }[] }> {
-  return dedupeFetch('GET /news/industries', async () => {
-    const { data } = await apiClient.get<{ items: { id: string; name: string }[] }>('/news/industries');
-    return data;
-  });
-}

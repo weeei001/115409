@@ -2,16 +2,40 @@ import React, { useCallback, useMemo, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Lock, LogIn, Mail } from 'lucide-react';
+import { LogIn } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { AuthCard, AuthField, AuthIntro, EMAIL_PATTERN, FormError, OrDivider, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { Notice } from '@/components/common/Notice';
+import {
+  AuthAltRow,
+  AuthField,
+  AuthLedger,
+  AuthLinkRow,
+  AuthPanel,
+  AuthPlate,
+  EMAIL_INVALID_MESSAGE,
+  EMAIL_PATTERN,
+  FieldRows,
+  FormActions,
+  FormError,
+  PasswordField,
+  SubmitButton,
+  authLinkClass,
+} from '@/features/auth/AuthForm';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '@/features/auth/GoogleSignInButton';
 import { authGoogle, authLogin } from '@/lib/api/auth';
 import { setAuth } from '@/lib/auth/storage';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
+import { ROUTE_PAGE_LABELS } from '@/lib/nav';
+import { cn } from '@/lib/cn';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
 const errorText = (err: unknown, fallback: string) => userFacingMessage(err, fallback);
+
+/** 登入後要回到的頁面名稱：用導覽的頁名，沒有對應時直接寫路徑 */
+function returnPageName(url: string): string {
+  const path = url.split(/[?#]/)[0] || '/';
+  return ROUTE_PAGE_LABELS[path] ?? path;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,7 +75,7 @@ export default function LoginPage() {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !password.trim()) return setError('請填寫所有欄位');
     if (normalizedEmail.length > 254) return setError('電子郵件長度過長');
-    if (!EMAIL_PATTERN.test(normalizedEmail)) return setError('請輸入有效的電子郵件格式');
+    if (!EMAIL_PATTERN.test(normalizedEmail)) return setError(EMAIL_INVALID_MESSAGE);
     // 密碼長度上限由 maxLength 擋；下限交給後端，登入頁不透露密碼規則
 
     setLoading(true);
@@ -72,63 +96,78 @@ export default function LoginPage() {
         <title>股海明燈｜登入</title>
         <meta name="description" content="登入股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={LogIn} title="股海明燈" subtitle="登入帳號" />
+      <SiteHeader icon={LogIn} title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬投資" />
 
-      <AuthCard glass>
-        <AuthIntro icon={LogIn} title="歡迎回來" subtitle="登入您的帳號以繼續" glow />
-        <FormError id="login-form-error" message={error} />
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5" aria-describedby={error ? 'login-form-error' : undefined}>
-          <AuthField
-            id="login-email"
-            label="電子郵件"
-            icon={Mail}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoComplete="email"
-            inputMode="email"
-            maxLength={254}
-            disabled={loading}
-          />
-          <PasswordField
-            id="login-password"
-            label="密碼"
-            icon={Lock}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="請輸入密碼"
-            autoComplete="current-password"
-            maxLength={128}
-            disabled={loading}
-            shown={showPassword}
-            onToggle={() => setShowPassword((v) => !v)}
-            toggleLabels={['顯示密碼', '隱藏密碼']}
-          />
-          <div className="-my-2 flex justify-end">
-            <Link href="/forgot-password" className="inline-flex min-h-9 items-center text-xs text-brand-text transition-colors hover:text-brand-deep">
-              忘記密碼？
-            </Link>
-          </div>
-          <SubmitButton loading={loading} icon={LogIn}>
-            登入
-          </SubmitButton>
-        </form>
-
-        {isGoogleSignInConfigured() ? (
-          <>
-            <OrDivider />
-            <GoogleSignInButton onCredential={handleGoogleCredential} />
-          </>
-        ) : null}
-
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          還沒有帳號？{' '}
-          <Link href={registerHref} className="font-medium text-brand-text transition-colors hover:text-brand-deep">
-            立即註冊
-          </Link>
-        </p>
-      </AuthCard>
+      <AuthLedger
+        aside={
+          // 亮著燈的那扇窗：有人在值班。說明寫副標沒說的事——登入狀態留在哪裡
+          <AuthPlate poster={3} caption="觀測室的窗" ratio="photo">
+            登入狀態存在這台瀏覽器，關掉分頁也還在；共用電腦用完記得從選單登出。
+          </AuthPlate>
+        }
+        form={
+          <AuthPanel
+            id="login-form-heading"
+            title="電子郵件登入"
+            footer={
+              <>
+                {isGoogleSignInConfigured() ? (
+                  <AuthAltRow>
+                    <GoogleSignInButton onCredential={handleGoogleCredential} />
+                  </AuthAltRow>
+                ) : null}
+                <AuthLinkRow href={registerHref} lead="還沒有帳號？">
+                  建立新帳號
+                </AuthLinkRow>
+              </>
+            }
+          >
+            {returnUrl ? (
+              <Notice className="mt-3 mb-1">登入後會回到「{returnPageName(returnUrl)}」。</Notice>
+            ) : null}
+            <FormError id="login-form-error" message={error} />
+            <form onSubmit={handleSubmit} aria-describedby={error ? 'login-form-error' : undefined}>
+              <FieldRows>
+                <AuthField
+                  row
+                  id="login-email"
+                  label="電子郵件"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  inputMode="email"
+                  maxLength={254}
+                  disabled={loading}
+                />
+                <PasswordField
+                  row
+                  id="login-password"
+                  label="密碼"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="請輸入密碼"
+                  autoComplete="current-password"
+                  maxLength={128}
+                  disabled={loading}
+                  shown={showPassword}
+                  onToggle={() => setShowPassword((v) => !v)}
+                  toggleLabels={['顯示密碼', '隱藏密碼']}
+                />
+              </FieldRows>
+              <FormActions>
+                <SubmitButton loading={loading} icon={LogIn} className="sm:w-auto sm:min-w-44">
+                  登入
+                </SubmitButton>
+                <Link href="/forgot-password" className={cn('inline-flex min-h-11 items-center text-sm', authLinkClass)}>
+                  忘記密碼？
+                </Link>
+              </FormActions>
+            </form>
+          </AuthPanel>
+        }
+      />
     </>
   );
 }

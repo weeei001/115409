@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import ErrorPage from 'next/error';
 import { useRouter } from 'next/router';
-import { KeyRound, Loader2, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
+import { KeyRound, Lock, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
-import { Notice } from '@/components/common/Notice';
-import { FormError, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { LoadingRows, Notice } from '@/components/common/Notice';
+import { Button } from '@/components/ui/button';
+import { FormError, PASSWORD_MIN_LENGTH, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -25,6 +27,8 @@ export default function MePage() {
   const [hasToken, setHasToken] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 進頁面時 /auth/me 沒確認成功（非 401）：顯示的是暫存資料 */
+  const [profileUnconfirmed, setProfileUnconfirmed] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -64,7 +68,10 @@ export default function MePage() {
           leavingRef.current = true;
           clearAuth();
           void router.replace(LOGIN_FOR_ME);
+          return;
         }
+        // 其他錯誤：畫面沿用這台瀏覽器暫存的帳號資料，燈質記號標成熄燈
+        setProfileUnconfirmed(true);
       })
       .finally(() => {
         checkingRef.current -= 1;
@@ -97,6 +104,7 @@ export default function MePage() {
       const me = await authMe();
       updateStoredUser(me);
       setUser(me);
+      setProfileUnconfirmed(false);
     } catch (err) {
       // 登入過期：跟一進頁面就 401 一樣，清除登入後回登入頁（決議 c80）
       if (err instanceof ApiRequestError && err.status === 401) {
@@ -123,7 +131,7 @@ export default function MePage() {
 
   const validatePasswordChange = (): string | null => {
     if (!currentPassword || !newPassword || !confirmNewPassword) return '請填寫所有欄位';
-    if (newPassword.length < 8) return '新密碼至少需要 8 個字元';
+    if (newPassword.length < PASSWORD_MIN_LENGTH) return `新密碼至少需要 ${PASSWORD_MIN_LENGTH} 個字元`;
     if (newPassword.length > 128) return '新密碼長度過長';
     if (newPassword !== confirmNewPassword) return '兩次輸入的新密碼不一致';
     return null;
@@ -160,17 +168,22 @@ export default function MePage() {
     </Head>
   );
   const header = <SiteHeader icon={UserRound} title="個人中心" subtitle="帳號資訊與安全設定" />;
+  /** 帳號資料的燈質：重新整理中 Q、確認失敗熄燈、其餘 F */
+  const profileState: LightState = refreshing ? 'loading' : error || profileUnconfirmed ? 'error' : 'ready';
+  const pageClass ='mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10';
 
   if (router.isReady && legacyNotifications) return <ErrorPage statusCode={404} />;
 
   if (!checked) {
+    // 載入＝燈質 Q：有線的空白列
     return (
       <>
         {head}
         {header}
-        <main className="flex flex-1 items-center justify-center py-20" aria-busy>
-          <Loader2 size={40} className="animate-spin text-brand" aria-hidden />
-          <span className="sr-only">載入中</span>
+        <main className={pageClass}>
+          <div className="border-t border-border-strong">
+            <LoadingRows label="讀取帳號資料中…" className="h-[176px]" />
+          </div>
         </main>
       </>
     );
@@ -181,7 +194,7 @@ export default function MePage() {
       <>
         {head}
         {header}
-        <main className="flex flex-1 items-center justify-center px-4 py-20">
+        <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
           <p className="text-sm text-muted-foreground">導向登入中…</p>
         </main>
       </>
@@ -192,116 +205,118 @@ export default function MePage() {
     <>
       {head}
       {header}
-      <main aria-label="個人中心" className="mx-auto w-full max-w-lg flex-1 px-4 py-10">
-        <AnimatedSection>
-          <div className="rounded-2xl border bg-card p-6 shadow-card sm:p-8">
-            <div className="mb-6 flex items-center gap-4">
-              <div className="bg-brand-gradient flex size-14 shrink-0 items-center justify-center rounded-2xl shadow-lg shadow-brand/20">
-                <UserRound size={28} className="text-on-brand" aria-hidden />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-bold">{user?.display_name?.trim() || '使用者'}</h2>
-                <p className="truncate text-xs text-muted-foreground">{user?.email ?? '—'}</p>
-              </div>
-            </div>
-
-            <dl className="space-y-4 text-sm">
-              <div>
-                <dt className="mb-1 text-muted-foreground">電子郵件</dt>
-                <dd className="break-all">{user?.email ?? '—'}</dd>
-              </div>
-              <div>
-                <dt className="mb-1 text-muted-foreground">顯示名稱</dt>
-                <dd>{user?.display_name?.trim() ? user.display_name : <span className="text-muted-foreground">未設定</span>}</dd>
-              </div>
-            </dl>
-
-            <section aria-labelledby="me-password-heading" className="mt-8 border-t pt-8">
-              <div className="mb-4 flex items-center gap-2">
-                <div className="bg-brand-gradient flex size-9 items-center justify-center rounded-xl">
-                  <KeyRound size={18} className="text-on-brand" aria-hidden />
+      <main aria-label="個人中心" className={pageClass}>
+        {/* 手機依序：帳號資料 → 變更密碼；桌機左右並排。收藏股在獨立的 /favorites 頁 */}
+        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
+          <AnimatedSection className="min-w-0 lg:col-span-5">
+            <Ledger
+              title="帳號資料"
+              stamp={
+                <span className="inline-flex items-center gap-1.5">
+                  <LightGlyph state={profileState} />
+                  {profileState === 'loading' ? '向伺服器確認中' : profileState === 'error' ? '未能向伺服器確認' : '已向伺服器確認'}
+                </span>
+              }
+            >
+              <LedgerPanel>
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="flex size-11 shrink-0 items-center justify-center border text-muted-foreground" aria-hidden>
+                    <UserRound size={20} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold">{user?.display_name?.trim() || '使用者'}</p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">{user?.email ?? '—'}</p>
+                  </div>
                 </div>
-                <h3 id="me-password-heading" className="text-base font-semibold">
-                  變更密碼
-                </h3>
-              </div>
-              <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
-                僅適用於以電子郵件註冊並已設定密碼的帳號。若僅以 Google 登入且尚未設定本地密碼，將無法由此變更。
-              </p>
+                {/* 帳號資料是一張有線的定義表 */}
+                <dl className="grid gap-px border-y bg-border text-sm">
+                  <div className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
+                    <dt className="text-muted-foreground">電子郵件</dt>
+                    <dd className="min-w-0 font-mono text-[13.5px] break-all">{user?.email ?? '—'}</dd>
+                  </div>
+                  <div className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
+                    <dt className="text-muted-foreground">顯示名稱</dt>
+                    <dd className="min-w-0 break-all">{user?.display_name?.trim() ? user.display_name : <span className="text-muted-foreground">未設定</span>}</dd>
+                  </div>
+                </dl>
 
-              <FormError id="me-password-error" message={passwordError} />
+                {error ? (
+                  <div className="mt-4">
+                    <Notice tone="danger">{error}</Notice>
+                  </div>
+                ) : null}
 
-              <form onSubmit={(e) => void handleChangePassword(e)} className="space-y-4">
-                <PasswordField
-                  id="me-current-password"
-                  label="目前密碼"
-                  icon={Lock}
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  autoComplete="current-password"
-                  maxLength={128}
-                  shown={showCurrent}
-                  onToggle={() => setShowCurrent((v) => !v)}
-                  toggleLabels={['顯示目前密碼', '隱藏目前密碼']}
-                  {...fieldA11y}
-                />
-                <PasswordField
-                  id="me-new-password"
-                  label="新密碼"
-                  icon={Lock}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  autoComplete="new-password"
-                  maxLength={128}
-                  shown={showNew}
-                  onToggle={() => setShowNew((v) => !v)}
-                  toggleLabels={['顯示新密碼', '隱藏新密碼']}
-                  {...fieldA11y}
-                />
-                <PasswordField
-                  id="me-confirm-password"
-                  label="確認新密碼"
-                  icon={Lock}
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  autoComplete="new-password"
-                  maxLength={128}
-                  shown={showConfirmNew}
-                  onToggle={() => setShowConfirmNew((v) => !v)}
-                  toggleLabels={['顯示確認新密碼', '隱藏確認新密碼']}
-                  {...fieldA11y}
-                />
-                <SubmitButton loading={passwordLoading}>更新密碼</SubmitButton>
-              </form>
-            </section>
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Button type="button" variant="outline" disabled={refreshing} aria-busy={refreshing || undefined} onClick={() => void handleRefresh()}>
+                    <RefreshCw size={18} aria-hidden />
+                    {refreshing ? '更新中…' : '重新整理資料'}
+                  </Button>
+                  <Button type="button" variant="destructive" onClick={handleLogout}>
+                    <LogOut size={18} aria-hidden />
+                    登出
+                  </Button>
+                </div>
+              </LedgerPanel>
+            </Ledger>
+          </AnimatedSection>
 
-            {error ? (
-              <div className="mt-5">
-                <Notice tone="danger">{error}</Notice>
-              </div>
-            ) : null}
+          <AnimatedSection delay={0.05} className="min-w-0 lg:col-span-7">
+            <Ledger aria-labelledby="me-password-heading" title={<span id="me-password-heading">變更密碼</span>}>
+              <LedgerPanel>
+                <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+                  僅適用於以電子郵件註冊並已設定密碼的帳號。若僅以 Google 登入且尚未設定本地密碼，將無法由此變更。
+                </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                disabled={refreshing}
-                onClick={() => void handleRefresh()}
-                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm font-medium text-subtle transition-colors hover:border-brand/40 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {refreshing ? <Loader2 size={18} className="animate-spin text-brand" aria-hidden /> : <RefreshCw size={18} aria-hidden />}
-                重新整理資料
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-danger-border px-4 py-3 text-sm font-medium text-danger transition-colors hover:bg-danger-muted"
-              >
-                <LogOut size={18} aria-hidden />
-                登出
-              </button>
-            </div>
-          </div>
-        </AnimatedSection>
+                <FormError id="me-password-error" message={passwordError} />
+
+                <form onSubmit={(e) => void handleChangePassword(e)} className="space-y-4">
+                  <PasswordField
+                    id="me-current-password"
+                    label="目前密碼"
+                    icon={Lock}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    autoComplete="current-password"
+                    maxLength={128}
+                    shown={showCurrent}
+                    onToggle={() => setShowCurrent((v) => !v)}
+                    toggleLabels={['顯示目前密碼', '隱藏目前密碼']}
+                    {...fieldA11y}
+                  />
+                  <PasswordField
+                    id="me-new-password"
+                    label="新密碼"
+                    icon={Lock}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    maxLength={128}
+                    shown={showNew}
+                    onToggle={() => setShowNew((v) => !v)}
+                    toggleLabels={['顯示新密碼', '隱藏新密碼']}
+                    {...fieldA11y}
+                  />
+                  <PasswordField
+                    id="me-confirm-password"
+                    label="確認新密碼"
+                    icon={Lock}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    maxLength={128}
+                    shown={showConfirmNew}
+                    onToggle={() => setShowConfirmNew((v) => !v)}
+                    toggleLabels={['顯示確認新密碼', '隱藏確認新密碼']}
+                    {...fieldA11y}
+                  />
+                  <SubmitButton loading={passwordLoading} icon={KeyRound}>
+                    更新密碼
+                  </SubmitButton>
+                </form>
+              </LedgerPanel>
+            </Ledger>
+          </AnimatedSection>
+        </div>
       </main>
     </>
   );

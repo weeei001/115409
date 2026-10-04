@@ -59,6 +59,9 @@ jobs:
       - run: npm run test:news
       - run: npm run test:compare
       - run: npm run test:admin
+      - run: npm run test:brief
+      - run: npm run test:home
+      - run: npm run test:notifications
       # Next generates next-env.d.ts and route types on a fresh checkout.
       - run: npm run build
       - run: npm run lint -- --incremental false

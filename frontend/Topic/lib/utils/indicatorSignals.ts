@@ -50,10 +50,3 @@ export function kdSignal(k: number | null | undefined, d: number | null | undefi
   if (kv < dv) return { label: 'K 在 D 之下', tone: 'down', value: kv - dv };
   return { label: 'K、D 黏合', tone: 'neutral', value: 0 };
 }
-
-export function signalBadgeClass(tone: SignalTone, emphasis = false): string {
-  if (tone === 'up') return `border-up/30 bg-up-muted ${emphasis ? 'text-up-emphasis' : 'text-up'}`;
-  if (tone === 'down') return `border-down/30 bg-down-muted ${emphasis ? 'text-down-emphasis' : 'text-down'}`;
-  if (tone === 'warning') return 'border-warning-border bg-warning-muted text-warning';
-  return 'border-border bg-muted text-subtle';
-}

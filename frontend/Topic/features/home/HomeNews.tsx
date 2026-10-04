@@ -1,15 +1,23 @@
-import React, { useRef, useState } from 'react';
-import { Newspaper, RefreshCw, Search } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { RefreshCw, Search } from 'lucide-react';
 import { useNewsList } from '@/lib/hooks/useNewsList';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { NewsCard } from '@/features/news/NewsCard';
 import { AppliedNewsFilters, NewsFilters, NewsListSkeleton } from '@/features/news/NewsFilters';
+import { summarizeNewsFilters } from '@/lib/utils/newsFilters';
 import { EmptyState, Notice } from '@/components/common/Notice';
+import { Pagination } from '@/components/common/Pagination';
+import { LedgerHeading } from '@/components/common/Ledger';
 import { Button } from '@/components/ui/button';
+import { inputClass } from '@/components/ui/input';
+import { cn } from '@/lib/cn';
 
 const PAGE_SIZE = 10;
 
-/** 首頁「最新財經新聞」：關鍵字（純數字視為股票代號）＋發布時間篩選＋分頁 */
+/**
+ * 首頁「最新財經新聞」：關鍵字（純數字視為股票代號）＋發布時間篩選＋分頁。
+ * 放在觀測台的外框面板（bg-card）裡使用：自帶帳頁式標題（襯線 h2＋則數＋粗線），新聞列用細線分隔，寬版每列 8／4 切。
+ */
 export function HomeNews() {
   const newsList = useNewsList({ pageSize: PAGE_SIZE });
   const hydrated = useHydrated();
@@ -17,16 +25,19 @@ export function HomeNews() {
   const filterTrigger = useRef<HTMLButtonElement>(null);
   const search = () => newsList.applyFilters({ keyword });
   const { data, totalPages } = newsList;
+  const hasAdvanced = summarizeNewsFilters(newsList.filters).length > 0;
+  const hasKeyword = Boolean(newsList.filters.keyword?.trim());
+  const clearKeyword = () => {
+    setKeyword('');
+    newsList.applyFilters({ keyword: '' });
+  };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <Newspaper size={18} className="text-brand" aria-hidden />
-          <h2 className="text-lg font-bold tracking-tight">最新財經新聞</h2>
-          {data ? <span className="ml-1 text-xs text-muted-foreground tabular-nums">共 {data.total.toLocaleString()} 則</span> : null}
-        </div>
+    <section aria-labelledby="home-news-heading" className="flex h-full flex-col">
+      {/* 帳頁標題：襯線 h2＋右側燈質列（則數）＋一條粗線，與「觀測台以外」同一套語法 */}
+      <LedgerHeading title="最新財經新聞" headingProps={{ id: 'home-news-heading' }} stamp={data ? `共 ${data.total.toLocaleString()} 則` : null} />
 
+      <div className="mt-3 mb-3 flex justify-end">
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <NewsFilters
             applied={newsList.filters}
@@ -46,19 +57,14 @@ export function HomeNews() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') search();
               }}
-              placeholder="股票代號或關鍵字..."
+              placeholder="股票代號或關鍵字…"
               aria-label="搜尋新聞：股票代號或關鍵字"
-              className="h-11 w-full rounded-lg border border-input bg-muted pr-3 pl-9 text-base text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-brand focus:ring-2 focus:ring-brand/25 sm:text-sm"
+              className={cn(inputClass, 'pr-3 pl-9')}
             />
           </div>
-          <button
-            type="button"
-            onClick={search}
-            aria-label="搜尋新聞"
-            className="inline-flex size-11 items-center justify-center rounded-lg border text-muted-foreground transition-colors hover:border-border-strong hover:text-brand-text"
-          >
+          <Button type="button" variant="outline" size="icon" onClick={search} aria-label="搜尋新聞" className="text-muted-foreground hover:text-foreground">
             <Search size={18} aria-hidden />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -71,7 +77,7 @@ export function HomeNews() {
           <Notice
             tone="danger"
             action={
-              <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-9">
+              <Button variant="outline" onClick={newsList.reload}>
                 <RefreshCw aria-hidden />
                 重試載入新聞
               </Button>
@@ -80,31 +86,39 @@ export function HomeNews() {
             {newsList.error}
           </Notice>
         ) : data?.items.length ? (
-          <div>
+          <div className="border-t">
             {data.items.map((n) => (
-              <NewsCard key={n.article_id} news={n} />
+              <NewsCard key={n.article_id} news={n} layout="ledger" />
             ))}
           </div>
         ) : (
-          <EmptyState className="py-8">暫無新聞資料</EmptyState>
+          <EmptyState
+            className="border-t py-10"
+            action={
+              hasAdvanced ? (
+                <Button variant="outline" onClick={newsList.clearAdvanced}>清除篩選條件</Button>
+              ) : hasKeyword ? (
+                <Button variant="outline" onClick={clearKeyword}>清除關鍵字</Button>
+              ) : undefined
+            }
+          >
+            {hasAdvanced || hasKeyword ? '找不到符合條件的新聞。' : '暫無新聞資料。'}
+          </EmptyState>
         )}
       </div>
 
       {data && totalPages > 1 ? (
-        <div className="mt-3 flex items-center justify-between border-t pt-3">
-          <span className="text-xs text-muted-foreground tabular-nums">
-            第 {data.page} / {totalPages} 頁
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={newsList.page <= 1} onClick={() => newsList.goToPage(newsList.page - 1)} className="min-h-11 min-w-[4.5rem]">
-              上一頁
-            </Button>
-            <Button variant="outline" disabled={newsList.page >= totalPages} onClick={() => newsList.goToPage(newsList.page + 1)} className="min-h-11 min-w-[4.5rem]">
-              下一頁
-            </Button>
-          </div>
-        </div>
+        // 直接跳頁：輸入頁碼後按「前往」或 Enter；超出範圍會落在第一頁或最後一頁
+        <Pagination
+          jump
+          label="新聞分頁"
+          className="mt-1 border-t pt-3"
+          page={newsList.page}
+          totalPages={totalPages}
+          disabled={newsList.loading}
+          onPageChange={newsList.goToPage}
+        />
       ) : null}
-    </div>
+    </section>
   );
 }
