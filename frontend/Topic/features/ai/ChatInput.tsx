@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { inputClass } from '@/components/ui/input';
+import { cn } from '@/lib/cn';
 
 /** openapi: AskRequest.query maxLength */
 const MAX_QUERY_LENGTH = 6000;
@@ -48,10 +50,10 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
               submit();
             }
           }}
-          placeholder="輸入您的問題..."
+          placeholder="輸入您的問題…"
           rows={1}
           disabled={disabled}
-          className="block max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-none border border-input bg-card px-3 py-[0.6875rem] text-base leading-5 text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground focus-lamp disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-60 sm:text-sm sm:leading-5"
+          className={cn(inputClass, 'block h-auto max-h-32 min-h-11 flex-1 resize-none py-[0.6875rem] leading-5 disabled:bg-muted sm:leading-5')}
         />
         {/* 能送出才亮燈；不能送出時是中性的外框按鈕（不是褪色的燈）。sm 以上附文字「送出」 */}
         <Button

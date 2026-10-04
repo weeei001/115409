@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Bot, History } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { ConversationHistory } from '@/features/ai/ConversationHistory';
 import { ChatArea, type ExampleQuestionGroup } from '@/features/ai/ChatArea';
 import { ChatInput } from '@/features/ai/ChatInput';
@@ -128,18 +129,14 @@ export default function AiPage() {
             <div className={cn('flex min-h-11 shrink-0 items-center gap-3 border-b px-4 py-2 sm:px-5', conversationOpen && !chat.notice && 'lg:sr-only')}>
               <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
                 <SheetTrigger asChild>
-                  <button
-                    ref={triggerRef}
-                    type="button"
-                    className="-my-1 flex min-h-11 shrink-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors duration-(--dur-flash) hover:border-border-strong hover:bg-accent focus-lamp lg:hidden"
-                  >
-                    <History size={18} className="shrink-0 text-muted-foreground" aria-hidden />
+                  <Button ref={triggerRef} type="button" variant="outline" className="-my-1 lg:hidden">
+                    <History className="size-[18px] text-muted-foreground" aria-hidden />
                     歷史對話
                     {count ? <>
                       <span className="font-mono text-xs text-muted-foreground tabular-nums" aria-hidden>{count}{chat.hasMore ? '+' : ''}</span>
                       <span className="sr-only">（已載入 {count} 則{chat.hasMore ? '，還有更多' : ''}）</span>
                     </> : null}
-                  </button>
+                  </Button>
                 </SheetTrigger>
                 <SheetContent
                   side="left"

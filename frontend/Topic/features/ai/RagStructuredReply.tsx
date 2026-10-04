@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   parseBulletList,
   parseRagStructuredReply,
@@ -7,6 +6,7 @@ import {
 } from '@/lib/utils/parseRagStructuredReply';
 import { MarkdownBlock, MarkdownText, type CitationRenderer } from '@/lib/utils/markdown';
 import { chatAnswerBody } from '@/lib/utils/chatCitations';
+import { StreamCursor } from './StreamCursor';
 
 interface Props {
   content: string;
@@ -84,7 +84,7 @@ export function RagStructuredReply({ content, showCursor, renderCitation }: Prop
           <SectionBody section={section} renderCitation={renderCitation} />
         </section>
       ))}
-      {showCursor ? <span className="ml-0.5 inline-block h-4 w-0.5 bg-brand align-text-bottom" style={{ animation: 'cursor-blink 1s step-end infinite' }} /> : null}
+      {showCursor ? <StreamCursor /> : null}
     </div>
   );
 }

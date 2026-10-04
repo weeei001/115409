@@ -1,4 +1,3 @@
-import React from 'react';
 import Link from 'next/link';
 import { ChevronDown, LogIn, Plus } from 'lucide-react';
 import type { ConversationSummary } from '@/lib/api/conversations';
@@ -6,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { LightGlyph } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
+import { inputClass } from '@/components/ui/input';
+import { formatTaipei } from '@/lib/utils/date';
 
 interface Props {
   signedIn: boolean;
@@ -30,7 +31,7 @@ interface Props {
 
 /** 日誌索引的日期欄：月／日 時:分（24 小時制，等寬對齊） */
 function formatUpdatedAt(value: string): string {
-  return new Date(value).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return formatTaipei(value, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
 /**
@@ -44,7 +45,7 @@ export function ConversationHistory(props: Props) {
     <aside aria-label="歷史對話" className={cn('flex min-w-0 flex-col bg-card', sheet ? 'min-h-0 flex-1' : 'shrink-0 lg:min-h-0 lg:w-72')}>
       <div className={cn('flex min-h-14 items-center justify-between gap-2 border-b border-border-strong py-1.5 pl-4', sheet ? 'pr-16' : 'pr-1.5')}>
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="font-serif text-base font-black tracking-[0.08em]">歷史對話</h2>
+          <h2 className="font-serif text-xl leading-snug font-black tracking-[0.06em]">歷史對話</h2>
           {/* 燈質記號：清單讀取中 Q、已載入 F、失敗熄燈；訪客沒有清單就不放 */}
           {!props.ready ? <LightGlyph state="loading" /> : props.signedIn
             ? <LightGlyph state={props.loading ? 'loading' : props.error ? 'error' : 'ready'} /> : null}
@@ -74,7 +75,7 @@ export function ConversationHistory(props: Props) {
           <label htmlFor={searchId} className="sr-only">搜尋歷史對話標題與內容</label>
           <input id={searchId} type="search" value={props.search} maxLength={200}
             onChange={(event) => props.onSearch(event.target.value)} placeholder="搜尋標題與對話內容"
-            className="min-h-11 w-full rounded-none border border-input bg-card px-3 text-base text-foreground placeholder:text-muted-foreground focus-lamp sm:text-sm" />
+            className={inputClass} />
         </div>
         {props.error ? (
           <div className="border-b p-3">
@@ -91,7 +92,7 @@ export function ConversationHistory(props: Props) {
                 return <li key={item.id}>
                   <button type="button" onClick={() => props.onOpen(item.id)} aria-current={selected ? 'true' : undefined}
                     data-selected={selected ? 'true' : undefined}
-                    className="lamp-row flex min-h-14 w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left focus-visible:outline-offset-[-4px]">
+                    className="lamp-row flex min-h-14 w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left focus-lamp-inset">
                     <time dateTime={item.updated_at} className="characteristic">{formatUpdatedAt(item.updated_at)}</time>
                     <span className={cn('line-clamp-2 text-sm break-words', selected ? 'font-medium text-foreground' : 'text-subtle')}>{item.title || '新對話'}</span>
                   </button>
@@ -115,7 +116,7 @@ export function ConversationHistory(props: Props) {
           ) : null}
           {props.hasMore ? (
             <button type="button" onClick={props.onMore} disabled={props.loading}
-              className="lamp-row flex min-h-11 w-full items-center justify-between gap-3 border-b px-4 py-2.5 text-left text-sm font-medium focus-visible:outline-offset-[-4px] disabled:opacity-50">
+              className="lamp-row flex min-h-11 w-full items-center justify-between gap-3 border-b px-4 py-2.5 text-left text-sm font-medium focus-lamp-inset disabled:opacity-50">
               <span>載入更多</span>
               <ChevronDown size={16} className="shrink-0 text-muted-foreground" aria-hidden />
             </button>

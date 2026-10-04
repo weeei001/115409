@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import { ArrowRight, Check, Copy } from 'lucide-react';
@@ -11,8 +11,11 @@ import { MarkdownBlock } from '@/lib/utils/markdown';
 import { isStructuredRagReply } from '@/lib/utils/parseRagStructuredReply';
 import { CHAT_CITATION_RE, chatAnswerBody, newsCitationPath } from '@/lib/utils/chatCitations';
 import { cn } from '@/lib/cn';
-import { Button } from '@/components/ui/button';
+import { Button, textLinkClass } from '@/components/ui/button';
 import { RagStructuredReply } from './RagStructuredReply';
+import { StreamCursor } from './StreamCursor';
+import { Disclosure } from '@/components/common/Disclosure';
+import { formatTaipei } from '@/lib/utils/date';
 
 interface Props {
   message: ChatMessageData;
@@ -25,20 +28,13 @@ interface Props {
   citationsTargetId?: string;
 }
 
-/** 串流游標：燈只當光用，這裡是正在寫入的那一點光 */
-const Cursor = () => <span className="ml-0.5 inline-block h-4 w-0.5 bg-brand align-text-bottom" style={{ animation: 'cursor-blink 1s step-end infinite' }} />;
-
-const timeFormat = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-
 /** 日誌時間：只顯示訊息本身帶的時間；沒有或無法解析就不顯示 */
 function entryTime(value: string): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : timeFormat.format(date);
+  return formatTaipei(value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) || null;
 }
 
 /** 建議追問：底線文字鈕，至少 44px 高 */
-const followUpClass = 'inline-flex min-h-11 max-w-full items-center text-left text-sm text-foreground underline decoration-input underline-offset-4 transition-colors duration-(--dur-flash) hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50';
+const followUpClass = cn('inline-flex min-h-11 max-w-full items-center text-left text-sm text-foreground', textLinkClass, 'focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50');
 /** 相關功能（換頁）：次要連結，底線文字加小箭頭、至少 44px 高 */
 const navLinkClass = 'group inline-flex min-h-11 max-w-full items-center gap-1.5 text-left text-sm text-foreground transition-colors duration-(--dur-flash) focus-visible:outline-2 focus-visible:outline-offset-2';
 const rowArrow = <ArrowRight size={14} className="shrink-0 text-muted-foreground transition-transform duration-(--dur-flash) group-hover:translate-x-0.5" aria-hidden />;
@@ -156,7 +152,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
         ) : (
           <>
             <MarkdownBlock text={content} renderCitation={isUser ? undefined : renderCitation} />
-            {cursor ? <Cursor /> : null}
+            {cursor ? <StreamCursor /> : null}
           </>
         )}
       </div>
@@ -178,23 +174,28 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
       ) : null}
 
       {sources.length ? (
-        <details ref={rawSourcesRef} className={cn('text-sm', citedIds.length && 'mt-3 border-t')}>
-          <summary className="flex min-h-11 cursor-pointer items-center text-subtle hover:text-foreground">本輪引用原始資料</summary>
+        <Disclosure ref={rawSourcesRef} className={cn('text-sm', citedIds.length && 'mt-3 border-t')} summary="本輪引用原始資料">
           <div className="divide-y border-y">
             {sources.map((source) => (
-              <details key={source.citation_id} id={sourceId(source.citation_id)}>
-                <summary className="grid min-h-11 cursor-pointer grid-cols-[3rem_minmax(0,1fr)] items-center gap-x-2 py-1 break-words whitespace-pre-wrap">
-                  <span className="font-mono text-xs text-muted-foreground tabular-nums">[{source.citation_id}]</span>
-                  <span>{source.title}</span>
-                </summary>
+              <Disclosure
+                key={source.citation_id}
+                id={sourceId(source.citation_id)}
+                summaryProps={{ className: 'py-1 text-foreground' }}
+                summary={
+                  <span className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-x-2 break-words whitespace-pre-wrap">
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">[{source.citation_id}]</span>
+                    <span>{source.title}</span>
+                  </span>
+                }
+              >
                 <div className="pb-3 pl-14">
                   <p className="characteristic">{source.stock_id} · {source.pub_time || '無發布日期'}</p>
                   <pre className="mt-2 border-l-2 pl-3 font-sans text-xs leading-relaxed break-words whitespace-pre-wrap text-subtle">{source.content}</pre>
                 </div>
-              </details>
+              </Disclosure>
             ))}
           </div>
-        </details>
+        </Disclosure>
       ) : null}
       </div> : null}
 

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ChatDashboard as ChatDashboardData, DashboardChart } from '../../lib/types/chatDashboard';
 import { buildChatChartOption, ChatDashboard, chatChartRebaseIndex } from './ChatDashboard';

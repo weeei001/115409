@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
@@ -7,7 +7,7 @@ import { chatAnswerBody } from '@/lib/utils/chatCitations';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
 import { LoadingRows } from '@/components/common/Notice';
-import { LightGlyph } from '@/components/common/Ledger';
+import { LedgerHeading, LightGlyph } from '@/components/common/Ledger';
 import { ChatDashboard } from './ChatDashboard';
 import { ChatMessage } from './ChatMessage';
 
@@ -156,8 +156,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
       syncCurrent();
     });
     return () => cancelAnimationFrame(frame);
-    // 只在換了一輪（或換了對話）時決定落點；串流中的內容更新交給下面的跟隨
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 依賴刻意只放 openKey：只在換了一輪（或換了對話）時決定落點；串流中的內容更新交給下面的跟隨
   }, [openKey]);
 
   useEffect(() => {
@@ -200,7 +199,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
 
   const waitingForReply = loading && messages[messages.length - 1]?.role !== 'assistant';
 
-  const navButtonClass = 'relative min-h-11 border-r px-4 text-sm font-medium text-subtle transition-colors duration-(--dur-flash) hover:bg-accent hover:text-foreground focus-visible:outline-offset-[-4px]';
+  const navButtonClass = 'relative min-h-11 border-r px-4 text-sm font-medium text-subtle transition-colors duration-(--dur-flash) hover:bg-accent hover:text-foreground focus-lamp-inset';
   /** 目前所在區塊：墨色粗線壓在導覽列底線上（不用燈色） */
   const currentClass = 'text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-foreground';
   const anchorProps = (section: Section) => ({
@@ -252,10 +251,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
               不放歡迎句；分組名寫在左側欄（sm 以上），像日誌的分類欄，手機只留條目。
             */}
             <div className="mx-auto w-full max-w-2xl">
-              <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-border-strong pb-2">
-                <h2 className="font-serif text-xl leading-snug font-black tracking-[0.06em]">值班日誌</h2>
-                <p className="characteristic">範例問題 · {signedIn ? '已登入，對話會保存' : '訪客，離頁不保存'}</p>
-              </div>
+              <LedgerHeading title="值班日誌" stamp={`範例問題 · ${signedIn ? '已登入，對話會保存' : '訪客，離頁不保存'}`} />
               {exampleQuestions.some((group) => group.questions.length) ? (
                 <div className="divide-y border-b" role="group" aria-label="範例問題">
                   {exampleQuestions.filter((group) => group.questions.length).map((group) => (
@@ -267,7 +263,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
                             key={`${idx}-${q}`}
                             type="button"
                             onClick={() => onSend(q)}
-                            className="lamp-row group flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-foreground focus-visible:outline-offset-[-4px]"
+                            className="lamp-row group flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-foreground focus-lamp-inset"
                           >
                             <span className="min-w-0">{q}</span>
                             {/* 整列就是按鈕；箭頭只在 hover／鍵盤 focus 時出現，平常不和站內換頁列混在一起 */}
@@ -324,7 +320,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
           )}
         >
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 id={dataId} tabIndex={-1} className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground focus:outline-2 focus:outline-offset-2 focus:outline-focus">資料</h2>
+            <LedgerHeading title="資料" headingProps={{ id: dataId, tabIndex: -1, className: 'focus:outline-2 focus:outline-offset-2 focus:outline-focus' }} />
             {dashboardState ? (
               <span className="characteristic inline-flex items-center gap-1.5 text-foreground">
                 <LightGlyph state={dashboardState} />

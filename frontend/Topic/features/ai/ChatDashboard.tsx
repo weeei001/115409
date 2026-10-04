@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 import type { EChartsOption } from '@/lib/charts/echarts';
 import { getChartPalette, AI_SERIES_PALETTE } from '@/lib/charts/theme';
@@ -9,7 +9,10 @@ import type { ChatDashboard as ChatDashboardData, ChatDashboardBlock, DashboardC
 import { safeHttpUrl } from '@/lib/utils/url';
 import { EChart } from '@/components/charts/EChart';
 import { EmptyState } from '@/components/common/Notice';
+import { Disclosure } from '@/components/common/Disclosure';
+import { LedgerHeading } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
+import { textLinkClass } from '@/components/ui/button';
 
 const numberFormat = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 4 });
 
@@ -67,7 +70,7 @@ function DataTable({ title, columns, rows }: { title: string; columns: string[];
         <thead className="border-b border-border-strong bg-muted">
           <tr>
             {columns.map((column, index) => (
-              <th key={index} scope="col" className="h-10 px-3 text-xs font-medium tracking-[0.06em] whitespace-nowrap text-muted-foreground">
+              <th key={index} scope="col" className="h-11 px-3 text-xs font-medium tracking-[0.06em] whitespace-nowrap text-muted-foreground">
                 {column}
               </th>
             ))}
@@ -205,14 +208,13 @@ function ChartBlock({ block }: { block: DashboardChart }) {
         ))}
       </p>
       {hasData ? <EChart title={block.title} option={view.option} height={280} className="min-h-[280px]" /> : <EmptyState className="border py-5">此區間無可繪製資料；可展開下方「查看圖表資料」核對原始數值。</EmptyState>}
-      <details className="border-t text-sm">
-        <summary className="flex min-h-11 cursor-pointer items-center text-subtle hover:text-foreground">查看圖表資料</summary>
+      <Disclosure className="border-t text-sm" summary="查看圖表資料">
         <DataTable
           title={block.title}
           columns={['日期', ...block.series.map((series) => series.name)]}
           rows={block.dates.map((date, index) => [date, ...block.series.map((series) => formatValue(series.values[index], block.unit))])}
         />
-      </details>
+      </Disclosure>
     </div>
   );
 }
@@ -252,7 +254,7 @@ function BlockContent({ block }: { block: ChatDashboardBlock }) {
           {block.items.map((item, index) => {
             const url = safeHttpUrl(item.url);
             const newsPath = item.article_id?.trim() ? `/news/${encodeURIComponent(item.article_id)}` : '';
-            const linkClass = 'text-foreground underline decoration-input underline-offset-4 hover:decoration-foreground';
+            const linkClass = cn('text-foreground', textLinkClass);
             return (
               <li key={`${item.source_id}-${index}`} className="space-y-1 py-3">
                 <p className="text-sm leading-relaxed font-medium break-words">
@@ -292,7 +294,7 @@ function SourceChip({ id }: { id: string }) {
 export function ChatDashboard({ dashboard }: { dashboard: ChatDashboardData }) {
   return (
     <section className="min-w-0" aria-label={dashboard.title}>
-      <h3 className="border-b border-border-strong pb-2 font-serif text-lg leading-snug font-black tracking-[0.06em]">{dashboard.title}</h3>
+      <LedgerHeading as="h3" title={dashboard.title} />
       <div className="grid gap-px border-x border-b bg-border">
         {dashboard.blocks.map((block, index) => (
           <section key={`${block.kind}-${index}`} className="min-w-0 space-y-3 bg-card p-3 sm:p-4" aria-label={block.title}>
