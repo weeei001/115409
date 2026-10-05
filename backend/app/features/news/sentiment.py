@@ -24,9 +24,9 @@ ANALYSIS_INSTRUCTION = ("當 target_stock_id='__article__' 時，判斷整篇文
     "可依標題證據判斷，但須在 reason 中說明來源內容有限。")
 NORMALIZATION_VERSION = "norm_v1"
 # Supplemental catalog aliases change evidence recognition and cached impact eligibility.
-COMPANY_RECOGNITION_VERSION = "mentions-v2"
+COMPANY_RECOGNITION_VERSION = "mentions-v3"
 # ponytail: known ambiguous words require tickers; expand from labeled errors, not guessed matches.
-AMBIGUOUS_COMPANY_NAMES = {"世界", "大量", "精確", "進階", "安心", "全新", "聯合", "中華", "大眾", "統一"}
+AMBIGUOUS_COMPANY_NAMES = {"世界", "大量", "精確", "進階", "安心", "全新", "聯合", "中華", "大眾", "統一", "三星"}
 MAX_INPUT_TOKENS = 8000
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 
