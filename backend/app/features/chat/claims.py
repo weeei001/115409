@@ -19,7 +19,7 @@ from .schemas import SourceChunk
 
 DATE = r"\d{4}-\d{2}-\d{2}"
 COMPARISON_METRICS = {
-    "interval_return_pct": r"(?:區間|期間|同期(?:間)?)(?:價格)?報酬率",
+    "interval_return_pct": r"(?:區間|期間|同期(?:間)?)(?:價格|股價)?(?:報酬率|漲跌幅|漲幅|跌幅|上漲|下跌)",
     "annualized_volatility_pct": r"年化波動(?:率|度)",
     "max_drawdown_pct": r"最大回撤(?:率)?",
 }
@@ -55,6 +55,8 @@ METRICS = {
     **{field: label + r"(?:率)?" for field, label in GROWTH_LABELS.items()},
     **{field: label + r"(?:配置)?(?:比例|占比|比重|占(?:總資產)?)" for field, label in PORTFOLIO_RATIOS.items()},
     **PORTFOLIO_AMOUNTS,
+    "first_common_close": r"(?:共同)?(?:起始|期初)收盤價?",
+    "last_common_close": r"(?:共同)?期末收盤價?",
     "close": r"(?:收盤價?|股價)", "eps": r"(?:EPS|每股盈餘)",
     "revenue_monthly": r"(?:單月)?營收",
     "chg_pct": r"(?:(?:當日|單日|日)報酬率|漲跌幅|漲幅|跌幅|上漲|下跌)",
@@ -74,7 +76,7 @@ METRICS = {
 UNITS = {field: "%" for field in (*COMPARISON_METRICS, *STRUCTURED_PERCENTAGES, *GROWTH_METRICS,
                                  *GROWTH_LABELS, *PORTFOLIO_RATIOS, *ANCHOR_PERCENTAGES,
                                  "chg_pct", "return_pct", "allocation_pct")}
-UNITS.update({field: "TWD" for field in (*PORTFOLIO_AMOUNTS, "close", "eps", "revenue_monthly")})
+UNITS.update({field: "TWD" for field in (*PORTFOLIO_AMOUNTS, "close", "first_common_close", "last_common_close", "eps", "revenue_monthly")})
 UNITS.update({field: "shares" for field in ("foreign_net", "quantity", "reserved_quantity", "available_quantity")})
 UNITS.update({"average_cost": "TWD", "favorites_count": "count", "positions_count": "count"})
 UNITS.update({field: "%" for field in ("stop_loss_pct", "take_profit_pct", "target_return_pct")})
@@ -126,6 +128,8 @@ def _normalize(text: str) -> str:
                       lambda m: m["label"], text, flags=re.I)
     text = re.sub(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
                   lambda m: f"{m[1]}-{int(m[2]):02}-{int(m[3]):02}", text)
+    text = re.sub(r"(\d{4})-(\d{2}-\d{2})(\s*(?:至|到|[~～])\s*)(\d{1,2})\s*月\s*(\d{1,2})\s*日",
+                  lambda m: f"{m[1]}-{m[2]}{m[3]}{m[1]}-{int(m[4]):02}-{int(m[5]):02}", text)
     text = re.sub(r"(\d{4})\s*年?\s*第?\s*([一二三四1-4])\s*季",
                   lambda m: f"{m[1]}Q{m[2] if m[2].isdigit() else '一二三四'.index(m[2]) + 1}", text)
     text = re.sub(r"(\d{4})\s*年\s*(\d{1,2})\s*月",
@@ -212,11 +216,18 @@ def _claims(text: str, aliases: dict[str, str]):
             value *= 1000
         elif unit == "張":
             value *= 1000
-        if (label in {"下跌", "跌幅"} or (metric == "vol_vs_ma5_pct" and label.endswith("減少"))) and value > 0:
+        decline = label.endswith("下跌") or (label.endswith("跌幅") and not label.endswith("漲跌幅"))
+        if (decline or (metric == "vol_vs_ma5_pct" and label.endswith("減少"))) and value > 0:
             value = -value
-        elif label == "上漲" and value < 0:
+        elif label.endswith("上漲") and value < 0:
             normalized_unit = "invalid direction"
         symbol, dates = _context(text, match.start(), aliases)
+        if metric == "chg_pct" and len(dates) >= 2:
+            prefix = re.split(r"[。!?;\n]", text[:match.start()])[-1]
+            ranges = re.findall(rf"({DATE})\s*(?:至|到|[~～])\s*({DATE})", prefix)
+            explicitly_daily = label.startswith(("當日", "單日", "日報酬")) or re.search(r"(?:當日|單日|每日|每天)", prefix)
+            if ranges and ranges[-1] == dates[-2:] and not explicitly_daily:
+                metric = "interval_return_pct"
         account_metric = (metric in {*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS, "favorites_count", "positions_count"}
                           and metric not in {"holdings_value", "holdings_allocation_pct"})
         account_metric = account_metric or (metric in {"holdings_value", "holdings_allocation_pct"}
@@ -226,7 +237,7 @@ def _claims(text: str, aliases: dict[str, str]):
             # A date attached to an earlier stock observation does not date
             # subsequent account totals. Explicit account dates still apply.
             prior = [item for item in CLAIM.finditer(text[:match.start()]) if any(
-                item[field] is not None for field in ("close", "average_cost", "quantity", "foreign_net"))]
+                item[field] is not None for field in ("close", "first_common_close", "last_common_close", "average_cost", "quantity", "foreign_net"))]
             if prior:
                 dates = tuple(re.findall(DATE, text[prior[-1].end():match.start()]))
         occupied.append(match.span())
@@ -316,6 +327,9 @@ def _evidence(sources, aliases):
             for stock in payload.get("stocks", []):
                 for metric in COMPARISON_METRICS:
                     add(metric, stock.get(metric), stock.get("symbol", ""), periods=periods, rounded=True)
+                for metric, endpoint in (("first_common_close", "common_start_date"),
+                                         ("last_common_close", "common_end_date")):
+                    add(metric, stock.get(metric), stock.get("symbol", ""), payload.get(endpoint), periods=periods)
         elif source.category == "personal":
             portfolio = payload.get("portfolio", {})
             snapshot_day = datetime.fromisoformat(portfolio["as_of"]).date().isoformat() if portfolio.get("as_of") else None
@@ -347,6 +361,11 @@ def _matches(claim: Claim, fact: Fact) -> bool:
         allowed_metrics = {"return_pct", "interval_return_pct", "chg_pct"}
     elif claim.metric == "allocation_pct":
         allowed_metrics = set(PORTFOLIO_RATIOS)
+    elif claim.metric == "close":
+        allowed_metrics = {"close", "first_common_close", "last_common_close"}
+        if fact.metric in {"first_common_close", "last_common_close"}:
+            if not claim.dates or claim.dates[-1] != fact.day:
+                return False
     else:
         allowed_metrics = {claim.metric}
     if claim.metric is not None and fact.metric not in allowed_metrics:
@@ -359,8 +378,11 @@ def _matches(claim: Claim, fact: Fact) -> bool:
         return False
     if claim.dates:
         if fact.periods:
-            if not any((claim.dates[-2:] == period if len(claim.dates) >= 2 else claim.dates[-1] == period[1])
-                       for period in fact.periods):
+            if len(claim.dates) == 1 and fact.day:
+                if fact.day != claim.dates[-1]:
+                    return False
+            elif not any((claim.dates[-2:] == period if len(claim.dates) >= 2 else claim.dates[-1] == period[1])
+                         for period in fact.periods):
                 return False
         elif fact.day != claim.dates[-1]:
             return False
