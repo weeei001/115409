@@ -5,7 +5,7 @@
   "scripts": {
     "test:notifications": "tsx lib/notifications/session.test.ts && tsx lib/notifications/worker.test.ts && tsx lib/notifications/account.test.ts",
     "dev": "next dev --hostname 127.0.0.1 --port 3000",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start -H 0.0.0.0 -p 53000",
     "lint": "tsc --noEmit",
     "test": "npm run test:all",
