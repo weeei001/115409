@@ -10,7 +10,7 @@
     "lint": "tsc --noEmit",
     "test": "npm run test:all",
     "test:chat": "tsx lib/api/ragAsk.test.ts && tsx lib/utils/markdown.test.tsx && tsx features/ai/ChatMessage.test.tsx && tsx lib/auth/storage.test.ts && tsx lib/api/conversations.test.ts && tsx features/ai/ConversationHistory.test.tsx && tsx features/ai/ChatInput.test.tsx && tsx features/ai/ChatArea.test.tsx && tsx features/ai/ChatDashboard.test.tsx && tsx lib/utils/returnUrl.test.ts",
-    "test:volume": "tsx lib/charts/volumeInsight.test.ts && tsx lib/charts/chartAdapters.test.ts && tsx lib/charts/priceChartVisibility.test.ts && tsx lib/hooks/useStockDashboard.test.ts",
+    "test:volume": "tsx lib/charts/volumeInsight.test.ts && tsx lib/charts/chartAdapters.test.ts && tsx lib/charts/priceChartVisibility.test.ts && tsx lib/hooks/useStockDashboard.test.ts && tsx features/stock/price/PricePanel.test.tsx",
     "test:order": "tsx features/order/paperPortfolio.test.tsx",
     "test:news": "tsx lib/hooks/useNewsList.test.ts && tsx lib/news/stockNewsView.test.ts && tsx lib/utils/newsImpact.test.ts && tsx features/news/NewsCard.test.ts && tsx features/news/NewsFilters.test.tsx && tsx features/news/NewsEventAnalysisPanel.test.tsx && tsx lib/api/news.test.ts && tsx features/news/articleParagraphs.test.ts && tsx features/news/impactGroups.test.ts && tsx features/news/titleBreaks.test.ts",
     "test:admin": "tsx features/admin/AdminDashboard.test.tsx",
@@ -52,7 +52,9 @@
     "@types/node": "^22.20.4",
     "@types/react": "~19.2.18",
     "@types/react-dom": "~19.2.7",
+    "@types/react-test-renderer": "19.1.0",
     "@types/three": "^0.186.0",
+    "react-test-renderer": "19.2.8",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   },

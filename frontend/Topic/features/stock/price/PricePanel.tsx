@@ -110,18 +110,10 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
         ) : null}
       </Ledger>
 
-      {statistics ? <StatisticsPanel stats={statistics} /> : null}
+      {!chartLoading && statistics ? <StatisticsPanel stats={statistics} /> : null}
 
       <section>
-        {historyLoading ? (
-          <LoadingRows label="讀取歷史股價中…" className="h-[132px] border-y" />
-        ) : historyError ? (
-          <Notice tone="danger">{historyError}</Notice>
-        ) : history ? (
-          <HistoryTable data={history} page={historyPage} pageSize={historyPageSize} onPageChange={setHistoryPage} />
-        ) : (
-          <LoadingRows label="讀取歷史股價中…" className="h-[132px] border-y" />
-        )}
+        <HistoryTable data={history} loading={historyLoading} error={historyError} page={historyPage} pageSize={historyPageSize} onPageChange={setHistoryPage} />
       </section>
     </div>
   );

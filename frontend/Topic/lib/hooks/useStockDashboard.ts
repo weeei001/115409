@@ -80,6 +80,7 @@ export function useStockDashboard(symbol: string) {
   const chartReq = useRef(0);
   const chipsReq = useRef(0);
   const historyReq = useRef(0);
+  const historyRange = useRef('');
 
   const setStartDate = useCallback((value: SetStateAction<string>) => {
     setHistoryPage(1);
@@ -176,7 +177,11 @@ export function useStockDashboard(symbol: string) {
     const id = ++chartReq.current;
     setChartError(null);
     setChartLoading(true);
+    setCandlestickMA(null);
+    setVolumeData(null);
     setVolumeInsight(null);
+    setPriceChangeData(null);
+    setStatistics(null);
     try {
       const tasks: Promise<unknown>[] = [
         fetchCandlestickMA(sym, sd, ed, ma),
@@ -191,10 +196,9 @@ export function useStockDashboard(symbol: string) {
       setCandlestickMA(kma.status === 'fulfilled' ? (kma.value as CandlestickWithMAResponse) : null);
       setVolumeInsight(volumeHistory.status === 'fulfilled'
         ? buildVolumeInsight((volumeHistory.value as HistoricalPriceList).data, ed) : null);
-      if (vol.status === 'fulfilled') setVolumeData(vol.value as VolumeAnalysisResponse);
-      if (stats.status === 'fulfilled') setStatistics(toPriceStats(stats.value as Parameters<typeof toPriceStats>[0]));
-      if (!withChange) setPriceChangeData(null);
-      else if (change?.status === 'fulfilled') setPriceChangeData(change.value as PriceChangeResponse);
+      setVolumeData(vol.status === 'fulfilled' ? vol.value as VolumeAnalysisResponse : null);
+      setStatistics(stats.status === 'fulfilled' ? toPriceStats(stats.value as Parameters<typeof toPriceStats>[0]) : null);
+      setPriceChangeData(withChange && change?.status === 'fulfilled' ? change.value as PriceChangeResponse : null);
 
       const results = [kma, vol, stats, volumeHistory, change].filter(Boolean) as PromiseSettledResult<unknown>[];
       const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -244,7 +248,7 @@ export function useStockDashboard(symbol: string) {
       const msg = errorMessage(err, '無法載入歷史資料');
       setHistoryError(msg);
       toast.error(msg);
-      setHistory(null);
+      setHistory((previous) => previous ? { total: previous.total, rows: [] } : null);
     } finally {
       if (id === historyReq.current) setHistoryLoading(false);
     }
@@ -252,10 +256,26 @@ export function useStockDashboard(symbol: string) {
 
   const ready = isStockSymbol(symbol) && !loading && rangeReady;
 
+  // A new query must not paint statistics or details from the previous range.
+  useLayoutEffect(() => {
+    chartReq.current += 1;
+    setCandlestickMA(null);
+    setVolumeData(null);
+    setVolumeInsight(null);
+    setPriceChangeData(null);
+    setStatistics(null);
+    setChartError(null);
+    setChartLoading(ready);
+  }, [ready, symbol, startDate, endDate, maPeriods, showPriceChange]);
+
   // Clear the previous range/page before painting and reject its late response.
   useLayoutEffect(() => {
     historyReq.current += 1;
-    setHistory(null);
+    const range = JSON.stringify([ready, symbol, startDate, endDate]);
+    const sameRange = range === historyRange.current;
+    historyRange.current = range;
+    // Keep only the count when paging so controls and the expanded table stay mounted.
+    setHistory((previous) => sameRange && previous ? { total: previous.total, rows: [] } : null);
     setHistoryError(null);
     setHistoryLoading(ready);
   }, [ready, symbol, startDate, endDate, historyPage]);
