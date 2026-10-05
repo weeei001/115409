@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     # Chat intent, answers and citation repair share a separate latency budget.
     # An empty model preserves existing deployments until a chat model is selected.
     CHAT_LLM_MODEL: str = ""
-    CHAT_LLM_MAX_TOKENS: int = 2048
+    CHAT_LLM_MAX_TOKENS: int = 8192
     CHAT_LLM_TIMEOUT_SECONDS: float = 60
     CHAT_LLM_MAX_RETRIES: int = 0
     LLM_INPUT_PRICE_PER_M: float = 0.20

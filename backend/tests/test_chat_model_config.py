@@ -70,6 +70,6 @@ def test_empty_chat_model_preserves_existing_model_with_separate_limits(settings
     service = ChatService(settings=settings, http=None, retrieval=FakeRetrieval())
     assert service.llm.model_name == settings.LLM_MODEL
     assert service.llm.settings is not settings
-    assert service.llm.settings.LLM_MAX_TOKENS == 2048
+    assert service.llm.settings.LLM_MAX_TOKENS == 8192
     assert service.llm.settings.LLM_TIMEOUT_SECONDS == 60
     assert service.llm.settings.LLM_MAX_RETRIES == 0
