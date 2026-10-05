@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import hmac
 import json
 import logging
 import math
@@ -56,6 +56,7 @@ class FinMindClient:
         self.max_requests, self.window_seconds = max_requests, window_seconds
         self.request_interval, self.last_request_at = request_interval, 0.0
         self.usage_path, self.requests_made = usage_path, 0
+        self._usage_fingerprint = hmac.digest(token.encode("utf-8"), b"finmind-api-usage:v2", "sha256").hex()
 
     def _reserve_request(self) -> None:
         now = time.time()
@@ -64,8 +65,12 @@ class FinMindClient:
         if self.usage_path is not None and self.usage_path.is_file():
             try:
                 state = json.loads(self.usage_path.read_text(encoding="utf-8"))
-                if isinstance(state, dict) and state.get("token") == hashlib.sha256(self.token.encode()).hexdigest():
-                    recent = state.get("timestamps", [])
+                if isinstance(state, dict):
+                    legacy = "version" not in state and isinstance(state.get("token"), str)
+                    # Legacy SHA-256 fingerprints cannot be converted without the old credential.
+                    # Retain their recent quota conservatively for one window, then write v2.
+                    if legacy or (state.get("version") == 2 and state.get("token") == self._usage_fingerprint):
+                        recent = state.get("timestamps", [])
             except (OSError, TypeError, ValueError):
                 recent = []
         recent = [stamp for stamp in recent if isinstance(stamp, (int, float))
@@ -79,7 +84,8 @@ class FinMindClient:
             self.usage_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.usage_path.with_suffix(".tmp")
             temporary.write_text(json.dumps({
-                "token": hashlib.sha256(self.token.encode()).hexdigest(),
+                "version": 2,
+                "token": self._usage_fingerprint,
                 "timestamps": recent,
             }), encoding="utf-8")
             os.replace(temporary, self.usage_path)

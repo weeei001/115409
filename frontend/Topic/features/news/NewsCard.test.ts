@@ -6,6 +6,7 @@ import { NewsCard } from './NewsCard';
 import { NewsArticle } from './NewsArticle';
 import { buildArticleParagraphs } from './articleParagraphs';
 import { parseRelatedStocks, taiwanStockCode, taiwanStockHref, UNSUPPORTED_STOCK_MARKET_MESSAGE } from '../../lib/news/newsLinks';
+import { renderedElements } from '../../lib/testing/markup';
 
 const news: News = {
   article_id: 'saved-article', source: 'cnyes', source_group: 'cnyes', stock_id: null,
@@ -22,7 +23,7 @@ for (const status of ['conflict', 'superseded', 'historical'] as const) {
   }));
   assert.ok(html.includes('不套用現行 AI 影響'));
   assert.ok(!html.includes('STALE_IMPACT_REASON'));
-  assert.ok(html.includes('https://example.com/original'));
+  assert.ok(renderedElements(html, 'a').some((link) => link.attribs.href === news.url));
   if (status === 'historical') assert.ok(html.includes(`revision_id=${'a'.repeat(64)}`));
 }
 const activeHtml = renderToStaticMarkup(React.createElement(NewsCard, { news, targetStock: '2330' }));
@@ -38,7 +39,7 @@ assert.ok(!mixedHtml.includes('負向') && !mixedHtml.includes('正向'));
 assert.ok(mixedHtml.includes('項事件') && (mixedHtml.match(/高重要性/g) ?? []).length === 1);
 // 列尾不放沒有文字的圖示鈕：展開與原始來源各只有一個有文字的入口；站內連結不用外連箭頭
 const listHtml = renderToStaticMarkup(React.createElement(NewsCard, { news }));
-assert.equal((listHtml.match(/https:\/\/example\.com\/original/g) ?? []).length, 1);
+assert.equal(renderedElements(listHtml, 'a').filter((link) => link.attribs.href === news.url).length, 1);
 assert.equal((listHtml.match(/aria-expanded=/g) ?? []).length, 1);
 assert.ok(listHtml.includes('展開內文') && listHtml.includes('查看原始來源'));
 assert.ok(!listHtml.includes('lucide-arrow-up-right'));
@@ -73,4 +74,12 @@ const articleHtml = renderToStaticMarkup(React.createElement(NewsArticle, {
 }));
 assert.ok(articleHtml.includes(UNSUPPORTED_STOCK_MARKET_MESSAGE));
 assert.ok(!articleHtml.includes('href="/stock/005930') && articleHtml.includes('href="/stock/5007"'));
+for (const content of [
+  '<SCRIPT>alert(1)</SCRIPT><p title="a > b">Safe body</p>',
+  '<scr<script>ipt>alert(1)</scr</script>ipt>',
+  '&lt;img src=x onerror=alert(1)&gt;',
+]) {
+  const markup = renderToStaticMarkup(React.createElement(NewsCard, { news: { ...news, content } }));
+  for (const tag of ['script', 'img', 'style']) assert.equal(renderedElements(markup, tag).length, 0);
+}
 console.log('NewsCard version state tests passed');

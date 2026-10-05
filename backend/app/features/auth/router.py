@@ -74,4 +74,4 @@ def forgot_password(body: ForgotPasswordRequest, db: Database, settings: Configu
 
 @router.post("/reset-password", response_model=MessageResponse, responses={400: {}, 403: {}, 422: {}})
 def reset_password(body: ResetPasswordRequest, db: Database):
-    return {"message": service.reset_password(db, body)}
+    return {"message": service.reset_password(db, body.token, body.new_password)}
