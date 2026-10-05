@@ -75,8 +75,18 @@ def test_unrelated_structured_source_does_not_hide_valid_news_evidence():
 
 @pytest.mark.parametrize("claim", [
     "建議先投入可用資金的20%，其餘保留。",
+    "建議先投入可用資金20%。",
     "建議將現金占比調整至50%。",
+    "建議現金占比50%。",
     "可考慮保留現金的20%。",
+    "建議保留20%現金。",
+    "建議先保留20%的現金。",
+    "建議將20%的可用資金分批投入。",
+    "可以考慮把20%現金保留。",
+    "建議先投入可用資金的20%至30%。",
+    "建議保留20%至30%的現金。",
+    "建議將20%至30%的可用資金分批投入。",
+    "1. 建議先投入可用資金20%。",
 ])
 def test_explicit_allocation_proposals_need_not_be_existing_observations(claim):
     assert numeric_claims_supported(claim, [portfolio()])
@@ -88,6 +98,18 @@ def test_explicit_allocation_proposals_need_not_be_existing_observations(claim):
     "建議先投入可用資金的20%。現金占比50%。",
     "建議先投入可用資金的20%，收盤價999元。",
     "持股占比20%。",
+    "建議保留20%現金，現金占比50%。",
+    "建議保留20%現金，收盤價999元。",
+    "建議先投入可用資金20%，可用資金999元。",
+    "建議保留現金120%。",
+    "建議保留-20%現金。",
+    "建議先投入可用資金的20%至120%。",
+    "建議先投入可用資金的30%至20%。",
+    "建議保留66.67%至33.33%現金。",
+    "建議目前現金占比50%。",
+    "建議先投入25%。",
+    "建議將20%的可用資金，目前現金占比50%。",
+    "建議保留20%現金，但目前持股占比20%。",
 ])
 def test_proposal_exemption_never_covers_another_observation(claim):
     assert not numeric_claims_supported(claim, [portfolio()])

@@ -55,6 +55,24 @@ def test_local_citation_retains_a_new_explicit_subject():
                            [first, price_source("S2", 200)]).startswith(answer)
 
 
+def test_personal_allocation_proposals_keep_citation_checks_local():
+    from app.features.chat.knowledge import reference_source
+
+    personal = reference_source("Portfolio", json.dumps({"portfolio": {
+        "initialized": True, "available_cash": 50000, "cash_allocation_pct": 100,
+        "holdings_allocation_pct": 0, "positions": [],
+    }}), category="personal").model_copy(update={"citation_id": "S1"})
+    answer = "可用資金50000元。[S1] 建議將20%至30%的可用資金分批投入，建議保留50%現金。[S1]"
+    assert _checked_answer(answer, {"finish_reason": "stop"}, [personal]).startswith(answer)
+    for rejected in (
+        "建議保留20%現金[S1]，現金占比20%[S1]。",
+        "建議保留20%現金[S1]，可用資金999元[S1]。",
+        "建議保留20%現金[S99]。",
+    ):
+        with pytest.raises(chat_module.CitationValidationError):
+            _checked_answer(rejected, {"finish_reason": "stop"}, [personal])
+
+
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("reason", ["empty", "numbers", "citations"])
 def test_recovery_uses_failure_category_and_publishes_only_valid_replacement(chat, monkeypatch, stream, reason):

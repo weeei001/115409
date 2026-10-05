@@ -63,6 +63,51 @@ def test_favorites_resolve_before_news_retrieval(monkeypatch, chat_session_facto
     assert response.detected_stocks == ["2330"]
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_large_favorites_with_cash_proposals_do_not_trigger_answer_recovery(monkeypatch, stream):
+    from app.features.favorites import repository
+    from app.features.paper_portfolio import service as portfolio_service
+    from app.features.chat.knowledge import reference_source
+
+    favorites = [SimpleNamespace(symbol=str(1100 + index), name=f"Company {index}") for index in range(40)]
+    monkeypatch.setattr(repository, "favorites", lambda db, owner: favorites)
+    monkeypatch.setattr(portfolio_service, "snapshot", lambda db, owner: {
+        "initialized": True, "available_cash": 50000, "cash": 50000, "equity": 50000,
+        "cash_allocation_pct": 100, "holdings_allocation_pct": 0, "positions": [],
+    })
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {})
+    answer = ("可用資金50000元，持股占比0%，收藏清單有40檔。[S1]\n\n"
+              "建議先投入可用資金20%至30%，建議保留50%現金。[S1]")
+    models = FakeModels(intent={"stocks": [], "data_needs": ["favorites", "portfolio", "market"]}, answer=answer)
+    service = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
+                          session_factory=lambda: nullcontext(object()))
+    monkeypatch.setattr(service, "_stock_options", lambda: {row.symbol: row.name for row in favorites})
+    market_calls = []
+
+    def market_sources(symbols, as_of, start_date):
+        market_calls.append(symbols)
+        return [reference_source("Market", json.dumps({"columns": ["date", "close"],
+            "rows": [["2026-10-02", 100]]}), category="market_technical").model_copy(update={"stock_id": symbol})
+            for symbol in symbols]
+
+    monkeypatch.setattr(service, "_market_sources", market_sources)
+    request = trusted("請參考我的模擬投資可用資金、持股與收藏股票，協助我討論下一步投資安排。")
+
+    async def run():
+        if not stream:
+            return (await service.ask(request)).model_dump()
+        results = [event async for event in service.stream_events(request)]
+        assert results[-1]["type"] == "done"
+        assert not any("重新" in event.get("content", "") for event in results if event["type"] == "status")
+        return results[-1]
+
+    result = asyncio.run(run())
+    assert result["answer"].startswith(answer)
+    assert market_calls == [[row.symbol for row in favorites[:6]]]
+    assert len(json.loads(result["sources"][0]["content"])["favorites"]) == 40
+    assert [kind for kind, _ in models.calls] == ["intent", "stream" if stream else "text"]
+
+
 @pytest.mark.parametrize("query,needs,expected", [
     ("我的投資預算有多少？", [], {"portfolio"}),
     ("我買得起 2330 嗎？", ["market"], {"portfolio"}),
