@@ -33,7 +33,14 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Worker interrupted", file=sys.stderr)
         return 130
+    except SystemExit as exc:
+        if exc.code:
+            from app.jobs.diagnostics import report_failure
+            report_failure("arguments", reason="invalid_arguments")
+        raise
     except Exception as exc:
+        from app.jobs.diagnostics import report_failure
+        report_failure("dispatch", error=exc)
         # The CLI boundary must not echo tokens, HTTP bodies or SQL parameters.
         print(f"{args.job} failed ({type(exc).__name__})", file=sys.stderr)
         return 1

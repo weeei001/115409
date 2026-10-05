@@ -64,6 +64,24 @@ def test_worker_failure_is_nonzero_and_does_not_echo_private_data(monkeypatch, c
     assert capsys.readouterr().err == "news-ingest failed (RuntimeError)\n"
 
 
+def test_worker_exception_keeps_safe_diagnostic_and_invalid_arguments_still_raise(monkeypatch, tmp_path):
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV, read_failure
+    target = tmp_path / "failure.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+    def fail(*args):
+        raise RuntimeError("private SQL password")
+    monkeypatch.setattr("app.jobs.__main__.dispatch", fail)
+    assert main(["news-ingest"]) == 1
+    assert read_failure(target) == {"phase": "dispatch", "reason": "worker_exception", "error_type": "RuntimeError"}
+    def invalid(*args):
+        raise SystemExit(2)
+    monkeypatch.setattr("app.jobs.__main__.dispatch", invalid)
+    with pytest.raises(SystemExit) as error:
+        main(["news-impact-batch"])
+    assert error.value.code == 2
+    assert read_failure(target) == {"phase": "arguments", "reason": "invalid_arguments"}
+
+
 def test_cache_warmup_uses_trading_dates_isolated_sessions_and_reports_failures(db_session, settings, monkeypatch):
     from app.jobs import warmup
 

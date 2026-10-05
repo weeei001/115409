@@ -52,7 +52,8 @@ export interface AdminRun {
   diagnostics?: {
     run_id: number;
     error_category: string | null;
-    failed_stages: Array<{ stage: string; exit_code: number }>;
+    failed_stages: Array<{ stage: string; exit_code: number; phase?: string; reason?: string;
+      error_type?: string; failure_reasons?: Record<string, number> }>;
     stage: string | null;
     stage_started_at: string | null;
     last_activity_at: string | null;

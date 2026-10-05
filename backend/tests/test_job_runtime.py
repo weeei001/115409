@@ -342,6 +342,8 @@ def test_exception_and_service_stop_have_safe_distinct_diagnostics(tmp_path, set
         with factory() as db:
             data = service.get_run(db, run_id, jobs)
             assert data["diagnostics"]["error_category"] == "execution_exception"
+            assert data["diagnostics"]["failed_stages"] == [{"stage": "crawl-cnyes", "exit_code": 1,
+                "phase": "dispatch", "reason": "worker_exception", "error_type": "ValueError"}]
             assert "private" not in str(data)
             next_id = service.perform_job(db, db.get(User, user_id), jobs, "cnyes", "run", None)["run_id"]
         def stopping(command):
@@ -354,6 +356,40 @@ def test_exception_and_service_stop_have_safe_distinct_diagnostics(tmp_path, set
             assert data["status"] == "interrupted"
             assert data["diagnostics"]["error_category"] == "service_stop"
         assert jobs.snapshot()["run_activity"] == {}
+    finally:
+        engine.dispose()
+
+
+def test_worker_failure_reason_is_retained_after_child_and_later_stage_finish(tmp_path, settings, monkeypatch):
+    import json
+    from pathlib import Path
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    jobs.status = "running"
+    paths = []
+    class Child:
+        def __init__(self, command, environment):
+            self.stage = command[3]
+            self.path = Path(environment[DIAGNOSTICS_ENV])
+            paths.append(self.path)
+        def wait(self, timeout):
+            if self.stage == "news-impact-batch":
+                self.path.write_text(json.dumps({"phase": "analysis", "reason": "budget_exhausted",
+                    "token": "private-key", "failure_reasons": {"validation_failed": 2, "private-content": 1}}))
+                return 1
+            return 0
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda command, *, cwd, env: Child(command, env))
+    try:
+        with factory() as db:
+            run_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "run", None)["run_id"]
+        assert jobs._execute(run_id) == 1
+        assert all(not path.parent.exists() for path in paths), "Per-child diagnostics must be cleaned up."
+        with factory() as db:
+            data = service.get_run(db, run_id, jobs)
+            assert data["diagnostics"]["failed_stages"] == [{"stage": "news-impact-batch", "exit_code": 1,
+                "phase": "analysis", "reason": "budget_exhausted", "failure_reasons": {"validation_failed": 2}}]
+            assert "budget_exhausted" in data["error"] and "private" not in str(data)
+            assert db.get(AdminJobRun, run_id).status == "failed"
     finally:
         engine.dispose()
 

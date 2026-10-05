@@ -3,6 +3,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { News } from '../../lib/types/api';
 import { NewsCard } from './NewsCard';
+import { NewsArticle } from './NewsArticle';
+import { buildArticleParagraphs } from './articleParagraphs';
+import { parseRelatedStocks, taiwanStockCode, taiwanStockHref, UNSUPPORTED_STOCK_MARKET_MESSAGE } from '../../lib/news/newsLinks';
 
 const news: News = {
   article_id: 'saved-article', source: 'cnyes', source_group: 'cnyes', stock_id: null,
@@ -41,4 +44,33 @@ assert.ok(listHtml.includes('展開內文') && listHtml.includes('查看原始�
 assert.ok(!listHtml.includes('lucide-arrow-up-right'));
 // 影響對象的個股代號連到個股頁，觸控目標 44px
 assert.ok(/href="\/stock\/2330"[^>]*min-h-11|min-h-11[^>]*href="\/stock\/2330"/.test(listHtml) || /<a[^>]*class="[^"]*min-h-11[^"]*"[^>]*href="\/stock\/2330"/.test(listHtml));
+
+for (const identifier of ['5007', '5007.TW', '5007.TWO', '5007-TW', 'TWSE:5007', 'TPEx:5007']) {
+  assert.equal(taiwanStockCode(identifier), '5007');
+  assert.equal(taiwanStockHref(identifier), '/stock/5007');
+}
+for (const identifier of ['005930-KR', '5007.US', 'KR:5007', 'AAPL-US', 'tw_stock']) {
+  assert.equal(taiwanStockCode(identifier), null);
+  assert.equal(taiwanStockHref(identifier), null);
+}
+const foreignNews: News = { ...news, stock_id: '005930-KR', tags: '005930-KR,5007.TWO', event_analysis: { status: 'pending', events: [], impacts: [] } };
+assert.deepEqual(parseRelatedStocks(foreignNews), ['005930-KR', '5007']);
+assert.deepEqual(parseRelatedStocks(foreignNews, true), ['5007']);
+for (const layout of ['stack', 'ledger'] as const) {
+  const html = renderToStaticMarkup(React.createElement(NewsCard, { news: foreignNews, layout }));
+  assert.ok(html.includes('005930-KR') && html.includes(UNSUPPORTED_STOCK_MARKET_MESSAGE));
+  assert.ok(!html.includes('href="/stock/005930') && html.includes('href="/stock/5007"'));
+}
+const foreignImpactHtml = renderToStaticMarkup(React.createElement(NewsCard, { news: { ...news,
+  event_analysis: { status: 'success', events: [], impacts: [{ ...base, target_id: '005930-KR', target_name: '三星電子' }] },
+} }));
+assert.ok(foreignImpactHtml.includes('三星電子') && foreignImpactHtml.includes(UNSUPPORTED_STOCK_MARKET_MESSAGE));
+assert.ok(!foreignImpactHtml.includes('href="/stock/005930'));
+const articleHtml = renderToStaticMarkup(React.createElement(NewsArticle, {
+  news: foreignNews, stockCodes: ['005930-KR', '5007.TWO'], selectedStock: '',
+  model: buildArticleParagraphs(foreignNews.content ?? '', []), activeQuotes: new Set<string>(),
+  pressedQuotes: new Set<string>(), scrollRequest: 0,
+}));
+assert.ok(articleHtml.includes(UNSUPPORTED_STOCK_MARKET_MESSAGE));
+assert.ok(!articleHtml.includes('href="/stock/005930') && articleHtml.includes('href="/stock/5007"'));
 console.log('NewsCard version state tests passed');

@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
 import type { ArticleModel, ArticleSegment } from './articleParagraphs';
+import { taiwanStockHref, UNSUPPORTED_STOCK_MARKET_MESSAGE } from '@/lib/news/newsLinks';
 
 /**
  * 引用句平時只有一條很淡的 1px 點狀底線（約 40% 不透明的 input 色；安靜、不像連結，但仍可用鍵盤到達），
@@ -103,10 +104,12 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
           <span className="characteristic mr-1">關聯個股</span>
           {stockCodes.map((code) => {
             const current = code === selectedStock;
+            const stockHref = taiwanStockHref(code);
+            if (!stockHref) return <span key={code} title={UNSUPPORTED_STOCK_MARKET_MESSAGE} className="font-mono text-[13px] tabular-nums">{formatStockLabel(code)}<span className="sr-only">（{UNSUPPORTED_STOCK_MARKET_MESSAGE}）</span></span>;
             return (
               <Link
                 key={code}
-                href={`/stock/${code}`}
+                href={stockHref}
                 aria-current={current ? 'true' : undefined}
                 className={cn(
                   'inline-flex min-h-11 items-center rounded-sm border px-2.5 font-mono text-[13px] font-medium tabular-nums outline-none transition-colors duration-(--dur-flash) focus-lamp',

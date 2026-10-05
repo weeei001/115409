@@ -1,8 +1,11 @@
 """One serial scheduler owned by the FastAPI lifespan, with durable admin controls."""
 from datetime import datetime, timedelta, timezone
 import logging
+import os
+from pathlib import Path
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from threading import Event, RLock, Thread
 import time as clock
 
@@ -13,7 +16,8 @@ from app.core.config import state_directory
 from app.core.errors import AppError, Conflict, NotFound, ServiceUnavailable
 from app.db.models.admin import AdminJobControl, AdminJobRun
 from app.db.models.stock_info import StockInfo
-from app.features.admin.diagnostics import STAGES
+from app.features.admin.diagnostics import STAGES, format_failure
+from app.jobs.diagnostics import DIAGNOSTICS_ENV, failure_record, read_failure
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 
@@ -37,6 +41,7 @@ class JobRuntime:
         self.stop_event = Event()
         self.thread = None
         self.child = None
+        self.worker_diagnostic = {}
         self.status = "disabled" if not settings.JOBS_ENABLED else "starting"
         self.error = None
         self.heartbeat = None
@@ -205,15 +210,17 @@ class JobRuntime:
                     "stage_started_at": started, "last_activity_at": started}
             print(f"admin_run={run_id} stage={stage or 'unknown'} event=started at={started}", flush=True)
             try:
+                self.worker_diagnostic = {}
                 result = self._worker(command)
-            except Exception:
+            except Exception as exc:
+                failures.append(format_failure(command[0], 1, failure_record("dispatch", error=exc)))
                 print(f"admin_run={run_id} stage={stage or 'unknown'} event=exception at={datetime.now(timezone.utc).isoformat()}", flush=True)
                 raise
             print(f"admin_run={run_id} stage={stage or 'unknown'} event=finished exit_code={result} at={datetime.now(timezone.utc).isoformat()}", flush=True)
             with self.lock:
                 self.run_activity.pop(name, None)
             if result:
-                failures.append(f"{command[0]} exited with code {result}")
+                failures.append(format_failure(command[0], result, self.worker_diagnostic))
             return result
 
         error = None
@@ -226,7 +233,7 @@ class JobRuntime:
             status = "succeeded" if result == 0 else "failed"
             error = "; ".join(failures) or ("Job failed" if result else None)
         except Exception as exc:
-            result, status, error = 1, "failed", f"Job failed ({type(exc).__name__})"
+            result, status, error = 1, "failed", "; ".join(failures) or f"Job failed ({type(exc).__name__})"
         if self.stop_event.is_set() and result != 0:
             status, error = "interrupted", "Service stopped before this run completed"
         try:
@@ -252,17 +259,27 @@ class JobRuntime:
         return result
 
     def _worker(self, command):
+        self.worker_diagnostic = {}
+        with TemporaryDirectory(prefix="app-job-diagnostics-") as directory:
+            diagnostic_path = Path(directory) / "failure.json"
+            environment = dict(os.environ, **{DIAGNOSTICS_ENV: str(diagnostic_path)})
+            return self._wait_worker(command, diagnostic_path, environment)
+
+    def _wait_worker(self, command, diagnostic_path, environment):
         with self.lock:
             if self.stop_event.is_set():
                 raise InterruptedError("Service stopping")
-            child = subprocess.Popen([sys.executable, "-m", "app.jobs", *command], cwd=ROOT)
+            child = subprocess.Popen([sys.executable, "-m", "app.jobs", *command], cwd=ROOT, env=environment)
             self.child = child
             if self.stop_event.is_set():
                 self._stop_child()
         try:
             while True:
                 try:
-                    return child.wait(timeout=1)
+                    result = child.wait(timeout=1)
+                    if result:
+                        self.worker_diagnostic = read_failure(diagnostic_path)
+                    return result
                 except subprocess.TimeoutExpired:
                     with self.lock:
                         self.heartbeat = datetime.now(timezone.utc).isoformat()

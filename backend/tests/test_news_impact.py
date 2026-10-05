@@ -179,6 +179,7 @@ def test_invalid_evidence_fails_without_leaving_impacts(db_session, settings, tm
     bad["impacts"][0]["evidence"] = [{"field": "content", "quote": "降息一碼"}]
     summary = run(db_session, settings, tmp_path, StubLlm([bad, bad]))
     assert summary["failed"] == 1 and summary["api_calls"] == 2
+    assert summary["failure_reasons"] == {"validation_failed": 1}
     assert db_session.get(NewsEventAnalysis, "invalid").status == "failed"
     assert db_session.query(NewsEventImpact).count() == 0
 
@@ -241,4 +242,28 @@ def test_budget_stops_before_call(db_session, settings, tmp_path):
 def test_recognition_alias_upgrade_invalidates_previous_analysis_config(settings, monkeypatch):
     current = config_hash(settings, CATALOG)
     monkeypatch.setattr("app.features.news.impact.COMPANY_RECOGNITION_VERSION", "mentions-v1")
+    assert config_hash(settings, CATALOG) != current
+
+
+def test_mixed_prompt_upgrade_keeps_quote_validation_and_invalidates_old_analysis(settings, monkeypatch):
+    from app.features.news import impact
+    article = SimpleNamespace(title="政策影響", content="融資成本增加，但資金流入改善。")
+    positive = {"field": "content", "quote": "資金流入改善"}
+    negative = {"field": "content", "quote": "融資成本增加"}
+    payload = {"events": [{"key": "e1", "summary": "政策影響", "statement_type": "fact", "topics": [],
+                           "evidence": [positive, negative]}],
+               "impacts": [{"event_key": "e1", "target_type": "market", "target_id": "TW", "direction": "mixed",
+                            "importance": "medium", "basis": "inferred", "reason": "成本與流入影響並存",
+                            "evidence": [positive]}]}
+    with pytest.raises(ValueError, match="two distinct source quotes"):
+        validate_output(payload, article=article, catalog={})
+    payload["impacts"][0]["evidence"] = [positive, positive]
+    with pytest.raises(ValueError, match="two distinct source quotes"):
+        validate_output(payload, article=article, catalog={})
+    payload["impacts"][0]["evidence"] = [positive, negative]
+    assert validate_output(payload, article=article, catalog={}).impacts[0].direction == "mixed"
+    current = config_hash(settings, CATALOG)
+    monkeypatch.setattr(impact, "PROMPT_VERSION", "impact-v1")
+    monkeypatch.setattr(impact, "SYSTEM_PROMPT", "\n".join(line for line in impact.SYSTEM_PROMPT.splitlines()
+        if not line.startswith("direction=mixed")))
     assert config_hash(settings, CATALOG) != current

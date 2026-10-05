@@ -60,9 +60,11 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
     symbols = [row["symbol"] for row in payload.get("favorites", [])]
     portfolio = payload.get("portfolio", {})
     symbols.extend(row["symbol"] for row in portfolio.get("positions", []) if row.get("symbol"))
-    payload["analysis_limit"] = "Market/news analysis covers at most the first 6 personal symbols per question."
+    symbols = list(dict.fromkeys(symbols))
+    payload["analysis_limit"] = "Market/news analysis covers at most the first 6 personal symbols per question, in favorites order followed by remaining portfolio positions."
     source = reference_source("本次登入使用者的收藏與模擬投資資料", json.dumps(payload, ensure_ascii=False, default=str), category="personal")
-    return list(dict.fromkeys(symbols))[:6], source
+    source.stock_ids = symbols
+    return symbols[:6], source
 
 
 def paper_draft(query, symbols, request):

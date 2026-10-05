@@ -54,6 +54,15 @@ assert.match(diagnosticMarkup, /子工作處理進度未知/);
 assert.match(diagnosticMarkup, /admin_run=7/);
 assert.match(diagnosticMarkup, /news-impact-batch/);
 assert.doesNotMatch(diagnosticMarkup, /死鎖|已恢復/);
+const reasonMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={{ ...run, error: null, diagnostics: {
+  run_id: 7, error_category: 'stage_nonzero', failed_stages: [{ stage: 'news-impact-batch', exit_code: 1,
+    phase: 'analysis', reason: 'consecutive_failures', failure_reasons: { validation_failed: 3 } }],
+  stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',
+} }} />);
+assert.match(reasonMarkup, /失敗階段：事件分析/);
+assert.match(reasonMarkup, /連續分析失敗，已停止本次工作/);
+assert.match(reasonMarkup, /模型回覆未通過驗證 3 篇/);
+assert.doesNotMatch(reasonMarkup, /根因待查/);
 const now = '2026-10-01T13:00:00Z';
 const future = { ...job, paused: false, next_run_at: '2026-10-01T13:30:00Z' };
 const due = { ...future, next_run_at: '2026-10-01T12:30:00Z' };

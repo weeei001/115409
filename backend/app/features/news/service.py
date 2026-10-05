@@ -7,7 +7,7 @@ from app.core.errors import AppError
 from app.features.news import repository
 from app.features.news.impact import article_hash, config_hash
 from app.features.news.schemas import EventAnalysisResponse, EventImpact, News, NewsEvent
-from app.features.news.sentiment import company_catalog, clean_text, analysis_content_window
+from app.features.news.sentiment import company_catalog, clean_text, analysis_content_window, safe_stock_metadata
 from app.features.news.versions import source_states, content_digest, canonical_url
 
 
@@ -60,6 +60,7 @@ def attach_event_analysis(db: Session, articles, stock: str | None = None, *, se
                                key=lambda item: {"high": 0, "medium": 1, "low": 2}[item.importance]),
                 analyzed_at=analysis.analyzed_at, **completeness)
         responses.append(News.model_validate(article).model_copy(update={"event_analysis": event_analysis,
+            **safe_stock_metadata(article.stock_id, article.tags, article.title, article.content, catalog),
             "source_state": states[article.article_id],
             "target_industries": sorted({row["industry"] for row in catalog.values()
                 if stock and row.get("industry") and (catalog.get(stock) or {}).get("industry")
@@ -98,7 +99,8 @@ def news_detail(db: Session, article_id: str, stock: str | None = None, *, setti
             "limitation": "此為保存的歷史原文，不代表目前有效版本；首次發布與完整修訂歷史仍可能未知。"}
         news.event_analysis = EventAnalysisResponse(status="skipped", content_kind=news.content_kind,
                                                     validation_scope="historical_source_only")
-        return news
+        return news.model_copy(update=safe_stock_metadata(
+            news.stock_id, news.tags, news.title, news.content, company_catalog()))
     article = repository.by_article_id(db, article_id)
     if article is None:
         raise AppError("?曆??唳?摰??啗???", status_code=404)

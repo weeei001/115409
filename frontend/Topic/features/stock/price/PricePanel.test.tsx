@@ -4,7 +4,7 @@ import { act, create, type ReactTestRenderer, type ReactTestInstance } from 'rea
 import type { InternalAxiosRequestConfig } from 'axios';
 import apiClient from '@/lib/api/client';
 import { useStockDashboard, type UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
-import { HistoryTable, StatisticsPanel } from './PriceTables';
+import { HistoryTable, PriceChangeTable, StatisticsPanel, VolumeTable } from './PriceTables';
 
 Object.assign(globalThis, {
   React, IS_REACT_ACT_ENVIRONMENT: true,
@@ -74,6 +74,10 @@ const current = () => dashboard;
 function Harness({ open = true }: { open?: boolean }) {
   dashboard = useStockDashboard('2330');
   return open ? <>
+    {!dashboard.chartLoading ? <>
+      <VolumeTable data={dashboard.volumeData} />
+      {dashboard.showPriceChange ? <PriceChangeTable data={dashboard.priceChangeData} /> : null}
+    </> : null}
     {dashboard.statistics ? <StatisticsPanel stats={dashboard.statistics} /> : null}
     <HistoryTable data={dashboard.history} loading={dashboard.historyLoading} error={dashboard.historyError}
       page={dashboard.historyPage} pageSize={dashboard.historyPageSize} onPageChange={dashboard.setHistoryPage} />
@@ -93,6 +97,8 @@ async function main() {
     await act(async () => { current().setShowPriceChange(true); await flush(); });
     assert.equal(current().statistics?.average_close, 1000);
     assert.equal(current().priceChangeData?.data[0].date, '2026-10-02');
+    assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '量能統計（所選日期區間）'));
+    assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '漲跌明細'));
 
     // Empty ranges must drop every range-specific result, including after drawer reopen.
     await act(async () => { current().setStartDate('2026-10-03'); current().setEndDate('2026-10-03'); await flush(); });
@@ -102,15 +108,20 @@ async function main() {
     assert.equal(current().statistics, null);
     assert.equal(current().history?.total, 0);
     assert.ok(current().volumeInsight, 'fixed rolling volume history is still available');
+    assert.ok(!renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '量能統計（所選日期區間）'));
+    assert.ok(!renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '漲跌明細'));
     await act(async () => { renderer!.update(<Harness open={false} />); });
     await act(async () => { renderer!.update(<Harness />); });
     assert.equal(current().statistics, null);
     assert.ok(!JSON.stringify(renderer!.toJSON()).includes('平均收盤價'));
+    assert.ok(!JSON.stringify(renderer!.toJSON()).includes('2026-10-02'));
 
     await act(async () => { current().setStartDate('2026-07-01'); current().setEndDate('2026-10-01'); await flush(); });
     assert.equal(current().statistics?.average_close, 1100);
     assert.equal(current().volumeData?.data[0].date, '2026-10-01');
     assert.equal(current().priceChangeData?.data[0].date, '2026-10-01');
+    assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '量能統計（所選日期區間）'));
+    assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '漲跌明細'));
 
     // A late response for range A must never overwrite the current range B.
     holdStart = '2026-09-01';
