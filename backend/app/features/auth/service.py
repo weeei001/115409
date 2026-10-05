@@ -16,7 +16,7 @@ from app.db.models.user import User
 from app.features.auth import repository
 from app.features.auth.schemas import (
     ChangePasswordRequest, GoogleAuthRequest, LoginRequest, RegisterRequest,
-    ResetPasswordRequest, TokenResponse, UserPublic,
+    TokenResponse, UserPublic,
 )
 
 
@@ -183,14 +183,15 @@ def forgot_password(db: Session, email: str, settings: Settings) -> str:
     return FORGOT_OK_MESSAGE
 
 
-def reset_password(db: Session, body: ResetPasswordRequest) -> str:
-    token_hash = hashlib.sha256(body.token.strip().encode("utf-8")).hexdigest()
+def reset_password(db: Session, raw_token: str, new_password: str) -> str:
+    # The lookup capability is generated with 256 bits of randomness; passwords use bcrypt.
+    token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
     pair = repository.reset_token(db, token_hash, datetime.now(timezone.utc).replace(tzinfo=None))
     if pair is None:
         raise AppError("重設連結無效或已過期", status_code=400)
     user, _ = pair
     _require_active(user)
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = hash_password(new_password)
     repository.delete_reset_tokens(db, user.id)
     _commit(db)
     return "密碼已重設，請使用新密碼登入。"

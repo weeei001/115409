@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,7 +14,7 @@ from app.core.errors import AppError
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.user import User
 from app.features.auth import service
-from app.features.auth.schemas import ChangePasswordRequest, ResetPasswordRequest
+from app.features.auth.schemas import ChangePasswordRequest
 
 
 def register(client, email="person@example.com"):
@@ -128,7 +129,7 @@ def test_reset_tokens_expire_replace_and_are_single_use(client, db_session, sett
     row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
     db_session.commit()
     with pytest.raises(AppError, match="重設連結無效或已過期"):
-        service.reset_password(db_session, ResetPasswordRequest(token=expired, new_password="Other1234"))
+        service.reset_password(db_session, expired, "Other1234")
 
 
 def test_forgot_password_does_not_reveal_google_or_disabled_accounts(client, db_session, monkeypatch):
@@ -143,6 +144,23 @@ def test_forgot_password_does_not_reveal_google_or_disabled_accounts(client, db_
         assert response.status_code == 200
         assert response.json() == {"message": service.FORGOT_OK_MESSAGE}
     assert db_session.scalar(select(PasswordResetToken)) is None
+
+
+def test_existing_random_token_digest_is_compatible_with_separate_password_input(db_session):
+    user = User(email="legacy@example.com", password_hash=bcrypt.hashpw(b"Original123", bcrypt.gensalt(rounds=4)).decode())
+    db_session.add(user)
+    db_session.flush()
+    raw = secrets.token_urlsafe(32)
+    db_session.add(PasswordResetToken(user_id=user.id, token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)))
+    db_session.commit()
+
+    assert service.reset_password(db_session, " " + raw + " ", "NewPass123") == "密碼已重設，請使用新密碼登入。"
+    assert user.password_hash.startswith("$2b$12$")
+    assert service.verify_password("NewPass123", user.password_hash)
+    assert db_session.scalar(select(PasswordResetToken)) is None
+    with pytest.raises(AppError, match="重設連結無效或已過期"):
+        service.reset_password(db_session, raw, "Other1234")
 
 
 def test_change_password_invalidates_resets_and_checks_current_password(client, db_session, settings):
@@ -179,7 +197,7 @@ def test_failed_password_transaction_preserves_password_and_old_token(db_session
     monkeypatch.setattr(db_session, "commit", fail_commit)
     with pytest.raises(SQLAlchemyError):
         if operation == "reset":
-            service.reset_password(db_session, ResetPasswordRequest(token=raw, new_password="NewPass123"))
+            service.reset_password(db_session, raw, "NewPass123")
         elif operation == "change":
             service.change_password(db_session, user, ChangePasswordRequest(current_password="Original123", new_password="NewPass123"))
         else:

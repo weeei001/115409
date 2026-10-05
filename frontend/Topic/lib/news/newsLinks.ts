@@ -1,4 +1,5 @@
 import type { News } from '../types/api';
+import { DomUtils, parseDocument } from 'htmlparser2';
 
 export const UNSUPPORTED_STOCK_MARKET_MESSAGE = '此市場暫不支援個股分析';
 
@@ -29,7 +30,8 @@ export function parseRelatedStocks(news: Pick<News, 'stock_id' | 'tags'>, onlyCo
   return [...seen];
 }
 
-export const stripHtml = (content: string) => content.replace(/<[^>]*>/g, '');
+/** Extract display text; callers render it as escaped React text, never as HTML. */
+export const stripHtml = (content: string) => DomUtils.innerText(parseDocument(content).children);
 
 export function newsHref(articleId: string, stock?: string) {
   return `/news/${encodeURIComponent(articleId)}${stock ? `?stock=${stock}` : ''}`;

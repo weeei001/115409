@@ -108,7 +108,12 @@ def test_help_and_concepts_work_without_news_or_market_configuration(chat, query
     if needs == ["help"]:
         assert {a["path"] for a in data["actions"]} == {"/", "/compare", "/order"}
     else:
-        assert "fidelity.com" in data["answer"]
+        reference_url = (
+            "https://www.fidelity.com/learning-center/trading-investing/technical-analysis/"
+            "technical-indicator-guide/fast-stochastic"
+        )
+        guide = next(source for source in data["sources"] if source.get("url") == reference_url)
+        assert data["answer"].splitlines()[-1] == f'- [{guide["citation_id"]}] {guide["title"]}：{reference_url}'
         assert not data["actions"]
 
 

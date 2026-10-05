@@ -206,7 +206,11 @@ def test_fund_context_keeps_full_totals_with_bounded_history(monkeypatch):
     ("模擬買進 2330，投入 10 萬元", None, 100000),
     ("模擬買進 2330，投入 10萬", None, 100000),
     ("模擬買進 2330，投入 10,000 元", None, 10000),
+    ("模擬買進 2330，投入 1.5 萬 塊", None, 15000),
+    ("模擬買進 2330，投入 10萬 ", None, 100000),
     ("模擬賣出 2330 100 股", 100, None),
+    ("模擬賣出 2330 1,000 股", 1000, None),
+    ("模擬賣出 2330 1.5 張", 1500, None),
     ("模擬買進 2330", None, None),
 ])
 def test_drafts_keep_explicit_units_and_persist_identity(query, quantity, budget):
@@ -263,3 +267,14 @@ def test_malformed_or_extreme_draft_inputs_are_safe():
     request = trusted("模擬買進 2330，投入 999999999999999999999 萬元")
     assert paper_draft(request.query, ["2330"], request).budget is None
     assert paper_draft(request.query, ["INVALID"], request) is None
+
+
+@pytest.mark.parametrize("query", [
+    "模擬買進 2330，投入 -100 元",
+    "模擬買進 2330，投入 10,00 元",
+    "模擬賣出 2330 10,00 股",
+    "模擬賣出 2330 1.1 股",
+])
+def test_drafts_do_not_extract_partial_or_fractional_quantities(query):
+    draft = paper_draft(query, ["2330"], trusted(query))
+    assert draft.budget is None and draft.quantity is None

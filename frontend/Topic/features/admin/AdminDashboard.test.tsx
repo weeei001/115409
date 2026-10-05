@@ -4,6 +4,7 @@ import { acceptedJobAudit, adminDuration, adminRunScope, adminRunId, adminSchedu
 import type { AdminAudit, AdminJob, AdminRun } from '../../lib/api/admin';
 import { AdminAuditResult, AdminJobs, AdminRunHistory } from '../../pages/admin';
 import { AdminRunDiagnostics } from './RunDiagnostics';
+import { renderedElements, renderedText } from '../../lib/testing/markup';
 
 const job: AdminJob = {
   name: 'market', schedule: '每日 16:00', paused: true, next_run_at: null, active_run_id: null,
@@ -44,7 +45,8 @@ assert.match(historyMarkup, /disabled=""[^>]*aria-label="重跑行情更新執�
 assert.match(historyMarkup, /2026\/9\/30 10:00:00/);
 assert.match(historyMarkup, /5 秒/);
 assert.match(historyMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
-assert.doesNotMatch(historyMarkup, /<script>/);
+assert.equal(renderedElements(historyMarkup, 'script').length, 0);
+assert.ok(renderedText(historyMarkup).includes(run.error!));
 const diagnosticMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={{ ...run, diagnostics: {
   run_id: 7, error_category: 'stage_nonzero', failed_stages: [{ stage: 'news-impact-batch', exit_code: 1 }],
   stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',

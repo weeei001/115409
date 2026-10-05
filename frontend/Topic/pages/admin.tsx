@@ -10,7 +10,7 @@ import { Button, textLinkClass } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import apiClient, { ApiRequestError } from '@/lib/api/client';
 import { userFacingMessage } from '@/lib/api/errorDetail';
-import { acceptedJobAudit, adminDuration, adminRunScope, adminMe, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '@/lib/api/admin';
+import { acceptedJobAudit, adminDuration, adminRunScope, adminMe, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob, fetchAdminRun } from '@/lib/api/admin';
 import type { AdminAudit, AdminJob, AdminList, AdminOverview, AdminRun, AdminStock, Administrator } from '@/lib/api/admin';
 import { AUTH_CHANGE_EVENT, getToken } from '@/lib/auth/storage';
 import { cn } from '@/lib/cn';
@@ -365,7 +365,7 @@ export default function AdminPage() {
     const authToken = getToken();
     setSelectedRun((previous) => previous?.id === runId ? previous : null);
     setRunDetailLoading(true);
-    void apiClient.get<AdminRun>(`/admin/runs/${runId}`, { signal: controller.signal }).then(({ data }) => {
+    void fetchAdminRun(runId, controller.signal).then((data) => {
       if (controller.signal.aborted || authToken !== getToken()) return;
       if (data.id !== runId) throw new Error('Run identifier mismatch');
       setSelectedRun(data);

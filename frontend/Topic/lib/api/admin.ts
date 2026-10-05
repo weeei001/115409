@@ -136,6 +136,13 @@ export function adminRunId(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 2147483647 ? value : null;
 }
 
+export async function fetchAdminRun(value: unknown, signal?: AbortSignal): Promise<AdminRun> {
+  const runId = adminRunId(value);
+  if (runId === null) throw new Error('Invalid run identifier');
+  const { data } = await apiClient.get<AdminRun>(`/admin/runs/${encodeURIComponent(String(runId))}`, { signal });
+  return data;
+}
+
 export function acceptedJobAudit(item: AdminAudit): boolean {
   return item.status === 'succeeded' && ['job.run', 'job.retry'].includes(item.action);
 }

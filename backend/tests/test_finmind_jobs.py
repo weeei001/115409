@@ -333,6 +333,46 @@ def test_finmind_client_honors_hourly_request_limit(tmp_path):
     assert len(calls) == client.requests_made == 2
 
 
+def test_finmind_usage_fingerprint_is_keyed_and_scoped(tmp_path):
+    import hmac
+
+    usage_path = tmp_path / "finmind_api_usage.json"
+    with httpx.Client(transport=httpx.MockTransport(mock_finmind)) as http:
+        client = fetch.FinMindClient(http, "test-job-token", retries=0, usage_path=usage_path)
+        client.dataset("TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+        state = json.loads(usage_path.read_text())
+        assert state["version"] == 2
+        assert state["token"] == hmac.digest(b"test-job-token", b"finmind-api-usage:v2", "sha256").hex()
+        assert "test-job-token" not in usage_path.read_text()
+
+
+def test_finmind_legacy_quota_is_preserved_when_fingerprint_format_changes(tmp_path, monkeypatch):
+    usage_path = tmp_path / "finmind_api_usage.json"
+    usage_path.write_text(json.dumps({"token": "a" * 64, "timestamps": [999.0]}))
+    monkeypatch.setattr(fetch.time, "time", lambda: 1000.0)
+    with httpx.Client(transport=httpx.MockTransport(mock_finmind)) as http:
+        client = fetch.FinMindClient(http, "test-job-token", retries=0, max_requests=2, usage_path=usage_path)
+        client.dataset("TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+        state = json.loads(usage_path.read_text())
+        assert state["version"] == 2 and state["timestamps"] == [999.0, 1000.0]
+        with pytest.raises(fetch.RequestLimitReached):
+            client.dataset("TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+
+
+def test_finmind_new_credential_has_separate_v2_quota(tmp_path, monkeypatch):
+    usage_path = tmp_path / "finmind_api_usage.json"
+    monkeypatch.setattr(fetch.time, "time", lambda: 1000.0)
+    def provider(request):
+        assert request.headers["Authorization"] in {"Bearer first-credential", "Bearer second-credential"}
+        return httpx.Response(200, json={"status": 200, "data": []})
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        fetch.FinMindClient(http, "first-credential", retries=0, max_requests=1, usage_path=usage_path).dataset(
+            "TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+        fetch.FinMindClient(http, "second-credential", retries=0, max_requests=1, usage_path=usage_path).dataset(
+            "TaiwanStockPrice", "2330", "2024-01-01", "2024-01-02")
+    assert json.loads(usage_path.read_text())["timestamps"] == [1000.0]
+
+
 def test_paid_dataset_opt_in_and_export_failure_nonzero(tmp_path, settings, monkeypatch, capsys):
     monkeypatch.setattr(fetch, "get_settings", lambda: settings.model_copy(update={"FINMIND_API_TOKEN": "settings-token"}))
     seen = []
