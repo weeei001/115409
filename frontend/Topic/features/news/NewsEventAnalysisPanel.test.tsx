@@ -36,4 +36,10 @@ for (const [status, text] of [['pending', '尚待處理'], ['failed', '分析失
 }
 assert.ok(renderToStaticMarkup(<NewsEventAnalysisPanel analysis={{ status: 'success', events: [], impacts: [] }} />).includes('沒有可確認'));
 assert.ok(renderToStaticMarkup(<NewsEventAnalysisPanel analysis={{ ...analysis, events: [] }} />).includes('company-first'), 'Impacts remain visible when event context is missing');
+const foreignHtml = renderToStaticMarkup(<NewsEventAnalysisPanel analysis={{ ...analysis, impacts: [
+  { ...impact('company', 'foreign-company'), target_id: '005930-KR', target_name: '三星電子' },
+  { ...impact('company', 'local-company'), target_id: '5007', target_name: '三星科技' },
+] }} />);
+assert.ok(foreignHtml.includes('三星電子') && foreignHtml.includes('此市場暫不支援個股分析'));
+assert.ok(!foreignHtml.includes('href="/stock/005930') && foreignHtml.includes('href="/stock/5007"'));
 console.log('News analysis categories, collapsed details, complete evidence, and status checks passed.');

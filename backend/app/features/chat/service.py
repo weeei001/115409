@@ -207,6 +207,7 @@ class ChatService:
         needs = set(intent.data_needs or ["news"])
         scopes = personal_scopes(request.query, needs)
         personal_symbols = []
+        personal_analysis_note = ""
         if scopes:
             if request._user_id is None:
                 response.answer = "登入後即可讓 AI 讀取你的收藏與模擬持股；目前尚未讀取任何個人資料。"
@@ -261,6 +262,14 @@ class ChatService:
             symbols = list(dict.fromkeys([*supported, *listed]))
         if scopes and not symbols:
             symbols = personal_symbols
+            if len(personal_source.stock_ids) > len(symbols) and needs & {"market", "news"}:
+                analysis_kinds = "與".join(label for kind, label in (("market", "行情"), ("news", "新聞"))
+                                          if kind in needs)
+                personal_analysis_note = (
+                    f"收藏與模擬持股合計 {len(personal_source.stock_ids)} 檔（重複股票只計一次）；"
+                    f"本輪依收藏順序、再接續模擬持股，僅取前 {len(symbols)} 檔分析{analysis_kinds}："
+                    + "、".join(symbols)
+                    + "。其餘股票尚未比較；可在下一題指定股票代碼。")
         if scopes and not symbols:
             needs.discard("market")
             needs.discard("news")
@@ -305,6 +314,8 @@ class ChatService:
         warning = ""
         unavailable = (["股票服務名單暫時無法讀取，無法確認可查詢的股票範圍。"]
                        if not stock_options_available and "help" in needs else [])
+        if personal_analysis_note:
+            unavailable.append(personal_analysis_note)
         if "market" in needs:
             unsupported = [symbol for symbol in symbols if symbol not in market_symbols]
             if unsupported:
@@ -393,6 +404,8 @@ class ChatService:
         response.dashboard = build_dashboard(
             response.sources, symbols, query, [] if forward_outlook else intent.display_focus
         )
+        if personal_analysis_note and response.dashboard:
+            response.dashboard.blocks[0].description += "\n" + personal_analysis_note
         time_focus = ""
         if response.time_range:
             time_focus = f"使用者指定期間：{json.dumps(response.time_range, ensure_ascii=False)}"
@@ -436,8 +449,14 @@ class ChatService:
             try:
                 response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning,
                                                   company_catalog=response._company_catalog)
-            except CitationValidationError:
-                if not _is_forward_outlook(request.query):
+            except AnswerValidationError as retry_exc:
+                # Keep final rejection observable without logging private prose or evidence.
+                finish = result.metadata.get("finish_reason")
+                finish = finish if finish in ("stop", "length", "content_filter", None) else "unknown"
+                logging.getLogger(__name__).warning(
+                    "Chat answer validation failed: reason=%s attempt=2 finish=%s sources=%d",
+                    retry_exc.reason, finish, len(response.sources))
+                if not isinstance(retry_exc, CitationValidationError) or not _is_forward_outlook(request.query):
                     raise
                 response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
             first_usage, retry_usage = _token_usage(metadata), _token_usage(result.metadata)

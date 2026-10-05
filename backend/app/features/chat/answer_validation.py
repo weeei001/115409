@@ -37,6 +37,9 @@ class TruncatedAnswerError(AnswerValidationError):
     reason = "length"
 
 
+NUMERIC_RECOVERY_GUIDANCE = "請先查看本輪資料面板，再指定 1 至 2 檔股票重新提問。"
+
+
 def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "",
                     *, company_catalog: dict | None = None) -> str:
     if metadata.get("finish_reason") == "length" or (
@@ -89,12 +92,12 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
             if not numeric_claims_supported(text, [available[citation] for citation in citations],
                                             company_catalog=company_catalog, context=prior_context + context,
                                             continuation=paragraph[len(context) + len(text):]):
-                raise NumericValidationError("回答的數值與所引用資料無法核對，請稍後重試。")
+                raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE)
 
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}
     if not plan_supported(_normalize(prose), [available[citation] for citation in cited], aliases):
-        raise NumericValidationError("回答的資金配置或賣出股數超出可用範圍，請稍後重試。")
+        raise NumericValidationError("回答的資金配置或賣出股數超出可用範圍。" + NUMERIC_RECOVERY_GUIDANCE)
 
     references = []
     for citation in cited:

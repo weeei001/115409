@@ -1,5 +1,7 @@
 """Keep the Korean Samsung reference separate from Taiwan's Samsung Tech."""
 from types import SimpleNamespace
+from datetime import datetime
+import json
 
 import pytest
 
@@ -35,6 +37,32 @@ def test_independent_taiwan_mention_is_not_hidden_by_a_foreign_reference():
     assert extract_candidate_stocks(None, None, TITLE, text, CATALOG) == ["2330", "5007"]
 
 
+@pytest.mark.parametrize("reference", [
+    "台積電(2330-US)", "台積電（2330.KR）", "台積電 US:2330",
+    "三星科技(005930-KR)",
+])
+def test_foreign_qualified_ticker_overrides_an_adjacent_local_name(reference):
+    assert extract_candidate_stocks(None, None, None, reference, CATALOG) == []
+
+
+@pytest.mark.parametrize("reference", [
+    "台積電(2330-TW)", "台積電（TWSE:2330）", "TW:2330", "三星(5007-TWO)",
+])
+def test_local_qualified_tickers_remain_candidates(reference):
+    assert extract_candidate_stocks(None, None, None, reference, CATALOG) == [
+        "5007" if "5007" in reference else "2330"]
+
+
+def test_qualified_foreign_reference_does_not_hide_a_separate_local_name():
+    content = "台積電(2330-US)公布計畫；台積電(2330-TW)公布台灣營收。"
+    mentions = company_mentions(None, content, CATALOG)
+    assert mentions and all(mention["start"] >= content.index("台積電(2330-TW)") for mention in mentions)
+
+
+def test_unqualified_number_outside_catalog_does_not_override_a_company_name():
+    assert extract_candidate_stocks(None, None, "台積電(2026)營收展望", None, CATALOG) == ["2330"]
+
+
 def impact_output(quote):
     evidence = [{"field": "content", "quote": quote}]
     return {
@@ -65,3 +93,60 @@ def test_pre_fix_impact_fingerprint_cannot_keep_wrong_cached_company_target(sett
         old_hash = impact_module.config_hash(settings, CATALOG)
     analysis = SimpleNamespace(status="success", input_hash=impact_module.article_hash(article), config_hash=old_hash)
     assert not current_analysis(article, analysis, current_hash)
+
+
+@pytest.mark.parametrize("reference", [
+    FOREIGN_REFERENCE, "韓國三星電子", "韓國三星", "三星集團",
+])
+def test_legacy_samsung_tags_cannot_override_unresolved_foreign_names(reference):
+    assert extract_candidate_stocks("5007", "5007.TW,2330", TITLE, reference, CATALOG) == ["2330"]
+
+
+@pytest.mark.parametrize("reference", [
+    "三星(5007)", "三星(5007-TW)", "5007.TWO", "三星科技",
+    f"{FOREIGN_REFERENCE}；三星(5007)公布螺絲產品營收。",
+])
+def test_read_guard_keeps_explicit_local_company_metadata(reference):
+    from app.features.news.sentiment import safe_stock_metadata
+    assert safe_stock_metadata("5007", "5007.TW,2330", TITLE, reference, CATALOG) == {
+        "stock_id": "5007", "tags": "5007.TW,2330"}
+
+
+def test_api_hides_legacy_foreign_company_tags_and_stale_impacts_without_writing(
+        client, db_session, settings, monkeypatch):
+    from app.db.models.news_article import NewsArticle
+    from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+    from app.db.models.news_version import NewsArticleVersion
+    from app.features.news.versions import record_version
+    monkeypatch.setattr("app.features.market.company_catalog.load_catalog", lambda: CATALOG)
+    article = NewsArticle(article_id="legacy-samsung", title=TITLE, content=FOREIGN_REFERENCE,
+        content_kind="full", pub_time="2026-10-05 14:00:00", stock_id="5007", tags="005930-KR,5007.TW,2330")
+    db_session.add(article)
+    db_session.flush()
+    with monkeypatch.context() as previous:
+        previous.setattr(impact_module, "COMPANY_RECOGNITION_VERSION", "mentions-v3")
+        previous_hash = impact_module.config_hash(settings, CATALOG)
+    db_session.add(NewsEventAnalysis(article_id=article.article_id,
+        input_hash=impact_module.article_hash(article), config_hash=previous_hash,
+        status="success", events_json=json.dumps(impact_output(FOREIGN_REFERENCE)["events"])))
+    db_session.add(NewsEventImpact(article_id=article.article_id, event_key="e1", target_type="company",
+        target_id="5007", direction="positive", importance="medium", basis="inferred",
+        reason="Old wrong target", evidence=json.dumps([{"field": "content", "quote": FOREIGN_REFERENCE}]), topics=",ai,"))
+    revision_id = record_version(db_session, article, observed_at=datetime(2026, 10, 5, 15))
+    db_session.commit()
+
+    response = client.get(f"/news/{article.article_id}")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["stock_id"] is None and result["tags"] == "005930-KR,2330"
+    assert result["event_analysis"]["status"] == "pending" and result["event_analysis"]["impacts"] == []
+    listed = client.get("/news").json()["items"][0]
+    assert listed["stock_id"] is None and listed["tags"] == "005930-KR,2330"
+    assert client.get("/news", params={"stock": "5007", "relation": "direct"}).json()["total"] == 0
+    historical = client.get(f"/news/{article.article_id}", params={"revision_id": revision_id}).json()
+    assert historical["stock_id"] is None and historical["tags"] == "005930-KR,2330"
+    assert historical["content"] == FOREIGN_REFERENCE and historical["source_state"]["status"] == "historical"
+    saved = json.loads(db_session.get(NewsArticleVersion, revision_id).snapshot_json)
+    assert saved["stock_id"] == "5007" and saved["tags"] == "005930-KR,5007.TW,2330"
+    assert article.stock_id == "5007" and article.tags == "005930-KR,5007.TW,2330"
+    assert not db_session.new and not db_session.dirty and not db_session.deleted

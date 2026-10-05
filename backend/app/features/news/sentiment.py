@@ -24,11 +24,26 @@ ANALYSIS_INSTRUCTION = ("當 target_stock_id='__article__' 時，判斷整篇文
     "可依標題證據判斷，但須在 reason 中說明來源內容有限。")
 NORMALIZATION_VERSION = "norm_v1"
 # Supplemental catalog aliases change evidence recognition and cached impact eligibility.
-COMPANY_RECOGNITION_VERSION = "mentions-v3"
+COMPANY_RECOGNITION_VERSION = "mentions-v4"
 # ponytail: known ambiguous words require tickers; expand from labeled errors, not guessed matches.
 AMBIGUOUS_COMPANY_NAMES = {"世界", "大量", "精確", "進階", "安心", "全新", "聯合", "中華", "大眾", "統一", "三星"}
 MAX_INPUT_TOKENS = 8000
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+TAIWAN_MARKETS = {"TW", "TWSE", "TPEX", "TWS", "TWO"}
+QUALIFIED_TICKER = re.compile(
+    r"(?<![A-Za-z0-9])(?:(?P<prefix>[A-Za-z][A-Za-z0-9]{1,8})\s*:\s*(?P<prefix_symbol>\d{4,6})"
+    r"|(?P<suffix_symbol>\d{4,6})[.-](?P<suffix>[A-Za-z][A-Za-z0-9]{1,8}))\b"
+    r"|[（(]\s*(?P<bare_symbol>\d{4,6})\s*[）)]", re.IGNORECASE)
+
+
+def local_stock_symbol(value: str) -> str | None:
+    identifier = value.strip()
+    if re.fullmatch(r"\d{4,6}", identifier):
+        return identifier
+    match = QUALIFIED_TICKER.fullmatch(identifier)
+    if match and (match["prefix"] or match["suffix"] or "").upper() in TAIWAN_MARKETS:
+        return match["prefix_symbol"] or match["suffix_symbol"]
+    return None
 
 
 class Evidence(BaseModel):
@@ -82,15 +97,29 @@ def extract_candidate_stocks(stock_id: str | None, tags: str | None, title: str 
                              content: str | None = None, catalog=None) -> list[str]:
     if catalog is None:
         catalog = company_catalog()
+    mentions, rejected = _company_references(title, content, catalog)
+    mentioned_symbols = {mention["symbol"] for mention in mentions}
     result = []
     for candidate in ([stock_id] if stock_id else []) + (tags.split(",") if tags else []):
-        symbol = re.sub(r"\.(?:TW|TWO)$", "", candidate.strip(), flags=re.IGNORECASE).strip()
-        if symbol in catalog and symbol not in result:
+        symbol = local_stock_symbol(candidate)
+        if symbol in catalog and symbol not in result and (symbol not in rejected or symbol in mentioned_symbols):
             result.append(symbol)
-    for mention in company_mentions(title, content, catalog):
+    for mention in mentions:
         if mention["symbol"] not in result:
             result.append(mention["symbol"])
     return result
+
+
+def safe_stock_metadata(stock_id: str | None, tags: str | None, title: str | None,
+                        content: str | None, catalog: dict) -> dict:
+    """Hide contradicted legacy tags in responses without changing saved source data."""
+    mentions, rejected = _company_references(title, content, catalog)
+    rejected -= {mention["symbol"] for mention in mentions}
+    safe_stock = None if stock_id and local_stock_symbol(stock_id) in rejected else stock_id
+    safe_tags = tags
+    if tags and any(local_stock_symbol(item) in rejected for item in tags.split(",")):
+        safe_tags = ",".join(item for item in tags.split(",") if local_stock_symbol(item) not in rejected) or None
+    return {"stock_id": safe_stock, "tags": safe_tags}
 
 
 @lru_cache(maxsize=8192)
@@ -104,19 +133,27 @@ def _company_name_pattern(name: str):
 
 def company_mentions(title: str | None, content: str | None, catalog: dict) -> list[dict]:
     """Resolve overlapping names at each position without hiding separate mentions."""
+    return _company_references(title, content, catalog)[0]
+
+
+def _company_references(title: str | None, content: str | None, catalog: dict) -> tuple[list[dict], set[str]]:
     names: dict[str, set[str]] = {}
     for symbol, company in catalog.items():
         for name in company_aliases(symbol, company):
             if isinstance(name, str) and len(name.strip()) >= 2:
                 names.setdefault(name.strip(), set()).add(symbol)
-    mentions = []
+    mentions, rejected = [], set()
     for field, text in (("title", title or ""), ("content", content or "")):
         candidates = []
         for name, symbols in names.items():
-            if len(symbols) != 1 or name in AMBIGUOUS_COMPANY_NAMES:
+            if len(symbols) != 1:
                 continue
             for match in _company_name_pattern(name).finditer(text):
-                candidates.append({"symbol": next(iter(symbols)), "field": field,
+                symbol = next(iter(symbols))
+                if name in AMBIGUOUS_COMPANY_NAMES:
+                    rejected.add(symbol)
+                    continue
+                candidates.append({"symbol": symbol, "field": field,
                     "start": match.start(), "end": match.end(), "kind": "name"})
         occupied = []
         for candidate in sorted(candidates, key=lambda item: (-(item["end"] - item["start"]), item["start"])):
@@ -124,17 +161,23 @@ def company_mentions(title: str | None, content: str | None, catalog: dict) -> l
                 continue
             occupied.append((candidate["start"], candidate["end"]))
             mentions.append(candidate)
-        for match in re.finditer(r"(?<!\d)(\d{4,6})[.-](?:TWO|TW)\b|[（(]\s*(\d{4,6})\s*[）)]", text, re.IGNORECASE):
-            group = 1 if match.group(1) else 2
-            symbol = match.group(group)
+        for match in QUALIFIED_TICKER.finditer(text):
+            group = "prefix_symbol" if match["prefix_symbol"] else "suffix_symbol" if match["suffix_symbol"] else "bare_symbol"
+            qualifier = (match["prefix"] or match["suffix"] or "").upper()
+            symbol = match[group] if not qualifier or qualifier in TAIWAN_MARKETS else None
+            if not qualifier and symbol not in catalog:
+                continue
+            # An explicit identifier overrides the nearby name, including foreign markets.
+            contradicted = [mention for mention in mentions if (
+                mention["field"] == field and mention["kind"] == "name"
+                and mention["symbol"] != symbol and mention["end"] <= match.start()
+                and re.fullmatch(r"[\s（(]*", text[mention["end"]:match.start()]))]
+            rejected.update(mention["symbol"] for mention in contradicted)
+            mentions = [mention for mention in mentions if mention not in contradicted]
             if symbol in catalog:
-                mentions = [mention for mention in mentions if not (
-                    mention["field"] == field and mention["kind"] == "name"
-                    and mention["symbol"] != symbol and mention["end"] <= match.start(group)
-                    and re.fullmatch(r"[\s（(]*", text[mention["end"]:match.start(group)]))]
                 mentions.append({"symbol": symbol, "field": field, "start": match.start(group),
                                  "end": match.end(group), "kind": "ticker"})
-    return sorted(mentions, key=lambda item: (item["field"] != "title", item["start"], item["kind"] != "ticker"))
+    return sorted(mentions, key=lambda item: (item["field"] != "title", item["start"], item["kind"] != "ticker")), rejected
 
 
 def clean_text(raw_text: str | None) -> str:
