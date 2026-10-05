@@ -16,12 +16,12 @@ from .prompts import SYSTEM_PROMPT
 
 ARTICLE_TARGET = "__article__"
 PROMPT_VERSION = "v1.0"
-ANALYSIS_INSTRUCTION = ("For target_stock_id='__article__', judge the overall financial event in this article, "
-    "including benefits and harms to different parties; do not average company labels. "
-    "For a company target, set related=false and label=insufficient when the article does not clearly refer "
-    "to that listed company (including ambiguous common words, namesakes and group companies). "
-    "Otherwise set related=true. Quote only exact text from title or content. "
-    "A title-only article can be judged with title evidence when sufficiently clear; mention the limited source in reason.")
+ANALYSIS_INSTRUCTION = ("當 target_stock_id='__article__' 時，判斷整篇文章中的財經事件，"
+    "包括事件對不同對象的利益與損害；不要將各公司的分類結果取平均。"
+    "針對個別公司判讀時，若文章未明確指向該上市櫃公司（包含常用詞歧義、同名對象與集團公司混淆），"
+    "將 related 設為 false，label 設為 insufficient；否則將 related 設為 true。"
+    "引文只能直接引用 title 或 content 中的原文。僅有標題的文章，若標題資訊已足夠明確，"
+    "可依標題證據判斷，但須在 reason 中說明來源內容有限。")
 NORMALIZATION_VERSION = "norm_v1"
 # Supplemental catalog aliases change evidence recognition and cached impact eligibility.
 COMPANY_RECOGNITION_VERSION = "mentions-v2"
