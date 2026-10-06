@@ -91,7 +91,7 @@ async function checkPartialFetch() {
     assert.deepEqual(result.revenues, []);
     assert.deepEqual(result.valuations, []);
     assert.deepEqual(result.statements, []);
-    assert.deepEqual(result.warnings, ['A 估值未提供或載入失敗']);
+    assert.deepEqual(result.warnings, ['A 估值暫時無法取得，其他比較仍可使用。']);
     await assert.rejects(fetchCompareFundamentals('A', '2026-02-30'), /Invalid comparison end date/);
   } finally {
     apiClient.defaults.adapter = original;

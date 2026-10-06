@@ -1,15 +1,2 @@
-import { AUTH_CHANGE_EVENT, getStoredUser, getToken } from '../auth/storage';
-
-export function notificationAccountSnapshot(): string {
-  const token = getToken();
-  return token ? JSON.stringify([token, getStoredUser()?.id ?? null]) : '';
-}
-
-export function subscribeNotificationAccount(onChange: () => void): () => void {
-  window.addEventListener(AUTH_CHANGE_EVENT, onChange);
-  window.addEventListener('storage', onChange);
-  return () => {
-    window.removeEventListener(AUTH_CHANGE_EVENT, onChange);
-    window.removeEventListener('storage', onChange);
-  };
-}
+// 登入狀態的訂閱已收斂到 lib/auth/account.ts（P1-34）；這裡保留舊名稱給既有的呼叫端
+export { authAccountSnapshot as notificationAccountSnapshot, subscribeAuthAccount as subscribeNotificationAccount } from '../auth/account';

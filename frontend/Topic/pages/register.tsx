@@ -103,13 +103,13 @@ export default function RegisterPage() {
         <title>股海明燈｜註冊</title>
         <meta name="description" content="建立股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={UserPlus} title="註冊" subtitle="用電子郵件與密碼建立帳號，姓名選填" />
+      <SiteHeader icon={UserPlus} title="註冊" subtitle="用電子郵件與密碼建立帳號，顯示名稱選填" />
 
       <AuthLedger
         aside={
           // 守燈人的桌前：帳號就是這張桌上的值班紀錄
           <AuthPlate poster={4} caption="守燈人的桌前" ratio="square">
-            註冊後，值班日誌、收藏股與模擬投資都記在這個帳號。
+            註冊後，AI 對話、收藏股與模擬投資都記在這個帳號。
           </AuthPlate>
         }
         form={
@@ -137,13 +137,13 @@ export default function RegisterPage() {
                   id="register-name"
                   label={
                     <>
-                      姓名 <span className="font-normal text-muted-foreground">（選填）</span>
+                      顯示名稱 <span className="font-normal text-muted-foreground">（選填）</span>
                     </>
                   }
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="您的姓名"
+                  placeholder="例如：小明"
                   autoComplete="name"
                   maxLength={255}
                   disabled={loading}
@@ -198,7 +198,7 @@ export default function RegisterPage() {
               </FormActions>
               <p className="mt-4 text-[13px] leading-relaxed text-muted-foreground sm:pl-[8.5rem]">
                 <span id="register-password-rule">密碼 8～128 個字元。</span>
-                電子郵件是登入帳號，也是忘記密碼時收重設信的地址；姓名會顯示在選單與個人中心。
+                電子郵件是登入帳號，也是忘記密碼時收重設信的地址；顯示名稱會出現在選單與個人中心。
               </p>
             </form>
           </AuthPanel>

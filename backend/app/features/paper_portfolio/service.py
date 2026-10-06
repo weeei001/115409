@@ -102,7 +102,7 @@ def _order(row, sessions=None):
     result['trade_date'] = row.trade_date.isoformat() if row.trade_date else None
     for key in ('budget', 'fill_price', 'fee', 'tax', 'fee_rate', 'tax_rate'):
         result[key] = float(result[key]) if result[key] is not None else None
-    result['pending_reason'] = '等待送出日期後下一個交易日的收盤價；缺少當日行情時會繼續等待，不改用其他日期。' if row.status == 'pending' else None
+    result['pending_reason'] = '將以送出後下一個交易日的收盤價成交；當天沒有行情就順延。' if row.status == 'pending' else None
     return result
 
 
@@ -309,7 +309,7 @@ def snapshot(db, user_id, now=None):
                 reserved_cash_allocation_pct=allocation(reserved),
                 realized_pnl=float(realized), unrealized_pnl=None if unpriced else float(unrealized), as_of=current.isoformat(),
                 positions=positions, orders=[_order(r, sessions) for r in reversed(records)], reviews=reviews,
-                accounting_note='以股為單位模擬交易；手續費 0.1425%、賣出稅 0.3%，四捨五入至分，無最低費用。此為固定模擬規則，不代表各商品實際稅費；股息與公司行動尚未計入。')
+                accounting_note='以股為單位模擬交易；手續費 0.1425%、證券交易稅 0.3%（賣出時），計算到小數 2 位，無最低費用。此為固定模擬規則，不代表各商品實際稅費；未計入股息與除權息。')
 
 
 def get_portfolio(db, user_id, now=None):

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import type { News } from '@/lib/types/api';
 import { formatDateTime } from '@/lib/utils/date';
+import { newsSourceName } from '@/lib/news/newsSource';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
 import { safeHttpUrl } from '@/lib/utils/url';
 import { EmptyState } from '@/components/common/Notice';
@@ -79,7 +80,13 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
   const bodyRef = useRef<HTMLDivElement>(null);
   const hasHighlights = model.quotes.length > 0;
   const originalLink = safeHttpUrl(news.url);
-  const meta = [news.source ? news.source.toUpperCase() : null, news.pub_time ? formatDateTime(news.pub_time) : null].filter(Boolean).join(' · ');
+  // 來源只顯示對照得到的中文名稱，對照不到就不寫（不顯示後端代碼）
+  const meta = [newsSourceName(news.source), news.pub_time ? formatDateTime(news.pub_time) : null].filter(Boolean).join(' · ');
+  // 一般版本（active／untracked）的擷取說明：縮成 meta 下的一行小字，不佔首屏；舊版本、衝突、被取代由頁面的提示框說明
+  const sourceStatus = news.source_state?.status;
+  const observedAt = news.source_state?.observed_at ? formatDateTime(news.source_state.observed_at) : '';
+  const versionNote = sourceStatus === 'active' || sourceStatus === 'untracked'
+    ? `${observedAt ? `這是 ${observedAt} 擷取的版本` : '這是擷取當時的版本'}，來源之後可能修改過。` : null;
 
   useEffect(() => {
     if (!scrollRequest) return;
@@ -94,7 +101,8 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
 
   return (
     <article className="min-w-0 bg-card p-5 sm:p-8 lg:col-span-8 lg:border-r">
-      {meta ? <p className="characteristic mb-3">{meta}</p> : null}
+      {meta ? <p className={cn('characteristic', versionNote ? 'mb-1' : 'mb-3')}>{meta}</p> : null}
+      {versionNote ? <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{versionNote}</p> : null}
 
       <h2 className="sr-only">{news.title}</h2>
 

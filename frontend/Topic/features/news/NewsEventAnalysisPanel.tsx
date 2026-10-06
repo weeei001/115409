@@ -4,14 +4,16 @@ import type { NewsEvent, NewsEventAnalysis, NewsEvidence } from '@/lib/types/api
 import { EmptyState } from '@/components/common/Notice';
 import { cn } from '@/lib/cn';
 import {
+  BASIS_LABELS,
   IMPORTANCE_LABELS,
+  LABEL_HINTS,
   STATEMENT_LABELS,
   TOPIC_LABELS,
 } from '@/lib/utils/newsImpact';
 import { ImpactDirectionTag } from './ImpactTag';
 import { groupImpactsByTarget } from './impactGroups';
 import { eventCitationId, groupCitationId, impactCitationId } from './citations';
-import { formatTaipei } from '@/lib/utils/date';
+import { formatDateTime } from '@/lib/utils/date';
 import { Badge } from '@/components/ui/badge';
 import { textLinkClass } from '@/components/ui/button';
 import { Disclosure } from '@/components/common/Disclosure';
@@ -108,6 +110,40 @@ const CATEGORIES = [
   { scope: 'company', label: '個股' },
 ] as const;
 
+/** 標籤的判定說明：預設收合，放在分類之後 */
+function LabelGuide() {
+  const sections = [
+    ['影響方向', LABEL_HINTS.direction],
+    ['重要性', LABEL_HINTS.importance],
+    ['理由的依據', LABEL_HINTS.basis],
+    ['事件類型', LABEL_HINTS.statement],
+  ] as const;
+  return (
+    <Disclosure
+      className="border-b"
+      summaryProps={{ className: 'py-2 text-[13px]' }}
+      summary="標籤怎麼判讀"
+    >
+      <div className="space-y-3 pb-3 text-[13px] leading-relaxed">
+        <p className="text-muted-foreground">方向是 AI 對營運面的判讀，不是股價預測。</p>
+        {sections.map(([title, items]) => (
+          <div key={title}>
+            <p className="characteristic mb-1">{title}</p>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              {items.map(([term, text]) => (
+                <div key={term} className="contents">
+                  <dt className="font-medium whitespace-nowrap text-foreground">{term}</dt>
+                  <dd className="text-subtle">{text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+    </Disclosure>
+  );
+}
+
 /**
  * 新聞事件影響：大盤／產業／個股三段，以共用的 1px 線分隔、方角。
  * 段內依影響對象歸併：同一家公司只出現一次（彙總方向＋事件數＋最高重要性），展開後逐筆列出該對象的每一個事件影響，
@@ -141,6 +177,8 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
   if (!analysis.events.length && !analysis.impacts.length) return <EmptyState className="py-6 text-[13px]">目前沒有可確認的新聞事件。</EmptyState>;
 
   const otherEvents = analysis.events.filter((event) => !analysis.impacts.some((impact) => impact.event_key === event.key));
+  // 有影響的分類預設展開；0 筆的分類不做成展開列，併成一行
+  const emptyLabels = CATEGORIES.filter(({ scope }) => !analysis.impacts.some((impact) => impact.target_type === scope)).map(({ label }) => label);
   const isActive = (id: string) => (link?.activeId === id ? 'true' : undefined);
   const isSelected = (id: string) => link?.selected?.id === id;
 
@@ -149,93 +187,101 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
       <div className="border-t">
         {CATEGORIES.map(({ scope, label }) => {
           const impacts = analysis.impacts.filter((impact) => impact.target_type === scope);
+          if (!impacts.length) return null;
           return (
             <Disclosure
               key={scope}
+              open
               className="border-b"
               summaryProps={{ className: 'py-2 text-foreground' }}
               summary={<h3 className="inline text-sm font-bold tracking-[0.04em]">{label}<span className="ml-2 font-mono text-xs font-normal tracking-normal text-muted-foreground tabular-nums">{impacts.length} 筆影響</span></h3>}
             >
               <div className="pb-3">
-                {impacts.length ? (
-                  <div className="border">
-                    {groupImpactsByTarget(impacts).map((group) => {
-                      const groupId = groupCitationId(group.key);
-                      const memberIds = group.impacts.map((impact) => impactCitationId(analysis.impacts.indexOf(impact)));
-                      return (
-                        <Disclosure
-                          key={group.key}
-                          data-citation-id={groupId}
-                          className="border-b bg-card last:border-b-0"
-                          summaryProps={{
-                            ...previewHandlers(link, groupId),
-                            'data-active': isActive(groupId),
-                            'aria-current': isSelected(groupId) ? 'true' : undefined,
-                            onClick: link ? (event) => {
-                              const opening = !(event.currentTarget.parentElement as HTMLDetailsElement).open;
-                              // 展開＝選取這個對象（寬版把內文對應句捲進視窗；手機版只加底色，不把人拉離面板）
-                              if (opening) link.onSelect({ id: groupId }, isWide());
-                              else if (link.selected && [groupId, ...memberIds].includes(link.selected.id)) link.onSelect(null, false);
-                            } : undefined,
-                            className: cn('px-3 py-2 text-[13px] text-foreground hover:bg-accent', activeItem),
-                          }}
-                          summary={
-                            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="font-medium">{group.label}</span>
-                              <ImpactDirectionTag direction={group.direction} />
-                              {group.eventCount > 1 ? <span className="text-xs text-muted-foreground"><span className="font-mono tabular-nums">{group.eventCount}</span> 項事件</span> : null}
-                              <span className="text-xs text-muted-foreground">{IMPORTANCE_LABELS[group.importance]}</span>
+                <div className="border">
+                  {groupImpactsByTarget(impacts).map((group) => {
+                    const groupId = groupCitationId(group.key);
+                    const memberIds = group.impacts.map((impact) => impactCitationId(analysis.impacts.indexOf(impact)));
+                    return (
+                      <Disclosure
+                        key={group.key}
+                        data-citation-id={groupId}
+                        className="border-b bg-card last:border-b-0"
+                        summaryProps={{
+                          ...previewHandlers(link, groupId),
+                          'data-active': isActive(groupId),
+                          'aria-current': isSelected(groupId) ? 'true' : undefined,
+                          onClick: link ? (event) => {
+                            const opening = !(event.currentTarget.parentElement as HTMLDetailsElement).open;
+                            // 展開＝選取這個對象（寬版把內文對應句捲進視窗；手機版只加底色，不把人拉離面板）
+                            if (opening) link.onSelect({ id: groupId }, isWide());
+                            else if (link.selected && [groupId, ...memberIds].includes(link.selected.id)) link.onSelect(null, false);
+                          } : undefined,
+                          className: cn('px-3 py-2 text-[13px] text-foreground hover:bg-accent', activeItem),
+                        }}
+                        summary={
+                          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-medium">
+                              {group.targetType === 'company' && group.label !== group.targetId ? <span className="mr-1.5 font-mono tabular-nums">{group.targetId}</span> : null}
+                              {group.label}
                             </span>
-                          }
-                        >
-                          <div className="border-t px-3 pt-1 pb-3">
-                            {group.targetType === 'company' ? (
-                              <Link
-                                href={`/stock/${group.targetId}`}
-                                className={cn('inline-flex min-h-11 items-center rounded-sm text-[13px] font-medium outline-none focus-lamp', textLinkClass)}
-                              >
-                                查看 {group.label} 個股
-                              </Link>
-                            ) : null}
-                            <ol className="space-y-0">
-                              {group.impacts.map((impact, index) => {
-                                const event = analysis.events.find((item) => item.key === impact.event_key);
-                                const id = memberIds[index];
-                                return (
-                                  <li
-                                    key={`${impact.event_key}-${index}`}
-                                    data-citation-id={id}
-                                    data-active={isActive(id)}
-                                    aria-current={isSelected(id) ? 'true' : undefined}
-                                    {...previewHandlers(link, id)}
-                                    className={cn('-mx-3 space-y-3 border-t px-3 py-3 transition-colors duration-(--dur-flash) first:border-t-0 first:pt-2 last:pb-0 data-[active=true]:last:pb-3', activeItem)}
-                                  >
-                                    {group.impacts.length > 1 ? (
-                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                        <span className="characteristic">第 <span className="font-mono tabular-nums">{index + 1}</span> 筆</span>
-                                        <ImpactDirectionTag direction={impact.direction} />
-                                        <span className="text-xs text-muted-foreground">{IMPORTANCE_LABELS[impact.importance]}</span>
-                                      </div>
-                                    ) : null}
-                                    <p className="text-[13px] leading-relaxed text-subtle">
-                                      <span className="font-medium text-foreground">{impact.basis === 'reported' ? '原文明述：' : '系統推論：'}</span>{impact.reason}
-                                    </p>
-                                    <Evidence items={impact.evidence} ownerId={id} link={link} />
-                                    {event ? <EventContext event={event} ownerId={id} link={link} /> : null}
-                                  </li>
-                                );
-                              })}
-                            </ol>
-                          </div>
-                        </Disclosure>
-                      );
-                    })}
-                  </div>
-                ) : <p className="text-[13px] text-muted-foreground">目前沒有此類影響。</p>}
+                            <ImpactDirectionTag direction={group.direction} />
+                            {group.eventCount > 1 ? <span className="text-xs text-muted-foreground"><span className="font-mono tabular-nums">{group.eventCount}</span> 項事件</span> : null}
+                            <span className="text-xs text-muted-foreground">{IMPORTANCE_LABELS[group.importance]}</span>
+                          </span>
+                        }
+                      >
+                        <div className="border-t px-3 pt-1 pb-3">
+                          {group.targetType === 'company' ? (
+                            <Link
+                              href={`/stock/${group.targetId}`}
+                              className={cn('inline-flex min-h-11 items-center rounded-sm text-[13px] font-medium outline-none focus-lamp', textLinkClass)}
+                            >
+                              查看 {group.label} 個股
+                            </Link>
+                          ) : null}
+                          <ol className="space-y-0">
+                            {group.impacts.map((impact, index) => {
+                              const event = analysis.events.find((item) => item.key === impact.event_key);
+                              const id = memberIds[index];
+                              return (
+                                <li
+                                  key={`${impact.event_key}-${index}`}
+                                  data-citation-id={id}
+                                  data-active={isActive(id)}
+                                  aria-current={isSelected(id) ? 'true' : undefined}
+                                  {...previewHandlers(link, id)}
+                                  className={cn('-mx-3 space-y-3 border-t px-3 py-3 transition-colors duration-(--dur-flash) first:border-t-0 first:pt-2 last:pb-0 data-[active=true]:last:pb-3', activeItem)}
+                                >
+                                  {group.impacts.length > 1 ? (
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                      <span className="characteristic">第 <span className="font-mono tabular-nums">{index + 1}</span> 筆</span>
+                                      <ImpactDirectionTag direction={impact.direction} />
+                                      <span className="text-xs text-muted-foreground">{IMPORTANCE_LABELS[impact.importance]}</span>
+                                    </div>
+                                  ) : null}
+                                  <p className="text-[13px] leading-relaxed text-subtle">
+                                    <span className="font-medium text-foreground">{BASIS_LABELS[impact.basis] ?? BASIS_LABELS.inferred}：</span>{impact.reason}
+                                  </p>
+                                  <Evidence items={impact.evidence} ownerId={id} link={link} />
+                                  {event ? <EventContext event={event} ownerId={id} link={link} /> : null}
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        </div>
+                      </Disclosure>
+                    );
+                  })}
+                </div>
               </div>
             </Disclosure>
           );
         })}
+        {emptyLabels.length ? (
+          <p className="border-b py-2.5 text-[13px] text-muted-foreground">
+            <span className="font-medium text-subtle">{emptyLabels.join('、')}</span>：沒有判讀出相關影響
+          </p>
+        ) : null}
         {otherEvents.length ? (
           <Disclosure
             className="border-b"
@@ -243,7 +289,7 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
             summary={<h3 className="inline text-sm font-bold tracking-[0.04em]">其他事件<span className="ml-2 font-mono text-xs font-normal tracking-normal text-muted-foreground tabular-nums">{otherEvents.length} 筆</span></h3>}
           >
             <div className="space-y-3 pb-3">
-              <p className="text-[13px] text-muted-foreground">以下事件尚無可支持的台股影響。</p>
+              <p className="text-[13px] text-muted-foreground">以下事件目前看不出對台股的影響。</p>
               {otherEvents.map((event) => {
                 const id = eventCitationId(event.key);
                 return (
@@ -255,8 +301,9 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
             </div>
           </Disclosure>
         ) : null}
+        <LabelGuide />
       </div>
-      {analysis.analyzed_at ? <p className="characteristic mt-3">分析時間：{formatTaipei(analysis.analyzed_at, {})}</p> : null}
+      {analysis.analyzed_at ? <p className="characteristic mt-3">分析時間：{formatDateTime(analysis.analyzed_at)}</p> : null}
     </div>
   );
 }

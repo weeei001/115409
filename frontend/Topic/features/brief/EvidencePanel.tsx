@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import { LedgerPanel } from '@/components/common/Ledger';
@@ -118,7 +118,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
     if (!item) {
       return (
         <p className="text-sm text-muted-foreground">
-          這筆引用（{focus.id}）在證據目錄裡找不到對應資料。
+          這筆引用在證據來源裡找不到對應資料。
         </p>
       );
     }
@@ -180,7 +180,7 @@ const FocusBody: React.FC<{ compactCatalog?: boolean; limitations?: string[] }> 
           ) : null}
           {broken.length ? (
             <p className="text-xs leading-6 text-muted-foreground">
-              另有 {broken.length} 筆引用無法對應到證據目錄（{broken.join('、')}），已不顯示為來源。
+              另有 {broken.length} 筆引用在證據來源裡找不到，已不顯示為來源。
             </p>
           ) : null}
         </div>
@@ -226,16 +226,34 @@ export const EvidenceRail: React.FC<{ limitations?: string[]; showCatalog?: bool
 
 /**
  * 手機底部抽屜（lg 以下）：只有選了東西才出現，內容與桌機右欄相同。
- * 用 ui/sheet：焦點鎖定、Esc、捲動鎖定與關閉後焦點回原處都交給 Radix（疊在 AI 分析抽屜上方）。
+ * 用 ui/sheet：焦點鎖定、Esc、捲動鎖定交給 Radix（疊在 AI 分析抽屜上方）。
+ * 抽屜由 highlight 狀態打開、沒有 SheetTrigger，Radix 不知道焦點該回哪，
+ * 所以比照 DetailDrawer 自己記住打開前的焦點（論點或來源按鈕）；
+ * 那個按鈕已經不在畫面上時，退回底下那層抽屜（AI 分析）的關閉鈕。
  */
 export const EvidenceSheet: React.FC = () => {
   const { hasFocus, clear } = useBriefHighlight();
   const isMobile = useIsMobile();
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const returnDialog = useRef<HTMLElement | null>(null);
   return (
     <Sheet open={hasFocus && isMobile} onOpenChange={(open) => { if (!open) clear(); }}>
       <SheetContent
         side="bottom"
         showCloseButton={false}
+        onOpenAutoFocus={() => {
+          const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+            ? document.activeElement
+            : null;
+          returnFocus.current = active;
+          returnDialog.current = active?.closest<HTMLElement>('[role="dialog"]') ?? null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocus(returnFocus.current, returnDialog.current);
+          returnFocus.current = null;
+          returnDialog.current = null;
+        }}
         className="max-h-[78dvh] gap-0 overflow-y-auto border-border-strong bg-card px-4 pt-3 pb-[calc(1rem+var(--app-safe-area-bottom))] lg:hidden"
       >
         <div className="sticky top-0 -mx-4 mb-2 flex items-center justify-between gap-2 border-b bg-card px-4 pb-2">
@@ -252,3 +270,14 @@ export const EvidenceSheet: React.FC = () => {
     </Sheet>
   );
 };
+
+/** 關閉證據詳情後把焦點還回去；匯出給測試用 */
+export function restoreFocus(target: HTMLElement | null, dialog: HTMLElement | null): void {
+  if (target?.isConnected) {
+    target.focus();
+    return;
+  }
+  if (dialog?.isConnected) {
+    dialog.querySelector<HTMLElement>('[data-slot="sheet-close"]')?.focus();
+  }
+}

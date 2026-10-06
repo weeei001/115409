@@ -39,7 +39,12 @@ _HARD_RULES = (
         "資金配置-hard",
         re.compile(r"(投入|配置|重壓|全押)[^。]{0,10}(資金|部位|持股)|部位[^。]{0,6}(比例|配置)"),
     ),
+    ("投資觀點-hard", re.compile(r"看好|看壞|上攻")),
 )
+
+# Opinion words inside 「」 are quoted source text, not the brief's own view.
+_QUOTE_EXEMPT_RULES = frozenset({"投資觀點-hard"})
+_QUOTED_SOURCE = re.compile(r"「[^「」]*」")
 
 _TARGET_PRICE_SOURCE_NOTE = re.compile(
     r"新聞中提及的目標價為分析師觀點，非事實保證。?"
@@ -68,10 +73,12 @@ _SOFT_RULES = (
 
 def scan_compliance_hits(text: str, *, grounded_condition: bool = False) -> list[ComplianceHit]:
     text = _TARGET_PRICE_SOURCE_NOTE.sub("", text)
+    # Same length as text, so match spans still index the original snippet.
+    unquoted = _QUOTED_SOURCE.sub(lambda match: " " * len(match.group(0)), text)
     hits: list[ComplianceHit] = []
     hard_spans: list[tuple[int, int]] = []
     for rule_name, pattern in _HARD_RULES:
-        for match in pattern.finditer(text):
+        for match in pattern.finditer(unquoted if rule_name in _QUOTE_EXEMPT_RULES else text):
             if (grounded_condition and rule_name == "未來價位型-hard"
                     and match.group(1) in {"支撐", "壓力", "防守"}
                     and not re.search(r"買點|賣點", match.group(0))):

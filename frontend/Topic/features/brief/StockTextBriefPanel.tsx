@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Disclosure } from '@/components/common/Disclosure';
 import { tabListClass, tabTriggerActiveClass, tabTriggerClass } from '@/components/ui/tabs';
 import { cn } from '@/lib/cn';
+import { AI_RESEARCH_ONLY } from '@/lib/disclaimers';
 import { BriefHighlightProvider, useBriefHighlight } from './BriefHighlight';
 import { SectionCard, StanceIcon, Tag } from './BriefAtoms';
 import { KeyPointsTab, ScenarioTab } from './BriefSections';
@@ -25,6 +26,9 @@ interface Props {
 }
 
 type TabKey = 'points' | 'scenario' | 'sources';
+
+/** 後端沒給免責文字時的預設句，和全站的 AI 免責同一句 */
+const DEFAULT_DISCLAIMER = `AI 依公開資料整理，${AI_RESEARCH_ONLY}投資前請自行評估風險。`;
 
 const TABS: [TabKey, string][] = [
   ['points', '重點'],
@@ -57,7 +61,7 @@ const BriefAudit: React.FC = () => {
     return (
       <Disclosure className="border-t pt-1 text-xs text-muted-foreground" summary="引用檢核與分析限制">
         <p className="mt-2 leading-6">
-        引用可在證據目錄找到（{evidence.total} 筆），未發現晚於基準日的已知日期。
+        引用都能在「證據來源」找到（{evidence.total} 筆），未發現晚於基準日的已知日期。
         {evidence.undatedIds.length ? `另有 ${evidence.undatedIds.length} 筆缺少日期。` : ""}
         引用檢核不代表內容已證實。
         </p>
@@ -67,7 +71,7 @@ const BriefAudit: React.FC = () => {
   return (
     <Notice tone="warning">
       {evidence.undatedIds.length ? `另有 ${evidence.undatedIds.length} 筆缺少日期，無法完成時間核對。` : ""}
-      {broken.length ? <>有 {broken.length} 筆引用在證據目錄裡找不到（{broken.join('、')}），已不顯示為可點擊來源。</> : null}
+      {broken.length ? <>有 {broken.length} 筆引用在證據來源裡找不到，已不顯示為可點擊來源。</> : null}
       {evidence.futureDatedIds.length ? (
         <>
           {broken.length ? '　' : null}
@@ -80,11 +84,11 @@ const BriefAudit: React.FC = () => {
 
 const Skeleton: React.FC<{ symbol: string; seconds: number }> = ({ symbol, seconds }) => (
   <div className="flex flex-col gap-4">
-    <p className="text-xs text-muted-foreground">讀取最新已存的 AI 分析，不會重新產生。</p>
-    {/* 載入＝燈質 Q：有線的空白列，光帶掃過，寫出「讀取中」與秒數 */}
+    <p className="text-xs text-muted-foreground">載入最新已存的 AI 分析，不會重新產生。</p>
+    {/* 載入＝燈質 Q：有線的空白列，光帶掃過，寫出「載入中」與秒數 */}
     <div className="grid grid-cols-1 gap-px border bg-border lg:grid-cols-12">
       <LoadingRows
-        label={`讀取 ${symbol} 的已存分析中…${seconds > 0 ? `（${seconds} 秒）` : ''}`}
+        label={`載入 ${symbol} 的已存分析中…${seconds > 0 ? `（${seconds} 秒）` : ''}`}
         className="h-[264px] bg-card lg:col-span-7"
       />
       <div className="q-rows hidden h-[264px] bg-card lg:col-span-5 lg:block" aria-hidden />
@@ -129,7 +133,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
         <EmptyState>這檔股票還沒有產生 AI 分析，排程更新後才會出現。</EmptyState>
         <Button type="button" variant="outline" onClick={() => void run()}>
           <RefreshCw aria-hidden />
-          重新載入
+          重新整理
         </Button>
       </div>
     );
@@ -170,14 +174,12 @@ export const StockTextBriefPanel: React.FC<Props> = ({
       <div className="flex min-w-0 flex-col gap-4">
         {stale ? (
           <Notice tone="warning">
-            這份分析的基準日是 {data.as_of_date}，比最新交易日 {latestTradeDate} 早，內容可能已經過期；
-            排程更新後會自動換成最新的一份。
+            這份分析的基準日是 {data.as_of_date}，比最新交易日 {latestTradeDate} 早，內容可能已經過期；排程更新後會自動換成最新的一份。
           </Notice>
         ) : null}
 
         <p className="text-xs text-muted-foreground">
-          行情截至 {data.price_as_of_date ?? '未提供'}；新聞截止 {data.news_cutoff_date ?? data.as_of_date}；
-          產生時間 {data.generated_at ? taipeiDateTime(data.generated_at) : '未提供'}。檢查涵蓋結構、引用及部分數值，未完整核實語義或預測準確率。
+          行情截至 {data.price_as_of_date ?? '未提供'}；新聞截止 {data.news_cutoff_date ?? data.as_of_date}；產生時間 {data.generated_at ? taipeiDateTime(data.generated_at) : '未提供'}。系統只檢查格式、引用和部分數字，沒有驗證推論是否正確。
         </p>
         {/* 整體結論 */}
         <section
@@ -260,8 +262,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
 
         <BriefAudit />
         <p className="text-xs leading-6 text-muted-foreground">
-          {data.disclaimer?.text ??
-            '本區內容由系統依據公開資料與模型整理產生，僅供研究與參考，不代表保證獲利。投資前請自行評估風險。'}
+          {data.disclaimer?.text ?? DEFAULT_DISCLAIMER}
         </p>
 
         <EvidenceSheet />

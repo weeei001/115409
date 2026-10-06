@@ -18,7 +18,7 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
 
 /**
  * 一筆證據的詳情：可讀名稱、來源類型、發布者、日期、原始數值與單位、
- * 新聞標題與摘錄、原始網址，以及哪些結論引用它。原始 id 放在最下面的小字。
+ * 新聞標題與摘錄、原始網址，以及哪些結論引用它。原始 id 不顯示。
  *
  * 只顯示有資料的欄位；缺少的來源資訊不顯示佔位提示。
  */
@@ -47,7 +47,7 @@ export const EvidenceDetail: React.FC<{
         {item.label}
       </h4>
       {item.computed ? <p className="mt-1 text-xs text-muted-foreground">本站計算</p> : null}
-      {item.kind === 'guidance' ? <p className="mt-1 text-xs text-muted-foreground">公司展望，非已實現數據</p> : null}
+      {item.kind === 'guidance' ? <p className="mt-1 text-xs text-muted-foreground">公司展望，非實際財報</p> : null}
 
       {item.futureDated ? (
         <p className="border-warning-border bg-warning-muted text-warning mt-3 border border-l-2 px-3 py-2 text-xs leading-6">

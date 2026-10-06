@@ -3,6 +3,7 @@ import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { inputClass } from '@/components/ui/input';
 import { cn } from '@/lib/cn';
+import { AI_CHAT_DISCLAIMER } from '@/lib/disclaimers';
 
 /** openapi: AskRequest.query maxLength */
 const MAX_QUERY_LENGTH = 6000;
@@ -50,7 +51,7 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
               submit();
             }
           }}
-          placeholder="輸入您的問題…"
+          placeholder="輸入你的問題…"
           rows={1}
           disabled={disabled}
           className={cn(inputClass, 'block h-auto max-h-32 min-h-11 flex-1 resize-none py-[0.6875rem] leading-5 disabled:bg-muted sm:leading-5')}
@@ -68,18 +69,18 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
           <span className="hidden sm:inline" aria-hidden>送出</span>
         </Button>
         {onStop ? <Button type="button" variant="outline" onClick={onStop} className="px-3">
-          停止接收
+          停止回覆
         </Button> : null}
       </div>
       <p id="chat-input-note" className="mt-2 flex justify-between gap-3 text-xs leading-relaxed text-muted-foreground">
-        <span>AI 回覆僅供研究參考，不是投資建議。</span>
+        <span>{AI_CHAT_DISCLAIMER}</span>
         {value.length >= COUNTER_THRESHOLD ? (
           <span className="shrink-0 font-mono tabular-nums" aria-live="polite">
             {value.length}／{MAX_QUERY_LENGTH} 字
           </span>
         ) : null}
       </p>
-      {stopNotice ? <p role="status" className="mt-1 text-xs leading-relaxed text-muted-foreground">已停止接收，後端可能仍在處理。</p> : null}
+      {stopNotice ? <p role="status" className="mt-1 text-xs leading-relaxed text-muted-foreground">已停止顯示這則回覆。</p> : null}
     </div>
   );
 }

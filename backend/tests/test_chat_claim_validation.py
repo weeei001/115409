@@ -288,3 +288,15 @@ def test_parenthetical_metric_aliases_preserve_numeric_validation():
     assert not numeric_claims_supported("2026Q2每股盈餘(股價)為3.37元。", [evidence])
     assert not numeric_claims_supported("2026Q1的每股盈餘(EPS)為3.37元，較前一季大幅成長87.2%。", [evidence])
     assert not numeric_claims_supported("較前一季大幅成長87.2%。", [evidence], context="2026Q1 ")
+
+
+@pytest.mark.parametrize("claim", [
+    "建議先投入可用資金的20%，其餘保留。",
+    "建議將現金占比調整至50%。",
+])
+def test_allocation_proposals_need_the_cited_paper_portfolio(claim):
+    """Proposals are a paper-trading feature: without the cited paper-account snapshot they stay unsupported."""
+    favorites_only = source({"favorites": [{"symbol": "2330", "name": "台積電"}]}, "personal")
+    assert not numeric_claims_supported(claim, [market()])
+    assert not numeric_claims_supported(claim, [favorites_only])
+    assert numeric_claims_supported(claim, [market(), portfolio()])

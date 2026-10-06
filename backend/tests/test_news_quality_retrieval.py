@@ -220,6 +220,15 @@ def test_company_aliases_require_catalog_membership_and_match_word_boundaries():
     assert company_mentions("notTSMC MediaTekology", None, catalog) == []
 
 
+def test_samsung_electronics_is_not_mapped_to_taiwan_5007():
+    catalog = {"5007": {"name": "三星", "aliases": ["三星科技股份有限公司"]}, "2330": {"name": "台積電"}}
+    text = "三星電子(005930-KR)預計明年在德州廠量產，三星也將擴大投資。"
+    assert all(item["symbol"] != "5007" for item in company_mentions(text, text, catalog))
+    assert extract_candidate_stocks(None, None, text, text, catalog) == []
+    assert extract_candidate_stocks(None, None, "三星科技第三季營收成長", None, catalog) == ["5007"]
+    assert extract_candidate_stocks(None, None, None, "三星(5007)扣件出貨回溫", catalog) == ["5007"]
+
+
 def test_input_hash_requires_catalog_name_for_every_company():
     from app.features.news.sentiment import article_input_hash
     article = SimpleNamespace(title="Company results", content="Revenue", pub_time="2024-01-01")

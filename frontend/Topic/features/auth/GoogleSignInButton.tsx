@@ -78,7 +78,7 @@ export function GoogleSignInButton({ onCredential }: { onCredential: (credential
         });
       })
       .catch(() => {
-        if (!cancelled) setLoadError('無法載入 Google 登入腳本，請檢查網路或稍後再試');
+        if (!cancelled) setLoadError('Google 登入暫時無法使用，請檢查網路，或改用電子郵件登入。');
       });
     return () => {
       cancelled = true;

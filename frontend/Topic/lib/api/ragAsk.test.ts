@@ -168,7 +168,9 @@ async function check() {
   assert.match(earlierTurn, /href="\/news\/trusted%2Ftwo"/);
   assert.doesNotMatch(earlierTurn, /href="\/news\/one"/);
   assert.match(laterTurn, /Passage 1/);
-  assert.match(earlierTurn, /\[S2\]/);
+  // 畫面上的引用依正文出現順序重新編號：正文先引用 S2，就顯示成 [1]（P2-033）
+  assert.match(earlierTurn, /aria-label="引用 1：Same article，查看本站新聞"[^>]*>\[1\]<\/a>/);
+  assert.doesNotMatch(earlierTurn, /\[S2\]/);
 
   responseBody = `data: ${JSON.stringify({ type: 'done', answer: 'Answer[S2]', sources: sourceRecords })}\n\n`;
   await ragAskStream({ query: expectedQuery }, {
@@ -221,11 +223,15 @@ async function check() {
   });
 
   responseBody = 'data: {"type":"status","content":"驗證引用與數值"}\n\n';
-  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }),
-    /回覆連線提前結束.*最後處理階段：驗證引用與數值/);
+  // 錯誤訊息不接後端的內部進度文字（「最後處理階段：…」）
+  const noStage = (pattern: RegExp) => (error: Error) => {
+    assert.match(error.message, pattern);
+    assert.doesNotMatch(error.message, /最後處理階段|驗證引用與數值/);
+    return true;
+  };
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), noStage(/回覆連線提前結束/));
   responseBody += 'data: {"type":"error","message":"供應商暫時無法回覆"}\n\n';
-  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }),
-    /供應商暫時無法回覆.*最後處理階段：驗證引用與數值/);
+  await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), noStage(/供應商暫時無法回覆/));
 
   globalThis.fetch = async () => { throw new TypeError('Failed to fetch: secret provider URL'); };
   await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), (error: Error) => {
@@ -298,14 +304,15 @@ async function check() {
     pull(controller) { controller.error(new TypeError('terminated')); },
   }));
   await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), (error: Error) => {
-    assert.match(error.message, /與伺服器的連線中斷.*最後處理階段：準備模型輸入/);
+    assert.match(error.message, /與伺服器的連線中斷/);
+    assert.doesNotMatch(error.message, /最後處理階段|準備模型輸入/);
     const failureMarkup = renderToStaticMarkup(createElement(ChatMessage, {
       message: { id: 'network-failure', role: 'assistant', content: 'Partial answer', timestamp: '', status: 'failed', error: error.message },
       reducedMotion: true, streamActive: false, followUpDisabled: false,
     }));
     assert.match(failureMarkup, /Partial answer/);
     assert.match(failureMarkup, /與伺服器的連線中斷/);
-    assert.match(failureMarkup, /最後處理階段：準備模型輸入/);
+    assert.doesNotMatch(failureMarkup, /最後處理階段/);
     return true;
   });
 
@@ -320,8 +327,7 @@ async function check() {
       },
       pull() { expire(); },
     }));
-    await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }),
-      /AI 回覆等待超過 \d+ 秒.*最後處理階段：產生回答/);
+    await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), noStage(/AI 回覆等待超過 \d+ 秒/));
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }

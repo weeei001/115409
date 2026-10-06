@@ -8,6 +8,7 @@ import type { InstitutionalAggregate } from '@/lib/types/compare';
 import type { InstitutionalDay } from '@/lib/types/view';
 import { buildInstitutionalCumulative } from '@/lib/utils/compare';
 import { valueToneText } from '@/lib/utils/tone';
+import { lotToneValue } from '@/lib/utils/format';
 import { signedShares } from '@/features/stock/signedShares';
 import { cn } from '@/lib/cn';
 
@@ -44,7 +45,7 @@ export function InstitutionalComparePanel({ symbols, institutionalMap, aggregate
         <>
           <LedgerPanel title="累計買賣超走勢" className="space-y-3">
             {span ? <p className="characteristic -mt-2" data-plotted-span>圖上 {span}；各檔自第一個有資料日起累計</p> : null}
-            <p className="text-[13px] leading-relaxed text-muted-foreground">依有資料日期累計買賣超股數；正值代表累計買超，負值代表累計賣超。未依股票規模或成交量調整，不能直接視為法人偏好程度；缺值保留斷線。</p>
+            <p className="text-[13px] leading-relaxed text-muted-foreground">依有資料日期累計買賣超張數；正值代表累計買超，負值代表累計賣超。未依股票規模或成交量調整，不能直接視為法人偏好程度；缺值保留斷線。</p>
             <EChart title="三大法人累計買賣超" option={option} height={300} />
           </LedgerPanel>
           <LedgerPanel padded={false}>
@@ -75,16 +76,16 @@ export function InstitutionalComparePanel({ symbols, institutionalMap, aggregate
                             {sym}
                           </span>
                         </td>
-                        <td className={cn(num, valueToneText(agg?.foreignNet))}>{signedShares(agg?.foreignNet)}</td>
-                        <td className={cn(num, valueToneText(agg?.investmentTrustNet))}>{signedShares(agg?.investmentTrustNet)}</td>
-                        <td className={cn(num, valueToneText(agg?.dealerNet))}>{signedShares(agg?.dealerNet)}</td>
-                        <td className={cn(num, 'font-semibold', valueToneText(agg?.totalNet))}>{signedShares(agg?.totalNet)}</td>
-                        <td className={cn(num, valueToneText(agg?.maxDailyTotalNet))}>
+                        <td className={cn(num, valueToneText(lotToneValue(agg?.foreignNet)))}>{signedShares(agg?.foreignNet)}</td>
+                        <td className={cn(num, valueToneText(lotToneValue(agg?.investmentTrustNet)))}>{signedShares(agg?.investmentTrustNet)}</td>
+                        <td className={cn(num, valueToneText(lotToneValue(agg?.dealerNet)))}>{signedShares(agg?.dealerNet)}</td>
+                        <td className={cn(num, 'font-semibold', valueToneText(lotToneValue(agg?.totalNet)))}>{signedShares(agg?.totalNet)}</td>
+                        <td className={cn(num, valueToneText(lotToneValue(agg?.maxDailyTotalNet)))}>
                           {signedShares(agg?.maxDailyTotalNet)}
                           {agg?.maxDailyTotalNetDate ? <span className="block text-[11px] text-muted-foreground">{agg.maxDailyTotalNetDate}</span> : null}
                         </td>
                         <td className={num}>
-                          {agg && agg.consecutiveBuyDays > 0 ? `${agg.consecutiveBuyDays} 天` : '—'}
+                          {agg && agg.consecutiveBuyDays > 0 ? `${agg.consecutiveBuyDays} 天` : '--'}
                         </td>
                       </tr>
                     );

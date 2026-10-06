@@ -54,8 +54,9 @@ export async function fetchCompareFundamentals(symbol: string, endDate: string):
     revenues: revenue.status === 'fulfilled' ? revenue.value : [],
     valuations: valuation.status === 'fulfilled' ? valuation.value : [],
     statements: statement.status === 'fulfilled' ? statement.value : [],
-    warnings: [revenue.status === 'rejected' ? `${symbol} 月營收未提供或載入失敗` : '',
-      valuation.status === 'rejected' ? `${symbol} 估值未提供或載入失敗` : '',
-      statement.status === 'rejected' ? `${symbol} 財報未提供或載入失敗` : ''].filter(Boolean),
+    // 說清楚是暫時拿不到、其他部分照常（P2-113）
+    warnings: [revenue.status === 'rejected' ? `${symbol} 月營收暫時無法取得，其他比較仍可使用。` : '',
+      valuation.status === 'rejected' ? `${symbol} 估值暫時無法取得，其他比較仍可使用。` : '',
+      statement.status === 'rejected' ? `${symbol} 財報暫時無法取得，其他比較仍可使用。` : ''].filter(Boolean),
   };
 }

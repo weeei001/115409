@@ -171,3 +171,23 @@ def test_malformed_or_extreme_draft_inputs_are_safe():
     request = trusted("模擬買進 2330，投入 999999999999999999999 萬元")
     assert paper_draft(request.query, ["2330"], request).budget is None
     assert paper_draft(request.query, ["INVALID"], request) is None
+
+
+@pytest.mark.parametrize("scopes,paper", [({"portfolio"}, True), ({"favorites"}, False)])
+def test_simulated_allocation_guidance_only_for_paper_portfolio_turns(monkeypatch, chat_session_factory, scopes, paper):
+    from app.features.chat.knowledge import reference_source
+    from app.features.chat.prompts import PAPER_PORTFOLIO_GUIDANCE
+    payload = {"portfolio": {"initialized": True, "available_cash": 20000}} if paper else {"favorites": []}
+    monkeypatch.setattr(chat_module, "read_personal_context", lambda factory, owner, scopes, query="": (
+        [], reference_source("Owned data", json.dumps(payload), category="personal")))
+    monkeypatch.setattr(chat_module, "personal_scopes", lambda query, needs: set(scopes))
+    models = FakeModels(intent={"stocks": [], "data_needs": sorted(scopes)})
+    service = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
+                          session_factory=chat_session_factory)
+    try:
+        asyncio.run(service.ask(trusted("我的模擬帳戶資金該怎麼分配？")))
+    except Exception:
+        pass  # Only the prompt sent to the answer model matters here.
+    prompts = [call["system_prompt"] for kind, call in models.calls if kind == "text"]
+    assert prompts
+    assert all((PAPER_PORTFOLIO_GUIDANCE in prompt) is paper for prompt in prompts)

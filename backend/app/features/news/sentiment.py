@@ -24,9 +24,11 @@ ANALYSIS_INSTRUCTION = ("For target_stock_id='__article__', judge the overall fi
     "A title-only article can be judged with title evidence when sufficiently clear; mention the limited source in reason.")
 NORMALIZATION_VERSION = "norm_v1"
 # Supplemental catalog aliases change evidence recognition and cached impact eligibility.
-COMPANY_RECOGNITION_VERSION = "mentions-v2"
+COMPANY_RECOGNITION_VERSION = "mentions-v3"
 # ponytail: known ambiguous words require tickers; expand from labeled errors, not guessed matches.
-AMBIGUOUS_COMPANY_NAMES = {"世界", "大量", "精確", "進階", "安心", "全新", "聯合", "中華", "大眾", "統一"}
+AMBIGUOUS_COMPANY_NAMES = {"世界", "大量", "精確", "進階", "安心", "全新", "聯合", "中華", "大眾", "統一",
+                           # 「三星」多指韓國三星電子；5007 用全名或代號辨識。
+                           "三星"}
 MAX_INPUT_TOKENS = 8000
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 

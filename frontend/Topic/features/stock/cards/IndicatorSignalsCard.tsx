@@ -1,6 +1,6 @@
 import { Activity } from 'lucide-react';
 import type { TechnicalDay } from '@/lib/types/view';
-import { kdSignal, macdSignal, rsiSignal, type Signal } from '@/lib/utils/indicatorSignals';
+import { fmtIndicator, INDICATOR_LABELS, kdSignal, MACD_DECIMALS, macdSignal, rsiSignal, type Signal } from '@/lib/utils/indicatorSignals';
 import { SignalTag } from '@/components/common/SignalTag';
 import { signedText } from '@/components/common/LightEntry';
 import { CardShell } from './CardShell';
@@ -17,11 +17,12 @@ interface Props {
 
 export function IndicatorSignalsCard({ latest, loading, state, onOpenDetail, className }: Props) {
   const rows: Array<{ label: string; value: string; signal: Signal }> = [
-    { label: 'RSI10', value: latest?.rsi10 != null ? latest.rsi10.toFixed(1) : '—', signal: rsiSignal(latest?.rsi10) },
-    { label: 'MACD 動能', value: latest?.macd_hist != null ? signedText(latest.macd_hist, 3) : '—', signal: macdSignal(latest?.macd_hist) },
+    // 指標名稱帶參數；小數位全站個股頁一致：RSI、KD 1 位，MACD 柱 3 位（04-U7）
+    { label: INDICATOR_LABELS.rsi, value: latest?.rsi10 != null ? fmtIndicator(latest.rsi10) : '--', signal: rsiSignal(latest?.rsi10) },
+    { label: INDICATOR_LABELS.macdHist, value: latest?.macd_hist != null ? signedText(latest.macd_hist, MACD_DECIMALS) : '--', signal: macdSignal(latest?.macd_hist) },
     {
-      label: 'KD',
-      value: latest?.kd_k9 != null && latest?.kd_d9 != null ? `K ${latest.kd_k9.toFixed(1)} / D ${latest.kd_d9.toFixed(1)}` : '—',
+      label: INDICATOR_LABELS.kd,
+      value: latest?.kd_k9 != null && latest?.kd_d9 != null ? `K ${fmtIndicator(latest.kd_k9)} / D ${fmtIndicator(latest.kd_d9)}` : '--',
       signal: kdSignal(latest?.kd_k9, latest?.kd_d9),
     },
   ];
@@ -34,7 +35,7 @@ export function IndicatorSignalsCard({ latest, loading, state, onOpenDetail, cla
       stampLabel="指標"
       loading={loading}
       state={state}
-      action={{ label: '詳細技術指標', onClick: onOpenDetail }}
+      action={{ label: '技術指標明細', onClick: onOpenDetail }}
       className={className}
     >
       <ul className="flex-1 border-t">

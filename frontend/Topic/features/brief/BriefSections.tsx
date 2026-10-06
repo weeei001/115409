@@ -28,7 +28,7 @@ function ItemGroup<T>({
   render: (item: T) => React.ReactNode;
   label: string;
 }) {
-  if (!items.length) return <Empty>本節沒有通過檢查的依據，暫無法提供{label}判讀。{label === '風險' || label === '負面因素' ? '這不代表沒有風險。' : ''}</Empty>;
+  if (!items.length) return <Empty>本節沒有通過檢查的依據，暫無法提供{label}判讀。{label === '情境風險' || label === '負面因素' ? '這不代表沒有風險。' : ''}</Empty>;
   const preview = items.slice(0, SECTION_PREVIEW);
   const rest = items.slice(SECTION_PREVIEW);
   return (
@@ -100,7 +100,7 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
           </span>
           <span className={cn('font-mono text-sm font-semibold tabular-nums', moveClass(item.move_pct))}>
             {item.move_pct == null
-              ? '—'
+              ? '--'
               : signedText(item.move_pct, 2, '%')}
           </span>
           {item.volume_ratio == null ? null : (
@@ -118,7 +118,7 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
 const RiskItems: React.FC<{ items?: Risk[] }> = ({ items }) => (
   <ItemGroup
     items={items ?? []}
-    label="風險"
+    label="情境風險"
     render={(item) => (
       <ClaimRow key={item.id} claimKey={item.id} ids={item.evidence_ids}>
         <span className="block text-xs font-bold text-muted-foreground">
@@ -230,7 +230,7 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
     </SectionCard>
 
     <SectionCard
-      title="需要留意的風險"
+      title="情境風險"
       icon={<AlertTriangle size={15} className="text-warning-icon" aria-hidden />}
       hint="每一項都附上觸發條件，也就是「什麼情況下這個風險會真的發生」。"
     >
@@ -244,7 +244,7 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
       <WatchItems items={brief.watch_points} />
     </SectionCard>
 
-    <SectionCard title="關鍵交易日" hint="漲跌幅與量能倍數由後端依當日資料回填，不是 AI 寫的。">
+    <SectionCard title="關鍵交易日" hint="漲跌幅與量能倍數取自當日行情，不是 AI 寫的。">
       <KeyDayItems items={brief.key_days} />
     </SectionCard>
 

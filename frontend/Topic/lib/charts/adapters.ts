@@ -3,11 +3,18 @@ import type { ChipsVolumeData } from '../types/api';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import type { CompareChartMode } from '../types/compare';
 import type { CompareChartSeries } from '../utils/compare';
-import { fmtInstitutionalAxisLabel, fmtInstitutionalShares } from '../utils/format';
+import { LESS_THAN_ONE_LOT, fmtInstitutionalShares, fmtLotsAxisLabel, isUnderOneLot, lotsNumber, sharesToLots } from '../utils/format';
 import { getChartPalette, getInstitutionColors, getMaColors, type ChartPalette } from './theme';
 
-/** 法人與籌碼圖預設只畫最近 30 個交易日 */
-const RECENT_DAYS = 30;
+/** 自訂 tooltip 是 HTML 字串（ECharts renderMode 'html' 會當 innerHTML）：拼進去的 API 值一律先跳脫（02-F5） */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // ── 圖說的日期範圍 ──────────────────────────────────────────
 // 圖旁的日期與筆數一律取自「圖上實際畫出的資料列」，不是查詢的日期區間。
@@ -33,14 +40,17 @@ export function plottedSpanText(span: PlottedSpan | null): string | null {
   return span ? `${span.first} → ${span.last}，共 ${span.count} 個交易日` : null;
 }
 
-/** 法人每日流向與累計圖畫的列：最近 30 個交易日（rows 由舊到新） */
+/**
+ * 法人每日流向與累計圖畫的列：頁面期間內的每一天（rows 由舊到新）。
+ * 以前固定只畫最近 30 個交易日，和同頁 K 線、指標的 63 日對不上（04-S3）；現在跟著同一段期間。
+ */
 export function recentInstitutionalRows(rows: InstitutionalDay[] | null | undefined): InstitutionalDay[] {
-  return (rows ?? []).slice(-RECENT_DAYS);
+  return [...(rows ?? [])];
 }
 
-/** 價量籌碼圖畫的列：依日期排序後的最近 30 個交易日 */
+/** 價量籌碼圖畫的列：依日期排序後，頁面期間內的每一天 */
 export function recentChipsRows(rows: ChipsVolumeData[] | null | undefined): ChipsVolumeData[] {
-  return [...(rows ?? [])].sort((a, b) => a.date.localeCompare(b.date)).slice(-RECENT_DAYS);
+  return [...(rows ?? [])].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // ── 印刷圖表的共同語法 ──────────────────────────────────────
@@ -167,7 +177,27 @@ function swatch(color: unknown): string {
   return typeof color === 'string' ? `<span style="display:inline-block;width:10px;height:2px;margin:0 6px 3px 0;vertical-align:middle;background:${color}"></span>` : '';
 }
 
-const institutionalAxisLabel = { formatter: (value: number) => fmtInstitutionalAxisLabel(Number(value)) };
+/*
+ * 法人圖的資料點一律換成張（P1-21）：刻度才會是整齊的張數。tooltip 也寫張，不滿 1 張寫「不到 1」。
+ */
+const institutionalAxisLabel = { formatter: (value: number) => fmtLotsAxisLabel(Number(value)) };
+const lotsPoint = (shares: number | null | undefined): number | null =>
+  shares == null || !Number.isFinite(shares) ? null : sharesToLots(shares);
+/** 資料點（張）→「1,234 張」 */
+const lotsValueFormatter = (v: unknown): string => (typeof v === 'number' ? fmtInstitutionalShares(v * 1000).replace(/^-/, '−') : '--');
+
+/**
+ * 法人 tooltip 的股數 → 整數張，和法人明細表一樣（features/stock/signedShares.ts 的 lots／signedLots）。
+ * 買、賣、淨各自四捨五入到整數張，相減最多差 1 張（04-S5 原本是 8萬／5萬／淨 4萬那種整數萬的落差）。
+ * 淨額帶正負號（U+2212）；不滿 1 張的非零值寫「不到 1」（標頭已寫「張」）。
+ */
+export function institutionalTooltipLots(value: number | null | undefined, signed = false): string {
+  if (value == null || !Number.isFinite(value)) return '--';
+  if (isUnderOneLot(value)) return LESS_THAN_ONE_LOT.replace(/ 張$/, '');
+  const abs = lotsNumber(value);
+  if (!signed || abs === '0') return abs;
+  return value > 0 ? `+${abs}` : `−${abs}`;
+}
 
 /**
  * 價格的數字文法和 DOM 的 fmtPrice 一致：不加千分位（ECharts 預設會寫成 2,550）。
@@ -195,12 +225,12 @@ export function institutionalFlowOption(rows: InstitutionalDay[] | null, isDark:
   const colors = getInstitutionColors(isDark);
   const recent = recentInstitutionalRows(rows);
   const hasBuySell = recent.some((r) => r.foreign_buy != null || r.foreign_sell != null);
-  const f = fmtInstitutionalAxisLabel;
+  const f = institutionalTooltipLots;
   const series = [
-    { ...barLook, name: '外資', stack: 'inst', data: recent.map((r) => r.foreign_net ?? 0), itemStyle: { ...barLook.itemStyle, color: colors.foreign } },
-    { ...barLook, name: '投信', stack: 'inst', data: recent.map((r) => r.investment_trust_net ?? 0), itemStyle: { ...barLook.itemStyle, color: colors.trust } },
-    { ...barLook, name: '自營', stack: 'inst', data: recent.map((r) => r.dealer_net ?? 0), itemStyle: { ...barLook.itemStyle, color: colors.dealer } },
-    { ...lineLook(palette.text, 2), name: '合計', data: recent.map((r) => r.total_institutional_net ?? 0) },
+    { ...barLook, name: '外資', stack: 'inst', data: recent.map((r) => lotsPoint(r.foreign_net ?? 0)), itemStyle: { ...barLook.itemStyle, color: colors.foreign } },
+    { ...barLook, name: '投信', stack: 'inst', data: recent.map((r) => lotsPoint(r.investment_trust_net ?? 0)), itemStyle: { ...barLook.itemStyle, color: colors.trust } },
+    { ...barLook, name: '自營', stack: 'inst', data: recent.map((r) => lotsPoint(r.dealer_net ?? 0)), itemStyle: { ...barLook.itemStyle, color: colors.dealer } },
+    { ...lineLook(palette.text, 2), name: '合計', data: recent.map((r) => lotsPoint(r.total_institutional_net ?? 0)) },
   ];
   return {
     animation: false,
@@ -212,11 +242,11 @@ export function institutionalFlowOption(rows: InstitutionalDay[] | null, isDark:
             const row = recent[items?.[0]?.dataIndex ?? -1];
             if (!row) return '';
             return [
-              `<b>${row.date}</b>`,
-              `外資：買 ${f(row.foreign_buy ?? 0)} / 賣 ${f(row.foreign_sell ?? 0)} / 淨 <b>${f(row.foreign_net ?? 0)}</b>`,
-              `投信：買 ${f(row.investment_trust_buy ?? 0)} / 賣 ${f(row.investment_trust_sell ?? 0)} / 淨 <b>${f(row.investment_trust_net ?? 0)}</b>`,
-              `自營：買 ${f(row.dealer_buy ?? 0)} / 賣 ${f(row.dealer_sell ?? 0)} / 淨 <b>${f(row.dealer_net ?? 0)}</b>`,
-              `合計：<b>${f(row.total_institutional_net ?? 0)}</b>`,
+              `<b>${escapeHtml(row.date)}</b>（張）`,
+              `外資：買 ${f(row.foreign_buy)} / 賣 ${f(row.foreign_sell)} / 淨 <b>${f(row.foreign_net, true)}</b>`,
+              `投信：買 ${f(row.investment_trust_buy)} / 賣 ${f(row.investment_trust_sell)} / 淨 <b>${f(row.investment_trust_net, true)}</b>`,
+              `自營：買 ${f(row.dealer_buy)} / 賣 ${f(row.dealer_sell)} / 淨 <b>${f(row.dealer_net, true)}</b>`,
+              `合計：<b>${f(row.total_institutional_net, true)}</b>`,
             ].join('<br/>');
           }
         : undefined,
@@ -228,17 +258,17 @@ export function institutionalFlowOption(rows: InstitutionalDay[] | null, isDark:
   };
 }
 
-/** 法人累積買賣超（股） */
+/** 法人累積買賣超（張） */
 export function institutionalCumulativeOption(rows: InstitutionalDay[] | null, isDark: boolean): EChartsOption | null {
   if (!rows?.length) return null;
   const palette = getChartPalette(isDark);
   const recent = recentInstitutionalRows(rows);
   let running = 0;
-  const points = recent.map((row) => (running += row.total_institutional_net ?? 0));
+  const points = recent.map((row) => lotsPoint(running += row.total_institutional_net ?? 0));
   return {
     animation: false,
     grid: chartGrid({ top: 12 }),
-    tooltip: tooltip(palette, { valueFormatter: (v: unknown) => fmtInstitutionalAxisLabel(Number(v)) + ' 股' }),
+    tooltip: tooltip(palette, { valueFormatter: lotsValueFormatter }),
     xAxis: baseAxis(palette, recent.map((r) => r.date)),
     yAxis: valueAxis(palette, { axisLabel: institutionalAxisLabel }),
     series: [
@@ -266,8 +296,9 @@ export function chipsVolumeOption(rows: ChipsVolumeData[] | null, isDark: boolea
       yAxisIndex: 1,
       data: recent.map((r) => {
         const v = r.total_institutional_net ?? 0;
-        return { value: v, itemStyle: { color: signedBarColor(palette, v) } };
+        return { value: lotsPoint(v), itemStyle: { color: signedBarColor(palette, v) } };
       }),
+      tooltip: { valueFormatter: lotsValueFormatter },
       itemStyle: { ...barLook.itemStyle, color: palette.flat },
     },
   ];
@@ -281,7 +312,7 @@ export function chipsVolumeOption(rows: ChipsVolumeData[] | null, isDark: boolea
     yAxis: [
       valueAxis(palette, { name: '收盤', position: 'left', nameGap: 8, nameTextStyle: { align: 'left' }, scale: true, axisLabel: priceAxis }),
       valueAxis(palette, {
-        name: '法人（股）',
+        name: '法人（張）',
         position: 'right',
         nameGap: 8,
         nameTextStyle: { align: 'right' },
@@ -312,6 +343,14 @@ function indicatorBase(
   };
 }
 
+const fixedTooltip = (digits: number) => ({
+  valueFormatter: (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : '--'),
+});
+/** RSI、KD 1 位，MACD 柱 3 位（和 lib/utils/indicatorSignals 的 fmtIndicator、MACD_DECIMALS 一致） */
+const indicatorTooltip = fixedTooltip(1);
+const macdHistTooltip = fixedTooltip(3);
+const macdLineTooltip = fixedTooltip(2);
+
 /** RSI（0–100，含 70／30 參考線）與 MACD（柱依正負上色＋DIF／DEA） */
 export function rsiMacdOptions(rows: TechnicalDay[], isDark: boolean) {
   const palette = getChartPalette(isDark);
@@ -334,21 +373,22 @@ export function rsiMacdOptions(rows: TechnicalDay[], isDark: boolean) {
     data: [{ yAxis: 70 }, { yAxis: 30 }],
   };
   const rsiSeries: Array<Record<string, unknown>> = [];
-  if (hasValue(rsi5)) rsiSeries.push({ ...lineLook(ma.MA10, 1.5), name: 'RSI5', data: rsi5 });
-  if (hasValue(rsi10)) rsiSeries.push({ ...lineLook(palette.text, 2), name: 'RSI10', data: rsi10 });
+  if (hasValue(rsi5)) rsiSeries.push({ ...lineLook(ma.MA10, 1.5), name: 'RSI5', data: rsi5, tooltip: indicatorTooltip });
+  if (hasValue(rsi10)) rsiSeries.push({ ...lineLook(palette.text, 2), name: 'RSI10', data: rsi10, tooltip: indicatorTooltip });
   // 參考線必須掛在 series 上 ECharts 才會畫（決議 D9-c12）
   if (rsiSeries.length) rsiSeries[0].markLine = referenceLines;
 
   const macdSeries: Array<Record<string, unknown>> = [
     {
       ...barLook,
-      name: 'MACD',
+      name: 'MACD 柱',
       data: hist.map((v) => ({ value: v ?? 0, itemStyle: { color: signedBarColor(palette, v ?? 0) } })),
       itemStyle: { ...barLook.itemStyle, color: palette.flat },
+      tooltip: macdHistTooltip,
     },
   ];
-  if (hasValue(dif)) macdSeries.push({ ...lineLook(palette.text, 1.5), name: 'DIF', data: dif });
-  if (hasValue(dea)) macdSeries.push({ ...lineLook(ma.MA20, 1.5), name: 'DEA', data: dea });
+  if (hasValue(dif)) macdSeries.push({ ...lineLook(palette.text, 1.5), name: 'DIF', data: dif, tooltip: macdLineTooltip });
+  if (hasValue(dea)) macdSeries.push({ ...lineLook(ma.MA20, 1.5), name: 'DEA', data: dea, tooltip: macdLineTooltip });
 
   return {
     rsiOption: hasRsiData ? ({ ...indicatorBase(palette, dates, rsiSeries, { min: 0, max: 100 }), series: rsiSeries } as EChartsOption) : null,
@@ -366,8 +406,8 @@ export function kdOption(rows: TechnicalDay[], isDark: boolean): EChartsOption |
   const d = rows.map((r) => r.kd_d9);
   if (!hasValue([...k, ...d])) return null;
   const series = [
-    { ...lineLook(palette.text, 2), name: 'K', data: k },
-    { ...lineLook(ma.MA10, 2), name: 'D', data: d },
+    { ...lineLook(palette.text, 2), name: 'K', data: k, tooltip: indicatorTooltip },
+    { ...lineLook(ma.MA10, 2), name: 'D', data: d, tooltip: indicatorTooltip },
   ];
   return { ...indicatorBase(palette, rows.map((r) => r.date), series, { min: 0, max: 100 }), series };
 }
@@ -418,8 +458,8 @@ export function compareLineOption(
         const items = (Array.isArray(params) ? params : [params]) as SeriesTooltipItem[];
         const lines = items
           .filter((p) => typeof p.value === 'number' && Number.isFinite(p.value))
-          .map((p) => `${swatch(p.color)}${fmt.tooltip(p.value as number, p.seriesName ?? '')}`);
-        return [`<b>${items[0]?.axisValue ?? ''}</b>`, ...lines].join('<br/>');
+          .map((p) => `${swatch(p.color)}${fmt.tooltip(p.value as number, escapeHtml(p.seriesName))}`);
+        return [`<b>${escapeHtml(items[0]?.axisValue)}</b>`, ...lines].join('<br/>');
       },
     }),
     xAxis: { ...baseAxis(palette, chart.dates), boundaryGap: false },
@@ -495,7 +535,7 @@ export function riskReturnScatterOption(points: RiskReturnPoint[], isDark: boole
       formatter: (params: unknown) => {
         const p = params as { name?: string; value?: [number, number] };
         if (!Array.isArray(p.value)) return '';
-        return `<b>${p.name ?? ''}</b><br/>年化波動度：${p.value[0].toFixed(2)}%<br/>區間漲跌幅：${p.value[1].toFixed(2)}%`;
+        return `<b>${escapeHtml(p.name)}</b><br/>年化波動度：${p.value[0].toFixed(2)}%<br/>區間漲跌幅：${p.value[1].toFixed(2)}%`;
       },
     }),
     xAxis: {
@@ -554,13 +594,13 @@ export function institutionalCompareOption(
   const series = symbols.map((sym) => ({
     ...lineLook(colors[sym], 2),
     name: sym,
-    data: chart.values[sym] ?? [],
+    data: (chart.values[sym] ?? []).map(lotsPoint),
     connectNulls: false,
   }));
   return {
     animation: false,
     grid: chartGrid(),
-    tooltip: tooltip(palette, { valueFormatter: (v: unknown) => (typeof v === 'number' ? fmtInstitutionalShares(v) : '—') }),
+    tooltip: tooltip(palette, { valueFormatter: lotsValueFormatter }),
     legend: legend(palette, series, { type: 'scroll', pageTextStyle: { color: palette.tickMuted, fontFamily: CHART_MONO } }),
     xAxis: baseAxis(palette, chart.dates),
     yAxis: valueAxis(palette, { axisLabel: institutionalAxisLabel }),

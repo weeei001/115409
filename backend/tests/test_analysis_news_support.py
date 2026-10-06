@@ -286,31 +286,85 @@ def fixture(published, quote="公司公布最新營收，並表示需求仍待�
     return bundle, item
 
 
-@pytest.mark.parametrize("published", ["2026-09-01T10:00:00+08:00", "2026-07-31T16:33:00+08:00",
-                                         "2026-07-31", "2026-07-31T10:00:00", None])
+@pytest.mark.parametrize("published,label", [
+    ("2026-09-01T10:00:00+08:00", "09/01 10:00"), ("2026-07-31T16:33:00+08:00", "07/31 16:33"),
+    ("2026-07-31", "07/31"), ("2026-07-31T10:00:00", "07/31 10:00"), (None, None)])
 @pytest.mark.parametrize("motive", ["營收帶動上漲", "利多出盡", "市場已提前反映", "獲利了結"])
-def test_unverified_news_is_separated_from_price_regardless_of_motive(published, motive):
+def test_unverified_news_is_separated_from_price_regardless_of_motive(published, label, motive):
     bundle, item = fixture(published, use="price_reaction")
     item["what"] = motive
     issues = _grounding_issues(item, bundle)
     assert issues and all(issue.startswith("未核實") for issue in issues)
     assert motive not in item["what"]
-    assert "收盤 100 元" in item["what"] and "未核實價格因果" in item["what"]
+    assert "收盤 100 元" in item["what"] and "新聞和股價變動是否有關，未經核實。" in item["what"]
     assert item["news_support"][0]["use"] == "reported_fact"
-    if published is None:
-        assert "發布時間未知" in item["what"] and "00:00" not in item["what"]
+    assert "T" not in item["what"] and "+08:00" not in item["what"]
+    if label:
+        assert f"{label} 報導：「" in item["what"]
+    else:
+        assert "報導（發布時間未知）：「" in item["what"]
+    if published in {None, "2026-07-31"}:
+        assert "00:00" not in item["what"]
 
 
-@pytest.mark.parametrize("published,quote,use", [
-    ("2026-08-01T10:00:00+08:00", "昨日公司公布營運資訊。", "retrospective"),
-    ("2026-09-01T10:00:00+08:00", "2026-07-31公司公布營運資訊。", "retrospective"),
-    ("2026-07-31T04:00:00+00:00", "2026-07-31公司公布營運資訊。", "price_reaction"),
+@pytest.mark.parametrize("published,quote,use,source", [
+    ("2026-08-01T10:00:00+08:00", "昨日公司公布營運資訊。", "retrospective", "08/01 10:00 回顧"),
+    ("2026-09-01T10:00:00+08:00", "2026-07-31公司公布營運資訊。", "retrospective", "09/01 10:00 回顧"),
+    ("2026-07-31T04:00:00+00:00", "2026-07-31公司公布營運資訊。", "price_reaction", "07/31 12:00 報導"),
 ])
-def test_explicit_retrospective_and_intraday_sources_keep_attribution(published, quote, use):
+def test_explicit_retrospective_and_intraday_sources_keep_attribution(published, quote, use, source):
     bundle, item = fixture(published, quote, use, "2026-07-31")
     assert not _grounding_issues(item, bundle)
-    assert quote in item["what"] and published in item["what"]
+    assert f"{source}：「{quote}」" in item["what"] and published not in item["what"]
     assert item["news_support"][0]["use"] == use
+
+
+def test_unverified_first_publication_is_one_plain_limitation(db_session, settings):
+    from app.clients.rag import RagResult
+    from app.db.models.stock_info import StockInfo
+    from app.features.analysis.evidence import NEWS_FIRST_PUBLIC_LIMITATION
+    from test_analysis_service import FakeLlm, FakeRag, run_service, seed_prices
+
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
+    db_session.commit()
+    seed_prices(db_session)
+    news = {"title": "台積電營收", "summary": "台積電公布營收。", "publisher": "鉅亨網",
+            "timestamp": "2026-07-10T09:19:00+08:00", "source_state": {"revision_id": 1}}
+    result = run_service(db_session, settings, FakeLlm(), FakeRag(RagResult(news_sources=[news])))
+    assert NEWS_FIRST_PUBLIC_LIMITATION == "新聞的首次發布時間無法確認，分析可能用到事後才公開的資訊。"
+    assert result.limitations.count(NEWS_FIRST_PUBLIC_LIMITATION) == 1
+    assert not any(text.startswith("缺少：新聞") or "首次公開" in text for text in result.limitations)
+
+
+def test_opinion_words_do_not_reach_the_published_brief(db_session, settings):
+    from app.db.models.stock_info import StockInfo
+    from test_analysis_service import FakeLlm, brief_payload, run_service, seed_prices
+
+    db_session.add(StockInfo(symbol="2330", name="TSMC"))
+    db_session.commit()
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload["current_status"][0]["text"] = "基本面提供支撐，長期趨勢仍看好。"
+    response = run_service(db_session, settings, FakeLlm(payload))
+    assert response.status == "limited" and response.brief.current_status == []
+    assert "看好" not in response.model_dump_json()
+
+
+@pytest.mark.parametrize("published,publisher,source", [
+    ("2026-09-16T09:19:06+08:00", "鉅亨網", "09/16 09:19 鉅亨網報導"),
+    ("2026-09-16T09:19:06+08:00", "cnyes", "09/16 09:19 鉅亨網報導"),
+    ("2025-12-31T09:19:06+08:00", "自由時報", "2025/12/31 09:19 自由時報報導"),
+    ("2025-12-31T16:30:00Z", None, "01/01 00:30 報導"),
+    ("2025-12-30", None, "2025/12/30 報導"),
+    ("下午 3 點", "鉅亨網", "鉅亨網報導（發布時間未知）"),
+])
+def test_key_day_source_uses_taiwan_time_and_publisher_name(published, publisher, source):
+    bundle, item = fixture(published, use="price_reaction")
+    if publisher:
+        bundle.news[0]["publisher"] = publisher
+    _grounding_issues(item, bundle)
+    assert item["what"] == (f"收盤 100 元。{source}：「公司公布最新營收，並表示需求仍待觀察。」。"
+                            "新聞和股價變動是否有關，未經核實。")
 
 
 def test_retrospective_cannot_invent_event_date_and_product_needs_its_quote():

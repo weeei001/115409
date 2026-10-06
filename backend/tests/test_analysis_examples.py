@@ -94,10 +94,38 @@ def test_return_rules_do_not_join_separate_clauses(separator):
 
     actual = f"受輝達財報激勵記憶體短缺預期{separator}股價飆漲 4.64% 至 541 元再創新高。"
     assert not scan_compliance_hits(actual)
-    assert not scan_compliance_hits(f"市場看好{separator}股價已上漲4.64%。")
+    # 「看好」 itself is an opinion word; the forward-return rules must still not join the clauses.
+    assert [hit.rule for hit in scan_compliance_hits(f"市場看好{separator}股價已上漲4.64%。")] == ["投資觀點-hard"]
     for text in ("預期漲4.64%", f"預期{separator}將漲4.64%"):
         assert any(hit.rule == "前瞻報酬-hard" for hit in scan_compliance_hits(text))
     assert any(hit.rule == "前瞻報酬-soft" for hit in scan_compliance_hits("未來上漲4.64%"))
+
+
+@pytest.mark.parametrize("text", ["基本面提供支撐，長期趨勢仍看好。", "若數據亮眼可進一步上攻。",
+                                  "法人看壞後市。", "市場不看好短線表現。"])
+def test_opinion_words_are_hard_violations(text):
+    from app.features.analysis.compliance import scan_compliance_hits
+
+    assert any(hit.rule == "投資觀點-hard" and hit.severity == "hard" for hit in scan_compliance_hits(text))
+
+
+@pytest.mark.parametrize("text", ["基本面支撐偏多。", "若財報優於預期，價格可能走高。",
+                                  "報導：「外資看好 AI 需求，股價有望上攻」。"])
+def test_neutral_direction_and_quoted_sources_pass_opinion_rule(text):
+    from app.features.analysis.compliance import scan_compliance_hits
+
+    assert not [hit for hit in scan_compliance_hits(text) if hit.rule == "投資觀點-hard"]
+
+
+def test_opinion_rule_reaches_the_brief_gate_and_revision():
+    from app.features.analysis.compliance import compliance_rules_signature
+    from app.features.analysis.validation import _scan_text_brief_compliance
+
+    assert any("投資觀點-hard" in rule for rule in compliance_rules_signature())
+    hits = _scan_text_brief_compliance({"text": "長期趨勢仍看好。", "evidence_ids": []})
+    assert any(hit.rule == "投資觀點-hard" for hit in hits)
+    quoted = {"what": "收盤 100 元。09/16 09:19 鉅亨網報導：「法人看好後市」。新聞和股價變動是否有關，未經核實。"}
+    assert not [hit for hit in _scan_text_brief_compliance(quoted) if hit.rule == "投資觀點-hard"]
 
 
 @pytest.mark.parametrize("separator", ["，", ";"])

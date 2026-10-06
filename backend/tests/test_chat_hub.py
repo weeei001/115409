@@ -11,8 +11,9 @@ from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.chat.router import get_service
 from app.features.chat.schemas import AskRequest
 from test_chat import NOW, chat, events
-from app.features.chat.prompts import INVESTMENT_DISCLAIMER
-from app.features.chat.service import _is_recommendation
+from app.features.chat.prompts import (ANSWER_SYSTEM_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER,
+                                       PAPER_PORTFOLIO_DISCLAIMER, PAPER_PORTFOLIO_GUIDANCE, recovery_system_prompt)
+from app.features.chat.service import _is_recommendation, _with_disclaimer
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -28,7 +29,10 @@ def test_recommendation_followup_fetches_market_and_appends_disclaimer(hub, stre
     assert response.status_code == 200
     data = events(response)[-1] if stream else response.json()
     assert data["answer"].startswith(llm.answer)
-    assert data["answer"].endswith(INVESTMENT_DISCLAIMER)
+    # P0-7: the reminder follows the validated prose, before the reference tail that carries news titles.
+    body, separator, references = data["answer"].partition("\n\n【引用來源】")
+    assert separator and body.endswith("\n\n" + INVESTMENT_DISCLAIMER)
+    assert INVESTMENT_DISCLAIMER not in references
     assert data["answer"].count(INVESTMENT_DISCLAIMER) == 1
     assert any(source["category"] == "comparison" for source in data["sources"])
     assert any(source["category"] == "market_technical" for source in data["sources"])
@@ -52,6 +56,26 @@ def test_recommendation_disclaimer_does_not_bypass_citations(hub, stream):
 @pytest.mark.parametrize("query", ["如何在模擬下單頁買進股票？", "外資買賣超多少？", "What does buy mean?"])
 def test_order_help_and_market_facts_are_not_recommendations(query):
     assert not _is_recommendation(query)
+
+
+def test_disclaimer_is_inserted_once_before_references_or_at_the_end():
+    cited = "台積電收盤 100 元。[S1]\n\n【資料限制】\n部分資料缺漏。\n\n【引用來源】\n- [S1] 標題含 投資建議"
+    once = _with_disclaimer(cited)
+    assert once == ("台積電收盤 100 元。[S1]\n\n【資料限制】\n部分資料缺漏。\n\n" + INVESTMENT_DISCLAIMER
+                    + "\n\n【引用來源】\n- [S1] 標題含 投資建議")
+    assert _with_disclaimer(once) == once
+    insufficient = INSUFFICIENT_EVIDENCE_ANSWER + "\n\n 指定期間沒有新聞。"
+    assert _with_disclaimer(insufficient) == insufficient + "\n\n" + INVESTMENT_DISCLAIMER
+    assert _with_disclaimer(_with_disclaimer(insufficient)).count(INVESTMENT_DISCLAIMER) == 1
+
+
+def test_answer_prompt_does_not_ask_for_buy_or_sell_advice():
+    """P0-7 / P1-11: research summary only; one share unit in prose."""
+    for removed in ("優先選擇，", "可以提供選股推薦", "有條件的買賣看法", "多檔建議", "賣出建議", "建議配置"):
+        assert removed not in ANSWER_SYSTEM_PROMPT + recovery_system_prompt("standard", "numbers"), removed
+    assert "不提供投資建議" in ANSWER_SYSTEM_PROMPT and "分批布局" in ANSWER_SYSTEM_PROMPT
+    assert "一律換算成「張」" in ANSWER_SYSTEM_PROMPT and "2026/10/02" in ANSWER_SYSTEM_PROMPT
+    assert "不是投資建議" in INVESTMENT_DISCLAIMER and "投資建議僅供參考" not in INVESTMENT_DISCLAIMER
 
 
 @pytest.fixture
@@ -263,3 +287,13 @@ def test_model_suggested_questions_are_clickable_followups(hub, stream):
     assert [action for action in data["actions"] if action["type"] == "follow_up"] == [
         {"type": "follow_up", "label": question, "query": question} for question in questions
     ]
+
+
+def test_paper_portfolio_guidance_allows_simulated_allocation_only():
+    """2026-10-06: allocation proposals are allowed for the paper account; general answers stay research-only."""
+    assert "模擬練習" in PAPER_PORTFOLIO_GUIDANCE and "available_cash 為共同上限" in PAPER_PORTFOLIO_GUIDANCE
+    assert "目標價" in PAPER_PORTFOLIO_GUIDANCE and "仍只做研究整理" in PAPER_PORTFOLIO_GUIDANCE
+    assert PAPER_PORTFOLIO_GUIDANCE not in ANSWER_SYSTEM_PROMPT
+    assert "不是投資建議" in PAPER_PORTFOLIO_DISCLAIMER
+    paper = _with_disclaimer("可考慮投入可用資金的20%。[S1]", PAPER_PORTFOLIO_DISCLAIMER)
+    assert paper.endswith("\n\n" + PAPER_PORTFOLIO_DISCLAIMER) and INVESTMENT_DISCLAIMER not in paper

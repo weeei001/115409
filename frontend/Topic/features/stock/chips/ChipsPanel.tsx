@@ -12,18 +12,18 @@ import {
   recentChipsRows,
   recentInstitutionalRows,
 } from '@/lib/charts/adapters';
-import { fmtInstitutionalShares as fmtShares } from '@/lib/utils/format';
+import { fmtInstitutionalShares as fmtShares, lotToneValue } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { EChart } from '@/components/charts/EChart';
-import { CollapsibleTableSection, TableScrollHint } from '@/components/common/CollapsibleSection';
+import { TableScrollHint } from '@/components/common/CollapsibleSection';
 import { DataStamp, Ledger, LedgerPanel } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/cn';
-import { signedShares, signedWanShares, wanShares } from '../signedShares';
+import { lots, signedLots, signedShares } from '../signedShares';
 import { EmptyRangeActions, type EmptyRangeActionsProps as EmptyActions } from '../EmptyRangeActions';
 
 /** 最近交易日四格：用 1px 線分隔，標籤靠左、數字靠右，只有淨額上漲跌色 */
@@ -47,7 +47,7 @@ function KpiCards({ latest, loading, actions }: { latest: InstitutionalDay | nul
       {items.map((item) => (
         <div key={item.label} className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-x-3 bg-card px-4 py-2.5 sm:px-5">
           <dt className="text-[13px] text-subtle">{item.label}</dt>
-          <dd className={cn('ml-auto font-mono text-[15px] font-semibold whitespace-nowrap tabular-nums', valueToneText(item.value))}>{signedShares(item.value)}</dd>
+          <dd className={cn('ml-auto font-mono text-[15px] font-semibold whitespace-nowrap tabular-nums', valueToneText(lotToneValue(item.value)))}>{signedShares(item.value)}</dd>
         </div>
       ))}
     </dl>
@@ -70,12 +70,12 @@ function LatestCard({ latest, actions }: { latest: InstitutionalDay | null; acti
   ];
   return (
     <div className="space-y-3">
-      <p className="characteristic">最近交易日 {latest.date} · 單位 萬股（買進、賣出不上漲跌色）</p>
+      <p className="characteristic">最近交易日 {latest.date} · 單位：張</p>
       <div className="grid gap-px border bg-border sm:grid-cols-2">
         {rows.map((row) => (
           <div key={row.label} className="min-w-0 bg-card px-4 py-3">
             <p className="text-[13px] text-muted-foreground">{row.label}</p>
-            <p className={cn('mt-1 font-mono text-lg font-semibold whitespace-nowrap tabular-nums', valueToneText(row.net))}>{signedShares(row.net)}</p>
+            <p className={cn('mt-1 font-mono text-lg font-semibold whitespace-nowrap tabular-nums', valueToneText(lotToneValue(row.net)))}>{signedShares(row.net)}</p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
               <span>
                 買進 <span className="font-mono whitespace-nowrap text-subtle tabular-nums">{fmtShares(row.buy)}</span>
@@ -99,16 +99,14 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
   const rows = historyRows(all);
   const hasBuySell = rows.some((r) => r.foreign_buy != null || r.foreign_sell != null);
   const td = 'h-11 px-3 py-2 text-right font-mono text-[13.5px] tabular-nums';
-  const netCell = (v: number | null, bold = false) => <td className={cn(td, bold && 'font-semibold', valueToneText(v))}>{signedWanShares(v)}</td>;
-  const plainCell = (v: number | null) => <td className={cn(td, 'text-subtle')}>{wanShares(v)}</td>;
+  const netCell = (v: number | null, bold = false) => <td className={cn(td, bold && 'font-semibold', valueToneText(lotToneValue(v)))}>{signedLots(v)}</td>;
+  const plainCell = (v: number | null) => <td className={cn(td, 'text-subtle')}>{lots(v)}</td>;
 
+  // 「歷史明細」分頁直接是表格，不再收合：抽屜 → 分頁 → 展開要三層（04-S6）
   return (
-    <CollapsibleTableSection
-      title="法人歷史明細"
-      subtitle="外資、投信、自營每日買賣超；單位 萬股"
-      expandLabel={`顯示法人明細（${rows.length} 筆）`}
-      collapseLabel="收合法人明細"
-    >
+    <section aria-label="法人歷史明細" className="space-y-2">
+      <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">法人歷史明細</h3>
+      <p className="text-[13px] leading-relaxed text-muted-foreground">外資、投信、自營每日買賣超；單位 張</p>
       {hasBuySell ? (
         <ToggleGroup type="single" variant="square" spacing={1} value={mode} onValueChange={(v) => v && setMode(v as 'net' | 'detail')} className="mb-2" aria-label="明細檢視方式">
           <ToggleGroupItem value="net" className="text-xs">
@@ -126,7 +124,7 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
             <thead>
               <tr className="border-b border-border-strong bg-muted text-xs text-muted-foreground">
                 <th className="h-11 px-3 py-2.5 text-left font-medium">日期</th>
-                {['外資（萬股）', '投信（萬股）', '自營（萬股）', '合計（萬股）'].map((h) => (
+                {['外資（張）', '投信（張）', '自營（張）', '合計（張）'].map((h) => (
                   <th key={h} className="h-11 px-3 py-2 text-right font-medium">
                     {h}
                   </th>
@@ -152,13 +150,13 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
                 <th className="h-11 px-3 py-2.5 text-left font-medium" rowSpan={2}>
                   日期
                 </th>
-                {['外資（萬股）', '投信（萬股）', '自營（萬股）'].map((h) => (
+                {['外資（張）', '投信（張）', '自營（張）'].map((h) => (
                   <th key={h} className="border-b px-1 py-1 text-center font-medium" colSpan={3}>
                     {h}
                   </th>
                 ))}
                 <th className="h-11 px-3 py-2 text-right font-medium" rowSpan={2}>
-                  合計（萬股）
+                  合計（張）
                 </th>
               </tr>
               <tr className="border-b border-border-strong bg-muted text-xs text-muted-foreground">
@@ -191,16 +189,16 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
           </table>
         )}
       </div>
-    </CollapsibleTableSection>
+    </section>
   );
 }
 
 const TABS = [
-  { key: 'flow', label: '每日流向', description: '三大法人每日買賣超 · 縱軸單位 萬股／億股' },
-  { key: 'cumulative', label: '累計淨額', description: '法人累積買賣超走勢 · 縱軸單位 萬股／億股' },
-  { key: 'chips', label: '量價籌碼', description: '收盤價（左軸）與三大法人合計買賣超（右軸，萬股／億股）' },
-  { key: 'today', label: '最近交易日', description: '最近交易日（最近一筆已儲存資料）的法人結構，非即時' },
-  { key: 'history', label: '歷史明細', description: '逐日明細（由新到舊）· 單位 萬股' },
+  { key: 'flow', label: '每日流向', description: '三大法人每日買賣超 · 縱軸單位 張' },
+  { key: 'cumulative', label: '累計淨額', description: '法人累積買賣超走勢 · 縱軸單位 張' },
+  { key: 'chips', label: '量價籌碼', description: '收盤價（左軸）與三大法人合計買賣超（右軸，張）' },
+  { key: 'today', label: '最近交易日', description: '最近交易日的法人買賣超，非即時' },
+  { key: 'history', label: '歷史明細', description: '逐日明細（由新到舊）· 單位 張' },
 ] as const;
 
 function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
@@ -241,9 +239,9 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
       case 'flow':
         if (error) return empty(error);
         // 只用 ECharts 內建的可點圖例（決議 c61）
-        return flow ? <EChart title="三大法人每日買賣超（萬股）" option={flow} height={280} /> : empty('尚無法人買賣超資料');
+        return flow ? <EChart title="三大法人每日買賣超（張）" option={flow} height={280} /> : empty('尚無法人買賣超資料');
       case 'cumulative':
-        return cumulative ? <EChart title="法人累積買賣超（萬股）" option={cumulative} height={260} /> : empty('尚無累積買賣超資料');
+        return cumulative ? <EChart title="法人累積買賣超（張）" option={cumulative} height={260} /> : empty('尚無累積買賣超資料');
       case 'chips':
         return chips ? <EChart title="股價與法人合計" option={chips} height={300} /> : empty('尚無價量籌碼整合資料');
       case 'today':
@@ -283,7 +281,7 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
   );
 }
 
-/** 「籌碼面詳細」抽屜內容 */
+/** 「籌碼明細」抽屜內容 */
 export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }) {
   const { chipsError, reloadChips, chipsLoading, institutional, institutionalLatest, chipsVolume, widenDateRange } = dashboard;
   const actions: EmptyActions = { onRetry: reloadChips, onWidenRange: widenDateRange };
@@ -307,7 +305,7 @@ export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }
         title="最近交易日法人買賣超"
         stamp={
           <>
-            單位 萬股
+            單位 張
             {' · '}
             <DataStamp
               date={institutionalLatest?.date}
@@ -320,7 +318,7 @@ export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }
       >
         <KpiCards latest={institutionalLatest} loading={chipsLoading} actions={actions} />
       </Ledger>
-      <Ledger as="h3" title="法人籌碼走勢" stamp="單位 萬股／億股">
+      <Ledger as="h3" title="法人籌碼走勢" stamp="單位 張">
         <LedgerPanel>
           <ChipsTabs rows={institutional} latest={institutionalLatest} chipsVolume={chipsVolume} loading={chipsLoading} error={chipsError} actions={actions} />
         </LedgerPanel>

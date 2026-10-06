@@ -5,6 +5,7 @@ import type { News } from '@/lib/types/api';
 import { formatTime } from '@/lib/utils/date';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
 import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/newsLinks';
+import { newsSourceName } from '@/lib/news/newsSource';
 import { IMPORTANCE_LABELS, visibleImpacts } from '@/lib/utils/newsImpact';
 import { safeHttpUrl } from '@/lib/utils/url';
 import { cn } from '@/lib/cn';
@@ -59,7 +60,7 @@ function ImpactGroupBadge({ group, linkStock, className }: { group: ImpactGroup;
  * 一列只放一行標籤：寬版最多 3 個影響對象，手機 1 個，其餘寫「另 N 個」。
  * 沒有事件影響時，改列關聯個股代號（同一行、最多 3 檔），可點進個股頁。
  */
-function TagLine({ groups, stocks, linkStock }: { groups: ImpactGroup[]; stocks: string[]; linkStock: boolean }) {
+function TagLine({ groups, stocks, linkStock, noAnalysis = false }: { groups: ImpactGroup[]; stocks: string[]; linkStock: boolean; noAnalysis?: boolean }) {
   if (groups.length) {
     const restMobile = groups.length - 1;
     const restWide = groups.length - 3;
@@ -73,10 +74,12 @@ function TagLine({ groups, stocks, linkStock }: { groups: ImpactGroup[]; stocks:
       </div>
     );
   }
-  if (!stocks.length) return null;
+  if (!stocks.length && !noAnalysis) return null;
   return (
     <div className="flex min-h-11 flex-wrap items-center gap-x-1">
-      <span className="mr-1 text-xs text-muted-foreground">關聯個股</span>
+      {/* 還沒有影響分析（排隊、失敗、略過或沒有分析）：和個股頁卡片同一個「尚無分析」徽章，不留空白 */}
+      {noAnalysis ? <Badge className="mr-2">尚無分析</Badge> : null}
+      {stocks.length ? <span className="mr-1 text-xs text-muted-foreground">關聯個股</span> : null}
       {stocks.map((stock) => (linkStock ? (
         <Link key={stock} href={`/stock/${stock}`} className="group/chip inline-flex min-h-11 items-center rounded-sm px-0.5 outline-none focus-lamp" aria-label={`查看 ${formatStockLabel(stock)} 個股`}>
           <Badge tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums transition-colors duration-(--dur-flash) group-hover/chip:border-border-strong group-hover/chip:text-foreground">{formatStockLabel(stock)}</Badge>
@@ -95,9 +98,10 @@ const textLink = cn('inline-flex min-h-11 items-center gap-1 rounded-sm outline-
 export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct', returnTo, onNavigate, layout = 'stack' }: Props) {
   const [expanded, setExpanded] = useState(false);
   const sourceStatus = news.source_state?.status;
-  const sourceLabel = sourceStatus === 'conflict' ? '來源版本衝突，尚未確認有效內容'
-    : sourceStatus === 'superseded' ? '已被同來源其他版本取代'
-      : sourceStatus === 'historical' ? '保存的歷史原文，並非現行版本' : null;
+  const sourceLabel = sourceStatus === 'conflict' ? '來源有多個版本，尚未確認哪一版有效'
+    : sourceStatus === 'superseded' ? '來源已更新，這是舊版本'
+      : sourceStatus === 'historical' ? '這是舊版本的原文' : null;
+  const noAnalysis = !sourceLabel && news.event_analysis?.status !== 'success';
   const stocks = Array.from(
     new Set([
       ...(!sourceLabel && news.event_analysis?.status === 'success'
@@ -116,7 +120,10 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   const versionHref = sourceStatus === 'historical' && /^[0-9a-f]{64}$/.test(news.source_state?.revision_id ?? '')
     ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}revision_id=${news.source_state!.revision_id}` : baseHref;
   const href = returnTo ? `${versionHref}${versionHref.includes('?') ? '&' : '?'}returnTo=${encodeURIComponent(returnTo)}` : versionHref;
-  const meta = [news.pub_time ? formatTime(news.pub_time) : null, news.source ? news.source.toUpperCase() : null].filter(Boolean).join(' · ');
+  // 有分析時直接跳到新聞頁的分析區（手機版分析在全文之後）
+  const actionHref = sourceLabel || noAnalysis ? href : `${href}#analysis`;
+  // 來源只顯示對照得到的中文名稱，對照不到就不寫（不顯示後端代碼）
+  const meta = [news.pub_time ? formatTime(news.pub_time) : null, newsSourceName(news.source)].filter(Boolean).join(' · ');
 
   const ledger = layout === 'ledger';
   const metaLine = meta ? <p className="characteristic mb-1.5">{meta}</p> : null;
@@ -127,7 +134,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
           <span className="line-clamp-2">{news.title}</span>
         </Link>
       </h3>
-      {sourceLabel ? <p className="mt-1 text-xs font-medium text-muted-foreground">{sourceLabel}；不套用現行 AI 影響。</p> : null}
+      {sourceLabel ? <p className="mt-1 text-xs font-medium text-muted-foreground">{sourceLabel}；這個版本不顯示 AI 影響分析。</p> : null}
       {news.event_analysis?.content_truncated ? (
         <p className="mt-1 text-xs text-muted-foreground">分析僅使用部分內文，可能未涵蓋後段資訊。</p>
       ) : null}
@@ -136,15 +143,15 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   // 摘要與展開的內文都限制行寬（約 40 個全形字），不隨面板拉到整列
   const excerpt = (
     <>
-      {!expanded && snippet(news.content) ? <p className={cn('line-clamp-2 max-w-[40em] text-[13px] leading-relaxed text-muted-foreground', (ledger || (!targetStock && !allGroups.length && !stocks.length)) && 'mt-1')}>{snippet(news.content)}</p> : null}
+      {!expanded && snippet(news.content) ? <p className={cn('line-clamp-2 max-w-[40em] text-[13px] leading-relaxed text-muted-foreground', (ledger || (!targetStock && !allGroups.length && !stocks.length && !noAnalysis)) && 'mt-1')}>{snippet(news.content)}</p> : null}
       {hasContent && expanded ? <p id={panelId} className="mt-1 max-w-[40em] text-[13px] leading-relaxed whitespace-pre-line text-subtle">{stripHtml(news.content ?? '').trim()}</p> : null}
     </>
   );
   const actions = (
     // 每個動作只有一個入口，而且都有文字：站內用 → 、展開用 ⌄、離站才用外連圖示
     <div className="flex flex-wrap items-center gap-x-5 text-xs">
-      <Link href={href} onNavigate={onNavigate} className={cn(textLink, 'font-medium text-foreground')}>
-        {sourceLabel ? '查看原文與版本狀態' : '查看事件影響分析'}
+      <Link href={actionHref} onNavigate={onNavigate} className={cn(textLink, 'font-medium text-foreground')}>
+        {sourceLabel ? '查看原文與版本狀態' : noAnalysis ? '查看內文' : '查看事件影響分析'}
         <ArrowRight size={13} className="text-muted-foreground" aria-hidden />
       </Link>
       {hasContent ? (
@@ -179,7 +186,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
           {excerpt}
         </div>
         <div className="min-w-0 lg:col-span-4 lg:pt-5">
-          <TagLine groups={allGroups} stocks={stocks} linkStock />
+          <TagLine groups={allGroups} stocks={stocks} linkStock noAnalysis={noAnalysis} />
           {actions}
         </div>
       </article>
@@ -202,7 +209,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
             </>
           ) : (
             <p className="py-1.5 text-xs text-muted-foreground">
-              <span className="font-mono tabular-nums">{formatStockLabel(targetStock)}</span> · 尚無事件影響分析
+              <span className="font-mono tabular-nums">{formatStockLabel(targetStock)}</span> · {noAnalysis ? '尚無分析' : '這則新聞沒有對應的事件影響'}
             </p>
           )}
           {expanded && impacts.some((impact) => impact.evidence?.length) ? (
@@ -221,7 +228,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
           ) : null}
         </div>
       ) : (
-        <TagLine groups={allGroups} stocks={stocks} linkStock />
+        <TagLine groups={allGroups} stocks={stocks} linkStock noAnalysis={noAnalysis} />
       )}
 
       {excerpt}

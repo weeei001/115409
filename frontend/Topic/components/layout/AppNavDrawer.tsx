@@ -9,8 +9,9 @@ import { BrandMark } from '@/components/common/BrandMark';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken } from '@/lib/auth/storage';
 import { adminMe } from '@/lib/api/admin';
 import type { UserPublic } from '@/lib/types/api';
-import { PRIMARY_NAV } from '@/lib/nav';
+import { isNavPathActive, PRIMARY_NAV } from '@/lib/nav';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
+import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import { cn } from '@/lib/cn';
 
 const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
@@ -36,7 +37,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** 主選單抽屜：Esc 關閉、focus trap、鎖背景捲動、關閉後焦點回到觸發鈕都由 Radix 處理 */
+/** 主選單抽屜：Esc 關閉、focus trap、鎖背景捲動、關閉後焦點回到觸發鈕都由 Radix 處理；上一頁先關選單（useDrawerHistory） */
 export function AppNavDrawer() {
   const router = useRouter();
   const reduce = usePrefersReducedMotion();
@@ -77,10 +78,13 @@ export function AppNavDrawer() {
     return { pathname: '/login', query: { returnUrl: router.asPath } };
   }, [router.asPath, router.pathname]);
 
-  const isActive = (path: string) => (path === '/' ? router.pathname === '/' : router.pathname.startsWith(path));
+  const isActive = (path: string) => isNavPathActive(path, router.pathname);
+  // 手機按上一頁（返回鍵）只關選單，不離開頁面（P2-054）
+  const requestClose = useDrawerHistory(open, () => setOpen(false));
   const go = (href: Parameters<typeof router.push>[0]) => {
+    // 先退掉選單推的那一筆紀錄再換頁：上一頁會回到原本的頁面，不會停在「選單開著」的同一頁
+    requestClose(() => void router.push(href));
     setOpen(false);
-    void router.push(href);
   };
 
   const enter = (i: number) =>
@@ -184,7 +188,7 @@ export function AppNavDrawer() {
 
         <div className="shrink-0 border-t border-border-strong px-5 py-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-subtle">換班（晨班／夜班）</span>
+            <span className="text-sm font-medium text-subtle">亮色／暗色</span>
             <ThemeToggle />
           </div>
         </div>

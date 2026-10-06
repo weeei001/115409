@@ -17,7 +17,7 @@ import { aggregateInstitutional, alignComparePrices, buildCategoryLeaders, build
 import { getDefaultDateRange } from '@/lib/utils/date';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
 import { applyBulkSelection } from '@/lib/utils/stockSelection';
-import { userFacingMessage } from '@/lib/api/errorDetail';
+import { userFacingMessage, withDateRangeHint } from '@/lib/api/errorDetail';
 
 const METRICS_BATCH_SIZE = 3;
 
@@ -94,8 +94,8 @@ function buildMetrics(symbols: string[], startDate: string, endDate: string, cha
     if (item.fundamentals.status === 'rejected') warnings.push(`${item.symbol} 基本面資料載入失敗，其他比較仍可使用。`);
     else warnings.push(...item.fundamentals.value.warnings);
     if (item.volume.status === 'rejected') warnings.push(`${item.symbol} 成交資料載入失敗：將影響平均量與平均金額。`);
-    if (item.institutional.status === 'rejected') warnings.push(`${item.symbol} 法人資料載入失敗：法人對比與「法人合計買超最高」會顯示 —。`);
-    if (item.technical.status === 'rejected') warnings.push(`${item.symbol} 技術指標載入失敗：技術快照與均線趨勢會顯示 —。`);
+    if (item.institutional.status === 'rejected') warnings.push(`${item.symbol} 法人資料載入失敗：法人對比與「法人合計買超最高」會顯示 --。`);
+    if (item.technical.status === 'rejected') warnings.push(`${item.symbol} 技術指標載入失敗：技術快照與均線趨勢會顯示 --。`);
   }
 
   const viewModel = buildCompareViewModel({ symbols, startDate, endDate, chart, volumeMap });
@@ -125,6 +125,8 @@ const errorMessage = (err: unknown, fallback: string) => userFacingMessage(err, 
 export function useCompare() {
   const [defaults] = useState(() => getDefaultDateRange());
   const [allSymbols, setAllSymbols] = useState<string[]>([]);
+  /** 股票清單已回應；用來分辨「讀取中」和「讀到空清單」 */
+  const [symbolsLoaded, setSymbolsLoaded] = useState(false);
   const stockInfoList = useStockInfos();
   const stockInfos = useMemo<Record<string, StockInfo>>(
     () => Object.fromEntries((stockInfoList.data ?? []).map((stock) => [stock.symbol, stock])),
@@ -145,19 +147,31 @@ export function useCompare() {
   const chartCache = useRef(new Map<string, MultiStockResponse>());
   const metricsCache = useRef(new Map<string, CompareMetrics>());
   const seqRef = useRef(0);
+  const [symbolsAttempt, setSymbolsAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
     fetchSymbols()
-      .then((symbols) => { if (active) setAllSymbols(symbols); })
+      .then((symbols) => {
+        if (!active) return;
+        setAllSymbols(symbols);
+        setSymbolsLoaded(true);
+        setError(null);
+      })
       .catch((err) => { if (active) setError(errorMessage(err, '無法載入股票清單')); });
     return () => { active = false; };
+  }, [symbolsAttempt]);
+
+  /** 股票清單載入失敗後的「重試」 */
+  const reloadSymbols = useCallback(() => {
+    setError(null);
+    setSymbolsAttempt((n) => n + 1);
   }, []);
 
   const handleBulkSelect = useCallback(
     (input: string) => {
       if (allSymbols.length === 0) {
-        setError('股票清單載入中，請稍後再試。');
+        setError(symbolsLoaded ? '目前沒有可比較的股票。' : '股票清單載入中，請稍後再試。');
         return;
       }
       const { nextSelected, result: bulk } = applyBulkSelection({
@@ -175,7 +189,7 @@ export function useCompare() {
       if (bulk.invalid.length > 0) issues.push(`無效代號 ${bulk.invalid.length} 檔`);
       if (issues.length > 0) toast.warning(issues.join('；'));
     },
-    [allSymbols, selected],
+    [allSymbols, symbolsLoaded, selected],
   );
 
   const addSymbol = useCallback(
@@ -202,9 +216,10 @@ export function useCompare() {
     setMetricsProgress(null);
   }, []);
 
-  const compare = useCallback(async () => {
-    if (selected.length === 0) return;
-    const symbols = [...selected];
+  /** 用指定的代號與期間比較（「開始比較」與從網址還原共用） */
+  const runCompare = useCallback(async (requested: readonly string[], startDate: string, endDate: string) => {
+    if (requested.length === 0) return;
+    const symbols = [...requested];
     const seq = ++seqRef.current;
     const isCurrent = () => seq === seqRef.current;
     const key = `${symbols.join(',')}|${startDate}|${endDate}`;
@@ -229,7 +244,7 @@ export function useCompare() {
         setResult((prev) => (prev ? { ...prev, chart } : prev));
       } catch (err) {
         if (!isCurrent()) return;
-        const msg = errorMessage(err, '載入比較資料失敗');
+        const msg = withDateRangeHint(errorMessage(err, '載入比較資料失敗'));
         setError(msg);
         toast.error(msg);
       } finally {
@@ -256,7 +271,7 @@ export function useCompare() {
       if (metrics.warnings.length > 0) toast.warning('部分資料缺失，已在頁面中標示影響欄位。');
     } catch (err) {
       if (!isCurrent()) return;
-      const msg = errorMessage(err, '載入比較指標失敗');
+      const msg = withDateRangeHint(errorMessage(err, '載入比較指標失敗'));
       setMetricsError(msg);
       toast.error(msg);
     } finally {
@@ -265,10 +280,26 @@ export function useCompare() {
         setMetricsProgress(null);
       }
     }
-  }, [selected, startDate, endDate]);
+  }, []);
+
+  const compare = useCallback(() => runCompare(selected, startDate, endDate), [runCompare, selected, startDate, endDate]);
+
+  /**
+   * 從網址還原上一次的比較（P1-26）：代號已經過股票清單驗證；沒帶期間就用頁面預設的期間。
+   * 直接用參數比較，不等 state 更新。
+   */
+  const restore = useCallback((query: { symbols: string[]; startDate: string | null; endDate: string | null }) => {
+    const start = query.startDate ?? defaults.start;
+    const end = query.endDate ?? defaults.end;
+    setSelected(query.symbols);
+    setStartDate(start);
+    setEndDate(end);
+    void runCompare(query.symbols, start, end);
+  }, [defaults, runCompare]);
 
   return {
     allSymbols,
+    symbolsLoaded,
     stockInfos,
     metadataWarning,
     selected,
@@ -288,5 +319,7 @@ export function useCompare() {
     removeSymbol,
     clearAll,
     compare,
+    restore,
+    reloadSymbols,
   };
 }

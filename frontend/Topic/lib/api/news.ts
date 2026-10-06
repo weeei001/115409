@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { News, PaginatedNewsResponse } from '../types/api';
+import type { News, NewsIndustriesResponse, NewsIndustry, PaginatedNewsResponse } from '../types/api';
 import { dedupeFetch } from '../utils/inFlight';
 
 export interface FetchNewsParams {
@@ -45,6 +45,19 @@ export async function fetchRelatedNews(params: FetchRelatedNewsParams): Promise<
     const { data } = await apiClient.get<PaginatedNewsResponse>('/api/retrieval/news', { params });
     return data;
   });
+}
+
+/**
+ * openapi: GET /news/industries（回應 schema 是空的，形狀見 `NewsIndustriesResponse`，決議 D5）。
+ * 清單只在後端更新公司資料時才會變，快取 10 分鐘；形狀不對的項目直接略過。
+ */
+export async function fetchNewsIndustries(): Promise<NewsIndustry[]> {
+  return dedupeFetch('GET /news/industries', async () => {
+    const { data } = await apiClient.get<NewsIndustriesResponse>('/news/industries');
+    const items: unknown[] = data && Array.isArray(data.items) ? data.items : [];
+    return items.filter((item): item is NewsIndustry => Boolean(item) && typeof item === 'object'
+      && typeof (item as NewsIndustry).id === 'string' && typeof (item as NewsIndustry).name === 'string');
+  }, 10 * 60_000);
 }
 
 /** openapi: GET /news/{article_id} */

@@ -104,7 +104,8 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
     const observed = checkedAt ? Date.parse(checkedAt) : NaN;
     if (Number.isFinite(deadline) && Number.isFinite(observed) && deadline <= observed) {
       const previous = jobs.find((item) => item.active_run_id != null);
-      return previous ? `已到期，序列排程等待工作 #${previous.active_run_id} 完成` : '已到期，尚未開始；等待原因未知';
+      // 「序列排程」對管理者不好懂：直接說等哪一筆做完（P2-150）
+      return previous ? `已到排程時間，等 #${previous.active_run_id} 完成後開始` : '已到排程時間，尚未開始；等待原因未知';
     }
     return '預定時間；實際開始依序列排程而定';
   }
@@ -113,9 +114,41 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
 }
 
 export function adminDuration(seconds?: number | null): string {
-  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  if (seconds == null || !Number.isFinite(seconds)) return '--';
   const total = Math.max(0, Math.round(seconds));
   return total < 60 ? `${total} 秒` : `${Math.floor(total / 60)} 分 ${total % 60} 秒`;
+}
+
+/** 「重跑」停用的原因（P2-145、03-F20）；可以重跑時回 null */
+export function adminRetryBlockedReason(run: AdminRun, jobs: AdminJob[], label: string): string | null {
+  const job = jobs.find((item) => item.name === run.job_name);
+  if (!job) return '這項工作已不在排程裡，無法重跑。';
+  if (job.active_run_id != null) return `${label}執行中，完成後可重跑。`;
+  if (job.queued_run_id != null) return `${label}已排入等待，開始並完成後可重跑。`;
+  if (!['success', 'succeeded', 'failed', 'interrupted'].includes(run.status)) return '這筆執行尚未結束，結束後可重跑。';
+  return null;
+}
+
+export type AdminRunFilter = 'all' | 'failed' | 'running';
+
+/** 執行紀錄的狀態篩選（P2-148）：失敗含中斷；執行中含等待執行 */
+export function filterAdminRuns(runs: AdminRun[], filter: AdminRunFilter): AdminRun[] {
+  if (filter === 'failed') return runs.filter((run) => ['failed', 'interrupted', 'error', 'rejected'].includes(run.status));
+  if (filter === 'running') return runs.filter((run) => ['running', 'queued', 'starting'].includes(run.status));
+  return runs;
+}
+
+/**
+ * 首屏的工作摘要（P2-146、04-AD1）：服務都可連線時，失敗或暫停的工作也要第一眼看得到。
+ * 回傳每項有狀況的工作（連續失敗、已暫停），由畫面做成可以跳到該工作的連結。
+ */
+export function adminJobAlerts(jobs: AdminJob[]): { failing: Array<{ name: string; count: number }>; paused: string[] } {
+  return {
+    failing: jobs.filter((job) => (job.result_summary?.consecutive_failed ?? 0) > 0)
+      .map((job) => ({ name: job.name, count: job.result_summary?.consecutive_failed ?? 0 }))
+      .sort((a, b) => b.count - a.count),
+    paused: jobs.filter((job) => job.paused && job.schedule !== 'Manual').map((job) => job.name),
+  };
 }
 
 export function adminRunScope(run: Pick<AdminRun, 'job_name' | 'symbol'>): string {

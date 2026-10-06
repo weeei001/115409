@@ -35,12 +35,12 @@ export function FavoriteStockSearch() {
       stamp={
         <span className="inline-flex items-center gap-1.5">
           <LightGlyph state={loading ? 'loading' : error ? 'error' : 'ready'} />
-          {loading ? '讀取股票名單' : error ? '讀取失敗' : `可收藏 ${stocks.length} 檔`}
+          {loading ? '載入股票名單' : error ? '載入失敗' : `可收藏 ${stocks.length} 檔`}
         </span>
       }
     >
       <LedgerPanel>
-        <p id="favorite-search-help" className="text-[13px] leading-relaxed text-muted-foreground">搜尋股票後直接加入，在這裡建立你的關注清單。</p>
+        <p id="favorite-search-help" className="text-[13px] leading-relaxed text-muted-foreground">搜尋股票後直接加入收藏清單。</p>
         <label htmlFor="favorite-stock-query" className="mt-4 block text-[13px] font-medium tracking-[0.04em] text-subtle">股票代號、公司名稱或產業</label>
         <div className="relative mt-1.5">
           <Search size={16} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />

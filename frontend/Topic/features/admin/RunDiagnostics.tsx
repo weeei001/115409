@@ -12,7 +12,7 @@ export function adminStageLabel(stage?: string | null): string {
   const labels: Record<string, string> = {
     'market-fetch': '下載行情', 'market-import': '匯入行情', 'market-backfill': '補齊行情',
     'paper-reconcile': '處理模擬投資成交與回顧',
-    'crawl-cnyes': '擷取鉅亨新聞', 'crawl-ltn': '擷取自由財經新聞',
+    'crawl-cnyes': '擷取鉅亨新聞', 'crawl-ltn': '擷取自由時報新聞',
     'migrate-news-impact-schema': '準備新聞分析資料', 'news-ingest': '建立新聞向量索引',
     'news-impact-batch': '新聞 AI 分析', 'news-impact-sync': '同步向量標記', 'cache-warmup': '產生個股摘要',
   };
@@ -26,7 +26,8 @@ export function AdminRunDiagnostics({ run }: { run: AdminRun }) {
   return <Disclosure
     className="border bg-card text-xs"
     summaryProps={{ className: 'px-3 font-medium text-foreground hover:bg-accent' }}
-    summary={<>安全診斷 · 執行紀錄 <span className="font-mono tabular-nums">#{run.id}</span>{run.exit_code != null ? <> · 結束碼 <span className="font-mono tabular-nums">{run.exit_code}</span></> : ''}</>}
+    // 內容是階段與結束碼，不是資安檢查：叫「執行診斷」（P2-148、05）
+    summary={<>執行診斷 · <span className="font-mono tabular-nums">#{run.id}</span>{run.exit_code != null ? <> · 結束碼 <span className="font-mono tabular-nums">{run.exit_code}</span></> : ''}</>}
   >
     <div className="divide-y border-t leading-5 [&>*]:px-3 [&>*]:py-2">
       {data?.error_category ? <p className="font-medium">{CATEGORIES[data.error_category] ?? '原因未知'}</p> : null}

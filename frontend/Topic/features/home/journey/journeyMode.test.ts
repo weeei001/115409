@@ -127,7 +127,8 @@ assert.equal(chapterIndex(2), 4);
 assert.equal(CHAPTERS[0].start, 0);
 assert.equal(CHAPTERS[CHAPTERS.length - 1].end, 1);
 for (let i = 1; i < CHAPTERS.length; i++) assert.equal(CHAPTERS[i].start, CHAPTERS[i - 1].end);
-// rail：窗與桌前都亮「觀測室」，交接亮「觀測台」
+// rail：窗與桌前都亮「窗前」，交接亮「觀測台」；首頁只用「觀測台」一個詞，不再有「觀測室」（P2-080）
+assert.deepEqual(RAIL.map((r) => r.label), ['海面', '燈塔', '窗前', '觀測台']);
 assert.deepEqual(CHAPTERS.map((c) => c.rail), [0, 1, 2, 2, 3]);
 // 進度對應亮第幾顆 rail 按鈕（BeaconJourney 也是取 CHAPTERS[章節].rail）
 const railIndex = (p: number) => CHAPTERS[chapterIndex(p)].rail;
@@ -137,7 +138,7 @@ RAIL.forEach((r, i) => {
   if (r.target != null) assert.equal(railIndex(r.target), i, `${r.label} 的目標 ${r.target} 不在自己的章節`);
 });
 assert.equal(RAIL[RAIL.length - 1].target, null, '最後一站直接跳觀測台');
-assert.equal(chapterIndex(WATCH_ROOM_PROGRESS), 3, '「登上燈塔」停在桌前');
+assert.equal(chapterIndex(WATCH_ROOM_PROGRESS), 3, '「往下看介紹」停在桌前');
 
 // ── 文案透明度 ──
 const BOUNDS = CHAPTERS.slice(1).map((c) => c.start);

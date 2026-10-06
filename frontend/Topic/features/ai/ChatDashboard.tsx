@@ -14,11 +14,23 @@ import { LedgerHeading } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
 import { textLinkClass } from '@/components/ui/button';
 
-const numberFormat = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 4 });
+/** 面板裡的數字：千分位、最多 2 位小數、負號用 U+2212（DESIGN.md 第 7 節，同 signedText） */
+const numberFormat = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 });
+/** 數值格缺值（05 用語表：數值格用 --，句子裡才寫「無資料」） */
+const MISSING = '--';
+
+/** 先四捨五入到 2 位，四捨五入後是 0 就不帶負號、也不上色 */
+const rounded = (value: number) => Math.round(value * 100) / 100 || 0;
+
+function formatNumber(value: number): string {
+  const shown = rounded(value);
+  const body = numberFormat.format(Math.abs(shown));
+  return shown < 0 ? `−${body}` : body;
+}
 
 function formatValue(value: number | null | undefined, unit = ''): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '無資料';
-  return `${numberFormat.format(value)}${unit ? ` ${unit}` : ''}`;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return MISSING;
+  return `${formatNumber(value)}${unit ? ` ${unit}` : ''}`;
 }
 
 /**
@@ -32,26 +44,45 @@ function isDirectional(label: string): boolean {
 }
 
 function formatSignedValue(value: number | null | undefined): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '無資料';
-  const body = numberFormat.format(Math.abs(value));
-  return value > 0 ? `+${body}` : value < 0 ? `−${body}` : body;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return MISSING;
+  return rounded(value) > 0 ? `+${formatNumber(value)}` : formatNumber(value);
 }
 
-/**
- * 表格格子是後端給的字串。帶方向的欄位（欄名含報酬、漲跌…）裡、只有一個數字（可帶 %）的格子，
- * 和指標格同一套寫法：依正負上漲跌色、一律帶正負號、負號用 U+2212。其餘格子原樣顯示。
- */
-const SIGNED_CELL = /^([+\-−]?)\s*(\d[\d,]*(?:\.\d+)?)\s*(%?)$/;
+const signedTone = (value: number | null | undefined): ValueTone =>
+  typeof value === 'number' && Number.isFinite(value) ? getValueTone(rounded(value)) : 'neutral';
 
-function directionalCell(text: string): { text: string; tone: ValueTone } | null {
-  const match = text.match(SIGNED_CELL);
-  if (!match) return null;
+/**
+ * 表格格子是後端給的字串，舊對話存的是 6 位小數（例如 18.022468、-3.643725），新回覆可能已經是 2 位。
+ * 只有一個數字（可帶 %）的格子一律重新格式化：千分位、最多 2 位小數、負號 U+2212。
+ * 帶方向的欄位（欄名含報酬、漲跌…）再依正負上漲跌色、一律帶正負號。其餘文字原樣顯示，缺值顯示 --。
+ * 股票、代號、日期這類識別欄不當數字處理（2330 不能變成 2,330）。
+ */
+const NUMERIC_CELL = /^([+\-−]?)\s*(\d[\d,]*(?:\.\d+)?)\s*(%?)$/;
+/** 識別欄：股票、股票組合、代號、名稱、（資料）日期；「缺漏日期數」這種計數欄不算 */
+const IDENTIFIER_COLUMN = /^(?:股票|代號|代碼|名稱)|日期$/;
+/** 靠右對齊的判斷：已經帶單位的數字（圖表資料表的「2,510 元」）也算 */
+const NUMBER_LIKE_CELL = /^[+\-−]?\s*\d[\d,]*(?:\.\d+)?\s*[%\p{L}／]{0,4}$/u;
+const isMissingCell = (text: string) => !text || text === '無資料' || text === MISSING;
+
+export function formatTableCell(column: string, text: string): { text: string; tone: ValueTone } {
+  const raw = text.trim();
+  if (isMissingCell(raw)) return { text: MISSING, tone: 'neutral' };
+  const match = IDENTIFIER_COLUMN.test(column) ? null : raw.match(NUMERIC_CELL);
+  if (!match) return { text: raw, tone: 'neutral' };
   const magnitude = Number(match[2].replace(/,/g, ''));
-  if (!Number.isFinite(magnitude)) return null;
-  const negative = match[1] === '-' || match[1] === '−';
-  const value = magnitude === 0 ? 0 : negative ? -magnitude : magnitude;
-  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
-  return { text: `${sign}${match[2]}${match[3]}`, tone: getValueTone(value) };
+  if (!Number.isFinite(magnitude)) return { text: raw, tone: 'neutral' };
+  const value = match[1] === '-' || match[1] === '−' ? -magnitude : magnitude;
+  const directional = isDirectional(column);
+  return {
+    text: `${directional ? formatSignedValue(value) : formatNumber(value)}${match[3]}`,
+    tone: directional ? signedTone(value) : 'neutral',
+  };
+}
+
+function isNumericColumn(column: string, rows: string[][], index: number): boolean {
+  if (IDENTIFIER_COLUMN.test(column)) return false;
+  const cells = rows.map((row) => row[index]?.trim() ?? '').filter((cell) => !isMissingCell(cell));
+  return cells.length > 0 && cells.every((cell) => NUMBER_LIKE_CELL.test(cell));
 }
 
 /** 最後一格補滿該列，避免 gap-px 的底色露出成灰塊（手機 2 欄、sm 以上 3 欄） */
@@ -63,6 +94,8 @@ function lastCellSpan(count: number): string {
 
 function DataTable({ title, columns, rows }: { title: string; columns: string[]; rows: string[][] }) {
   if (!columns.length || !rows.length) return <EmptyState className="py-5">無資料</EmptyState>;
+  // 數字欄靠右（表頭跟著靠右），小數點與千分位才對得齊
+  const numeric = columns.map((column, index) => isNumericColumn(column, rows, index));
   return (
     <div className="overflow-x-auto border" role="region" aria-label={`${title}資料表`} tabIndex={0}>
       <table className="w-full text-left text-[13px]">
@@ -70,7 +103,7 @@ function DataTable({ title, columns, rows }: { title: string; columns: string[];
         <thead className="border-b border-border-strong bg-muted">
           <tr>
             {columns.map((column, index) => (
-              <th key={index} scope="col" className="h-11 px-3 text-xs font-medium tracking-[0.06em] whitespace-nowrap text-muted-foreground">
+              <th key={index} scope="col" className={cn('h-11 px-3 text-xs font-medium tracking-[0.06em] whitespace-nowrap text-muted-foreground', numeric[index] && 'text-right')}>
                 {column}
               </th>
             ))}
@@ -80,11 +113,10 @@ function DataTable({ title, columns, rows }: { title: string; columns: string[];
           {rows.map((row, index) => (
             <tr key={index} className="border-t first:border-t-0">
               {columns.map((name, column) => {
-                const raw = row[column]?.trim() || '';
-                const signed = raw && isDirectional(name) ? directionalCell(raw) : null;
+                const cell = formatTableCell(name, row[column] ?? '');
                 return (
-                  <td key={column} className={cn('h-11 px-3 font-mono whitespace-nowrap tabular-nums', signed && signed.tone !== 'neutral' && toneText(signed.tone))}>
-                    {signed ? signed.text : raw || '無資料'}
+                  <td key={column} className={cn('h-11 px-3 font-mono whitespace-nowrap tabular-nums', numeric[column] && 'text-right', cell.tone !== 'neutral' && toneText(cell.tone))}>
+                    {cell.text}
                   </td>
                 );
               })}
@@ -168,7 +200,7 @@ export function buildChatChartOption(block: DashboardChart, isDark: boolean): Ch
           const items = (Array.isArray(params) ? params : [params]) as Array<{ seriesIndex?: number; dataIndex?: number; seriesName?: string; value?: unknown; axisValue?: string }>;
           const lines = items.map((item) => {
             const raw = plottedSeries[item.seriesIndex ?? -1]?.values[item.dataIndex ?? -1];
-            return `${item.seriesName ?? ''}  ${isFiniteNumber(item.value) ? item.value.toFixed(2) : '無資料'}（${formatValue(raw, block.unit)}）`;
+            return `${item.seriesName ?? ''}  ${isFiniteNumber(item.value) ? item.value.toFixed(2) : MISSING}（${formatValue(raw, block.unit)}）`;
           });
           return [items[0]?.axisValue ?? '', ...lines].join('\n');
         },
@@ -190,7 +222,7 @@ function ChartBlock({ block }: { block: DashboardChart }) {
   const { theme } = useTheme();
   const view = useMemo(() => buildChatChartOption(block, theme === 'dark'), [block, theme]);
   const hasData = view.plotted.length > 0;
-  const range = block.dates.length ? `${block.dates[0]} 至 ${block.dates[block.dates.length - 1]}` : '無日期資料';
+  const range = block.dates.length ? `${block.dates[0]} → ${block.dates[block.dates.length - 1]}` : '無日期資料';
   // 燈質列分段不斷行：日期區間、刻度說明、缺資料的序列
   const parts = [
     range,
@@ -219,7 +251,7 @@ function ChartBlock({ block }: { block: DashboardChart }) {
   );
 }
 
-function BlockContent({ block }: { block: ChatDashboardBlock }) {
+function BlockContent({ block, sourceLabel }: { block: ChatDashboardBlock; sourceLabel?: SourceLabel }) {
   switch (block.kind) {
     case 'metrics':
       return block.items.length ? (
@@ -231,7 +263,7 @@ function BlockContent({ block }: { block: ChatDashboardBlock }) {
                 {item.unit ? `（${item.unit}）` : ''}
               </dt>
               {isDirectional(item.label) ? (
-                <dd className={cn('mt-1 font-mono text-lg font-semibold break-words tabular-nums', getValueTone(item.value) === 'neutral' ? 'text-foreground' : toneText(getValueTone(item.value)))}>
+                <dd className={cn('mt-1 font-mono text-lg font-semibold break-words tabular-nums', signedTone(item.value) === 'neutral' ? 'text-foreground' : toneText(signedTone(item.value)))}>
                   {formatSignedValue(item.value)}
                 </dd>
               ) : (
@@ -273,7 +305,7 @@ function BlockContent({ block }: { block: ChatDashboardBlock }) {
                 <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   {item.publisher ? <span>{item.publisher}</span> : null}
                   {item.published_at ? <span className="font-mono tabular-nums">{item.published_at}</span> : null}
-                  <SourceChip id={item.source_id} />
+                  <SourceChip id={item.source_id} sourceLabel={sourceLabel} />
                 </p>
               </li>
             );
@@ -285,13 +317,16 @@ function BlockContent({ block }: { block: ChatDashboardBlock }) {
   }
 }
 
+/** 原始來源 id → 畫面上的引用編號（和所屬回覆的引用同一組號碼）；沒給就顯示原始 id */
+type SourceLabel = (id: string) => string;
+
 /** 來源編號：等寬小字、沒有框（不是連結，所以也不畫底線） */
-function SourceChip({ id }: { id: string }) {
-  return <span className="font-mono text-[11px] leading-5 text-subtle tabular-nums">[{id}]</span>;
+function SourceChip({ id, sourceLabel }: { id: string; sourceLabel?: SourceLabel }) {
+  return <span className="font-mono text-[11px] leading-5 text-subtle tabular-nums">[{sourceLabel ? sourceLabel(id) : id}]</span>;
 }
 
 /** AI 回覆的資料面板：指標、折線圖、表格、新聞；每區塊列出資料來源。帳頁語法：區塊之間 1px 線分隔 */
-export function ChatDashboard({ dashboard }: { dashboard: ChatDashboardData }) {
+export function ChatDashboard({ dashboard, sourceLabel }: { dashboard: ChatDashboardData; sourceLabel?: SourceLabel }) {
   return (
     <section className="min-w-0" aria-label={dashboard.title}>
       <LedgerHeading as="h3" title={dashboard.title} />
@@ -302,11 +337,11 @@ export function ChatDashboard({ dashboard }: { dashboard: ChatDashboardData }) {
               <h4 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">{block.title}</h4>
               {block.description ? <p className="text-xs leading-relaxed whitespace-pre-wrap text-subtle">{block.description}</p> : null}
             </header>
-            <BlockContent block={block} />
+            <BlockContent block={block} sourceLabel={sourceLabel} />
             {block.source_ids.length > 0 ? (
               <p className="flex flex-wrap items-center gap-x-2 border-t pt-2 text-[11px] break-words text-muted-foreground">
                 <span>資料來源：</span>
-                {block.source_ids.map((id, i) => <SourceChip key={`${id}-${i}`} id={id} />)}
+                {block.source_ids.map((id, i) => <SourceChip key={`${id}-${i}`} id={id} sourceLabel={sourceLabel} />)}
               </p>
             ) : null}
           </section>

@@ -20,7 +20,10 @@ from app.features.auth.schemas import (
 )
 
 
-FORGOT_OK_MESSAGE = "若此 email 已註冊且可重設密碼，您將收到重設連結。"
+FORGOT_OK_MESSAGE = "如果這個電子郵件已註冊，你會收到重設連結。"
+# 前端會原樣顯示 detail：用「電子郵件」並給下一步（05 2.10）
+EMAIL_TAKEN_MESSAGE = "這個電子郵件已註冊，請直接登入或使用「忘記密碼」。"
+EMAIL_LINKED_MESSAGE = "這個電子郵件已綁定其他 Google 帳號，請改用原本的方式登入。"
 
 
 def hash_password(plain: str) -> str:
@@ -77,7 +80,7 @@ def _commit(db: Session) -> None:
 
 def register(db: Session, body: RegisterRequest, settings: Settings) -> TokenResponse:
     if repository.by_email(db, str(body.email)):
-        raise AppError("此 email 已註冊", status_code=400)
+        raise AppError(EMAIL_TAKEN_MESSAGE, status_code=400)
     user = User(
         email=str(body.email).strip().lower(),
         password_hash=hash_password(body.password),
@@ -87,7 +90,7 @@ def register(db: Session, body: RegisterRequest, settings: Settings) -> TokenRes
     try:
         _commit(db)
     except IntegrityError:
-        raise AppError("此 email 已註冊", status_code=400) from None
+        raise AppError(EMAIL_TAKEN_MESSAGE, status_code=400) from None
     db.refresh(user)
     return token_response(user, settings)
 
@@ -117,14 +120,14 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
     user = repository.by_email(db, str(email))
     if user:
         if user.google_sub and user.google_sub != sub:
-            raise AppError("此 email 已綁定其他 Google 帳號", status_code=409)
+            raise AppError(EMAIL_LINKED_MESSAGE, status_code=409)
         _require_active(user)
         if not user.google_sub:
             user.google_sub = sub
             try:
                 _commit(db)
             except IntegrityError:
-                raise AppError("此 email 已綁定其他 Google 帳號", status_code=409) from None
+                raise AppError(EMAIL_LINKED_MESSAGE, status_code=409) from None
     else:
         name = info.get("name")
         user = User(
@@ -142,7 +145,7 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
 
 def change_password(db: Session, user: User, body: ChangePasswordRequest) -> str:
     if not user.password_hash:
-        raise AppError("此帳號尚未設定本地密碼，無法由此變更", status_code=400)
+        raise AppError("只用 Google 登入的帳號沒有密碼，無法在這裡變更。", status_code=400)
     if not verify_password(body.current_password, user.password_hash):
         raise AppError("目前密碼錯誤", status_code=400)
     if body.new_password == body.current_password:

@@ -20,9 +20,10 @@ export function rsiSignal(rsi: number | null | undefined): Signal {
 export function macdSignal(hist: number | null | undefined): Signal {
   const value = finite(hist);
   if (value == null) return { label: 'MACD 無資料', tone: 'neutral', value };
-  if (value > 0) return { label: 'MACD 多方', tone: 'up', value };
-  if (value < 0) return { label: 'MACD 空方', tone: 'down', value };
-  return { label: 'MACD 平淡', tone: 'neutral', value };
+  // 判讀標籤全站統一「偏多／偏空／中性」（05 用語表，和個股頁、首頁同一組字）
+  if (value > 0) return { label: '偏多', tone: 'up', value };
+  if (value < 0) return { label: '偏空', tone: 'down', value };
+  return { label: '中性', tone: 'neutral', value };
 }
 
 export function kdSignal(k: number | null | undefined, d: number | null | undefined): Signal {
@@ -65,7 +66,7 @@ export function momentumBreakdown(row: TechnicalDay | null): MomentumBreakdown {
 export function directionLabel(direction: Direction): string {
   if (direction === 'up') return '偏多';
   if (direction === 'down') return '偏空';
-  if (direction === 'flat') return '持平';
+  if (direction === 'flat') return '中性';
   return '無資料';
 }
 

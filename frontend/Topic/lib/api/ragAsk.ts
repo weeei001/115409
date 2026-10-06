@@ -109,7 +109,6 @@ export async function ragAskStream(
   const ctrl = new AbortController();
   const timeoutMs = getRagApiTimeoutMs();
   let timedOut = false;
-  let lastStage = '';
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
   const abort = () => ctrl.abort();
@@ -159,10 +158,7 @@ export async function ragAskStream(
       if (!event || typeof event.type !== 'string') return false;
       switch (event.type) {
         case 'status':
-          if (typeof event.content === 'string') {
-            lastStage = event.content.trim().replace(/\s+/g, ' ').slice(0, 200);
-            handlers.onStatus?.(event.content);
-          }
+          if (typeof event.content === 'string') handlers.onStatus?.(event.content);
           return false;
         case 'dashboard': {
           const dashboard = parseChatDashboard(event.dashboard);
@@ -223,8 +219,8 @@ export async function ragAskStream(
       : err instanceof ApiRequestError
         ? userFacingMessage(err, '伺服器無法完成回覆，請稍後再試。')
         : '與伺服器的連線中斷，尚未取得完整回覆。請確認網路連線後重試。';
-    throw new ApiRequestError(lastStage ? `${message} 最後處理階段：${lastStage}` : message,
-      err instanceof ApiRequestError ? err.status : undefined, { cause: err });
+    // 不接「最後處理階段：…」：那是後端的內部進度文字，接在錯誤後面讀起來像除錯資訊（05）
+    throw new ApiRequestError(message, err instanceof ApiRequestError ? err.status : undefined, { cause: err });
   } finally {
     clearTimeout(timer);
     options?.signal?.removeEventListener('abort', abort);

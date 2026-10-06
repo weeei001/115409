@@ -15,6 +15,22 @@ export const STANCE: Record<string, string> = {
   uncertain: '資料不足',
 };
 
+/**
+ * 各立場的判定方式（P2-018），照後端分析提示詞的定義寫成白話（backend analysis/prompts.py「四、方向與期間」）。
+ * 立場是 AI 的方向判讀，不是評級，也不是買賣建議。
+ */
+export const STANCE_HINT: Record<string, string> = {
+  bullish: '方向證據明確、互相支持，主要反證已交代。',
+  mildly_bullish: '證據偏向上漲一側，但仍有具體限制。',
+  mixed: '有會影響結論的相反證據，多空並存。',
+  neutral: '現有資料支持盤整，不是資料不足。',
+  mildly_bearish: '證據偏向下跌一側，但仍有具體限制。',
+  bearish: '方向證據明確、互相支持，主要反證已交代。',
+  uncertain: '缺少可以判斷方向的有效依據。',
+};
+
+export const STANCE_NOTE = 'AI 依行情、籌碼、營運與新聞推論的方向，不是評級，也不是買賣建議。';
+
 export function forwardViewLabel(view: ForwardView): string {
   return view.validation_status === 'rejected'
     ? '內容未通過檢查'
@@ -40,7 +56,7 @@ export const STANCE_TONE: Record<string, BriefTone> = {
  */
 export const CONF: Record<string, string> = { low: '低', medium: '中', high: '高' };
 
-export const CONF_HINT = '模型自評經資料與內容限制調整，未經預測校準；不代表事實已證實或投資勝率。';
+export const CONF_HINT = 'AI 自評的信心，資料或內容有缺漏時會調降；不是勝率，也不代表內容已證實。';
 
 /**
  * 結論性質 → 標籤。observation 是有證據的觀察，不加標籤；

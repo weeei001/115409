@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { StockInfo } from '@/lib/types/api';
-import { buildIndustryOptions, searchIndustryOptions } from './IndustrySearch';
+import { buildIndustryOptions, industryOptionNote, searchIndustryOptions } from './IndustrySearch';
 
 const stocks: StockInfo[] = [
   { symbol: '2330', name: '台積電', industry: '半導體業' },
@@ -42,4 +42,8 @@ assert.deepEqual(buildIndustryOptions(unsupported, supported, ['9998', '7777']),
 assert.deepEqual(buildIndustryOptions([...stocks, ...unsupported], supported, ['9998', '7777']), options);
 assert.deepEqual(searchIndustryOptions(buildIndustryOptions([...stocks, ...unsupported], supported, ['2330', '9998']), '半導'),
   [{ industry: '半導體業', symbols: ['2454'], allAdded: false }]);
+// 選項說明不用「支援股票」（P2-065）
+assert.equal(industryOptionNote({ industry: '半導體業', symbols: ['2454'], allAdded: false }), '加入這個產業還沒選的股票');
+assert.equal(industryOptionNote({ industry: '半導體業', symbols: [], allAdded: true }), '這個產業的股票都已加入。');
+assert.equal(industryOptionNote({ industry: '半導體業', symbols: [], allAdded: false }), '目前沒有可加入的股票。');
 console.log('Industry search grouping and ranking checks passed.');

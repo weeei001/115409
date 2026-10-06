@@ -6,12 +6,15 @@ import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import type { Claim } from '@/lib/types/textBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
 import { buildFacets, type Facet, type FacetTone } from '@/lib/brief/textBriefFacets';
+import { AI_RESEARCH_ONLY } from '@/lib/disclaimers';
 import {
   CONF,
   CONF_HINT,
   FORWARD_VIEWS,
   forwardViewLabel,
   STANCE,
+  STANCE_HINT,
+  STANCE_NOTE,
   STANCE_TONE,
   type BriefTone,
 } from '@/lib/brief/textBriefLabels';
@@ -34,7 +37,7 @@ interface Props {
   onOpenDetail: (evidenceId?: string, claimKey?: string) => void;
 }
 
-/** 最多顯示幾項正面／風險 */
+/** 摘要卡最多顯示幾項正面／負面因素；其餘在完整分析看 */
 const FACTOR_LIMIT = 2;
 
 const FACET_TONE_CLASS: Record<FacetTone, string> = {
@@ -72,7 +75,7 @@ const CardFrame: React.FC<{ asOfDate?: string | null; state: LightState; childre
   <Ledger
     title="AI 投資分析"
     stamp={
-      // 燈質記號：讀取中＝Q、已載入＝F、讀取失敗＝熄燈
+      // 燈質記號：載入中＝Q、已載入＝F、載入失敗＝熄燈
       <span className="inline-flex items-center gap-1.5">
         <LightGlyph state={state} />
         {asOfDate ? `分析至 ${asOfDate}` : null}
@@ -107,7 +110,7 @@ const FacetRow: React.FC<{ facet: Facet }> = ({ facet }) => (
 
 /**
  * 股價資訊下方的 AI 摘要卡：頁面上只放結論（立場、一句標題、三個時間長度）與「查看完整分析」。
- * 正面、風險、分歧、重新評估條件與面向分級收在下方一列（預設收合）；每個結論後面都有可讀的來源標籤，
+ * 正面與負面因素、分歧、重新評估條件與面向分級收在下方一列（預設收合）；每個結論後面都有可讀的來源標籤，
  * 點下去會開完整分析並亮出那一筆證據。
  *
  * 刻意不顯示買賣建議與目標價；面向分級來自寫死的門檻（見 textBriefFacets），
@@ -154,9 +157,9 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   if (loading || !data) {
     return (
       <CardFrame asOfDate={endDate} state="loading">
-        {/* 載入＝燈質 Q：有線的空白列，光帶掃過，寫出「讀取中」與秒數 */}
+        {/* 載入＝燈質 Q：有線的空白列，光帶掃過，寫出「載入中」與秒數 */}
         <LoadingRows
-          label={`讀取 ${symbol} 的 AI 分析中…${seconds > 0 ? `（${seconds} 秒）` : ''}`}
+          label={`載入 ${symbol} 的 AI 分析中…${seconds > 0 ? `（${seconds} 秒）` : ''}`}
           className="h-[176px]"
         />
       </CardFrame>
@@ -180,15 +183,27 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   }
 
   const stanceTone: BriefTone = STANCE_TONE[b.overall_stance ?? ''] ?? 'plain';
+  // 信心低時立場不上色、字級縮小，不讓它成為這張卡最醒目的元素（P2-018）
+  const lowConfidence = b.confidence === 'low';
+  const stanceHint = STANCE_HINT[b.overall_stance ?? ''];
+  const divergences = b.source_divergences?.filter(item => !item.claim_type || item.claim_type === 'conflict') ?? [];
   const positives = topClaims(b.positive_factors);
   const negatives = topClaims(b.negative_factors);
-  const divergence = topClaims(b.source_divergences?.filter(item => !item.claim_type || item.claim_type === 'conflict')).slice(0, 1);
+  const divergence = topClaims(divergences).slice(0, 1);
+  // 摘要列寫實際總數，不寫截斷後的數字（FACTOR_LIMIT 會少算）
+  const counts: [string, number][] = [
+    ['正面', b.positive_factors?.length ?? 0],
+    ['負面', b.negative_factors?.length ?? 0],
+    ['分歧', divergences.length],
+    ['分級', facets.length],
+  ];
   const shortView = b.forward_views?.short_1_5;
   const stale = Boolean(latestTradeDate && data.as_of_date && data.as_of_date < latestTradeDate);
 
   const factorBlock = (
     title: string,
     items: Claim[],
+    total: number,
     fallback: string,
     accentClass = 'text-muted-foreground'
   ) => (
@@ -216,6 +231,11 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
       ) : (
         <p className="mt-1.5 text-sm text-muted-foreground">{fallback}</p>
       )}
+      {total > items.length ? (
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          另有 {total - items.length} 項，見完整分析。
+        </p>
+      ) : null}
     </div>
   );
 
@@ -229,15 +249,19 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Tag tone={stanceTone} className="text-sm">
-            <StanceIcon tone={stanceTone} />
+          <Tag tone={lowConfidence ? 'plain' : stanceTone} className={lowConfidence ? 'text-[13px]' : 'text-sm'}>
+            <StanceIcon tone={stanceTone} size={lowConfidence ? 13 : 14} />
             {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
           </Tag>
           <span className="text-[13px] text-muted-foreground">
             分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}
+            {lowConfidence ? '，方向判讀僅供參考' : null}
           </span>
         </div>
-        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">分析信心：{CONF_HINT}</p>
+        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+          立場：{stanceHint}{STANCE_NOTE}
+        </p>
+        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">分析信心：{CONF_HINT}</p>
 
         <p className="mt-3 max-w-[40em] text-xl leading-8 font-semibold text-foreground">{b.headline}</p>
 
@@ -264,23 +288,31 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
             查看完整分析
             <ArrowRight aria-hidden />
           </Button>
-          <span className="text-[13px] leading-5 text-muted-foreground">僅供研究參考，不是投資建議。</span>
+          <span className="text-[13px] leading-5 text-muted-foreground">{AI_RESEARCH_ONLY}</span>
         </div>
       </div>
 
-      {/* 正面／風險／分歧／重新評估與面向分級：收在一列裡，頁面上只留結論 */}
+      {/* 正面／負面因素／分歧／重新評估與面向分級：收在一列裡，頁面上只留結論 */}
       <FoldSection
-        title="正面、風險與面向分級"
-        summary={`正面 ${positives.length} 項 · 風險 ${negatives.length} 項 · 分歧 ${divergence.length} 項 · 面向分級 ${facets.length} 項，各附來源`}
+        title="正負面因素與面向分級"
+        summary={
+          // 每一段不斷行，375 寬才不會把數字和名稱拆開
+          counts.map(([label, count], index) => (
+            <React.Fragment key={label}>
+              {index ? '・' : null}
+              <span className="whitespace-nowrap">{label} {count}</span>
+            </React.Fragment>
+          ))
+        }
         className="border-t"
       >
         <div className="space-y-5 p-4 sm:p-5">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {factorBlock('正面', positives, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
-            {factorBlock('風險', negatives, '沒有通過檢查的依據，不代表沒有風險。', 'text-warning')}
+            {factorBlock('正面因素', positives, b.positive_factors?.length ?? 0, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
+            {factorBlock('負面因素', negatives, b.negative_factors?.length ?? 0, '本次未列出或未通過檢查（不代表沒有負面因素）。', 'text-warning')}
           </div>
           <div className="grid grid-cols-1 gap-5 border-t pt-5 sm:grid-cols-2">
-            {factorBlock('主要分歧', divergence, '本次未提供主要分歧，並不代表沒有矛盾。')}
+            {factorBlock('主要分歧', divergence, divergences.length, '本次未提供主要分歧，並不代表沒有矛盾。')}
             <div>
               <Caption>重新評估條件 · 短線 1–5 日</Caption>
               <p className="mt-1.5 text-sm leading-6">{shortView?.invalidation || '本次未提供短線失效條件。'}</p>

@@ -16,7 +16,7 @@ import { cn } from '@/lib/cn';
 const EXAMPLE_QUESTIONS: ExampleQuestionGroup[] = [
   { caption: '個股與指標', questions: ['整理台積電的走勢、法人與營收重點', '用 KD 和量價分析台積電目前的走勢'] },
   { caption: '多股比較', questions: ['比較台積電、聯發科與鴻海的報酬和風險'] },
-  { caption: '新聞與使用說明', questions: ['最近有哪些影響台股的新聞？', '這個系統可以幫我做什麼？'] },
+  { caption: '新聞與使用說明', questions: ['最近有哪些影響台股的新聞？', '這個網站可以幫我做什麼？'] },
 ];
 
 export default function AiPage() {

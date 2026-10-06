@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
-import { GitCompare, X } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { toast } from 'sonner';
+import { GitCompare, RefreshCw, X } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
@@ -36,6 +38,8 @@ import {
   technicalFinding,
 } from '@/features/compare/analysisFindings';
 import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
+import { COMPARE_FROM_PARAM, COMPARE_SYMBOLS_PARAM, COMPARE_TO_PARAM, compareHref, parseCompareQuery } from '@/lib/utils/compareQuery';
+import { STOCK_SEARCH_BULK_HINT_COMPARE } from '@/components/common/StockSearch';
 
 /** 載入＝燈質 Q：有線的空白列（DESIGN.md 第 10 節） */
 function QRows({ label, className }: { label: string; className?: string }) {
@@ -79,6 +83,38 @@ function CompareOutputs() {
 
 export default function ComparePage() {
   const c = useCompare();
+  const router = useRouter();
+  /** 已經套用過（或自己寫進去）的網址條件；網址再變成別的條件（例如頁首貼上多個代號）才重新比較 */
+  const appliedQuery = useRef<string | null>(null);
+  const queryKey = [COMPARE_SYMBOLS_PARAM, COMPARE_FROM_PARAM, COMPARE_TO_PARAM].map((key) => String(router.query[key] ?? '')).join('|');
+
+  // 網址帶著上一次的比較條件（上一頁、重新整理、分享連結）：股票清單載入後自動還原並比較（P1-26、03-F16）
+  useEffect(() => {
+    if (!router.isReady || !c.symbolsLoaded || appliedQuery.current === queryKey) return;
+    appliedQuery.current = queryKey;
+    if (!router.query[COMPARE_SYMBOLS_PARAM]) return;
+    const query = parseCompareQuery(router.query, c.allSymbols);
+    const requested = parseCompareQuery(router.query)?.symbols ?? [];
+    const dropped = requested.filter((symbol) => !query?.symbols.includes(symbol));
+    if (dropped.length) toast.warning(`網址裡有 ${dropped.length} 個代號不在股票清單，已略過：${dropped.slice(0, 4).join('、')}${dropped.length > 4 ? ' 等' : ''}`);
+    if (query) c.restore(query);
+  }, [router.isReady, router.query, queryKey, c.symbolsLoaded, c.allSymbols, c.restore]);
+
+  /** 把這次比較的條件寫進網址（取代目前這一筆紀錄，不多一筆上一頁） */
+  const writeQuery = useCallback((href: string) => {
+    const url = new URL(href, 'http://compare.local');
+    appliedQuery.current = [COMPARE_SYMBOLS_PARAM, COMPARE_FROM_PARAM, COMPARE_TO_PARAM].map((key) => url.searchParams.get(key) ?? '').join('|');
+    if (router.asPath !== href) void router.replace(href, undefined, { shallow: true, scroll: false });
+  }, [router]);
+
+  const startCompare = () => {
+    writeQuery(compareHref(c.selected, { startDate: c.startDate, endDate: c.endDate }));
+    void c.compare();
+  };
+  const clearAll = () => {
+    writeQuery('/compare');
+    c.clearAll();
+  };
   const [chartMode, setChartMode] = useState<CompareChartMode>('index100');
   const controlsRef = useRef<HTMLDivElement>(null);
   const reduceMotion = usePrefersReducedMotion();
@@ -103,8 +139,9 @@ export default function ComparePage() {
   const loading = c.chartLoading || c.metricsLoading;
   // 實際比較期間內的交易日數＝主圖畫出的點數（共同起訖日之間的合併交易日）
   const tradingDays = alignedChart?.data.length || null;
-  // 燈質記號：股票清單讀取中＝Q、讀不到＝熄燈、可用＝F
-  const pickerState: LightState = c.allSymbols.length ? 'ready' : c.error ? 'error' : 'loading';
+  // 燈質記號：股票清單讀取中＝Q、讀不到＝熄燈、已回應＝F（空清單也是 F，另外寫出沒有股票）
+  const pickerState: LightState = c.symbolsLoaded ? 'ready' : c.error ? 'error' : 'loading';
+  const noSymbols = c.symbolsLoaded && c.allSymbols.length === 0;
   const resultState: LightState = loading ? 'loading' : 'ready';
 
   const chartPanel = result?.chart ? (
@@ -158,11 +195,11 @@ export default function ComparePage() {
               stamp={
                 <span className="inline-flex items-center gap-1.5">
                   <LightGlyph state={pickerState} />
-                  {pickerState === 'loading' ? '股票清單讀取中 · ' : ''}已選 {c.selected.length} 檔
+                  {pickerState === 'loading' ? '股票清單讀取中 · ' : noSymbols ? '目前沒有可比較的股票 · ' : ''}已選 {c.selected.length} 檔
                 </span>
               }
               actions={c.selected.length > 0 ? (
-                <Button type="button" variant="ghost" onClick={c.clearAll} className="-my-1.5 text-subtle hover:bg-danger-muted hover:text-danger">
+                <Button type="button" variant="ghost" onClick={clearAll} className="-my-1.5 text-subtle hover:bg-danger-muted hover:text-danger">
                   清空全部
                 </Button>
               ) : null}
@@ -177,6 +214,7 @@ export default function ComparePage() {
                     onSelect={c.addSymbol}
                     onBulkSelect={c.handleBulkSelect}
                     placeholder="新增代號或公司名稱"
+                    bulkHint={STOCK_SEARCH_BULK_HINT_COMPARE}
                   />
                   <IndustrySearch
                     stockInfos={stockInfos}
@@ -188,16 +226,48 @@ export default function ComparePage() {
                 {/* 結束日是查詢條件，不一定有儲存資料；實際資料期間寫在比較結果裡 */}
                 <DateRangePicker
                   className="shrink-0"
-                  endLabel="查詢到"
+                  endLabel="結束日期"
                   startDate={c.startDate}
                   endDate={c.endDate}
                   onStartChange={c.setStartDate}
                   onEndChange={c.setEndDate}
                 />
 
-                {c.error ? <Notice tone="danger">{c.error}</Notice> : null}
+                {/* 錯誤都附「重試」（P2-095）：清單沒載入就重新載入清單，比較失敗就用同一組條件再比一次 */}
+                {c.error ? (
+                  <Notice
+                    tone="danger"
+                    action={
+                      c.symbolsLoaded ? (c.selected.length > 0 ? (
+                        <Button size="sm" variant="outline" onClick={startCompare} disabled={loading}>
+                          <RefreshCw aria-hidden />
+                          重試
+                        </Button>
+                      ) : undefined) : (
+                        <Button size="sm" variant="outline" onClick={c.reloadSymbols}>
+                          <RefreshCw aria-hidden />
+                          重試
+                        </Button>
+                      )
+                    }
+                  >
+                    {c.error}
+                  </Notice>
+                ) : null}
                 {c.metadataWarning ? <Notice tone="warning">{c.metadataWarning}</Notice> : null}
-                {c.metricsError ? <Notice tone="danger">{c.metricsError}</Notice> : null}
+                {c.metricsError ? (
+                  <Notice
+                    tone="danger"
+                    action={
+                      <Button size="sm" variant="outline" onClick={startCompare} disabled={loading || c.selected.length === 0}>
+                        <RefreshCw aria-hidden />
+                        重試
+                      </Button>
+                    }
+                  >
+                    {c.metricsError}
+                  </Notice>
+                ) : null}
                 {c.warnings.length > 0 ? (
                   <Notice tone="warning">
                     <span className="block space-y-1 text-xs">
@@ -215,7 +285,7 @@ export default function ComparePage() {
                   <Button
                     type="button"
                     size="lg"
-                    onClick={() => void c.compare()}
+                    onClick={startCompare}
                     disabled={loading || c.selected.length === 0}
                     className="w-full sm:w-auto sm:min-w-40"
                   >
@@ -333,7 +403,7 @@ export default function ComparePage() {
           </AnimatedSection>
         ) : null}
 
-        {/* 延伸分析：索引表一列一項（名稱＋一句發現＋展開），一次只開一項 */}
+        {/* 延伸分析：索引表一列一項（名稱＋一句發現＋展開），可同時展開多項 */}
         {metrics ? (
           <AnimatedSection>
             <AnalysisIndex
@@ -376,7 +446,7 @@ export default function ComparePage() {
                   state: resultState,
                   name: '技術指標快照',
                   finding: technicalFinding(metrics.leaders),
-                  description: '每檔最後一個交易日的 RSI10、MACD 動能、KD 與 MA20／MA60 位置',
+                  description: '每檔最後一個交易日的 RSI、MACD 柱、KD 與相對 MA20／MA60 的位置',
                   content: () => <TechnicalSnapshotTable symbols={symbols} latestMap={metrics.technicalLatestMap} symbolColors={colors} />,
                 },
                 {
@@ -384,7 +454,7 @@ export default function ComparePage() {
                   state: resultState,
                   name: '日漲跌幅相關性',
                   finding: correlationFinding(symbols, metrics.viewModel.correlationMatrix, metrics.viewModel.correlationSamples),
-                  description: '各組配對的 Pearson ρ 與各自的有效樣本數',
+                  description: '各組配對的相關係數 ρ 與各自的有效樣本數',
                   content: () => (
                     <CorrelationPanel symbols={symbols} matrix={metrics.viewModel.correlationMatrix} sampleCounts={metrics.viewModel.correlationSamples} />
                   ),
@@ -394,7 +464,7 @@ export default function ComparePage() {
                   state: resultState,
                   name: '方法與可信度',
                   finding: methodFinding(metrics.viewModel.qualityMeta, tradingDays),
-                  description: '運算口徑、實際比較期間與各檔資料品質',
+                  description: '計算方式、實際比較期間與各檔資料品質',
                   content: () => <MethodologyPanel qualityMeta={metrics.viewModel.qualityMeta} />,
                 },
               ]}

@@ -62,7 +62,7 @@ export default function ForgotPasswordPage() {
               }
             >
               <div className="space-y-4 pt-4">
-                <Notice tone="success">{successMessage ?? '若此 email 已註冊且可重設密碼，您將收到重設連結。'}</Notice>
+                <Notice tone="success">{successMessage ?? '如果這個電子郵件已註冊，你會收到重設連結。'}</Notice>
                 <p className="text-[13px] leading-relaxed text-muted-foreground">
                   申請的地址：<span className="font-mono break-all text-foreground">{email.trim().toLowerCase()}</span>
                   <br />

@@ -9,7 +9,7 @@ from app.clients.llm import LlmResult
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.market import company_catalog
-from app.features.news.impact import config_hash, validate_output
+from app.features.news.impact import SYSTEM_PROMPT, config_hash, hedge_reason, validate_output
 from app.jobs.impact.runner import ImpactBatchRunner
 from app.jobs.impact.migrate import migrate_news_impact
 
@@ -242,3 +242,15 @@ def test_recognition_alias_upgrade_invalidates_previous_analysis_config(settings
     current = config_hash(settings, CATALOG)
     monkeypatch.setattr("app.features.news.impact.COMPANY_RECOGNITION_VERSION", "mentions-v1")
     assert config_hash(settings, CATALOG) != current
+
+
+def test_impact_reason_uses_possible_instead_of_guaranteed_outcome():
+    assert "一律用「可能」" in SYSTEM_PROMPT
+    assert hedge_reason("預計明年量產，將帶來明確的營收貢獻。") == "預計明年量產，可能帶來明確的營收貢獻。"
+    assert hedge_reason("需求擴張勢必帶動量價齊揚") == "需求擴張可能帶動量價齊揚"
+    assert hedge_reason("將會提升長期獲利能力") == "可能提升長期獲利能力"
+    assert hedge_reason("將營收目標下修，成本可能上升") == "將營收目標下修，成本可能上升"
+    article = SimpleNamespace(title="升息", content="央行宣布升息一碼")
+    payload = output()
+    payload["impacts"][0]["reason"] = "資金成本將增加"
+    assert validate_output(payload, article=article, catalog=CATALOG).impacts[0].reason == "資金成本可能增加"

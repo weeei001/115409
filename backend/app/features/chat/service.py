@@ -30,7 +30,8 @@ from .personal_context import personal_scopes, read_personal_context, paper_draf
 
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, recovery_system_prompt, INTENT_SYSTEM_PROMPT,
                       INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
-                      NO_NEWS_MESSAGE, TIME_FALLBACK_WARNING)
+                      NO_NEWS_MESSAGE, PAPER_PORTFOLIO_DISCLAIMER, PAPER_PORTFOLIO_GUIDANCE,
+                      TIME_FALLBACK_WARNING)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
 
 
@@ -41,6 +42,19 @@ def _is_recommendation(query: str) -> bool:
         r"[買买賣卖](?:進|进|出)?(?:嗎|吗)|值得.{0,8}投資|"
         r"\brecommend\w*\b|\b(?:should I|which\b.{0,40})\s+(?:buy|sell)\b",
         query, re.IGNORECASE))
+
+
+def _with_disclaimer(answer: str, disclaimer: str = INVESTMENT_DISCLAIMER) -> str:
+    """Place the reminder after validated prose and limitations, before the untrusted reference tail."""
+    body, separator, references = answer.partition("\n\n【引用來源】")
+    if body.rstrip().endswith(disclaimer):
+        return answer
+    return body.rstrip() + "\n\n" + disclaimer + separator + references
+
+
+def _answer_system_prompt(request: AskRequest, response: AskResponse) -> str:
+    return answer_system_prompt(request.answer_detail) + (
+        PAPER_PORTFOLIO_GUIDANCE if response._paper_portfolio else "")
 
 
 def _is_forward_outlook(query: str) -> bool:
@@ -216,6 +230,7 @@ class ChatService:
                 personal_symbols, personal_source = await asyncio.to_thread(
                     read_personal_context, self.session_factory, request._user_id, scopes, query=request.query)
                 response.sources.append(personal_source)
+                response._paper_portfolio = "portfolio" in scopes
             except (SQLAlchemyError, ServiceUnavailable):
                 response.answer = "目前無法讀取你的個人資料，請稍後再試。"
                 yield response, "", ""
@@ -362,7 +377,7 @@ class ChatService:
                     unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
 
         if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
-            unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
+            unavailable.append("新聞的首次發布時間無法確認，回覆可能用到事後才公開的資訊。")
         response.sources.extend(collect_knowledge_sources(
             query, stock_options=stock_options if stock_options_available else None, include_help="help" in needs,
             include_knowledge=bool(needs & {"market", "knowledge"})))
@@ -429,7 +444,8 @@ class ChatService:
             logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
                                              exc.reason, metadata.get("finish_reason"), len(response.sources))
             result = await self.llm.text(
-                system_prompt=recovery_system_prompt(request.answer_detail, exc.reason),
+                system_prompt=recovery_system_prompt(request.answer_detail, exc.reason) + (
+                    PAPER_PORTFOLIO_GUIDANCE if response._paper_portfolio else ""),
                 prompt=prompt,
             )
             yield "正在重新核對回答的引用與數值…"
@@ -444,8 +460,9 @@ class ChatService:
             metadata = {key: (first_usage[key] or 0) + (retry_usage[key] or 0)
                         if first_usage[key] is not None or retry_usage[key] is not None else None
                         for key in first_usage}
-        if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
-            response.answer += "\n\n" + INVESTMENT_DISCLAIMER
+        if _is_recommendation(request.query):
+            response.answer = _with_disclaimer(
+                response.answer, PAPER_PORTFOLIO_DISCLAIMER if response._paper_portfolio else INVESTMENT_DISCLAIMER)
         response.tokens = _tokens(metadata)
 
     async def ask(self, request: AskRequest) -> AskResponse:
@@ -454,7 +471,7 @@ class ChatService:
         if not prompt:
             return response
         started = perf_counter()
-        result = await self.llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
+        result = await self.llm.text(system_prompt=_answer_system_prompt(request, response), prompt=prompt)
         await self._validate_response(result.raw_text, result.metadata, response, request, prompt, warning)
         response.duration_ms = int((perf_counter() - started) * 1000)
         return response
@@ -478,7 +495,7 @@ class ChatService:
                 metadata = {}
                 parts = []
                 async with aclosing(self.llm.stream_text(
-                    system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt,
+                    system_prompt=_answer_system_prompt(request, response), prompt=prompt,
                 )) as stream:
                     async for chunk in stream:
                         metadata.update(chunk.metadata)

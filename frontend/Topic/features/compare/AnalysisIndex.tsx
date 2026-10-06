@@ -17,17 +17,37 @@ export interface AnalysisEntry {
   state?: LightState;
 }
 
+/** 展開／收合其中一項，其他項維持原狀（可以同時開好幾項對照，P2-093） */
+export function toggleOpenKey(open: readonly string[], key: string): string[] {
+  return open.includes(key) ? open.filter((item) => item !== key) : [...open, key];
+}
+
 /**
  * 延伸分析的索引表：一列一項分析——名稱、一句發現、「展開」。
- * 打開的那一列在原位展開內容；一次只開一列，開新的會收起舊的。
+ * 打開的列在原位展開內容；可以同時打開多列對照（例如法人與技術面），另有「全部展開／全部收合」。
  * 選取列只用墨色標線與淺色底，不用燈色（旁邊就是各檔代表色）。
  */
 export function AnalysisIndex({ title, entries }: { title: string; entries: AnalysisEntry[] }) {
-  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
   const uid = useId().replace(/:/g, '');
+  const allOpen = entries.length > 0 && entries.every((entry) => openKeys.includes(entry.key));
 
   return (
-    <Ledger title={title} stamp={`${entries.length} 項 · 一次展開一項`} aria-label={title}>
+    <Ledger
+      title={title}
+      stamp={`${entries.length} 項`}
+      aria-label={title}
+      actions={(
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => setOpenKeys(allOpen ? [] : entries.map((entry) => entry.key))}
+          className="-my-1.5 text-subtle hover:text-foreground"
+        >
+          {allOpen ? '全部收合' : '全部展開'}
+        </Button>
+      )}
+    >
       <div className="min-w-0 bg-card">
         {/* 桌機欄名；手機每列自帶名稱與發現 */}
         <div aria-hidden className="hidden border-b px-5 md:grid md:grid-cols-[13rem_minmax(0,1fr)_6.5rem] md:gap-x-6">
@@ -39,7 +59,7 @@ export function AnalysisIndex({ title, entries }: { title: string; entries: Anal
         </div>
         <ul className="divide-y">
           {entries.map((entry) => {
-            const open = openKey === entry.key;
+            const open = openKeys.includes(entry.key);
             const headingId = `${uid}-${entry.key}-h`;
             const regionId = `${uid}-${entry.key}-r`;
             return (
@@ -73,7 +93,7 @@ export function AnalysisIndex({ title, entries }: { title: string; entries: Anal
                     aria-expanded={open}
                     aria-controls={regionId}
                     aria-describedby={headingId}
-                    onClick={() => setOpenKey(open ? null : entry.key)}
+                    onClick={() => setOpenKeys((prev) => toggleOpenKey(prev, entry.key))}
                     className="col-start-2 row-start-1 justify-end gap-1 justify-self-end px-2 font-normal tracking-normal text-subtle hover:text-foreground md:col-start-3"
                   >
                     {open ? '收合' : '展開'}

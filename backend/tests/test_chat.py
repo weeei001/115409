@@ -555,3 +555,31 @@ def test_answer_model_receives_actual_dashboard_for_both_transports(chat, monkey
         assert panels[0]["kind"] == "chart" and panels[0]["title"] == "2330 KD"
         assert panels[0]["source_ids"] == ["S1"]
     assert "已有相關面板時，不得聲稱無法提供圖表" in call["system_prompt"]
+
+
+
+def test_numeric_mismatch_message_is_plain_language():
+    """P2-043: the failure text shown to users is not technical."""
+    from app.features.chat.answer_validation import NumericValidationError, _checked_answer
+    market = SourceChunk(title="2330 行情", category="market_technical", stock_id="2330", source="system_market",
+                         source_name="Database", pub_time="2026-10-02", url="", score=1, citation_id="S1",
+                         content=json.dumps({"columns": ["date", "close"], "rows": [["2026-10-02", 2500.0]]}))
+    with pytest.raises(NumericValidationError) as caught:
+        _checked_answer("台積電 2026/10/02 收盤價為 999 元。[S1]", {"finish_reason": "stop"}, [market])
+    assert caught.value.detail == "這次回覆的數字和資料對不上，已停止顯示。請重新提問。"
+    # P2-045 formats requested by the prompt still validate against the stored value.
+    assert _checked_answer("台積電 2026/10/02 收盤價為 2,500 元。[S1]", {"finish_reason": "stop"}, [market])
+
+
+def test_institutional_shares_written_in_lots_validate_at_the_written_precision():
+    """P1-11: prose converts share sources to 張 and rounds; other magnitudes still fail."""
+    from app.features.chat.claims import numeric_claims_supported
+    chips = SourceChunk(title="2330 法人", category="institutional", stock_id="2330", source="system_market",
+                        source_name="Database", pub_time="2026-10-02", url="", score=1, citation_id="S1",
+                        content=json.dumps({"columns": ["date", "foreign_net"],
+                                            "rows": [["2026-10-02", -21834499]]}))
+    for claim in ("外資買賣超 −21,834 張。", "外資買賣超 -21,834.5 張。", "外資買賣超 -21,834,499 股。"):
+        assert numeric_claims_supported(claim, [chips]), claim
+    for claim in ("外資買賣超 −21,835 張。", "外資買賣超 21,834 張。", "外資買賣超 −21,834 股。",
+                  "外資買賣超 −2,183 萬元。"):
+        assert not numeric_claims_supported(claim, [chips]), claim

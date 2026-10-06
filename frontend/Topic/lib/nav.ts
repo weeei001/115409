@@ -50,6 +50,11 @@ export function isPaperOrderDraftAction(value: unknown): value is Extract<ChatAc
     && (action.conversation_id == null || (typeof action.conversation_id === 'string' && action.conversation_id.length <= 100));
 }
 
+/** 主導覽、選單抽屜、頁尾共用的「目前頁」判斷：首頁只認 /，其他頁含子路徑 */
+export function isNavPathActive(path: string, pathname: string): boolean {
+  return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
+}
+
 /** 頁尾連結（與主選單一致，避免遺漏項目） */
 export const FOOTER_NAV = PRIMARY_NAV;
 

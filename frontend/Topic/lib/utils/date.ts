@@ -62,9 +62,9 @@ export function formatTaipei(
 
 const MINUTE_FORMAT: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
 
-/** 新聞發布時間：年月日時分（台北時間）；解析不了時顯示原字串 */
+/** 新聞的時間（發布、擷取、分析）：年月日時分、24 小時制（台北時間），例如 2026/10/05 22:30；解析不了時顯示原字串 */
 export function formatDateTime(value: string | null | undefined): string {
-  return formatTaipei(value, MINUTE_FORMAT, value ?? '');
+  return formatTaipei(value, { ...MINUTE_FORMAT, hourCycle: 'h23' }, value ?? '');
 }
 
 /**

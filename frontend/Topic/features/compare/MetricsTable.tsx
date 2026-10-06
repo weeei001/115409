@@ -17,12 +17,12 @@ const HEADERS: Array<{ key: keyof CompareMetricsRow; label: string; title?: stri
   { key: 'maxDailyGainPct', label: '最大單日漲%' },
   { key: 'maxDailyLossPct', label: '最大單日跌%' },
   { key: 'avgVolume', label: '平均量' },
-  { key: 'avgAmount', label: '平均金額（TWD）' },
+  { key: 'avgAmount', label: '平均成交值（元）' },
 ];
 
 /**
- * 粗底線標記：只標方向沒有爭議的四欄（漲跌幅最高、波動最低、回撤最淺、上漲日比例最高）。
- * 只是表內的相對位置，不是評分；同值並列時一起標。
+ * 粗底線標記：只標方向沒有爭議的四欄裡「較佳」的那一端（漲跌幅最高、波動最低、回撤最淺、上漲日比例最高），
+ * 所以圖說寫「本欄較佳」，不寫「極值」（P2-092、04-C2）。只是表內的相對位置，不是評分；同值並列時一起標。
  */
 const MARKED: Partial<Record<keyof CompareMetricsRow, { pick: 'max' | 'min'; tag: string }>> = {
   totalReturnPct: { pick: 'max', tag: '本欄最高' },
@@ -42,12 +42,21 @@ function markedValues(rows: CompareMetricsRow[]): Partial<Record<keyof CompareMe
   return out;
 }
 
-/** The volume API preserves domestic TWSE/TPEx trade values in NT dollars. */
+/** 表格數字的負號一律 U+2212（DESIGN.md 第 7 節、05 用語表） */
+export const uMinus = (text: string) => text.replace(/^-/, '−');
+
+/**
+ * 平均成交值（成交 API 的金額是新台幣元）。
+ * 畫面上縮放成萬元／億元；title 與讀螢幕軟體的文字寫「約 105.98 億元（10,598,088,022 元）」，不給浮點原值（P1-27）。
+ */
 export function formatCompareAmount(value: number | null) {
-  if (value == null || !Number.isFinite(value)) return { label: '--', detail: '平均金額資料未提供' };
+  if (value == null || !Number.isFinite(value)) return { label: '--', detail: '平均成交值資料未提供' };
+  const sign = value < 0 ? '−' : '';
+  const scaled = fmtAmount(Math.abs(value));
+  const whole = `${sign}${Math.round(Math.abs(value)).toLocaleString('zh-TW')} 元`;
   return {
-    label: `${value < 0 ? '-' : ''}${fmtAmount(Math.abs(value))}`,
-    detail: `新臺幣 ${value.toLocaleString('zh-TW', { maximumFractionDigits: 20 })} 元（TWD）`,
+    label: `${sign}${scaled}`,
+    detail: Math.abs(value) >= 1e4 ? `約 ${sign}${scaled}（${whole}）` : whole,
   };
 }
 
@@ -98,7 +107,7 @@ export function MetricsTable({
   };
 
   return (
-    <Ledger title="比較指標表" aria-label="股票比較指標表" stamp="粗底線＝本欄極值">
+    <Ledger title="比較指標表" aria-label="股票比較指標表" stamp="粗底線＝本欄較佳">
       <LedgerPanel padded={false}>
         {/* 表的圖說：區間漲跌幅等欄位的實際期間，只在這裡寫一次 */}
         <div className="flex items-baseline gap-2 px-4 pt-3 sm:px-5">
@@ -136,12 +145,14 @@ export function MetricsTable({
                         h.key === 'symbol' ? 'sticky left-0 z-10 bg-card text-left' : 'text-right',
                       )}
                     >
+                      {/* 排序鈕填滿整個表頭格：手機的觸控範圍至少 44 寬（P2-094） */}
                       <button
                         type="button"
                         title={h.title}
                         onClick={() => toggleSort(h.key)}
                         className={cn(
-                          'inline-flex min-h-11 items-center gap-1 text-[13px] font-medium tracking-[0.04em] transition-colors duration-(--dur-flash) hover:text-foreground focus-lamp-inset',
+                          'flex min-h-11 w-full min-w-11 items-center gap-1 text-[13px] font-medium tracking-[0.04em] transition-colors duration-(--dur-flash) hover:text-foreground focus-lamp-inset',
+                          h.key === 'symbol' ? 'justify-start' : 'justify-end',
                           active ? 'text-foreground' : 'text-muted-foreground',
                         )}
                       >
@@ -165,12 +176,12 @@ export function MetricsTable({
                         {r.symbol}
                       </span>
                     </td>
-                    <td className={cn(td, valueToneText(r.totalReturnPct))}>{figure('totalReturnPct', r.totalReturnPct, fmtPercent(r.totalReturnPct, { sign: true }))}</td>
-                    <td className={td}>{figure('volatilityPct', r.volatilityPct, fmtPercent(r.volatilityPct))}</td>
-                    <td className={td}>{figure('maxDrawdownPct', r.maxDrawdownPct, fmtPercent(r.maxDrawdownPct))}</td>
-                    <td className={td}>{figure('winRatePct', r.winRatePct, fmtPercent(r.winRatePct))}</td>
-                    <td className={cn(td, valueToneText(r.maxDailyGainPct))}>{fmtPercent(r.maxDailyGainPct, { sign: true })}</td>
-                    <td className={cn(td, valueToneText(r.maxDailyLossPct))}>{fmtPercent(r.maxDailyLossPct, { sign: true })}</td>
+                    <td className={cn(td, valueToneText(r.totalReturnPct))}>{figure('totalReturnPct', r.totalReturnPct, uMinus(fmtPercent(r.totalReturnPct, { sign: true })))}</td>
+                    <td className={td}>{figure('volatilityPct', r.volatilityPct, uMinus(fmtPercent(r.volatilityPct)))}</td>
+                    <td className={td}>{figure('maxDrawdownPct', r.maxDrawdownPct, uMinus(fmtPercent(r.maxDrawdownPct)))}</td>
+                    <td className={td}>{figure('winRatePct', r.winRatePct, uMinus(fmtPercent(r.winRatePct)))}</td>
+                    <td className={cn(td, valueToneText(r.maxDailyGainPct))}>{uMinus(fmtPercent(r.maxDailyGainPct, { sign: true }))}</td>
+                    <td className={cn(td, valueToneText(r.maxDailyLossPct))}>{uMinus(fmtPercent(r.maxDailyLossPct, { sign: true }))}</td>
                     <td className={td}>{r.avgVolume == null ? '--' : fmtVolume(r.avgVolume)}</td>
                     <td className={td}>
                       <span title={amount.detail} className="relative">
@@ -178,7 +189,7 @@ export function MetricsTable({
                         <span className="sr-only">{amount.detail}</span>
                       </span>
                     </td>
-                    <td className={td}>{r.totalReturnPct == null || benchmarkReturnPct == null ? '--' : (r.totalReturnPct - benchmarkReturnPct).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' })}</td>
+                    <td className={td}>{r.totalReturnPct == null || benchmarkReturnPct == null ? '--' : uMinus((r.totalReturnPct - benchmarkReturnPct).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' }))}</td>
                   </tr>
                 );
               })}
@@ -186,13 +197,13 @@ export function MetricsTable({
           </table>
         </div>
       </LedgerPanel>
-      <FoldSection title="欄位定義" summary="漲跌幅、年化波動、上漲日比例、平均金額與相對加權差值的算法">
+      <FoldSection title="欄位定義" summary="漲跌幅、年化波動、上漲日比例、平均成交值與相對加權差值的算法">
         <div className="space-y-0.5 p-4 text-xs leading-relaxed text-muted-foreground sm:p-5">
-          <p>點擊欄位標題可排序，空值以 -- 顯示。粗底線標示該欄的最高區間漲跌幅、最低年化波動、最淺最大回撤與最高上漲日比例，只是表內相對位置。</p>
-          <p>平均金額以新臺幣（TWD）呈現，依數值縮放為元／萬元／億元。</p>
+          <p>點擊欄位標題可排序，空值以 -- 顯示。粗底線標示該欄較佳的一端：最高區間漲跌幅、最低年化波動、最淺最大回撤與最高上漲日比例，只是表內相對位置。</p>
+          <p>平均成交值的單位是新台幣，依數值大小顯示為元、萬元或億元。</p>
           <p>漲跌幅依共同起訖日的未還原收盤價計算，未計入股息；「上漲日比例」為有效日漲跌幅中大於 0 的比例。</p>
           <p>「年化波動%」為有效日漲跌幅的樣本標準差 × √252；台股年化常用 252 個交易日。</p>
-          <p>相對加權差值＝個股區間漲跌幅 − 加權價格指數同期漲跌幅，單位為百分點；非含息超額報酬。基準缺少起訖資料時顯示 --。</p>
+          <p>相對加權差值＝個股區間漲跌幅 − 加權指數同期漲跌幅，單位為百分點；非含息超額報酬。基準缺少起訖資料時顯示 --。</p>
         </div>
       </FoldSection>
     </Ledger>

@@ -95,6 +95,7 @@ class Claim:
     start: int
     end: int
     period: str | None = None
+    lots: Decimal | None = None  # value as written in 張 (1,000 shares), possibly rounded
 
 
 def _number(raw) -> Decimal:
@@ -170,6 +171,7 @@ def _claims(text: str, aliases: dict[str, str]):
             continue
         value = _number(match["number"])
         unit = match["unit"]
+        lots = value if unit == "張" else None
         # Explicit units must agree; an absent share unit is ambiguous.
         normalized_unit = {"元": "TWD", "萬元": "TWD", "億元": "TWD",
                            "股": "shares", "張": "shares", "%": "%"}.get(unit, unit)
@@ -190,7 +192,7 @@ def _claims(text: str, aliases: dict[str, str]):
         if metric in PORTFOLIO_AMOUNTS:
             amounts.append((match.end(), metric))
         yield Claim(metric, value, normalized_unit or ("" if metric == "foreign_net" else UNITS[metric]),
-                    symbol, dates, *match.span(), period_at(match.start()))
+                    symbol, dates, *match.span(), period_at(match.start()), lots)
     for match in PERCENT.finditer(text):
         if any(start <= match.start() < end for start, end in occupied):
             continue
@@ -307,6 +309,13 @@ def _matches(claim: Claim, fact: Fact) -> bool:
             return False
     if claim.value == fact.value:
         return True
+    if claim.lots is not None:
+        # Share sources are converted to 張 for display and rounded at the precision written.
+        lot_precision = max(0, -claim.lots.as_tuple().exponent)
+        try:
+            return (fact.value / 1000).quantize(Decimal(1).scaleb(-lot_precision), rounding=ROUND_HALF_UP) == claim.lots
+        except InvalidOperation:
+            return False
     precision = max(0, -claim.value.as_tuple().exponent)
     if fact.rounded and precision >= 2:
         try:
@@ -331,6 +340,19 @@ def _allocation_proposal(text: str, claim: Claim) -> bool:
         rf"(?:投入|保留)(?:可用資金|現金)(?:的)?)\s*{NUMBER}\s*%", prefix))
 
 
+def _cites_paper_portfolio(sources: list[SourceChunk]) -> bool:
+    """Allocation proposals are a paper-trading feature; they need the cited paper-portfolio snapshot."""
+    for source in sources:
+        if source.category != "personal":
+            continue
+        try:
+            if isinstance(json.loads(source.content).get("portfolio"), dict):
+                return True
+        except (ValueError, AttributeError):
+            continue
+    return False
+
+
 def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "") -> bool:
     """Reject recognized contradictions; unknown prose remains unverified."""
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
@@ -339,10 +361,11 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company
         prefix = _normalize(context)
         text = prefix + _normalize(paragraph)
         facts, literals = _evidence(sources, aliases)
+        paper_portfolio = _cites_paper_portfolio(sources)
         for claim in _claims(text, aliases):
             if claim.end <= len(prefix):
                 continue
-            if _allocation_proposal(text, claim):
+            if paper_portfolio and _allocation_proposal(text, claim):
                 continue
             if any(_matches(claim, fact) for fact in facts):
                 continue

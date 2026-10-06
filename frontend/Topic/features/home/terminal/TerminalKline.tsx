@@ -13,6 +13,7 @@ import {
   type Time,
 } from 'lightweight-charts';
 import type { MaKey, PriceChartData } from '@/lib/types/view';
+import { KLINE_INTERACTION_OPTIONS } from '@/lib/charts/klineInteraction';
 import { timeToYmd, toBusinessDay, toCandlestickSeriesData } from '@/lib/charts/priceChart';
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
@@ -67,7 +68,7 @@ export function TerminalKline({ data, title }: { data: PriceChartData; title: st
       timeScale: { tickMarkFormatter: (t: Time) => timeToYmd(t).slice(5), rightOffset: 3, fixLeftEdge: true },
       rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.24 } },
       layout: { attributionLogo: false, background: { color: 'transparent' }, fontFamily: 'IBM Plex Mono, Noto Sans TC, monospace', fontSize: 11 },
-      handleScroll: { vertTouchDrag: false },
+      ...KLINE_INTERACTION_OPTIONS,
     });
     // 最後一筆的價格標籤會蓋住軸上的刻度；收盤已經寫在上方讀數列
     candleRef.current = chart.addSeries(CandlestickSeries, { priceLineVisible: false, lastValueVisible: false });

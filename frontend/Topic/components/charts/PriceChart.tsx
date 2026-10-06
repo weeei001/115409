@@ -30,7 +30,8 @@ import {
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { cn } from '@/lib/cn';
-import { buildVolumeInsight, type VolumeInsight } from '@/lib/charts/volumeInsight';
+import { buildVolumeInsight, volumeVsMa20Text, type VolumeInsight } from '@/lib/charts/volumeInsight';
+import { KLINE_INTERACTION_OPTIONS } from '@/lib/charts/klineInteraction';
 import { NeatlineSoundings, SOUNDING_FRAME_STYLE, SOUNDING_PAD, sameMarks, type SoundingMarks } from './NeatlineSoundings';
 
 interface Props {
@@ -49,7 +50,7 @@ interface Props {
   heightClassName?: string;
 }
 
-/** 窄螢幕（< 640px）預設只顯示最後幾根 K 棒，K 棒較寬、日期刻度不擠；仍可拖曳與縮放 */
+/** 窄螢幕（< 640px）預設只顯示最後幾根 K 棒，K 棒較寬、日期刻度不擠；仍可左右拖曳與雙指縮放 */
 const MOBILE_BREAKPOINT = 640;
 const MOBILE_VISIBLE_BARS = 40;
 
@@ -118,21 +119,6 @@ function maStructureText(close: number | null, ma20: number | null, ma60: number
   if (close > ma20 && close > ma60) return '股價站上 MA20、MA60，但均線未完全多頭排列';
   if (close < ma20 && close < ma60) return '股價跌破 MA20、MA60，但均線未完全空頭排列';
   return '股價與均線交錯';
-}
-
-function volumeCompare(volume: number | null, ma20: number | null): string {
-  if (volume === null || ma20 === null || ma20 <= 0) return '無 20 日均量可比較';
-  const pct = Math.abs(((volume - ma20) / ma20) * 100).toFixed(1);
-  return volume >= ma20 ? `量增（高於 20 日均量 ${pct}%）` : `量縮（低於 20 日均量 ${pct}%）`;
-}
-
-/** 資料是最近一筆已儲存的收盤，不是今天：句子用基準日開頭，不寫「今日」 */
-function volumeInterpretation(state: string, date: string | null): string {
-  const day = date ? `${date} 的成交量` : '最近交易日成交量';
-  if (state === '量增') return `${day}高於 20 日均量，市場交易熱度增加。若價格同步站上均線，量增可作為趨勢延續的輔助確認。`;
-  if (state === '量縮') return `${day}低於 20 日均量，市場追價意願偏保守。即使價格上漲，也要留意趨勢延續力道可能不足。`;
-  if (state === '接近均量') return `${day}接近 20 日均量，市場交易熱度大致正常。量能沒有明顯放大或萎縮，需配合價格結構觀察。`;
-  return '目前成交量資料不足，暫時無法判斷量能是否支持趨勢。';
 }
 
 const roundOrNull = (v: number | null) => (v === null || !Number.isFinite(v) ? null : Math.round(v));
@@ -271,6 +257,7 @@ export function PriceChart({
       // 上緣留白：最高價與最上方的價格刻度不重疊；下緣留給成交量；上下緣只畫完整的刻度字
       rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.26 }, entireTextOnly: true },
       layout: { attributionLogo: false, background: { color: 'transparent' }, fontSize: 11, fontFamily: 'IBM Plex Mono, Noto Sans TC, ui-monospace, monospace' },
+      ...KLINE_INTERACTION_OPTIONS,
     });
     // 最新收盤已寫在圖上方的讀數列，價格軸不再疊一個收盤價標籤（會壓到刻度）
     candleRef.current = chart.addSeries(CandlestickSeries, { wickVisible: true, borderVisible: true, priceLineVisible: false, lastValueVisible: false });
@@ -370,7 +357,7 @@ export function PriceChart({
     // 決議 c14：可視範圍直接貼合資料，不再固定「今天往前 6 個月」
     const timeScale = chartRef.current?.timeScale();
     timeScale?.fitContent();
-    // 窄螢幕：預設只看最後 40 根，K 棒較寬；使用者仍可拖曳、縮放看全部
+    // 窄螢幕：預設只看最後 40 根，K 棒較寬；使用者仍可左右拖曳、雙指縮放看全部
     const width = containerRef.current?.clientWidth ?? 0;
     const total = data.candles.length;
     if (timeScale && width > 0 && width < MOBILE_BREAKPOINT && total > MOBILE_VISIBLE_BARS) {
@@ -385,7 +372,7 @@ export function PriceChart({
     { label: '低', value: fmtPrice(overlay?.low ?? null) },
     { label: '收', value: fmtPrice(overlay?.close ?? null) },
     ...activeMa.map((key) => ({ label: key, value: fmtPrice(overlay?.ma[key] ?? null) })),
-    { label: '成交量', value: fmtVolume(overlay?.volume ?? null, '無資料') },
+    { label: '成交量', value: fmtVolume(overlay?.volume ?? null) },
   ];
 
   // 圖例＝序列開關：一列純文字開關（色樣＋名稱），不畫外框；關閉的序列加刪除線、色樣變淡。
@@ -458,7 +445,7 @@ export function PriceChart({
         <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">價格圖</p>
         {legendButtons}
         <p className="mt-1 text-[13px] leading-relaxed">
-          下方柱子是每日成交量，越高代表當天交易越熱絡；紅色是上漲日、綠色是下跌日。
+          柱狀為成交量（紅：上漲日，綠：下跌日）。
         </p>
       </div>
 
@@ -485,7 +472,7 @@ export function PriceChart({
               {' · '}
               <span>{relativeText(overlay.close, overlay.ma.MA20, overlay.ma.MA60)}</span>
               {' · '}
-              <span>{volumeCompare(overlay.volume, volumeInsight.ma20)}</span>
+              <span>{volumeVsMa20Text(overlay.volume, volumeInsight.ma20)}</span>
             </>
           ) : (
             '尚無可顯示的交易日'
@@ -502,26 +489,22 @@ export function PriceChart({
           <p className="mt-2 font-semibold">目前趨勢：{trendText(overlay?.close ?? null, overlay?.ma.MA20 ?? null, overlay?.ma.MA60 ?? null)}</p>
           <p className="mt-1 text-subtle">均線結構：{maStructureText(overlay?.close ?? null, overlay?.ma.MA20 ?? null, overlay?.ma.MA60 ?? null)}</p>
           <p className="mt-1 text-subtle">目前位置：{overlay ? relativeText(overlay.close, overlay.ma.MA20, overlay.ma.MA60) : '資料不足'}</p>
-          <p className="mt-2 text-subtle">提醒：若跌破 MA20，短線可能進入整理；若跌破 MA60，中期趨勢可能轉弱。</p>
         </div>
         <div className="bg-card py-4 lg:pl-4">
           <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">輔助資訊｜成交量</p>
-          <p className="mt-2 text-subtle">基準日：<span className="font-mono tabular-nums">{volumeInsight.date ?? '無資料'}</span>（結束日前最後交易日）</p>
+          <p className="mt-2 text-subtle">基準日：<span className="font-mono tabular-nums">{volumeInsight.date ?? '--'}</span>（結束日前最後交易日）</p>
           <p className="mt-1 text-subtle">
-            基準日成交量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.latestVolume, '無資料')}</span>
+            基準日成交量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.latestVolume)}</span>
           </p>
           <p className="mt-1 text-subtle">
             20 日均量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.ma20, `資料不足（有效 ${volumeInsight.count20}/20 個交易日）`)}</span>
-            {volumeInsight.vsMa20 === null
-              ? ''
-              : `（${volumeInsight.vsMa20 >= 0 ? '高於' : '低於'} ${Math.abs(volumeInsight.vsMa20).toFixed(1)}%）`}
           </p>
           <p className="mt-1 text-subtle">
             60 日均量：<span className="whitespace-nowrap">{fmtVolume(volumeInsight.ma60, `資料不足（有效 ${volumeInsight.count60}/60 個交易日）`)}</span>
           </p>
           {volumeInsight.ma20 === 0 ? <p className="mt-1 text-subtle">20 日均量為零，無法計算量增減百分比。</p> : null}
-          <p className="mt-1 font-medium">量能狀態：{volumeInsight.state}</p>
-          <p className="mt-2 text-subtle">量能解讀：{volumeInterpretation(volumeInsight.state, volumeInsight.date)}成交量用來輔助判斷趨勢強弱，不是直接買賣訊號。</p>
+          <p className="mt-1 font-medium">量能狀態：{volumeVsMa20Text(volumeInsight.latestVolume, volumeInsight.ma20)}</p>
+          <p className="mt-2 text-subtle">成交量用來輔助判斷趨勢強弱，不是買賣訊號。</p>
         </div>
       </div>
     </div>

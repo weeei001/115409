@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { parseStockNewsView, stockNewsViewHref, STOCK_NEWS_VIEW_PARAM } from '@/lib/news/stockNewsView';
+import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
 import { getMaStructureLabel, summarizePricePosition } from '@/lib/utils/technicalSignals';
@@ -41,10 +42,13 @@ export function StockDashboard({ dashboard, stockName }: Props) {
   const newsView = parseStockNewsView(router.query[STOCK_NEWS_VIEW_PARAM], symbol);
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null);
   const [focusClaimKey, setFocusClaimKey] = useState<string | null>(null);
-  const close = () => {
+  const closeNow = () => {
     setDrawer(null);
     if (newsView) void router.replace(stockNewsViewHref(router.asPath, null), undefined, { shallow: true, scroll: false });
   };
+  // 手機按上一頁（返回鍵）先關抽屜，不離開個股頁（P2-054）
+  const requestClose = useDrawerHistory(drawer !== null || Boolean(newsView), closeNow);
+  const close = () => requestClose(closeNow);
   const openNews = () => {
     setDrawer(null);
     void router.replace(stockNewsViewHref(router.asPath, {
@@ -68,10 +72,19 @@ export function StockDashboard({ dashboard, stockName }: Props) {
 
   return (
     <div className="flex flex-col gap-10 lg:gap-16">
-      {/* 首屏：本頁唯一的主圖（收盤價＋K 線圖廓＋開高低），緊接一張關鍵指標表 */}
+      {/* 首屏：本頁唯一的主圖（收盤價＋K 線圖廓＋開高低），緊接區間的關鍵指標 */}
       <AnimatedSection delay={0.05} className="flex flex-col gap-6">
         <StockHero dashboard={dashboard} onOpenDetail={() => setDrawer('chart')} />
-        <StockKpiStrip priceChart={priceChart} institutionalLatest={institutionalLatest} indicatorLatest={indicatorLatest} chartState={chartState} chipsState={chipsState} />
+        <StockKpiStrip priceChart={priceChart} chartState={chartState} />
+      </AnimatedSection>
+
+      {/* 帳頁：法人 6／指標 6；手機單欄。日期寫在各格底部的戳記。
+          標準指標排在 AI 分析之前；法人合計、RSI、MACD 柱只在這裡出現一次，不在 KPI 列重複（04-S2） */}
+      <AnimatedSection delay={0.05}>
+        <Ledger title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
+          <LatestInstitutionalCard latest={institutionalLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('institutional')} onRetry={dashboard.reloadChips} />
+          <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('indicators')} />
+        </Ledger>
       </AnimatedSection>
 
       <AnimatedSection delay={0.06}>
@@ -85,14 +98,6 @@ export function StockDashboard({ dashboard, stockName }: Props) {
         />
       </AnimatedSection>
 
-      {/* 帳頁：法人 6／指標 6；手機單欄。日期寫在各格底部的戳記 */}
-      <AnimatedSection delay={0.05}>
-        <Ledger title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
-          <LatestInstitutionalCard latest={institutionalLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('institutional')} onRetry={dashboard.reloadChips} />
-          <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('indicators')} />
-        </Ledger>
-      </AnimatedSection>
-
       <AnimatedSection delay={0.05}>
         <TopNewsCard symbol={symbol} onOpenDetail={openNews} />
       </AnimatedSection>
@@ -102,13 +107,14 @@ export function StockDashboard({ dashboard, stockName }: Props) {
         <NextStep href="/compare">和同產業的股票比較</NextStep>
       </nav>
 
-      <DetailDrawer open={drawer === 'chart'} onClose={close} title="價量走勢與統計" subtitle={subtitle}>
+      {/* 抽屜標題和開啟它的按鈕用同一組字（05、04 一致性表） */}
+      <DetailDrawer open={drawer === 'chart'} onClose={close} title="K 線與量能" subtitle={subtitle}>
         <PricePanel dashboard={dashboard} />
       </DetailDrawer>
-      <DetailDrawer open={drawer === 'institutional'} onClose={close} title="籌碼面詳細" subtitle="三大法人買賣超與量價籌碼">
+      <DetailDrawer open={drawer === 'institutional'} onClose={close} title="籌碼明細" subtitle="三大法人買賣超與量價籌碼">
         <ChipsPanel dashboard={dashboard} />
       </DetailDrawer>
-      <DetailDrawer open={drawer === 'indicators'} onClose={close} title="技術指標詳細" subtitle="RSI / MACD / KD / 布林通道">
+      <DetailDrawer open={drawer === 'indicators'} onClose={close} title="技術指標明細" subtitle="RSI、MACD、KD、布林通道">
         <IndicatorsPanel rows={indicators} loading={chipsLoading} onRetry={dashboard.reloadChips} onWidenRange={dashboard.widenDateRange} />
       </DetailDrawer>
       <DetailDrawer open={drawer === 'ai'} onClose={close} title="AI 投資分析" subtitle="判斷、引用依據與分析限制">

@@ -13,17 +13,18 @@ import { chipsVolumeOption } from '@/lib/charts/adapters';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { signedShares } from '@/features/stock/signedShares';
-import { fmtAmount, fmtNum, fmtPrice, fmtVolume } from '@/lib/utils/format';
-import { kdSignal, macdSignal, rsiSignal } from '@/lib/utils/indicatorSignals';
+import { fmtAmount, fmtNum, fmtPrice, fmtVolume, lotToneValue } from '@/lib/utils/format';
 import { SignalTag } from '@/components/common/SignalTag';
 import { getValueTone, toneText, valueToneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
 import { RangeRuler } from './RangeRuler';
 import { TerminalKline } from './TerminalKline';
 import { CHART_RANGES, type Loadable, type TerminalData } from './useTerminalData';
-import { Watchlist } from './Watchlist';
+import { NO_STOCKS_TEXT, Watchlist } from './Watchlist';
+import { terminalIndicatorRows } from './terminalIndicators';
 
 const numeral = 'font-mono tabular-nums';
+
 
 /** 面板共用的載入（燈質 Q）、錯誤（熄燈）、空資料（燈質 F）三種狀態 */
 function PanelBody<T>({
@@ -98,7 +99,8 @@ function useRowsBelow(ref: React.RefObject<HTMLDivElement | null>, key: unknown)
 /** 以 0 為中線、往左右長的橫條；依數值正負上色（買超紅、賣超綠） */
 function FlowRow({ label, value, max, strong }: { label: string; value: number | null; max: number; strong?: boolean }) {
   const width = value != null && max > 0 ? `${(Math.abs(value) / max) * 50}%` : '0%';
-  const tone = getValueTone(value);
+  // 不滿 1 張不上漲跌色（P1-21）
+  const tone = getValueTone(lotToneValue(value));
   return (
     <div className={cn('grid min-h-11 grid-cols-[3.5rem_minmax(0,1fr)_6.5rem] items-center gap-3 border-b last:border-b-0', strong && 'font-medium')}>
       <span className={cn('text-sm', strong ? 'text-foreground' : 'text-subtle')}>{label}</span>
@@ -146,7 +148,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
   };
   /** 沒有任何股票可看（清單失敗或是空的）：整個格線換成一個狀態，不要每格各說一次 */
   const gridDown = !selected && (data.infos.status === 'error' || data.infos.status === 'ready');
-  const idleText = data.infos.status === 'error' ? '股票清單沒有載入，這一格暫時沒有資料' : data.infos.status === 'ready' ? '資料庫還沒有股票，這一格暫時沒有資料' : '等待股票清單';
+  const idleText = data.infos.status === 'error' ? '股票清單載入失敗，這一格暫時沒有資料' : data.infos.status === 'ready' ? '目前沒有股票資料，這一格暫時沒有資料' : '等待股票清單';
   const q = quote.data && quote.data.symbol === selected ? quote.data : null;
   const prevClose = q?.close != null && q.change != null ? q.close - q.change : null;
   const changePercent = q?.change != null && prevClose ? (q.change / prevClose) * 100 : null;
@@ -194,7 +196,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
     ) : boardState.status === 'ready' ? (
       <EmptyState className="py-4">大盤資料暫缺</EmptyState>
     ) : (
-      <LoadingRows label="讀取大盤資料…" className="h-[88px]" />
+      <LoadingRows label="載入大盤資料…" className="h-[88px]" />
     );
 
   return (
@@ -205,7 +207,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
             觀測台
           </h2>
           <p className="max-w-[34em] text-[13px] leading-relaxed text-muted-foreground">
-            以下都是資料庫最近儲存的收盤紀錄，不是即時報價；僅供學習與專題使用。
+            以下是最近一個交易日的收盤資料，不是即時報價；僅供學習與專題使用。
           </p>
         </div>
 
@@ -222,7 +224,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
               </Button>
             }
           >
-            觀測台暫時連不上資料庫，請稍後重試。
+            暫時無法取得行情資料，請稍後重試。
           </Notice>
         ) : null}
 
@@ -230,7 +232,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
 
         {board && q?.date && board.date !== q.date ? (
           <p className="mt-3 text-[13px] text-muted-foreground">
-            大盤（<span className="font-mono tabular-nums">{board.date}</span>）和個股（<span className="font-mono tabular-nums">{q.date}</span>）的最後收盤日不同：大盤資料由另一支匯入工作更新，兩者都是各自最近儲存的一筆。
+            大盤（<span className="font-mono tabular-nums">{board.date}</span>）和個股（<span className="font-mono tabular-nums">{q.date}</span>）的收盤日不同：兩者分開更新，各自顯示最近一個收盤日。
           </p>
         ) : null}
         {watchDates.length > 1 ? (
@@ -247,16 +249,16 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                 allDown ? undefined : (
                   <Button variant="outline" size="sm" onClick={data.infos.reload}>
                     <RefreshCw aria-hidden />
-                    重新讀取股票清單
+                    {data.infos.status === 'error' ? '重試' : '重新整理'}
                   </Button>
                 )
               }
             >
               {allDown
-                ? '燈暫時熄了。恢復連線後，這裡會顯示觀測清單、報價、K 線、法人與指標。'
+                ? '目前無法連線，行情暫時無法顯示；連線恢復後請按上方的「重試」。'
                 : data.infos.status === 'error'
-                  ? '股票清單沒有載入，觀測清單、報價、K 線、法人與指標都要等它。'
-                  : '資料庫還沒有匯入股票。匯入之後，這裡會依產業列出每一檔，並顯示報價、K 線、法人與指標。'}
+                  ? '股票清單載入失敗，行情暫時無法顯示。請按「重試」。'
+                  : NO_STOCKS_TEXT}
             </EmptyState>
           </div>
         ) : null}
@@ -271,8 +273,12 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                   {data.stockInfos.length ? `${data.stockInfos.length} 檔 · 依產業` : ''}
                 </span>
               </div>
+              {/* 第一次出現的自訂名詞，標題下說明它是什麼（P2-091、04-U5） */}
+              <p id={`${id}-watchlist-note`} className="border-b px-4 py-2 text-xs leading-relaxed text-muted-foreground sm:px-5">
+                本站收錄的全部股票，收藏的排最前面；點一檔切換報價與圖表，鍵盤可用上下鍵移動。
+              </p>
               <div ref={watchListRef} className="min-h-0 flex-1 lg:snap-y lg:snap-proximity lg:overflow-y-auto">
-                <Watchlist data={data} onSelect={pick} quiet={allDown} />
+                <Watchlist data={data} onSelect={pick} quiet={allDown} describedBy={`${id}-watchlist-note`} />
               </div>
               {/* 清單還有更多：寫出還有幾檔（不用漸層淡出） */}
               {rowsBelow ? (
@@ -291,9 +297,9 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                   href={`#${id}-watchlist`}
                   className="lamp-row -mx-4 -mt-4 mb-4 flex min-h-11 items-center justify-between gap-3 border-b px-4 text-[13px] text-subtle sm:-mx-5 sm:-mt-5 sm:px-5 lg:hidden"
                 >
-                  <span>正在看觀測清單裡的一檔</span>
+                  <span>目前個股</span>
                   <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                    換一檔
+                    換股
                     <ArrowDown size={14} aria-hidden />
                   </span>
                 </a>
@@ -385,8 +391,9 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                 <div className="mt-5">
                   <div className="flex items-baseline justify-between gap-3">
                     <h4 className="text-[13px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground">區間尺</h4>
-                    <span className="characteristic">{plotted ? `${plotted.first} – ${plotted.last} · ${plotted.count} 個交易日` : ''}</span>
+                    <span className="characteristic">{plotted ? `${plotted.first} → ${plotted.last} · ${plotted.count} 個交易日` : ''}</span>
                   </div>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">K 線區間的最低價到最高價；「均」是區間平均收盤，「收」是最近收盤。</p>
                   <PanelBody state={stats} height="h-[88px]" loadingText="載入區間統計中…" emptyText="這個區間沒有統計資料">
                     {(d) => <RangeRuler low={d.lowest_price} high={d.highest_price} average={d.average_close} close={q?.close ?? null} />}
                   </PanelBody>
@@ -398,16 +405,16 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                 action={
                   <Button variant="outline" size="sm" onClick={data.infos.reload}>
                     <RefreshCw aria-hidden />
-                    重新讀取股票清單
+                    重新整理
                   </Button>
                 }
               >
-                資料庫還沒有匯入股票，所以沒有報價與 K 線可以顯示。匯入後重新讀取就會出現。
+                {NO_STOCKS_TEXT}
               </EmptyState>
             ) : data.infos.status === 'error' ? (
-              <EmptyState className="py-16">股票清單沒有載入，報價與 K 線暫時沒有資料。重試成功後會自動顯示。</EmptyState>
+              <EmptyState className="py-16">股票清單載入失敗，報價與 K 線暫時無法顯示。重試成功後會自動顯示。</EmptyState>
             ) : (
-              <LoadingRows label="讀取報價與 K 線…" className="h-[528px]" />
+              <LoadingRows label="載入報價與 K 線…" className="h-[528px]" />
             )}
           </div>
 
@@ -440,11 +447,8 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
               <PanelBody state={technical} idleText={idleText} height="h-[176px]" loadingText="載入技術指標中…" emptyText="資料不足以計算技術指標">
                 {(d) => (
                   <dl>
-                    {[
-                      { label: 'RSI10', value: fmtNum(d.rsi10), signal: rsiSignal(d.rsi10) },
-                      { label: 'KD（K／D）', value: `${fmtNum(d.kd_k9)} / ${fmtNum(d.kd_d9)}`, signal: kdSignal(d.kd_k9, d.kd_d9) },
-                      { label: 'MACD 柱', value: signedText(d.macd_hist), signal: macdSignal(d.macd_hist) },
-                    ].map((row) => (
+                    {/* 名稱、參數與小數位和個股頁一致（P2-091、04-U7） */}
+                    {terminalIndicatorRows(d).map((row) => (
                       <div key={row.label} className="flex min-h-11 items-center justify-between gap-3 border-b">
                         <dt className="text-sm text-subtle">{row.label}</dt>
                         <dd className="flex items-center gap-2">
@@ -489,11 +493,11 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
           <p className="max-w-[46em] text-[13px] leading-relaxed text-muted-foreground">
-            所有數字為資料庫最近儲存的收盤資料，非即時行情；僅供學習與專題用途，不構成投資建議。紅漲綠跌依台股慣例。
+            所有數字為最近一個交易日的收盤資料，非即時行情；僅供學習與專題用途，不構成投資建議。
           </p>
           <Button variant="ghost" size="sm" className="min-h-11 border border-transparent hover:border-border-strong" onClick={() => window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })}>
             <ArrowUp aria-hidden />
-            回到海面
+            回到頂端
           </Button>
         </div>
       </div>

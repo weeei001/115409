@@ -61,7 +61,7 @@ export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange,
       actions={(
         <Button type="button" variant="outline" onClick={onJumpToControls} className="-my-1.5">
           <RotateCcw aria-hidden />
-          換股 / 換期間
+          修改條件
         </Button>
       )}
       aria-label="比較結果"
@@ -111,7 +111,7 @@ export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange,
             <p className="text-[13px] text-subtle">共同價格資料不足，無法建立實際比較期間或計算期間漲跌。</p>
           )}
           <p className="font-mono text-xs text-muted-foreground tabular-nums">
-            查詢條件：{requestedRange.startDate} 起，查詢到 {requestedRange.endDate}
+            查詢條件：{requestedRange.startDate} → {requestedRange.endDate}
           </p>
           <p>
             <Badge tone={TONE_TAG[tone]} className="gap-1.5 px-2 font-normal whitespace-normal tabular-nums">

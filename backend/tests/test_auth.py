@@ -46,7 +46,10 @@ def test_register_duplicate_and_auth_failures(client, db_session, settings):
     assert stored.email == "person@example.com"
     assert stored.password_hash.startswith("$2b$12$")
     assert service.verify_password("Original123", stored.password_hash)
-    assert client.post("/auth/register", json={"email": "person@example.com", "password": "Different123"}).status_code == 400
+    duplicate = client.post("/auth/register", json={"email": "person@example.com", "password": "Different123"})
+    assert duplicate.status_code == 400
+    # 前端會原樣顯示 detail：不用「email」，並給下一步
+    assert duplicate.json() == {"detail": "這個電子郵件已註冊，請直接登入或使用「忘記密碼」。"}
     assert client.post("/auth/login", json={"email": "person@example.com", "password": "Wrong"}).json() == {"detail": "帳號或密碼錯誤"}
     for authorization, detail in ((None, "Not authenticated"), ("Bearer", "Not authenticated"),
                                   ("Basic xyz", "Invalid authentication credentials")):
@@ -84,11 +87,18 @@ def test_google_account_merge_and_conflict(client, db_session, settings, monkeyp
     stored = db_session.get(User, local["user"]["id"])
     assert stored.google_sub == "google-1" and stored.password_hash
     info["sub"] = "google-2"
-    assert client.post("/auth/google", json={"id_token": "test-google-token"}).status_code == 409
+    conflict = client.post("/auth/google", json={"id_token": "test-google-token"})
+    assert conflict.status_code == 409
+    assert conflict.json() == {"detail": "這個電子郵件已綁定其他 Google 帳號，請改用原本的方式登入。"}
     info["email"] = "new@example.com"
     created = client.post("/auth/google", json={"id_token": "test-google-token"}).json()
     assert created["user"]["display_name"] == "Google name"
     assert db_session.get(User, created["user"]["id"]).password_hash is None
+    # 只用 Google 登入的帳號沒有密碼：訊息不用「本地密碼」這種開發用語
+    no_password = client.post("/auth/change-password", headers={"Authorization": "Bearer " + created["access_token"]},
+                              json={"current_password": "Whatever123", "new_password": "NewPass123"})
+    assert no_password.status_code == 400
+    assert no_password.json() == {"detail": "只用 Google 登入的帳號沒有密碼，無法在這裡變更。"}
     info["email_verified"] = False
     assert client.post("/auth/google", json={"id_token": "test-google-token"}).status_code == 400
 
@@ -108,6 +118,7 @@ def test_reset_tokens_expire_replace_and_are_single_use(client, db_session, sett
     delivered = []
     monkeypatch.setattr(mail, "send_password_reset_email", lambda email, link, config: delivered.append((email, link)))
     expected = {"message": service.FORGOT_OK_MESSAGE}
+    assert service.FORGOT_OK_MESSAGE == "如果這個電子郵件已註冊，你會收到重設連結。"
     assert client.post("/auth/forgot-password", json={"email": "unknown@example.com"}).json() == expected
     assert client.post("/auth/forgot-password", json={"email": "person@example.com"}).json() == expected
     raw = parse_qs(urlsplit(delivered[-1][1]).query)["token"][0]

@@ -39,13 +39,15 @@ export interface LightEntryProps {
   /** 可點時的無障礙名稱；預設「代號 名稱」 */
   label?: string;
   className?: string;
+  /** onSelect 的按鈕：清單自己管 Tab 停駐點時用（觀測清單的上下鍵移動，P2-083） */
+  tabIndex?: number;
 }
 
 /**
  * 條目列：全站共用的一筆股票。代號是編號、產業是所屬海岸、收盤／漲跌／資料日是它的燈質。
  * 漲跌依數值正負上色（DESIGN.md 第 7 節），並且一律帶正負號，不只靠顏色。
  */
-export function LightEntry({ symbol, name, industry, close, change, changePercent, date, meta, hideQuote, selected, leading, extra, trailing, onSelect, href, label, className }: LightEntryProps) {
+export function LightEntry({ symbol, name, industry, close, change, changePercent, date, meta, hideQuote, selected, leading, extra, trailing, onSelect, href, label, className, tabIndex }: LightEntryProps) {
   const tone = toneText(getValueTone(change));
   const body = (
     <>
@@ -102,6 +104,7 @@ export function LightEntry({ symbol, name, industry, close, change, changePercen
         data-selected={selected ? 'true' : undefined}
         aria-pressed={selected}
         aria-label={accessibleName}
+        tabIndex={tabIndex}
         className={cn(rowClass, 'min-w-0 flex-1')}
       >
         {body}

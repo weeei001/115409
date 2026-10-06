@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchNews, fetchRelatedNews, type FetchNewsParams } from '../api/news';
+import { ApiRequestError } from '../api/client';
 import { userFacingMessage } from '../api/errorDetail';
 import type { PaginatedNewsResponse } from '../types/api';
 import { formatNewsDateTimeParam, validateNewsTimeRange } from '../utils/newsFilters';
@@ -21,6 +22,16 @@ export interface UseNewsListOptions {
   retrieval?: boolean;
   /** Applied route state; draft edits are deliberately excluded. */
   initialState?: { page: number; filters: NewsListFilters };
+}
+
+/**
+ * 錯誤種類：filter＝篩選條件不合法（前端驗證，或後端回 400／422），換條件才有用，畫面給「清除篩選」；
+ * request＝斷線、逾時、5xx 等，重試可能成功，畫面給「重試」。
+ */
+export type NewsListErrorKind = 'filter' | 'request';
+
+export function newsListErrorKind(err: unknown): NewsListErrorKind {
+  return err instanceof ApiRequestError && (err.status === 400 || err.status === 422) ? 'filter' : 'request';
 }
 
 type NewsListFilterOverride =
@@ -48,11 +59,12 @@ export function buildFetchParams(
   page: number,
   pageSize: number,
   filters: NewsListFilters,
-  options: UseNewsListOptions
+  options: UseNewsListOptions,
+  now: Date = new Date(),
 ): { params: FetchNewsParams; error: string | null } {
   const start_time = formatNewsDateTimeParam(filters.start_time ?? '');
   const end_time = formatNewsDateTimeParam(filters.end_time ?? '');
-  const rangeError = validateNewsTimeRange(start_time, end_time);
+  const rangeError = validateNewsTimeRange(start_time, end_time, now);
   if (rangeError) return { params: {}, error: rangeError };
 
   const trimmedKeyword = filters.keyword?.trim();
@@ -83,6 +95,11 @@ export function buildFetchParams(
   return { params, error: null };
 }
 
+// 沒有固定關聯類型的列表（首頁）保留還原或已套用的 relation，不被 undefined 蓋掉
+export function withFixedNewsFilters(base: NewsListFilters | undefined, options: Pick<UseNewsListOptions, 'fixedStock' | 'fixedRelation'>): NewsListFilters {
+  return { ...base, stock: options.fixedStock, relation: options.fixedRelation ?? base?.relation };
+}
+
 export function useNewsList(options: UseNewsListOptions = {}) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -91,10 +108,8 @@ export function useNewsList(options: UseNewsListOptions = {}) {
   const [data, setData] = useState<PaginatedNewsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialFilters: NewsListFilters = { ...options.initialState?.filters,
-    stock: options.fixedStock,
-    relation: options.fixedRelation,
-  };
+  const [errorKind, setErrorKind] = useState<NewsListErrorKind | null>(null);
+  const initialFilters = withFixedNewsFilters(options.initialState?.filters, options);
   const [page, setPage] = useState(options.initialState?.page ?? 1);
   const pageRef = useRef(page);
   pageRef.current = page;
@@ -118,6 +133,7 @@ export function useNewsList(options: UseNewsListOptions = {}) {
       );
       if (validationError) {
         setError(validationError);
+        setErrorKind('filter');
         setData(null);
         setLoading(false);
         return;
@@ -125,6 +141,7 @@ export function useNewsList(options: UseNewsListOptions = {}) {
 
       setLoading(true);
       setError(null);
+      setErrorKind(null);
       setData(null);
 
       const currentOptions = optionsRef.current;
@@ -151,6 +168,7 @@ export function useNewsList(options: UseNewsListOptions = {}) {
         .catch((err) => {
           if (id !== requestIdRef.current) return;
           setError(userFacingMessage(err, '無法載入新聞'));
+          setErrorKind(newsListErrorKind(err));
           setData(null);
         })
         .finally(() => {
@@ -172,10 +190,7 @@ export function useNewsList(options: UseNewsListOptions = {}) {
     const context = JSON.stringify([options.fixedStock, options.fixedRelation, options.defaultSort?.sort_by, options.retrieval]);
     const initialPage = firstLoad ? options.initialState?.page ?? 1 : contextRef.current === context ? pageRef.current : 1;
     const sameStock = lastStockRef.current === options.fixedStock;
-    const initial: NewsListFilters = {
-      ...(firstLoad ? options.initialState?.filters : sameStock ? filtersRef.current : {}),
-      stock: options.fixedStock, relation: options.fixedRelation,
-    };
+    const initial = withFixedNewsFilters(firstLoad ? options.initialState?.filters : sameStock ? filtersRef.current : {}, options);
     initializedRef.current = true;
     contextRef.current = context;
     lastStockRef.current = options.fixedStock;
@@ -215,6 +230,7 @@ export function useNewsList(options: UseNewsListOptions = {}) {
     data,
     loading,
     error,
+    errorKind,
     page,
     filters,
     draft,

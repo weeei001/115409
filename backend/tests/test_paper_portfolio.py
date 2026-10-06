@@ -416,3 +416,15 @@ def test_review_countdown_excludes_fill_day_future_and_intraday_sessions(db_sess
     assert due['review_elapsed_days'] == 2
     assert due['review_remaining_days'] == 0
     assert due['review_due_date'] == '2026-09-04'
+
+
+def test_user_facing_rule_text_is_plain_chinese(db_session, owner):
+    """P2-125／P2-126：待成交說明與模擬規則用一般使用者看得懂的說法。"""
+    buy(db_session, owner)
+    portfolio = service.get_portfolio(db_session, owner, now=at(1))
+    pending = [order for order in portfolio['orders'] if order['status'] == 'pending']
+    assert pending and pending[0]['pending_reason'] == '將以送出後下一個交易日的收盤價成交；當天沒有行情就順延。'
+    note = portfolio['accounting_note']
+    assert '證券交易稅 0.3%（賣出時）' in note and '計算到小數 2 位' in note and '未計入股息與除權息' in note
+    for phrase in ('賣出稅', '四捨五入至分', '公司行動'):
+        assert phrase not in note
