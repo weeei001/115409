@@ -245,6 +245,52 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
     assert operations[-1] == ("unlock", "scheduler")
 
 
+@pytest.mark.parametrize("failure", ["crawl-cnyes", "crawl-ltn", "news-impact-batch", "market-fetch"])
+@pytest.mark.parametrize("mode", ["--run-now", "--job"])
+def test_failed_startup_keeps_scheduling_and_one_shot_preserves_failure_exit(
+        failure, mode, monkeypatch, tmp_path, capsys):
+    operations, active, commands = [], {}, []
+    _fake_lock(monkeypatch, operations)
+
+    def signal_handler(sig, handler):
+        previous = active.get(sig, f"previous-{sig}")
+        active[sig] = handler
+        return previous
+
+    def run_worker(command):
+        assert callable(active.get(scheduler.signal.SIGINT))
+        assert callable(active.get(scheduler.signal.SIGTERM))
+        commands.append(command[0])
+        return 7 if command[0] == failure else 0
+
+    class Scheduled:
+        def __init__(self, *args, **kwargs):
+            pass
+        def tick(self, now, monotonic):
+            operations.append(("tick", None))
+            active[scheduler.signal.SIGTERM](scheduler.signal.SIGTERM, None)
+
+    monkeypatch.setattr(scheduler.signal, "signal", signal_handler)
+    monkeypatch.setattr(scheduler, "run_worker", run_worker)
+    monkeypatch.setattr(scheduler, "Scheduler", Scheduled)
+    args = [mode, *(["pipeline"] if mode == "--job" else []), "--symbols", "2330", "--out", str(tmp_path)]
+    result = scheduler.main(args)
+    if mode == "--run-now":
+        assert result == 0
+        assert ("tick", None) in operations
+        assert "job=pipeline exit_code=7 scheduler=continue" in capsys.readouterr().out
+    else:
+        assert result == 7
+        assert ("tick", None) not in operations
+    assert failure in commands
+    if failure == "market-fetch":
+        assert commands[-1] == failure and "cache-warmup" not in commands
+    else:
+        assert commands[-1] == "cache-warmup"
+    assert active == {sig: f"previous-{sig}" for sig in (scheduler.signal.SIGINT, scheduler.signal.SIGTERM)}
+    assert operations[-1] == ("unlock", "scheduler")
+
+
 @pytest.mark.parametrize("args", [
     ["--interval-minutes", "0"], ["--interval-minutes", "nan"], ["--interval-minutes", "inf"],
     ["--rag-delay-minutes", "-1"], ["--rag-delay-minutes", "nan"], ["--rag-delay-minutes", "inf"],

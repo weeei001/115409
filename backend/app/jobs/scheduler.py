@@ -171,8 +171,10 @@ def main(argv: list[str] | None = None) -> int:
                 return run(args.job)
             scheduler = Scheduler(run, datetime.now(TAIPEI), clock.monotonic(),
                 interval=args.interval_minutes * 60, delay=args.rag_delay_minutes * 60, market_at=args.market_time)
-            if args.run_now and run("pipeline") != 0:
-                return 1
+            if args.run_now:
+                result = run("pipeline")
+                if result:
+                    print(f"job=pipeline exit_code={result} scheduler=continue", flush=True)
             while True:
                 scheduler.tick(datetime.now(TAIPEI), clock.monotonic())
                 clock.sleep(1)
