@@ -266,13 +266,13 @@ def backfill(args: argparse.Namespace) -> dict:
             raise ValueError(f"Symbols missing from official catalog: {', '.join(sorted(unknown))}")
         if not symbols or any(catalog[symbol].get("market") not in {"TWSE", "TPEx"} for symbol in symbols):
             raise ValueError("No supported official market for the selected stocks")
-        selected = {symbol: catalog[symbol] for symbol in symbols}
     except BaseException:
         engine.dispose()
         raise
     report = {"start": args.start.isoformat(), "end": args.end.isoformat(),
               "symbols": len(symbols), "datasets": {}, "requests": 0}
     prices: dict[str, list[dict]] = {symbol: [] for symbol in symbols}
+    market_members: dict[date, dict[str, set[str]]] = {}
     try:
         with httpx.Client(timeout=args.timeout, trust_env=False, follow_redirects=True) as http:
             client = OfficialClient(http, args.interval, args.retries)
@@ -280,29 +280,38 @@ def backfill(args: argparse.Namespace) -> dict:
                 report["datasets"]["benchmark_prices"] = benchmark.import_history(
                     engine, client, args.start, args.end, incremental=getattr(args, "incremental", False))
             for symbol in symbols:
-                market = selected[symbol].get("market")
+                market_prices = {"TWSE": [], "TPEx": []}
                 for month in _months(args.start, args.end):
-                    rows = (_twse_prices(client, symbol, month, args.start, args.end)
-                            if market == "TWSE" else _tpex_prices(client, symbol, month, args.start, args.end))
-                    prices[symbol].extend(rows)
+                    # A transfer can split one month across both official markets.
+                    market_prices["TWSE"].extend(_twse_prices(client, symbol, month, args.start, args.end))
+                    market_prices["TPEx"].extend(_tpex_prices(client, symbol, month, args.start, args.end))
+                if ({row["date"] for row in market_prices["TWSE"]}
+                        & {row["date"] for row in market_prices["TPEx"]}):
+                    raise ValueError(f"Overlapping official market history for {symbol}")
+                prices[symbol] = sorted((row for rows in market_prices.values() for row in rows),
+                                        key=lambda row: row["date"])
                 if not prices[symbol]:
                     raise ValueError(f"No official price history returned for {symbol}")
                 with Session(engine) as db, db.begin():
                     # TPEx monthly history is rounded to thousands; do not replace
                     # exact share/amount values already stored by daily snapshots.
-                    _upsert(db, DailyPrice, prices[symbol],
-                            preserve_existing=("volume_shares", "amount") if market == "TPEx" else ())
+                    for market, rows in market_prices.items():
+                        _upsert(db, DailyPrice, rows,
+                                preserve_existing=("volume_shares", "amount") if market == "TPEx" else ())
+                for market, rows in market_prices.items():
+                    for row in rows:
+                        members = market_members.setdefault(row["date"], {"TWSE": set(), "TPEx": set()})
+                        members[market].add(symbol)
                 print(f"price {symbol} rows={len(prices[symbol])}", flush=True)
 
             report["datasets"]["daily_prices"] = sum(len(rows) for rows in prices.values())
-            dates = sorted({row["date"] for rows in prices.values() for row in rows})
-            listed = {symbol for symbol, item in selected.items() if item.get("market") == "TWSE"}
-            otc = {symbol for symbol, item in selected.items() if item.get("market") == "TPEx"}
+            dates = sorted(market_members)
             if not args.skip_valuations:
                 valuation_count = 0
                 valued_symbols = set()
                 for index, day in enumerate(dates, 1):
                     valuations = []
+                    listed, otc = market_members[day]["TWSE"], market_members[day]["TPEx"]
                     if listed:
                         valuations.extend(_twse_valuations(client, day, listed))
                     if otc:
@@ -320,13 +329,11 @@ def backfill(args: argparse.Namespace) -> dict:
                 covered_symbols = set()
                 for index, day in enumerate(dates, 1):
                     rows = []
-                    for market, members in (("TWSE", listed), ("TPEx", otc)):
-                        day_symbols = {symbol for symbol in members
-                                       if any(row["date"] == day for row in prices[symbol])}
-                        if not day_symbols:
+                    for market, members in market_members[day].items():
+                        if not members:
                             continue
                         for row in institutional.fetch_history(client, day, market):
-                            if row["symbol"] in day_symbols:
+                            if row["symbol"] in members:
                                 rows.append({**row, "date": _date(row["date"])})
                                 covered_symbols.add(row["symbol"])
                     with Session(engine) as db, db.begin():

@@ -32,6 +32,8 @@ def test_official_history_import_is_scoped_and_recomputes_indicators(tmp_path, m
                               volume_shares=5123, amount=517423))
     monkeypatch.setattr(history, "_twse_prices" if market == "TWSE" else "_tpex_prices",
                         lambda *a: [price])
+    monkeypatch.setattr(history, "_tpex_prices" if market == "TWSE" else "_twse_prices",
+                        lambda *a: [])
     monkeypatch.setattr(history, "_twse_valuations" if market == "TWSE" else "_tpex_valuations",
                         lambda *a: [{"symbol": "2330", "date": day, "per": "20.5"}])
     requested = []
@@ -69,6 +71,7 @@ def test_official_history_cannot_succeed_without_required_selected_stock_data(tm
     monkeypatch.setattr(history, "_load_catalog", lambda: {"2330": {"market": "TWSE"}})
     monkeypatch.setattr(history, "_twse_prices", lambda *a: [] if empty_stage == "prices" else [
         {"date": day, "symbol": "2330", "close": "101", "volume_shares": 5000}])
+    monkeypatch.setattr(history, "_tpex_prices", lambda *a: [])
     monkeypatch.setattr(institutional, "fetch_history", lambda *a: [
         {"date": day.isoformat(), "symbol": "9999", "foreign_net": 1}])
     monkeypatch.setattr(history, "_twse_valuations", lambda *a: [])
@@ -77,6 +80,102 @@ def test_official_history_cannot_succeed_without_required_selected_stock_data(tm
                            include_institutional=True, out=tmp_path / "report.json")
     with pytest.raises(ValueError, match="No official"):
         history.backfill(args)
+    assert not args.out.exists()
+    engine.dispose()
+
+
+@pytest.mark.parametrize("current_market", ["TWSE", "TPEx"])
+def test_history_includes_previous_market_and_switch_month(tmp_path, monkeypatch, current_market):
+    engine = create_engine(f"sqlite:///{tmp_path / 'transfer.db'}")
+    Base.metadata.create_all(engine)
+    previous_market = "TPEx" if current_market == "TWSE" else "TWSE"
+    symbol = "6589"
+    days = [date(2025, 6, 30), date(2025, 7, 18), date(2025, 7, 21),
+            date(2025, 8, 1), date(2025, 8, 4)]
+    price_rows = [{"date": day, "symbol": symbol, "open": str(100 + index * 10),
+                   "high": str(102 + index * 10), "low": str(99 + index * 10),
+                   "close": str(100 + index * 10), "volume_shares": 5000, "amount": 500000}
+                  for index, day in enumerate(days)]
+    sources = {previous_market: price_rows[:2], current_market: price_rows[2:]}
+    day_markets = {row["date"]: market for market, rows in sources.items() for row in rows}
+    monkeypatch.setattr(history, "get_settings", lambda: None)
+    monkeypatch.setattr(history, "make_engine", lambda settings: engine)
+    monkeypatch.setattr(history, "_load_catalog", lambda: {symbol: {"market": current_market}})
+    monkeypatch.setattr(benchmark, "import_history", lambda *a, **k: pytest.fail("Unrelated benchmark request"))
+    seeded_days = {days[0], days[2]}
+    with Session(engine) as db, db.begin():
+        db.add_all([DailyPrice(date=day, symbol=symbol, close=Decimal("99"),
+                               volume_shares=5123, amount=517423) for day in seeded_days])
+
+    def prices(market):
+        def fetch(client, requested_symbol, month, start, end):
+            assert requested_symbol == symbol
+            return [row for row in sources[market]
+                    if (row["date"].year, row["date"].month) == (month.year, month.month)
+                    and start <= row["date"] <= end]
+        return fetch
+
+    valuation_requests, institutional_requests = [], []
+
+    def valuations(market):
+        def fetch(client, day, members):
+            assert members == {symbol} and market == day_markets[day]
+            valuation_requests.append((day, market))
+            return [{"date": day, "symbol": symbol, "per": "20" if market == "TWSE" else "10"}]
+        return fetch
+
+    def trades(client, day, market):
+        assert market == day_markets[day]
+        institutional_requests.append((day, market))
+        return [{"date": day.isoformat(), "symbol": member,
+                 "foreign_net": 20 if market == "TWSE" else 10} for member in (symbol, "9999")]
+
+    monkeypatch.setattr(history, "_twse_prices", prices("TWSE"))
+    monkeypatch.setattr(history, "_tpex_prices", prices("TPEx"))
+    monkeypatch.setattr(history, "_twse_valuations", valuations("TWSE"))
+    monkeypatch.setattr(history, "_tpex_valuations", valuations("TPEx"))
+    monkeypatch.setattr(institutional, "fetch_history", trades)
+    args = SimpleNamespace(start=days[0], end=days[-1], symbols=[symbol], timeout=1, interval=0,
+                           retries=0, skip_benchmark=True, skip_valuations=False,
+                           include_institutional=True, out=tmp_path / "report.json")
+    report = history.backfill(args)
+    assert report["datasets"] == {"daily_prices": 5, "stock_valuations": 5, "institutional_trades": 5}
+    assert report["coverage"]["daily_prices"][symbol] == ["2025-06-30", "2025-08-04", 5]
+    expected_requests = [(day, day_markets[day]) for day in days]
+    assert valuation_requests == institutional_requests == expected_requests
+    with Session(engine) as db:
+        for index, day in enumerate(days):
+            key = (day, symbol)
+            price = db.get(DailyPrice, key)
+            assert price.close == Decimal(100 + index * 10)
+            preserve_exact = day_markets[day] == "TPEx" and day in seeded_days
+            assert price.volume_shares == (5123 if preserve_exact else 5000)
+            assert price.amount == (517423 if preserve_exact else 500000)
+            assert db.get(StockValuation, key).per == (20 if day_markets[day] == "TWSE" else 10)
+            assert db.get(InstitutionalTrade, key).foreign_net == (20 if day_markets[day] == "TWSE" else 10)
+        assert db.get(TechnicalIndicator, (days[-1], symbol)).ma5 == Decimal("120.00")
+        assert set(db.scalars(select(InstitutionalTrade.symbol))) == {symbol}
+    engine.dispose()
+
+
+def test_history_rejects_same_stock_date_in_both_markets(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'overlap.db'}")
+    Base.metadata.create_all(engine)
+    day = date(2025, 7, 21)
+    row = {"date": day, "symbol": "6589", "close": "100"}
+    monkeypatch.setattr(history, "get_settings", lambda: None)
+    monkeypatch.setattr(history, "make_engine", lambda settings: engine)
+    monkeypatch.setattr(history, "_load_catalog", lambda: {"6589": {"market": "TWSE"}})
+    monkeypatch.setattr(history, "_twse_prices", lambda *a: [row])
+    monkeypatch.setattr(history, "_tpex_prices", lambda *a: [{**row, "close": "101"}])
+    args = SimpleNamespace(start=day, end=day, symbols=["6589"], timeout=1, interval=0,
+                           retries=0, skip_benchmark=True, skip_valuations=True,
+                           include_institutional=False, out=tmp_path / "report.json")
+    with pytest.raises(ValueError, match="Overlapping official market history"):
+        history.backfill(args)
+    with Session(engine) as db:
+        assert list(db.scalars(select(DailyPrice))) == []
+        assert list(db.scalars(select(TechnicalIndicator))) == []
     assert not args.out.exists()
     engine.dispose()
 
