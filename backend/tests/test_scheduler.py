@@ -15,11 +15,11 @@ def test_pipeline_uses_native_jobs_in_dependency_order(tmp_path):
     assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols="2330,2317", output=tmp_path,
         run=lambda command: commands.append(command) or 0) == 0
     assert [command[0] for command in commands] == [
-        "market-fetch", "market-import", "market-backfill", "paper-reconcile", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema",
+        "market-backfill", "market-fetch", "market-import", "paper-reconcile", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema",
         "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]
-    assert commands[0] == ["market-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
-    assert commands[1] == ["market-import", "--input-dir", str(tmp_path)]
-    assert commands[2] == ["market-backfill", "--benchmark-only", "--incremental", "--start", "2026-07-01"]
+    assert commands[1] == ["market-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
+    assert commands[2] == ["market-import", "--input-dir", str(tmp_path)]
+    assert commands[0] == ["market-backfill", "--benchmark-only", "--incremental", "--start", "2026-07-01"]
     assert commands[3] == ["paper-reconcile", "--execute"]
     assert commands[4] == ["crawl-cnyes", "--scheduled-once"]
     assert commands[5] == ["crawl-ltn", "--scheduled-once", "--lookback-days", "30"]
@@ -40,17 +40,17 @@ def test_backfill_runs_before_market_import_and_ai(tmp_path):
     commands = []
     assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols=None, output=tmp_path,
         backfill=True, run=lambda command: commands.append(command) or 0) == 0
-    assert [command[0] for command in commands[:4]] == [
-        "market-fetch", "market-import", "market-fetch", "market-import"]
-    assert commands[0] == ["market-fetch", "--from-stock-info", "--start", "2026-07-01",
+    assert [command[0] for command in commands[:5]] == [
+        "market-backfill", "market-fetch", "market-import", "market-fetch", "market-import"]
+    assert commands[1] == ["market-fetch", "--from-stock-info", "--start", "2026-07-01",
                             "--out", str(tmp_path / "backfill")]
     assert commands[-1] == ["cache-warmup"]
 
 
 @pytest.mark.parametrize("failures,expected,commands", [
     ({}, 0, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
-    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch"]),
-    ({"news-ingest": 7, "news-impact-batch": 9}, 7, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch"]),
+    ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest"]),
+    ({"news-ingest": 7, "news-impact-batch": 9}, 7, ["migrate-news-impact-schema", "news-ingest"]),
     ({"news-impact-sync": 8}, 8, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
     ({"news-impact-batch": 9}, 9, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
 ])
@@ -64,7 +64,7 @@ def test_news_index_reports_its_own_result_without_warming_briefs(failures, expe
     assert called == commands
 
 
-@pytest.mark.parametrize("failure", ["market-fetch", "market-import", "market-backfill", "paper-reconcile", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema"])
+@pytest.mark.parametrize("failure", ["market-backfill", "market-fetch", "market-import", "paper-reconcile", "migrate-news-impact-schema", "news-ingest", "news-impact-sync"])
 def test_pipeline_stops_on_failure_before_warming_stale_cache(failure, tmp_path):
     commands = []
 
@@ -85,70 +85,39 @@ def test_daily_deadline_is_future_taipei_time(now, at, expected):
     assert scheduler.next_daily(datetime.fromisoformat(now), at) == datetime.fromisoformat(expected)
 
 
-def test_daily_and_news_jobs_coalesce_one_followup(monkeypatch):
+def test_daily_pipeline_runs_once_without_independent_followups():
     calls = []
-    elapsed = [0]
-    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: elapsed[0])
     start = datetime(2026, 7, 13, 16, tzinfo=scheduler.TAIPEI)
-    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, start, 0, interval=1800, delay=600)
-
-    def tick(seconds):
-        elapsed[0] = seconds
-        worker.tick(start + timedelta(seconds=seconds), seconds)
-
-    tick(1800)
-    assert calls == ["cnyes", "ltn"] and worker.followup == 2400
-    tick(2399)
-    assert calls == ["cnyes", "ltn"]
-    tick(2400)
-    assert calls == ["cnyes", "ltn", "rag", "text-brief"] and worker.followup is None
-    tick(3600)
-    assert calls[-3:] == ["market", "cnyes", "ltn"] and worker.followup == 4200
+    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, start, 0)
+    worker.tick(start + timedelta(minutes=30), 1800)
+    assert calls == []
+    worker.tick(start + timedelta(hours=1), 3600)
+    worker.tick(start + timedelta(hours=2), 7200)
+    assert calls == ["pipeline"]
     assert worker.next_market == datetime(2026, 7, 14, 17, tzinfo=scheduler.TAIPEI)
-    tick(4200)
-    assert calls.count("rag") == 2 and calls.count("market") == 1
 
 
-@pytest.mark.parametrize("successful", [None, "ltn"])
-def test_failed_crawls_still_coalesce_followup_and_repeat(successful, monkeypatch, capsys):
+@pytest.mark.parametrize("failure", ["crawl-cnyes", "crawl-ltn", "news-impact-batch"])
+def test_partial_failures_finish_pipeline_but_preserve_failure(failure, tmp_path):
     calls = []
-    elapsed = [0]
-    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: elapsed[0])
-    now = datetime(2026, 7, 13, 8, tzinfo=scheduler.TAIPEI)
-
-    def run(job):
-        calls.append(job)
-        return 0 if job == successful or job == "rag" else 1
-
-    worker = scheduler.Scheduler(run, now, 0, interval=1800, delay=600)
-    elapsed[0] = 1800
-    worker.tick(now + timedelta(minutes=30), 1800)
-    assert worker.followup == 2400
-    elapsed[0] = 2400
-    worker.tick(now + timedelta(minutes=40), 2400)
-    assert calls == ["cnyes", "ltn", "rag", "text-brief"]
-    assert worker.followup is None
-    assert "source=cnyes exit_code=1" in capsys.readouterr().out
-    elapsed[0] = 3600
-    worker.tick(now + timedelta(minutes=60), 3600)
-    assert worker.followup == 4200
-    elapsed[0] = 4200
-    worker.tick(now + timedelta(minutes=70), 4200)
-    assert calls == ["cnyes", "ltn", "rag", "text-brief", "cnyes", "ltn", "rag", "text-brief"]
+    def run(command):
+        calls.append(command[0])
+        return 7 if command[0] == failure else 0
+    assert scheduler.run_pipeline("pipeline", start=date(2026, 7, 1), symbols=None,
+        output=tmp_path, run=run) == 7
+    assert calls[-1] == "cache-warmup"
+    assert "news-impact-sync" in calls
 
 
-def test_followup_delay_starts_after_successful_crawl_finishes(monkeypatch):
-    elapsed = [10]
-    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: elapsed[0])
-    now = datetime(2026, 7, 13, 8, tzinfo=scheduler.TAIPEI)
-
-    def run(job):
-        elapsed[0] += 120 if job == "cnyes" else 240
-        return 0
-
-    worker = scheduler.Scheduler(run, now, 0, interval=10, delay=600)
-    worker.tick(now + timedelta(seconds=10), 10)
-    assert worker.followup == 730
+def test_pipeline_skips_disabled_news_source_but_manual_source_can_run(tmp_path):
+    calls = []
+    for job in ["pipeline", "ltn"]:
+        assert scheduler.run_pipeline(job, start=date(2026, 7, 1), symbols=None,
+            output=tmp_path, source_enabled=lambda name: name != "ltn",
+            run=lambda command: calls.append(command[0]) or 0) == 0
+        if job == "pipeline":
+            assert "crawl-ltn" not in calls and "crawl-cnyes" in calls
+    assert calls[-1] == "crawl-ltn"
 
 
 def test_child_command_uses_current_python_v2_module_and_propagates_exit(monkeypatch):
@@ -245,28 +214,6 @@ def test_cli_impact_defaults_opt_out_and_compatible_flag(job, flags, execute, mo
                       if job == "impact" or execute else [])
 
 
-@pytest.mark.parametrize("flags,execute", [([], True), (["--no-impact-execute"], False)])
-def test_regular_scheduler_followup_honors_impact_setting(flags, execute, monkeypatch):
-    commands = []
-    elapsed = [0]
-    _fake_lock(monkeypatch, [])
-    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: elapsed[0])
-    monkeypatch.setattr(scheduler, "run_worker", lambda command: commands.append(command) or 0)
-
-    def advance(seconds):
-        if elapsed[0] >= 2400:
-            raise KeyboardInterrupt
-        elapsed[0] += 600
-
-    monkeypatch.setattr(scheduler.clock, "sleep", advance)
-    assert scheduler.main(flags) == 0
-    assert [command[0] for command in commands] == [
-        "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema", "news-ingest",
-        *(["news-impact-batch", "news-impact-sync"] if execute else []), "cache-warmup"]
-    if execute:
-        assert "--execute" in next(command for command in commands if command[0] == "news-impact-batch")
-
-
 def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
     operations, active = [], {}
     _fake_lock(monkeypatch, operations)
@@ -293,7 +240,53 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
     monkeypatch.setattr(scheduler, "run_pipeline", run)
     monkeypatch.setattr(scheduler, "Scheduler", Scheduled)
     assert scheduler.main(["--run-now", "--interval-minutes", "2", "--rag-delay-minutes", "0.5"]) == 0
-    assert ("run", "market") in operations and ("tick", None) in operations
+    assert ("run", "pipeline") in operations and ("tick", None) in operations
+    assert active == {sig: f"previous-{sig}" for sig in (scheduler.signal.SIGINT, scheduler.signal.SIGTERM)}
+    assert operations[-1] == ("unlock", "scheduler")
+
+
+@pytest.mark.parametrize("failure", ["crawl-cnyes", "crawl-ltn", "news-impact-batch", "market-fetch"])
+@pytest.mark.parametrize("mode", ["--run-now", "--job"])
+def test_failed_startup_keeps_scheduling_and_one_shot_preserves_failure_exit(
+        failure, mode, monkeypatch, tmp_path, capsys):
+    operations, active, commands = [], {}, []
+    _fake_lock(monkeypatch, operations)
+
+    def signal_handler(sig, handler):
+        previous = active.get(sig, f"previous-{sig}")
+        active[sig] = handler
+        return previous
+
+    def run_worker(command):
+        assert callable(active.get(scheduler.signal.SIGINT))
+        assert callable(active.get(scheduler.signal.SIGTERM))
+        commands.append(command[0])
+        return 7 if command[0] == failure else 0
+
+    class Scheduled:
+        def __init__(self, *args, **kwargs):
+            pass
+        def tick(self, now, monotonic):
+            operations.append(("tick", None))
+            active[scheduler.signal.SIGTERM](scheduler.signal.SIGTERM, None)
+
+    monkeypatch.setattr(scheduler.signal, "signal", signal_handler)
+    monkeypatch.setattr(scheduler, "run_worker", run_worker)
+    monkeypatch.setattr(scheduler, "Scheduler", Scheduled)
+    args = [mode, *(["pipeline"] if mode == "--job" else []), "--symbols", "2330", "--out", str(tmp_path)]
+    result = scheduler.main(args)
+    if mode == "--run-now":
+        assert result == 0
+        assert ("tick", None) in operations
+        assert "job=pipeline exit_code=7 scheduler=continue" in capsys.readouterr().out
+    else:
+        assert result == 7
+        assert ("tick", None) not in operations
+    assert failure in commands
+    if failure == "market-fetch":
+        assert commands[-1] == failure and "cache-warmup" not in commands
+    else:
+        assert commands[-1] == "cache-warmup"
     assert active == {sig: f"previous-{sig}" for sig in (scheduler.signal.SIGINT, scheduler.signal.SIGTERM)}
     assert operations[-1] == ("unlock", "scheduler")
 
@@ -301,7 +294,7 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
 @pytest.mark.parametrize("args", [
     ["--interval-minutes", "0"], ["--interval-minutes", "nan"], ["--interval-minutes", "inf"],
     ["--rag-delay-minutes", "-1"], ["--rag-delay-minutes", "nan"], ["--rag-delay-minutes", "inf"],
-    ["--symbols", ","], ["--finmind-time", "17:00+01:00"],
+    ["--symbols", ","], ["--market-time", "17:00+01:00"],
     ["--impact-limit", "0"], ["--impact-max-cost-usd", "-1"],
     ["--impact-max-cost-usd", "nan"], ["--impact-max-cost-usd", "inf"],
 ])
@@ -345,13 +338,10 @@ def test_fixed_impact_start_reaches_worker_and_sync_without_changing_default(mon
     assert int(sync[sync.index("--backfill-days") + 1]) == max(1, (datetime.now(scheduler.TAIPEI).date() - date(2026, 1, 1)).days + 1)
 
 
-@pytest.mark.parametrize("brief_enabled", [False, True])
-def test_standalone_scheduler_separates_brief_and_respects_disabled_job(brief_enabled, monkeypatch):
+def test_paused_pipeline_does_not_run():
     calls = []
-    monkeypatch.setattr(scheduler.clock, "monotonic", lambda: 0)
     now = datetime(2026, 7, 13, 8, tzinfo=scheduler.TAIPEI)
-    worker = scheduler.Scheduler(lambda job: calls.append(job) or 1, now, 0,
-        enabled=lambda job: job != "text-brief" or brief_enabled)
-    worker.followup = 0
-    worker.tick(now, 0)
-    assert calls == ["rag", *(["text-brief"] if brief_enabled else [])]
+    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, now, 0,
+        enabled=lambda job: False)
+    worker.tick(now + timedelta(days=1), 86400)
+    assert calls == []

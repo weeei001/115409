@@ -35,7 +35,7 @@ export function StockManagement({ checkedAt, disabled, backfillJob, schedulerRun
     <div className="min-w-0 bg-card">
     <div className="space-y-2 border-b p-4 sm:p-5">
       <p className="text-sm text-muted-foreground">從公司目錄加入股票，後續行情更新會一併處理。加入後可手動回補近兩年的開高低收、成交量、估值、技術指標與法人資料。</p>
-      <p className="text-xs text-muted-foreground">透過 FinMind 回補，可取得範圍依來源資料與 API 額度而定；新上市股票可能不足兩年。</p>
+      <p className="text-xs text-muted-foreground">直接使用證交所與櫃買中心的歷史資料，並重新計算技術指標；新上市股票可能不足兩年。財報、月營收、融資融券、外資持股與集保分布依官方更新流程取得，不保證補齊兩年歷史。</p>
       <Button variant="outline" onClick={onViewRuns}>查看回補進度與執行紀錄</Button>
     </div>
     <div className="space-y-3 p-4 sm:p-5">

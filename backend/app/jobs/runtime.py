@@ -1,5 +1,5 @@
 """One serial scheduler owned by the FastAPI lifespan, with durable admin controls."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
@@ -23,6 +23,7 @@ from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 
 
 JOBS = {
+    "pipeline": "Market to AI pipeline",
     "market": "Market data", "cnyes": "Cnyes news", "ltn": "Liberty Times news",
     "rag": "News indexing and analysis", "impact": "Event analysis", "text-brief": "Brief warmup",
     "stock-backfill": "Stock market history",
@@ -104,6 +105,11 @@ class JobRuntime:
                                         AdminJobRun.status.in_(["queued", "running"]))):
                                     run.status, run.finished_at = "interrupted", utcnow()
                                     run.error = "Service restarted before this run completed"
+                                if db.get(AdminJobControl, "pipeline") is None:
+                                    legacy_paused = db.scalar(select(AdminJobControl.job_name).where(
+                                        AdminJobControl.job_name.in_(["market", "rag", "text-brief"]),
+                                        AdminJobControl.paused.is_(True)).limit(1)) is not None
+                                    db.add(AdminJobControl(job_name="pipeline", paused=legacy_paused))
                                 db.commit()
                                 initialized = True
                             else:
@@ -126,16 +132,9 @@ class JobRuntime:
                             self.heartbeat = datetime.now(timezone.utc).isoformat()
                         self._notification_tick()
                         if queued_id is not None:
-                            if queued_name == "rag":
-                                self.scheduler.followup = None
-                            result = self._execute(queued_id)
-                            if queued_name in self.scheduler.next_news:
-                                self.scheduler.next_news[queued_name] = clock.monotonic() + self.scheduler.interval
-                            elif queued_name == "market":
+                            self._execute(queued_id)
+                            if queued_name == "pipeline":
                                 self.scheduler.next_market = next_daily(datetime.now(TAIPEI), self.scheduler.market_at)
-                            if (queued_name in {"cnyes", "ltn"} or queued_name == "market" and result == 0):
-                                if self.scheduler.followup is None:
-                                    self.scheduler.followup = clock.monotonic() + self.scheduler.delay
                         else:
                             self.scheduler.tick(datetime.now(TAIPEI), clock.monotonic())
                     except SQLAlchemyError:
@@ -229,7 +228,7 @@ class JobRuntime:
                 output=state_directory() / "market", run=worker,
                 impact_limit=self.settings.JOBS_IMPACT_LIMIT,
                 impact_max_cost_usd=self.settings.JOBS_IMPACT_MAX_COST_USD,
-                impact_since=self.settings.JOBS_IMPACT_SINCE)
+                impact_since=self.settings.JOBS_IMPACT_SINCE, source_enabled=self._enabled)
             status = "succeeded" if result == 0 else "failed"
             error = "; ".join(failures) or ("Job failed" if result else None)
         except Exception as exc:
@@ -240,18 +239,7 @@ class JobRuntime:
             with self.lock, self.session_factory() as db:
                 row = db.get(AdminJobRun, run_id)
                 row.status, row.finished_at, row.exit_code, row.error = status, utcnow(), result, error
-                followup = None
-                if name == "rag" and self._enabled("text-brief"):
-                    existing = db.scalar(select(AdminJobRun.id).where(
-                        AdminJobRun.job_name == "text-brief",
-                        AdminJobRun.status.in_(["queued", "running"])).limit(1))
-                    if existing is None:
-                        followup = AdminJobRun(job_name="text-brief", status="queued", trigger="scheduled",
-                                               created_at=utcnow())
-                        db.add(followup)
                 db.commit()
-                if followup is not None:
-                    self.pending["text-brief"] = followup.id
         finally:
             with self.lock:
                 self.active.pop(name, None)
@@ -299,9 +287,9 @@ class JobRuntime:
                 raise AppError("A symbol is supported only for text-brief or stock-backfill run", 422)
             if db.get(StockInfo, symbol) is None:
                 raise NotFound("Stock not found")
+        if action in {"pause", "resume"} and job_name not in {"pipeline", "cnyes", "ltn"}:
+            raise AppError("Only the pipeline and its news sources can be paused", 422)
         if job_name == "stock-backfill":
-            if action in {"pause", "resume"}:
-                raise AppError("Stock backfill is a manual job", 422)
             if action == "run" and symbol is None:
                 raise AppError("Stock backfill requires a symbol", 422)
         if self.status != "running" or self.stop_event.is_set():
@@ -345,22 +333,14 @@ class JobRuntime:
 
     def snapshot(self):
         with self.lock:
-            now, monotonic = datetime.now(timezone.utc), clock.monotonic()
             jobs = []
             for name, label in JOBS.items():
                 next_at = None
                 schedule = "Manual"
-                if name == "market":
+                if name == "pipeline":
                     next_at, schedule = self.scheduler.next_market, f"Daily {self.settings.JOBS_MARKET_TIME:%H:%M} Asia/Taipei"
-                elif name in self.scheduler.next_news:
-                    next_at = now + timedelta(seconds=self.scheduler.next_news[name] - monotonic)
-                    schedule = f"Every {self.settings.JOBS_INTERVAL_MINUTES:g} minutes"
-                elif name == "rag":
-                    if self.scheduler.followup is not None:
-                        next_at = now + timedelta(seconds=self.scheduler.followup - monotonic)
-                    schedule = f"After data jobs + {self.settings.JOBS_RAG_DELAY_MINUTES:g} minutes"
-                elif name == "text-brief":
-                    schedule = "After news indexing"
+                elif name in {"cnyes", "ltn"}:
+                    schedule = "Pipeline source"
                 jobs.append({"name": name, "label": label, "schedule": schedule,
                     "paused": name in self.paused,
                     "next_run_at": (next_at.isoformat() if next_at and self.status == "running"

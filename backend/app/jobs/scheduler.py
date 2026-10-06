@@ -32,14 +32,22 @@ def run_worker(command: list[str]) -> int:
 
 def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, run=None,
                  impact_execute=True, impact_limit=100, impact_max_cost_usd=0.50,
-                 backfill=False, impact_since: date | None = None) -> int:
+                 backfill=False, impact_since: date | None = None, source_enabled=None) -> int:
     run = run or run_worker
     commands = []
+    source_enabled = source_enabled or (lambda name: True)
+    if job == "pipeline":
+        job = "all"
+    if job == "all":
+        for source in ("cnyes", "ltn"):
+            if not source_enabled(source):
+                print(f"job=crawl-{source} skipped=source_paused", flush=True)
     if job == "stock-backfill":
         if not symbols:
             raise ValueError("Stock backfill requires a symbol")
         commands.append(["stock-backfill", "--symbol", symbols])
     if job in {"market", "all"}:
+        commands.append(["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()])
         if backfill:
             backfill_output = output / "backfill"
             commands.extend([
@@ -51,12 +59,11 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
             ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
              "--start", start.isoformat(), "--out", str(output)],
             ["market-import", "--input-dir", str(output)],
-            ["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()],
             ["paper-reconcile", "--execute"],
         ])
-    if job in {"cnyes", "all"}:
+    if job == "cnyes" or job == "all" and source_enabled("cnyes"):
         commands.append(["crawl-cnyes", "--scheduled-once"])
-    if job in {"ltn", "all"}:
+    if job == "ltn" or job == "all" and source_enabled("ltn"):
         commands.append(["crawl-ltn", "--scheduled-once", "--lookback-days", "30"])
     if job in {"rag", "all", "impact"}:
         commands.append(["migrate-news-impact-schema"])
@@ -74,18 +81,14 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
     if job in {"text-brief", "all"}:
         commands.append(["cache-warmup", *(["--symbols", symbols] if symbols else [])])
     exit_code = 0
-    ingestion_failed = False
     for command in commands:
-        if command[0] == "news-impact-sync" and ingestion_failed:
-            print(f"job={command[0]} skipped=upstream_failure", flush=True)
-            continue
         result = run(command)
         print(f"job={command[0]} exit_code={result}", flush=True)
         if result:
-            if command[0] not in {"cache-warmup", "news-impact-batch", "news-impact-sync", "news-ingest"}:
-                return result
+            # Source and per-article failures can coexist with usable committed data.
+            if command[0] not in {"crawl-cnyes", "crawl-ltn", "news-impact-batch"}:
+                return exit_code or result
             exit_code = exit_code or result
-            ingestion_failed = ingestion_failed or command[0] == "news-ingest"
     return exit_code
 
 
@@ -100,35 +103,13 @@ class Scheduler:
                  delay: float = 600, market_at: time = time(17), enabled=None):
         self.run, self.interval, self.delay, self.market_at = run, interval, delay, market_at
         self.enabled = enabled or (lambda name: True)
-        self.next_news = {"cnyes": monotonic + interval, "ltn": monotonic + interval}
         self.next_market = next_daily(now, market_at)
-        self.followup = None
 
     def tick(self, now: datetime, monotonic: float):
-        # All calls are serial. One pending follow-up coalesces both news sources.
-        started = clock.monotonic()
-
-        def finished_at():
-            return monotonic + max(0, clock.monotonic() - started)
-
-        if now >= self.next_market and self.enabled("market"):
+        # One scheduled run owns the entire dependency chain.
+        if now >= self.next_market and self.enabled("pipeline"):
             self.next_market = next_daily(now, self.market_at)
-            if self.run("market") == 0 and self.followup is None:
-                self.followup = finished_at() + self.delay
-        for name in self.next_news:
-            if monotonic >= self.next_news[name] and self.enabled(name):
-                result = self.run(name)
-                self.next_news[name] = finished_at() + self.interval
-                if result:
-                    print(f"source={name} exit_code={result} followup=use_available_data", flush=True)
-                # A page failure can coexist with committed articles and pending SQL analysis.
-                if self.followup is None:
-                    self.followup = finished_at() + self.delay
-        if self.followup is not None and finished_at() >= self.followup and self.enabled("rag"):
-            self.followup = None
-            self.run("rag")
-            if self.enabled("text-brief"):
-                self.run("text-brief")
+            self.run("pipeline")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,10 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-now", action="store_true")
     parser.add_argument("--backfill", action="store_true",
                         help="Backfill all historical stock_info data before the first market/AI run")
-    parser.add_argument("--job", choices=["market", "finmind", "cnyes", "ltn", "rag", "text-brief", "impact", "all"])
+    parser.add_argument("--job", choices=["pipeline", "market", "cnyes", "ltn", "rag", "text-brief", "impact", "all"])
     parser.add_argument("--interval-minutes", type=float, default=30)
     parser.add_argument("--rag-delay-minutes", type=float, default=10)
-    parser.add_argument("--market-time", "--finmind-time", dest="market_time", type=time.fromisoformat, default=time(17))
+    parser.add_argument("--market-time", dest="market_time", type=time.fromisoformat, default=time(17))
     parser.add_argument("--impact-execute", dest="impact_execute",
                         action=argparse.BooleanOptionalAction, default=True,
                         help="Execute event impact analysis in rag/all pipelines (default: enabled)")
@@ -170,9 +151,7 @@ def main(argv: list[str] | None = None) -> int:
 
     def run(job):
         nonlocal backfill
-        if job == "finmind":
-            job = "market"
-        use_backfill = backfill and job in {"market", "all"}
+        use_backfill = backfill and job in {"market", "all", "pipeline"}
         result = run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
                             backfill=use_backfill,
                             impact_execute=args.impact_execute, impact_limit=args.impact_limit,
@@ -192,8 +171,10 @@ def main(argv: list[str] | None = None) -> int:
                 return run(args.job)
             scheduler = Scheduler(run, datetime.now(TAIPEI), clock.monotonic(),
                 interval=args.interval_minutes * 60, delay=args.rag_delay_minutes * 60, market_at=args.market_time)
-            if args.run_now and run("market") != 0:
-                return 1
+            if args.run_now:
+                result = run("pipeline")
+                if result:
+                    print(f"job=pipeline exit_code={result} scheduler=continue", flush=True)
             while True:
                 scheduler.tick(datetime.now(TAIPEI), clock.monotonic())
                 clock.sleep(1)

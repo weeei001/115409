@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings, state_directory
 from app.db.engine import make_engine
 from app.db.models.daily_price import DailyPrice
-from app.db.models.finmind_extra import StockValuation
+from app.db.models.institutional_trade import InstitutionalTrade
+from app.db.models.market_extra import StockValuation
 from app.jobs.indicators import recompute
 
 
@@ -92,14 +93,18 @@ def _twse_prices(client: OfficialClient, symbol: str, month: date,
         "date": month.strftime("%Y%m01"), "stockNo": symbol, "response": "json"})
     if not isinstance(payload, dict):
         raise ValueError("Unexpected TWSE price response")
-    rows = payload.get("data")
-    if not isinstance(rows, list):
+    if str(payload.get("stat", "")).startswith("很抱歉，沒有符合"):
         return []
+    rows = payload.get("data")
+    if payload.get("stat") != "OK" or not isinstance(rows, list):
+        raise ValueError("Unexpected TWSE price data")
     output = []
     for raw in rows:
         if not isinstance(raw, list) or len(raw) < 9:
-            continue
+            raise ValueError("Malformed TWSE price row")
         day = _date(raw[0])
+        if (day.year, day.month) != (month.year, month.month):
+            raise ValueError("TWSE price month mismatch")
         close = _number(raw[6])
         if not start <= day <= end or close is None:
             continue
@@ -114,15 +119,22 @@ def _tpex_prices(client: OfficialClient, symbol: str, month: date,
                  start: date, end: date) -> list[dict]:
     payload = client.json("POST", TPEX_PRICE_URL, data={
         "code": symbol, "date": month.strftime("%Y/%m/%d"), "response": "json"})
-    if not isinstance(payload, dict) or not isinstance(payload.get("tables"), list):
+    if (not isinstance(payload, dict) or str(payload.get("stat", "")).lower() != "ok"
+            or not isinstance(payload.get("tables"), list)):
         raise ValueError("Unexpected TPEx price response")
     tables = payload["tables"]
-    rows = tables[0].get("data", []) if tables and isinstance(tables[0], dict) else []
+    if not tables:
+        return []
+    rows = tables[0].get("data") if isinstance(tables[0], dict) else None
+    if not isinstance(rows, list):
+        raise ValueError("Unexpected TPEx price data")
     output = []
     for raw in rows:
         if not isinstance(raw, list) or len(raw) < 9:
-            continue
+            raise ValueError("Malformed TPEx price row")
         day = _date(raw[0])
+        if (day.year, day.month) != (month.year, month.month):
+            raise ValueError("TPEx price month mismatch")
         close = _number(raw[6])
         if not start <= day <= end or close is None:
             continue
@@ -137,40 +149,57 @@ def _tpex_prices(client: OfficialClient, symbol: str, month: date,
 def _twse_valuations(client: OfficialClient, day: date, symbols: set[str]) -> list[dict]:
     payload = client.json("GET", TWSE_VALUATION_URL, params={
         "date": day.strftime("%Y%m%d"), "response": "json"})
-    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-        return []
+    if (not isinstance(payload, dict) or payload.get("stat") != "OK"
+            or not isinstance(payload.get("data"), list)):
+        raise ValueError("Unexpected TWSE valuation response")
+    if _date(payload.get("date")) != day:
+        raise ValueError("TWSE valuation date mismatch")
+    fields = payload.get("fields")
+    required = {"證券代號", "殖利率(%)", "本益比", "股價淨值比"}
+    if not isinstance(fields, list) or not required <= set(fields):
+        raise ValueError("TWSE valuation fields changed")
     output = []
     for raw in payload["data"]:
-        if not isinstance(raw, list) or len(raw) < 7:
-            continue
-        symbol = str(raw[0]).strip()
+        if not isinstance(raw, list) or len(raw) != len(fields):
+            raise ValueError("Malformed TWSE valuation row")
+        row = dict(zip(fields, raw, strict=True))
+        symbol = str(row["證券代號"]).strip()
         if symbol in symbols:
             output.append({"date": day, "symbol": symbol,
-                           "dividend_yield": _number(raw[3]), "per": _number(raw[5]),
-                           "pbr": _number(raw[6])})
+                           "dividend_yield": _number(row["殖利率(%)"]), "per": _number(row["本益比"]),
+                           "pbr": _number(row["股價淨值比"])})
     return output
 
 
 def _tpex_valuations(client: OfficialClient, day: date, symbols: set[str]) -> list[dict]:
     payload = client.json("POST", TPEX_VALUATION_URL, data={
         "date": day.strftime("%Y/%m/%d"), "cate": "", "response": "json"})
-    if not isinstance(payload, dict) or not isinstance(payload.get("tables"), list):
-        return []
+    if (not isinstance(payload, dict) or str(payload.get("stat", "")).lower() != "ok"
+            or not isinstance(payload.get("tables"), list)):
+        raise ValueError("Unexpected TPEx valuation response")
+    if _date(payload.get("date")) != day:
+        raise ValueError("TPEx valuation date mismatch")
     table = payload["tables"][0] if payload["tables"] else {}
-    rows = table.get("data", []) if isinstance(table, dict) else []
+    if not isinstance(table, dict) or _date(table.get("date")) != day:
+        raise ValueError("TPEx valuation table date mismatch")
+    fields, rows = table.get("fields"), table.get("data")
+    required = {"股票代號", "殖利率(%)", "本益比", "股價淨值比"}
+    if not isinstance(fields, list) or not required <= set(fields) or not isinstance(rows, list):
+        raise ValueError("TPEx valuation fields changed")
     output = []
     for raw in rows:
-        if not isinstance(raw, list) or len(raw) < 7:
-            continue
-        symbol = str(raw[0]).strip()
+        if not isinstance(raw, list) or len(raw) != len(fields):
+            raise ValueError("Malformed TPEx valuation row")
+        row = dict(zip(fields, raw, strict=True))
+        symbol = str(row["股票代號"]).strip()
         if symbol in symbols:
             output.append({"date": day, "symbol": symbol,
-                           "dividend_yield": _number(raw[5]), "per": _number(raw[2]),
-                           "pbr": _number(raw[6])})
+                           "dividend_yield": _number(row["殖利率(%)"]), "per": _number(row["本益比"]),
+                           "pbr": _number(row["股價淨值比"])})
     return output
 
 
-def _upsert(db: Session, model, rows: list[dict]) -> int:
+def _upsert(db: Session, model, rows: list[dict], *, preserve_existing=()) -> int:
     if not rows:
         return 0
     table = model.__table__
@@ -180,13 +209,17 @@ def _upsert(db: Session, model, rows: list[dict]) -> int:
         if db.bind.dialect.name == "mysql":
             statement = mysql_insert(table).values(batch)
             statement = statement.on_duplicate_key_update(**{
-                column.name: func.coalesce(getattr(statement.inserted, column.name), table.c[column.name])
+                column.name: (func.coalesce(table.c[column.name], getattr(statement.inserted, column.name))
+                              if column.name in preserve_existing else
+                              func.coalesce(getattr(statement.inserted, column.name), table.c[column.name]))
                 for column in table.columns if column.name not in keys
             })
         elif db.bind.dialect.name == "sqlite":
             statement = sqlite_insert(table).values(batch)
             statement = statement.on_conflict_do_update(index_elements=keys, set_={
-                column.name: func.coalesce(getattr(statement.excluded, column.name), table.c[column.name])
+                column.name: (func.coalesce(table.c[column.name], getattr(statement.excluded, column.name))
+                              if column.name in preserve_existing else
+                              func.coalesce(getattr(statement.excluded, column.name), table.c[column.name]))
                 for column in table.columns if column.name not in keys
             })
         else:
@@ -213,7 +246,7 @@ def _symbols_from_db(engine) -> list[str]:
 
 
 def backfill(args: argparse.Namespace) -> dict:
-    from app.jobs.market import benchmark
+    from app.jobs.market import benchmark, institutional
 
     engine = make_engine(get_settings())
     if getattr(args, "benchmark_only", False):
@@ -225,53 +258,100 @@ def backfill(args: argparse.Namespace) -> dict:
                 return {"datasets": {"benchmark_prices": count}, "requests": client.requests}
         finally:
             engine.dispose()
-    catalog = _load_catalog()
-    symbols = args.symbols or _symbols_from_db(engine)
-    unknown = set(symbols) - catalog.keys()
-    if unknown:
-        raise ValueError(f"Symbols missing from official catalog: {', '.join(sorted(unknown))}")
-    selected = {symbol: catalog[symbol] for symbol in symbols}
+    try:
+        catalog = _load_catalog()
+        symbols = args.symbols or _symbols_from_db(engine)
+        unknown = set(symbols) - catalog.keys()
+        if unknown:
+            raise ValueError(f"Symbols missing from official catalog: {', '.join(sorted(unknown))}")
+        if not symbols or any(catalog[symbol].get("market") not in {"TWSE", "TPEx"} for symbol in symbols):
+            raise ValueError("No supported official market for the selected stocks")
+    except BaseException:
+        engine.dispose()
+        raise
     report = {"start": args.start.isoformat(), "end": args.end.isoformat(),
               "symbols": len(symbols), "datasets": {}, "requests": 0}
     prices: dict[str, list[dict]] = {symbol: [] for symbol in symbols}
+    market_members: dict[date, dict[str, set[str]]] = {}
     try:
         with httpx.Client(timeout=args.timeout, trust_env=False, follow_redirects=True) as http:
             client = OfficialClient(http, args.interval, args.retries)
-            report["datasets"]["benchmark_prices"] = benchmark.import_history(
-                engine, client, args.start, args.end, incremental=getattr(args, "incremental", False))
+            if not getattr(args, "skip_benchmark", False):
+                report["datasets"]["benchmark_prices"] = benchmark.import_history(
+                    engine, client, args.start, args.end, incremental=getattr(args, "incremental", False))
             for symbol in symbols:
-                market = selected[symbol].get("market")
+                market_prices = {"TWSE": [], "TPEx": []}
                 for month in _months(args.start, args.end):
-                    rows = (_twse_prices(client, symbol, month, args.start, args.end)
-                            if market == "TWSE" else _tpex_prices(client, symbol, month, args.start, args.end))
-                    prices[symbol].extend(rows)
+                    # A transfer can split one month across both official markets.
+                    market_prices["TWSE"].extend(_twse_prices(client, symbol, month, args.start, args.end))
+                    market_prices["TPEx"].extend(_tpex_prices(client, symbol, month, args.start, args.end))
+                if ({row["date"] for row in market_prices["TWSE"]}
+                        & {row["date"] for row in market_prices["TPEx"]}):
+                    raise ValueError(f"Overlapping official market history for {symbol}")
+                prices[symbol] = sorted((row for rows in market_prices.values() for row in rows),
+                                        key=lambda row: row["date"])
+                if not prices[symbol]:
+                    raise ValueError(f"No official price history returned for {symbol}")
                 with Session(engine) as db, db.begin():
-                    _upsert(db, DailyPrice, prices[symbol])
+                    # TPEx monthly history is rounded to thousands; do not replace
+                    # exact share/amount values already stored by daily snapshots.
+                    for market, rows in market_prices.items():
+                        _upsert(db, DailyPrice, rows,
+                                preserve_existing=("volume_shares", "amount") if market == "TPEx" else ())
+                for market, rows in market_prices.items():
+                    for row in rows:
+                        members = market_members.setdefault(row["date"], {"TWSE": set(), "TPEx": set()})
+                        members[market].add(symbol)
                 print(f"price {symbol} rows={len(prices[symbol])}", flush=True)
 
             report["datasets"]["daily_prices"] = sum(len(rows) for rows in prices.values())
+            dates = sorted(market_members)
             if not args.skip_valuations:
-                dates = sorted({row["date"] for rows in prices.values() for row in rows})
-                listed = {symbol for symbol, item in selected.items() if item.get("market") == "TWSE"}
-                otc = {symbol for symbol, item in selected.items() if item.get("market") == "TPEx"}
-                valuations = []
+                valuation_count = 0
+                valued_symbols = set()
                 for index, day in enumerate(dates, 1):
+                    valuations = []
+                    listed, otc = market_members[day]["TWSE"], market_members[day]["TPEx"]
                     if listed:
                         valuations.extend(_twse_valuations(client, day, listed))
                     if otc:
                         valuations.extend(_tpex_valuations(client, day, otc))
+                    with Session(engine) as db, db.begin():
+                        valuation_count += _upsert(db, StockValuation, valuations)
+                    valued_symbols.update(row["symbol"] for row in valuations)
                     if index % 25 == 0 or index == len(dates):
                         print(f"valuation {index}/{len(dates)}", flush=True)
-                with Session(engine) as db, db.begin():
-                    _upsert(db, StockValuation, valuations)
-                report["datasets"]["stock_valuations"] = len(valuations)
+                report["datasets"]["stock_valuations"] = valuation_count
+                if set(symbols) - valued_symbols:
+                    raise ValueError("No official valuation history for one or more selected stocks")
+            if getattr(args, "include_institutional", False):
+                institutional_count = 0
+                covered_symbols = set()
+                for index, day in enumerate(dates, 1):
+                    rows = []
+                    for market, members in market_members[day].items():
+                        if not members:
+                            continue
+                        for row in institutional.fetch_history(client, day, market):
+                            if row["symbol"] in members:
+                                rows.append({**row, "date": _date(row["date"])})
+                                covered_symbols.add(row["symbol"])
+                    with Session(engine) as db, db.begin():
+                        institutional_count += _upsert(db, InstitutionalTrade, rows)
+                    if index % 25 == 0 or index == len(dates):
+                        print(f"institutional {index}/{len(dates)}", flush=True)
+                if set(symbols) - covered_symbols:
+                    raise ValueError("No official institutional history for one or more selected stocks")
+                report["datasets"]["institutional_trades"] = institutional_count
             report["requests"] = client.requests
     finally:
-        for symbol in symbols:
-            if prices[symbol]:
-                with Session(engine) as db:
-                    recompute(db, symbol, args.start, args.end)
-        engine.dispose()
+        try:
+            for symbol in symbols:
+                if prices[symbol]:
+                    with Session(engine) as db:
+                        recompute(db, symbol, args.start, args.end)
+        finally:
+            engine.dispose()
     report["coverage"] = {
         "daily_prices": {symbol: [min(row["date"] for row in rows).isoformat(),
                                    max(row["date"] for row in rows).isoformat(), len(rows)]
@@ -300,6 +380,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument("--skip-valuations", action="store_true")
+    parser.add_argument("--include-institutional", action="store_true", help="Import dated official institutional trades")
+    parser.add_argument("--skip-benchmark", action="store_true", help="Keep a single-stock backfill scoped to that stock")
     parser.add_argument("--benchmark-only", action="store_true", help="Import only the official TAIEX closing index")
     parser.add_argument("--incremental", action="store_true", help="Refresh benchmark history from its latest stored month")
     args = parser.parse_args(argv)

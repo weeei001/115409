@@ -6,7 +6,7 @@ from .news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDec
 from .technical_indicator import TechnicalIndicator
 from .simulated_order import SimulatedOrder
 from .institutional_trade import InstitutionalTrade
-from .finmind_extra import (
+from .market_extra import (
     DividendResult,
     FinancialStatementRow,
     ForeignShareholding,

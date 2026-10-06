@@ -26,6 +26,7 @@ import { tabListClass, tabTriggerActiveClass, tabTriggerClass } from '@/componen
 const PAGE_SIZE = 20;
 const LOGIN = { pathname: '/login', query: { returnUrl: '/admin' } };
 const JOB_LABELS: Record<string, string> = {
+  pipeline: '完整更新流水線',
   'stock-backfill': '個股市場資料回補', market: '行情更新', cnyes: '鉅亨新聞', ltn: '自由財經新聞', rag: '新聞索引', impact: '新聞影響分析', 'text-brief': '個股摘要',
 };
 const SERVICE_LABELS: Record<string, string> = { api: 'API', database: '資料庫', qdrant: 'Qdrant', scheduler: '排程器' };
@@ -56,7 +57,7 @@ function scheduleText(value: string | null): string {
   return value?.replace(/^Daily (\d{2}:\d{2}) Asia\/Taipei$/, '每日 $1（台北時間）')
     .replace(/^Every ([\d.]+) minutes$/, '每 $1 分鐘')
     .replace(/^After data jobs \+ ([\d.]+) minutes$/, '資料工作完成後 $1 分鐘')
-    .replace(/^After news indexing$/, '新聞索引完成後自動執行').replace(/^Manual$/, '手動執行') || '未設定排程';
+    .replace(/^After news indexing$/, '新聞索引完成後自動執行').replace(/^Pipeline source$/, '完整流水線的新聞來源').replace(/^Manual$/, '手動執行') || '未設定排程';
 }
 
 const SUCCESS_STATES = ['healthy', 'success', 'succeeded', 'active', 'running', 'enabled'];
@@ -105,6 +106,7 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
   const [stockError, setStockError] = useState(false);
   const [stockAttempt, setStockAttempt] = useState(0);
   const hasStockJobs = jobs.some((job) => ['text-brief', 'stock-backfill'].includes(job.name));
+  const hasPipeline = jobs.some((job) => job.name === 'pipeline');
   useEffect(() => {
     if (!hasStockJobs) return;
     let active = true;
@@ -115,10 +117,12 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
   }, [hasStockJobs, stockAttempt]);
   return (
     <Ledger aria-labelledby="jobs-heading" title={<span id="jobs-heading">工作排程</span>} stamp={state ? <StateStamp state={state}>{jobs.length} 項工作</StateStamp> : undefined} actions={<p className="text-xs text-muted-foreground">工作依序執行。暫停只停止後續排程，執行中與已排入的工作會繼續完成。</p>}>
+      {hasPipeline ? <div className="space-y-2 border-b bg-card px-4 py-3 sm:px-5"><p className="text-sm font-medium">每天由完整流水線依序更新，也可手動整條重跑。</p><p className="text-xs leading-6 text-subtle">大盤資料 → 個股行情 → 模擬投資結算 → 新聞抓取 → 新聞索引與影響分析 → AI 個股分析</p><p className="text-xs text-muted-foreground">下方保留各項工作的單獨補跑；只執行所選工作，不會接續後面的步驟。新聞來源可個別啟用或停用。</p></div> : null}
       {actionError ? <div className="bg-card px-4 py-3 sm:px-5" role="alert"><Notice tone="warning">{actionError}</Notice></div> : null}
       {!jobs.length ? <div className="bg-card"><EmptyState>目前沒有工作排程。</EmptyState></div> : <ul className="divide-y bg-card">{jobs.map((job) => {
         const label = JOB_LABELS[job.name] || job.label || job.name;
         const manual = job.schedule === 'Manual';
+        const source = job.schedule === 'Pipeline source';
         const symbol = symbols[job.name] ?? '';
         const symbolId = job.name === 'text-brief' ? 'brief-symbol' : `${job.name}-symbol`;
         const current = job.active_run ?? job.queued_run;
@@ -127,7 +131,7 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
         return <li key={job.name} data-stagger className="px-4 py-4 sm:px-5">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
             <div className="min-w-0 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3 className="text-[15px] font-semibold">{label}</h3><span className="text-xs text-muted-foreground">{manual ? '手動工作' : '自動排程'}</span>{!manual ? <Status value={job.paused ? 'paused' : 'enabled'} /> : null}{job.active_run_id != null ? <Status value="running" /> : job.queued_run_id != null ? <Status value="queued" /> : null}</div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3 className="text-[15px] font-semibold">{label}</h3><span className="text-xs text-muted-foreground">{source ? '新聞來源／單獨補跑' : manual ? '單獨補跑' : '自動排程'}</span>{!manual ? <Status value={job.paused ? 'paused' : 'enabled'} label={source ? (job.paused ? '來源已停用' : '來源已啟用') : undefined} /> : null}{job.active_run_id != null ? <Status value="running" /> : job.queued_run_id != null ? <Status value="queued" /> : null}</div>
               <p className="text-xs leading-5 text-subtle">{job.name === 'text-brief' && !manual ? '新聞索引完成後自動執行' : scheduleText(job.schedule)}{job.next_run_at ? <> · 下次 <span className="font-mono tabular-nums">{timeText(job.next_run_at)}</span></> : null}</p>
               <p className="text-xs leading-5">{adminScheduleState(job, jobs, checkedAt, schedulerStatus)}</p>
               {job.active_run_id != null ? <p className="text-sm font-medium">目前階段：{adminStageLabel(current?.diagnostics?.stage)}{current ? <> · 工作耗時 <span className="font-mono tabular-nums">{adminDuration(current.duration_seconds)}</span></> : null}</p> : null}
@@ -142,12 +146,12 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
                   <option value="">{stockError ? '無法載入股票' : stocks.length ? '請選擇股票' : '載入股票中…'}</option>
                   {stocks.map((stock) => <option key={stock.symbol} value={stock.symbol}>{stock.symbol} {stock.name}</option>)}
                 </NativeSelect>
-                <p id={`${symbolId}-help`} className="text-xs text-muted-foreground">{job.name === 'stock-backfill' ? '回補所選股票近兩年的市場資料。' : '只更新所選股票；資料未變時沿用有效摘要。'}</p>
+                <p id={`${symbolId}-help`} className="text-xs text-muted-foreground">{job.name === 'stock-backfill' ? '從證交所／櫃買中心回補近兩年股價、估值與法人資料，重新計算技術指標；其他資料依官方更新範圍取得。' : '只更新所選股票；資料未變時沿用有效摘要。'}</p>
                 {stockError ? <p role="alert" className="text-xs text-danger">股票清單讀取失敗。<Button variant="outline" className="ml-2" onClick={() => setStockAttempt((value) => value + 1)}>重新載入</Button></p> : null}
               </div> : null}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="flex-1" disabled={disabled || !canStartAdminJob(job) || (['text-brief', 'stock-backfill'].includes(job.name) && !symbol)} onClick={() => onAction(job, 'run', ['text-brief', 'stock-backfill'].includes(job.name) ? symbol : undefined)} aria-label={`立即執行${label}`}><Play aria-hidden />{job.name === 'stock-backfill' ? '回補近兩年' : job.name === 'text-brief' ? '重跑所選股票' : '立即執行'}</Button>
-                {!manual ? <Button variant="outline" className="flex-1" disabled={disabled} onClick={() => onAction(job, job.paused ? 'resume' : 'pause')} aria-label={`${job.paused ? '恢復' : '暫停'}${label}排程`}>{job.paused ? <Play aria-hidden /> : <Pause aria-hidden />}{job.paused ? '恢復排程' : '暫停排程'}</Button> : null}
+                {!manual ? <Button variant="outline" className="flex-1" disabled={disabled} onClick={() => onAction(job, job.paused ? 'resume' : 'pause')} aria-label={source ? `${job.paused ? '啟用' : '停用'}${label}來源` : `${job.paused ? '恢復' : '暫停'}${label}排程`}>{job.paused ? <Play aria-hidden /> : <Pause aria-hidden />}{source ? (job.paused ? '啟用來源' : '停用來源') : job.paused ? '恢復排程' : '暫停排程'}</Button> : null}
               </div>
             </div>
           </div>

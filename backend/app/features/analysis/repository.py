@@ -11,7 +11,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models.daily_price import DailyPrice
-from app.db.models.finmind_extra import MonthlyRevenue, StockValuation
+from app.db.models.market_extra import MonthlyRevenue, StockValuation
 from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from app.db.models.news_article import NewsArticle

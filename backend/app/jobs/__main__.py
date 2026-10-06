@@ -10,7 +10,7 @@ COMMANDS = (
     "init-schema",
     "admin-grant",
     "migrate-admin-schema",
-    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import",
+    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
@@ -83,18 +83,12 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job == "market-backfill":
         from app.jobs.market_history import main as backfill
         return backfill(argv)
-    if job in {"finmind-fetch", "finmind-backfill"}:
-        from app.jobs.finmind.fetch import main as fetch
-        return fetch(argv)
     if job == "stock-info-sync":
         from app.jobs.market.stock_info import main as sync
         return sync(argv)
     if job == "market-import":
-        from app.jobs.finmind.import_csv import main as import_csv
+        from app.jobs.market.import_csv import main as import_csv
         return import_csv([*argv, "--require-manifest"] if "--help" not in argv else argv)
-    if job == "finmind-import":
-        from app.jobs.finmind.import_csv import main as import_csv
-        return import_csv(argv)
     if job == "news-impact-batch":
         from app.jobs.impact.cli import main as impact
 

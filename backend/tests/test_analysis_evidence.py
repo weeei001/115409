@@ -306,8 +306,8 @@ def test_revenue_period_and_issue_date_prevent_lookahead():
     assert _revenue_items([official], date(2026, 9, 9), _IdGen("fd")) == []
     item = _revenue_items([official], date(2026, 9, 10), _IdGen("fd"))[0]
     assert item["period"] == "2026-08" and item["available_at"] == "2026-09-10"
-    finmind = _revenue("2026-09-01", 2026, 8, 100)
-    assert revenue_availability(finmind)[0] == date(2026, 9, 10)
+    legacy_revenue = _revenue("2026-09-01", 2026, 8, 100)
+    assert revenue_availability(legacy_revenue)[0] == date(2026, 9, 10)
     official.create_time = "2026-09-15"
     assert not _revenue_is_published(official, date(2026, 9, 14))
     assert revenue_availability(_revenue("2025-12-01", 2025, 12, 100))[0] == date(2026, 1, 10)

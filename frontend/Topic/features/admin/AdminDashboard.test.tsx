@@ -15,6 +15,18 @@ const run: AdminRun = {
   exit_code: 1, error: '<script>unsafe()</script>', duration_seconds: 5,
 };
 
+const pipeline: AdminJob = { ...job, name: 'pipeline', schedule: 'Daily 20:00 Asia/Taipei', paused: false };
+const source: AdminJob = { ...job, name: 'ltn', schedule: 'Pipeline source' };
+const pipelineMarkup = renderToStaticMarkup(<AdminJobs jobs={[pipeline, { ...job, schedule: 'Manual' }, source]} disabled={false} onAction={() => undefined} />);
+assert.match(pipelineMarkup, /每日 20:00/);
+assert.equal((pipelineMarkup.match(/自動排程/g) ?? []).length, 1);
+assert.match(pipelineMarkup, /立即執行完整更新流水線/);
+assert.match(pipelineMarkup, /立即執行行情更新/);
+assert.match(pipelineMarkup, /啟用自由財經新聞來源/);
+assert.doesNotMatch(pipelineMarkup, /恢復行情更新排程/);
+assert.match(adminScheduleState(source, [pipeline, source]), /完整流水線會略過/);
+assert.match(adminScheduleState({ ...job, schedule: 'Manual' }, [pipeline]), /補跑不會接續/);
+
 assert.equal(canStartAdminJob(job), true, 'Pausing automatic schedules still allows a manual run.');
 assert.equal(canStartAdminJob({ ...job, active_run_id: 9 }), false);
 assert.equal(canStartAdminJob({ ...job, queued_run_id: 9 }), false);
