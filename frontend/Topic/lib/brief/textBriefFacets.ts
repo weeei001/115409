@@ -1,12 +1,12 @@
 import type { Brief, EvidenceItem } from '../types/textBrief';
-import { fmtNum, fmtPercent } from '../utils/format';
+import { fmtPercent, lotsToShares, signedShares } from '../utils/format';
 
 /**
  * 五個分析面向的分級。
  *
  * 刻意不讓 LLM 產生分數：每一格都是「拿證據目錄裡的某個數字，套一條寫死的門檻」，
  * 門檻與依據數字都直接顯示在畫面上（`rule` / `basis`），可以自己對帳。
- * 拿不到對應的數字就顯示「資料不足」，不猜、不補。
+ * 拿不到對應的數字就顯示「資料不足」，並寫出缺的是哪個數字，不猜、不補。
  */
 
 export type FacetKey = 'fundamental' | 'valuation' | 'momentum' | 'chips' | 'risk';
@@ -40,14 +40,13 @@ export const FACET_RULES = {
   momentumWeakPct: -3,
 } as const;
 
-const UNKNOWN_BASIS = '證據目錄裡沒有這一項可用的數字';
-
 function pick(items: EvidenceItem[], field: string): EvidenceItem | undefined {
   return items.find((item) => item.field === field);
 }
 
-function unknown(key: FacetKey, label: string, rule: string): Facet {
-  return { key, label, tone: 'unknown', levelLabel: '資料不足', basis: UNKNOWN_BASIS, rule, evidenceIds: [] };
+/** `basis` 寫出缺的是哪個數字；畫面上不提「證據目錄」這種內部名稱 */
+function unknown(key: FacetKey, label: string, rule: string, basis: string): Facet {
+  return { key, label, tone: 'unknown', levelLabel: '資料不足', basis, rule, evidenceIds: [] };
 }
 
 function fundamentalFacet(items: EvidenceItem[]): Facet {
@@ -55,7 +54,9 @@ function fundamentalFacet(items: EvidenceItem[]): Facet {
   const eps = pick(items, 'eps');
   const revenue = pick(items, 'revenue_monthly');
   const source = eps?.yoy_pct != null ? eps : revenue?.yoy_pct != null ? revenue : null;
-  if (!source || source.yoy_pct == null) return unknown('fundamental', '基本面', rule);
+  if (!source || source.yoy_pct == null) {
+    return unknown('fundamental', '基本面', rule, '缺少每股盈餘或單月營收的年增率，無法分級');
+  }
 
   const yoy = source.yoy_pct;
   const name = source.field === 'eps' ? '每股盈餘' : '單月營收';
@@ -88,7 +89,11 @@ function valuationFacet(items: EvidenceItem[]): Facet {
   const per = pick(items, 'per');
   const pbr = pick(items, 'pbr');
   const source = per?.pct_rank_1y != null ? per : pbr?.pct_rank_1y != null ? pbr : null;
-  if (!source || source.pct_rank_1y == null) return unknown('valuation', '評價', rule);
+  if (!source || source.pct_rank_1y == null) {
+    // 有本益比、沒有百分位時，同一張卡的其他段落可能寫著本益比，這裡要講清楚缺的是百分位
+    const basis = per || pbr ? '缺少近一年百分位，無法分級' : '缺少本益比與股價淨值比，無法分級';
+    return unknown('valuation', '評價', rule, basis);
+  }
 
   const rank = source.pct_rank_1y;
   const name = source.field === 'per' ? '本益比' : '股價淨值比';
@@ -137,13 +142,15 @@ function momentumFacet(items: EvidenceItem[]): Facet {
     };
   }
 
-  return unknown('momentum', '技術動能', rule);
+  return unknown('momentum', '技術動能', rule, '缺少收盤價相對季線的幅度，無法分級');
 }
 
 function chipsFacet(items: EvidenceItem[]): Facet {
   const rule = '近十日外資累計買賣超為正記為買超、為負記為賣超，只看方向不做強弱分級。';
   const chips = pick(items, 'foreign_net_10d_lots');
-  if (typeof chips?.value !== 'number') return unknown('chips', '法人籌碼', rule);
+  if (typeof chips?.value !== 'number') {
+    return unknown('chips', '法人籌碼', rule, '缺少近十日外資累計買賣超，無法分級');
+  }
 
   const value = chips.value;
   const tone: FacetTone = value > 0 ? 'good' : value < 0 ? 'caution' : 'neutral';
@@ -152,32 +159,36 @@ function chipsFacet(items: EvidenceItem[]): Facet {
     label: '法人籌碼',
     tone,
     levelLabel: value > 0 ? '買超' : value < 0 ? '賣超' : '中性',
-    basis: `近十日外資累計 ${value > 0 ? '+' : ''}${fmtNum(value)} 張`,
+    basis: `近十日外資累計 ${signedShares(lotsToShares(value))}`,
     rule,
     evidenceIds: [chips.id],
   };
 }
 
+/**
+ * 情境風險＝`brief.risks`（附觸發條件的風險），和「負面因素」（`negative_factors`）是兩回事。
+ * 空的時候可能是 AI 沒列，也可能是後端檢查把它刪了，所以不能寫成「沒有風險」。
+ */
 function riskFacet(brief: Brief | null | undefined): Facet {
-  const rule = '這一格是 AI 列出的風險項數，不是量化評分。';
+  const rule = '這一格是 AI 列出的情境風險項數，不是量化評分。';
   const risks = brief?.risks ?? [];
   if (!risks.length) {
     return {
       key: 'risk',
-      label: '風險',
+      label: '情境風險',
       tone: 'unknown',
       levelLabel: '未列出',
-      basis: '這次分析沒有列出風險項目',
+      basis: '本次未列出或未通過檢查（不代表沒有風險）',
       rule,
       evidenceIds: [],
     };
   }
   return {
     key: 'risk',
-    label: '風險',
+    label: '情境風險',
     tone: 'info',
     levelLabel: `AI 列出 ${risks.length} 項`,
-    basis: risks.map((risk) => risk.risk_type).filter(Boolean).join('、') || '見情境與風險',
+    basis: risks.map((risk) => risk.risk_type).filter(Boolean).join('、') || '見完整分析的「情境與風險」',
     rule,
     evidenceIds: risks.flatMap((risk) => risk.evidence_ids ?? []),
   };

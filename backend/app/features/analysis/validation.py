@@ -10,7 +10,7 @@ from .schemas import (RawStockBehaviorTextBrief, RawTextBriefClaim, RawTextBrief
     TextBriefClaim, TextBriefForwardView, TextBriefKeyDay, TextBriefRisk, TextBriefWatchPoint)
 from .compliance import ComplianceHit, scan_compliance_hits
 from .evidence import EvidenceBundle
-from app.features.retrieval.common import TAIPEI
+from app.features.retrieval.common import TAIPEI, get_source_name, parse_timestamp
 from datetime import date, datetime, timedelta
 
 MAX_LLM_NEWS_SOURCES = 20
@@ -165,6 +165,23 @@ def _quote_covers_date(quote: str, event_date: str, published: str | None) -> bo
         return False
 
 
+def _published_label(row: dict, as_of_date: date) -> str | None:
+    """Reader-facing Taiwan time; a date-only stamp stays a date instead of gaining 00:00."""
+    raw = str(row.get("published_at") or row.get("date") or "").strip()
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+            day, clock = date.fromisoformat(raw), None
+        else:
+            stamp = parse_timestamp(raw) if raw else None
+            if stamp is None:
+                return None
+            day, clock = stamp.date(), stamp.strftime("%H:%M")
+    except ValueError:
+        return None
+    label = day.strftime("%m/%d") if day.year == as_of_date.year else day.strftime("%Y/%m/%d")
+    return f"{label} {clock}" if clock else label
+
+
 def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -> list[str]:
     if not (item.get("id") or "what" in item or "stance" in item):
         return []
@@ -227,9 +244,12 @@ def _news_support_issues(item: dict, news: list[dict], bundle: EvidenceBundle) -
             observation = bundle.timeline_by_id().get(item.get("ref"), {})
             close = observation.get("close")
             price = f"收盤 {close:g} 元。" if isinstance(close, (int, float)) else "當日行情見資料。"
-            published = row.get("published_at") or row.get("date") or "發布時間未知"
+            published = _published_label(row, bundle.as_of_date)
+            publisher = get_source_name(row.get("publisher") or "")
             role = "回顧" if entry.get("use") == "retrospective" else "報導"
-            item["what"] = f"{price}{published} {role}：「{quote}」。報導與行情分列，未核實價格因果。"
+            source = (f"{published} {publisher}{role}" if published
+                      else f"{publisher}{role}（發布時間未知）")
+            item["what"] = f"{price}{source}：「{quote}」。新聞和股價變動是否有關，未經核實。"
         else:
             texts = " ".join(str(item.get(key, "")) for key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS)
             source_text = str(row.get("value", ""))
@@ -574,12 +594,6 @@ def _normalize_text_brief_payload(
     except ValidationError as exc:
         return None, discarded, truncated
 
-def _format_validation_errors(exc: ValidationError) -> str:
-    return "; ".join(
-        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-        for error in exc.errors()
-    )
-
 def _filter_text_brief_evidence_ids(
     value: Any,
     *,
@@ -832,28 +846,6 @@ def _backfill_key_days(
         )
         kept.append(item)
     brief_payload["key_days"] = kept
-
-def _check_key_day_numbers(
-    brief_payload: dict[str, Any],
-    *,
-    known_percentages: set[float],
-) -> list[str]:
-    unverified: list[str] = []
-    for item in brief_payload["key_days"]:
-        if item.get("move_pct") is None:
-            unverified.append(f"{item['id']}: 該日缺少漲跌幅資料")
-        text = item.get("what")
-        if not isinstance(text, str):
-            continue
-        for match in PERCENT_IN_TEXT_RE.finditer(text):
-            value = round(float(match.group(1)), 2)
-            if any(
-                abs(value - candidate) <= TEXT_BRIEF_NUMBER_TOLERANCE_PP
-                for candidate in known_percentages
-            ):
-                continue
-            unverified.append(f"{item['id']}: {match.group(0)}")
-    return unverified
 
 def _collect_jargon_hits(brief_payload: dict[str, Any]) -> list[str]:
     hits: list[str] = []

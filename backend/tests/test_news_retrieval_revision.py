@@ -59,7 +59,6 @@ def test_question_caps_passages_and_does_not_let_background_displace_recent():
     vector = FakeVector(lambda embedding, args: [recent] if args["start"] else [old])
     result = asyncio.run(service(vector).search_question("revenue", ["2330"], "2024-01-01", "2024-02-01"))
     assert [item["id"] for item in result.hits] == ["recent"]
-    assert [item["_in_time_range"] for item in result.hits] == [True]
     assert len(vector.calls) == 1
 
 

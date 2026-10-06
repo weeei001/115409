@@ -21,8 +21,11 @@ interface FavoritesContextValue {
   isPending: (symbol: string) => boolean;
   /** 清單載入完成（或載入失敗）才可切換；同一檔處理中時忽略 */
   canToggle: boolean;
-  toggle: (symbol: string) => void;
-  remove: (symbol: string) => void;
+  /** 回傳後端是否確認成功（被忽略或失敗都是 false），呼叫端用來決定要不要顯示成功提示 */
+  toggle: (symbol: string) => Promise<boolean>;
+  remove: (symbol: string) => Promise<boolean>;
+  /** 「復原」用：不看目前狀態，直接加回收藏（PUT 冪等） */
+  add: (symbol: string) => Promise<boolean>;
 }
 
 const FavoritesContext = createContext<FavoritesContextValue | null>(null);
@@ -106,7 +109,7 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
 
   const favoriteSymbols = useMemo(() => new Set(items.map((item) => item.symbol)), [items]);
 
-  const mutate = useCallback(async (symbol: string, op: PendingOp) => {
+  const mutate = useCallback(async (symbol: string, op: PendingOp): Promise<boolean> => {
     const session = sessionRef.current;
     setPending((current) => ({ ...current, [symbol]: op }));
     try {
@@ -119,9 +122,11 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
         await removeFavorite(symbol);
         if (session === sessionRef.current) setSaved((current) => current.filter((item) => item.symbol !== symbol));
       }
+      return session === sessionRef.current;
     } catch (err) {
       const action = op === 'add' ? '加入收藏失敗' : '取消收藏失敗';
       toast.error(`${action}：${userFacingMessage(err, '請稍後再試。')}`);
+      return false;
     } finally {
       if (session === sessionRef.current) {
         setPending(({ [symbol]: _done, ...rest }) => rest);
@@ -133,19 +138,21 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
 
   const toggle = useCallback(
     (symbol: string) => {
-      if (!canToggle || pending[symbol]) return;
-      void mutate(symbol, favoriteSymbols.has(symbol) ? 'remove' : 'add');
+      if (!canToggle || pending[symbol]) return Promise.resolve(false);
+      return mutate(symbol, favoriteSymbols.has(symbol) ? 'remove' : 'add');
     },
     [canToggle, pending, favoriteSymbols, mutate],
   );
 
   const remove = useCallback(
     (symbol: string) => {
-      if (!canToggle || pending[symbol] || !favoriteSymbols.has(symbol)) return;
-      void mutate(symbol, 'remove');
+      if (!canToggle || pending[symbol] || !favoriteSymbols.has(symbol)) return Promise.resolve(false);
+      return mutate(symbol, 'remove');
     },
     [canToggle, pending, favoriteSymbols, mutate],
   );
+
+  const add = useCallback((symbol: string) => mutate(symbol, 'add'), [mutate]);
 
   const value = useMemo<FavoritesContextValue>(
     () => ({
@@ -158,8 +165,9 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
       canToggle,
       toggle,
       remove,
+      add,
     }),
-    [status, items, loadError, reload, favoriteSymbols, pending, canToggle, toggle, remove],
+    [status, items, loadError, reload, favoriteSymbols, pending, canToggle, toggle, remove, add],
   );
 
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;

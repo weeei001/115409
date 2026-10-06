@@ -29,11 +29,11 @@ export const CHAPTERS: readonly ChapterRange[] = [
 export const RAIL: readonly { label: string; target: number | null }[] = [
   { label: '海面', target: 0 },
   { label: '燈塔', target: 0.3 },
-  { label: '觀測室', target: 0.7 },
+  { label: '窗前', target: 0.7 },
   { label: '觀測台', target: null },
 ];
 
-/** 「登上燈塔」捲到觀測室：鏡頭已經在桌前、螢幕亮著的位置 */
+/** 「往下看介紹」捲到窗前：鏡頭已經在桌前、螢幕亮著的位置 */
 export const WATCH_ROOM_PROGRESS = 0.7;
 
 /** 交叉淡化的總寬度（以邊界為中心，前後各一半） */

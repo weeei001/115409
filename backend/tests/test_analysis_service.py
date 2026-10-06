@@ -11,7 +11,6 @@ import pytest
 from sqlalchemy import select
 
 from app.clients.llm import LlmResult
-from app.clients.rag import RagResult
 from app.core.errors import AppError
 from app.db.models.daily_price import DailyPrice
 from app.db.models.llm_response import LlmResponse
@@ -21,6 +20,7 @@ from app.features.analysis import repository, validation as gate
 from app.features.analysis.evidence import build_evidence_bundle
 from app.features.analysis.router import get_service
 from app.features.analysis.schemas import StockBehaviorTextBriefRequest, StockBehaviorTextBriefResponse
+from app.features.retrieval.schemas import RagResult
 from app.features.analysis.service import (AnalysisService, build_llm_runtime_config,
                                           compute_config_hash, detect_simplified_chinese)
 
@@ -201,17 +201,6 @@ def test_empty_citation_direction_rejected_and_confidence_capped(db_session, set
     assert "缺少" in " ".join(result.limitations)
     # The complete catalog is independent of which rows the model cited.
     assert {item.id for item in result.evidence_catalog} >= {"d_01", "d_02", "d_03", "d_04"}
-
-
-def test_snapshot_audit_reports_only_ids_and_reasons():
-    from app.features.analysis.audit import audit_snapshots
-    result = audit_snapshots([{"id": 1, "symbol": "2330", "config_json": {"purpose": "production"},
-        "response_json": {"evidence_catalog": [{"publisher": "simulation_test", "value": "private text"}]}},
-        {"id": 2, "config_json": {"purpose": "production"}, "response_json": {}},
-        {"id": 3, "response_json": "bad json"}])
-    assert [item["id"] for item in result] == [1, 3]
-    assert result[0]["reasons"] == ["simulation_source"]
-    assert "private text" not in json.dumps(result)
 
 
 def test_same_body_canonical_selection_and_rollback_invalidate_cached_brief(db_session, settings, monkeypatch):
@@ -527,7 +516,7 @@ def test_config_hash_is_order_independent_but_tracks_generation_settings(setting
         assert compute_config_hash(original) != compute_config_hash(modified)
     assert "LLM_API_KEY" not in json.dumps(original)
     assert original == build_llm_runtime_config(settings.model_copy(update={
-        "RAG_API_URL": "http://unused-legacy.test/api/analyze", "QDRANT_API_KEY": "private-key",
+        "QDRANT_API_KEY": "private-key",
         "LLM_API_KEY": "private-llm-key", "EMBED_API_KEY": "private-embedding-key"}), "model-a")
 
 

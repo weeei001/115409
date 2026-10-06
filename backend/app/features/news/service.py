@@ -103,7 +103,7 @@ def news_detail(db: Session, article_id: str, stock: str | None = None, *, setti
             news.stock_id, news.tags, news.title, news.content, company_catalog()))
     article = repository.by_article_id(db, article_id)
     if article is None:
-        raise AppError("?曆??唳?摰??啗???", status_code=404)
+        raise AppError("找不到指定的新聞文章。", status_code=404)
     return attach_event_analysis(db, [article], stock, settings=settings)[0]
 
 

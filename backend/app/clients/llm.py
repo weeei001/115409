@@ -10,7 +10,7 @@ from contextlib import aclosing
 
 import httpx
 from openai import APIError, APITimeoutError, LengthFinishReasonError
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 try:
     from langchain_openai import ChatOpenAI

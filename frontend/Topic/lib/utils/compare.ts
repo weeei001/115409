@@ -10,7 +10,7 @@ import type {
 } from '../types/compare';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import { COMPARE_SYMBOL_COLORS } from '../charts/theme';
-import { fmtInstitutionalShares, fmtPercent } from './format';
+import { fmtInstitutionalShares, fmtPercent, lotToneValue, uMinus } from './format';
 import { directionLabel, maTrendSpreadPct, momentumBreakdown } from './compareSignals';
 import { getValueTone } from './tone';
 
@@ -80,13 +80,6 @@ export function visibleSymbolsFromHidden(symbols: string[], hiddenSymbols: strin
   return symbols.filter((symbol) => !hidden.has(symbol));
 }
 
-/** 每檔最後一個有效收盤（快照卡 sparkline 取最近 30 點用） */
-export function recentCloses(data: MultiStockResponse | null, symbol: string, points = 30): number[] {
-  if (!data) return [];
-  const closes = data.data.slice(-points).map((row) => row.prices[symbol]);
-  return closes.every(isPrice) ? closes : [];
-}
-
 // ── 比較指標 ────────────────────────────────────────────────
 
 function mean(nums: number[]): number | null {
@@ -117,7 +110,7 @@ const byDate = <T extends { date: string }>(a: T, b: T) => a.date.localeCompare(
 
 /**
  * 可用的日報酬列：依日期排序後去掉區間第一天。第一天的 change_percent 是相對區間前一天，
- * 後端實際回 0（決議 D9-c25）；指標表、相關係數、有效樣本與共同交易日都用這份（決議 c71）。
+ * 不屬於區間內的報酬（決議 D9-c25）；指標表、相關係數、有效樣本與共同交易日都用這份（決議 c71）。
  */
 function dailyReturnRows(change: ComparePriceHistory | null) {
   return [...(change?.data ?? [])]
@@ -276,7 +269,7 @@ function buildQualityMeta(
       continue;
     }
     if (missingRatio > 0) {
-      qualityWarnings.push(`${symbol} 缺少 ${(missingRatio * 100).toFixed(1)}% 的日漲跌樣本；不跨缺值計算，回撤僅依已觀測收盤價。`);
+      qualityWarnings.push(`${symbol} 有 ${(missingRatio * 100).toFixed(1)}% 的交易日缺資料；缺漏日不計入，最大回撤只用有資料的收盤價計算。`);
     }
   }
 
@@ -475,7 +468,7 @@ export function buildCategoryLeaders(
     const parts: string[] = [];
     if (bd.rsi.zone !== 'na') {
       const zoneLabel = bd.rsi.zone === 'overbought' ? '超買區' : bd.rsi.zone === 'oversold' ? '超賣區' : '中性區';
-      parts.push(`RSI ${bd.rsi.value?.toFixed(0) ?? '—'}（${zoneLabel}）`);
+      parts.push(`RSI ${bd.rsi.value?.toFixed(0) ?? '--'}（${zoneLabel}）`);
     }
     if (bd.macd.direction !== 'na') parts.push(`MACD ${directionLabel(bd.macd.direction)}`);
     return parts.length > 0 ? `${lead}；${parts.join('、')}。` : `${lead}。`;
@@ -488,17 +481,19 @@ export function buildCategoryLeaders(
     return `共同日漲跌樣本 ${samples} 筆；${v < 0 ? '期間呈反向變動' : '期間呈同向變動'}，不代表未來關係。`;
   })();
 
-  return [
+  // 漲跌色依畫面上的值（fmtPercent 四捨五入到 2 位）：顯示 0.00% 就是中性
+  const shownPctTone = (v: number | null) => getValueTone(v == null ? v : Number(v.toFixed(2)));
+  const leaders: CategoryLeader[] = [
     bestReturn
       ? {
           id: 'bestReturn',
-          title: '期間價格漲跌幅最高',
+          title: '區間漲跌幅最高',
           symbol: bestReturn.symbol,
-          value: fmtPercent(bestReturn.totalReturnPct, { sign: true }),
-          tone: getValueTone(bestReturn.totalReturnPct),
+          value: uMinus(fmtPercent(bestReturn.totalReturnPct, { sign: true })),
+          tone: shownPctTone(bestReturn.totalReturnPct),
           reason: '依共同起訖日未還原收盤價計算，不含股息。',
         }
-      : fallbackLeader('bestReturn', '期間價格漲跌幅最高', '不足兩個共同有效收盤日。'),
+      : fallbackLeader('bestReturn', '區間漲跌幅最高', '不足兩個共同有效收盤日。'),
     minVolatility
       ? {
           id: 'minVolatility',
@@ -506,7 +501,7 @@ export function buildCategoryLeaders(
           symbol: minVolatility.symbol,
           value: fmtPercent(minVolatility.volatilityPct),
           tone: 'neutral',
-          reason: '日報酬標準差 × √252 最低，走勢相對最穩。',
+          reason: '日漲跌幅標準差 × √252 最低，走勢相對最穩。',
         }
       : fallbackLeader('minVolatility', '年化波動最低', '尚無可計算資料。'),
     topInstitutional
@@ -515,7 +510,7 @@ export function buildCategoryLeaders(
           title: '法人合計買超最高',
           symbol: topInstitutional.symbol,
           value: fmtInstitutionalShares(topInstitutional.totalNet),
-          tone: getValueTone(topInstitutional.totalNet),
+          tone: getValueTone(lotToneValue(topInstitutional.totalNet)),
           reason: '期間法人合計淨買賣超量最高；未依股本或成交量調整。',
         }
       : fallbackLeader('institutionalFavorite', '法人合計買超最高', '法人資料載入中或不足。'),
@@ -524,8 +519,8 @@ export function buildCategoryLeaders(
           id: 'strongestMomentum',
           title: '均線最偏多',
           symbol: topMomentum.symbol,
-          value: fmtPercent(topMomentum.score, { sign: true }),
-          tone: getValueTone(topMomentum.score),
+          value: uMinus(fmtPercent(topMomentum.score, { sign: true })),
+          tone: shownPctTone(topMomentum.score),
           reason: momentumReason,
         }
       : fallbackLeader('strongestMomentum', '均線最偏多', '技術指標資料不足。'),
@@ -534,10 +529,12 @@ export function buildCategoryLeaders(
           id: 'lowestCorrelationPair',
           title: '相關性最低組合',
           symbol: `${lowestPair.a} × ${lowestPair.b}`,
-          value: `ρ ${lowestPair.value.toFixed(2)}`,
+          value: `ρ ${uMinus(lowestPair.value.toFixed(2))}`,
           tone: 'neutral',
           reason: correlationReason,
         }
       : fallbackLeader('lowestCorrelationPair', '相關性最低組合', '須至少 20 筆共同日漲跌樣本，且兩檔價格變動皆有變異。'),
   ];
+  // 只有兩檔時只有一組配對，「最低」沒有意義：不列這一項（P2-092、04-C2）；相關性面板仍會寫出這一組
+  return symbols.length > 2 ? leaders : leaders.filter((leader) => leader.id !== 'lowestCorrelationPair');
 }

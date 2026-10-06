@@ -93,14 +93,16 @@ def test_comparison_reuses_supplied_metrics_and_keeps_missing_stocks():
     result = build_dashboard([source("comparison", payload, symbol="", citation="S8")],
                              ["2330", "2317"], "比較報酬和相關係數", ["comparison"])
     comparison, correlation = result.blocks
-    assert comparison.rows[0][3:6] == ["18.812345", "無資料", "-10"]
-    assert "2026-09-08" in comparison.description and "1 筆相鄰日報酬" in comparison.description
-    assert "相鄰日報酬區間：2026-09-10 至 2026-09-11" in comparison.description
-    assert "少於20筆" in comparison.description and comparison.source_ids == ["S8"]
+    assert comparison.rows[0][1:8] == ["100.00", "118.81", "18.81", "無資料", "-10.00", "5", "0"]
+    assert "2026-09-08 → 2026-09-11，共 3 個交易日" in comparison.description
+    assert "用 2026-09-10 → 2026-09-11 的日漲跌幅計算" in comparison.description
+    assert "只有 1 筆日漲跌幅" in comparison.description and comparison.source_ids == ["S8"]
+    assert not any(term in comparison.description for term in ("相鄰日報酬", "依現有觀察推定", "筆收盤"))
+    assert "區間漲跌幅（%）" in comparison.columns
     assert correlation.rows == [["2330／2317", "無資料"]]
     combined = build_dashboard([source("market_technical", market()), source("comparison", payload, symbol="")],
                                ["2330", "2317"], "比較股價及相關係數", ["price", "comparison"])
-    assert [block.title for block in combined.blocks[:2]] == ["多股比較", "日報酬相關係數"]
+    assert [block.title for block in combined.blocks[:2]] == ["多股比較", "日漲跌幅相關係數"]
     payload.update(common_start_date=None, common_end_date=None, common_price_samples=0,
                    common_daily_return_samples=0,
                    stocks=[{"symbol": "2330", "available_price_samples": 5},
@@ -130,21 +132,22 @@ def test_financial_periods_and_institutional_share_units_are_preserved_with_focu
     assert metrics["月營收"].value == 0 and metrics["月營收"].date == "2026-08"
     assert metrics["本益比"].date == "2026-09-11" and metrics["股價淨值比"].value is None
     table = result.blocks[1]
-    assert table.rows[0] == ["2330", "2026-09-10", "0", "無資料", "-1250", "無資料"]
-    assert table.rows[1] == ["2317", *(["無資料"] * 5)] and "股" in table.description
+    assert table.rows[0] == ["2330", "2026-09-10", "0", "無資料", "-1", "無資料"]
+    assert table.rows[1] == ["2317", *(["無資料"] * 5)] and "張" in table.description
+    assert table.columns[2:] == ["外資（張）", "投信（張）", "自營商（張）", "三大法人合計（張）"]
 
 
-def news(citation, url, *, article=None, title="News", in_range=True, content="News evidence"):
+def news(citation, url, *, article=None, title="News", content="News evidence"):
     return SourceChunk(title=title, source="publisher", source_name="<b>新聞來源</b>", stock_id="2330",
                        citation_id=citation, content=content, pub_time="2026-09-11 10:00:00",
-                       url=url, score=1, category="news", article_id=article, in_time_range=in_range)
+                       url=url, score=1, category="news", article_id=article)
 
 
 def test_news_deduplicates_articles_and_urls_and_filters_unsafe_links():
     sources = [news("S1", "https://news.example/one", article="a"),
                news("S2", "https://news.example/duplicate", article="a"),
                news("S3", "https://news.example/one", article="different"),
-               news("S4", "https://news.example/background", title="<b>背景消息</b>", in_range=False)]
+               news("S4", "https://news.example/four", title="<b>第四則消息</b>")]
     unsafe = ["javascript:alert(1)", "data:text/html,test", "//news.example/path", "ftp://news.example/path",
               "https://user:password@news.example/path", "https://news.example/has space",
               "https://news.example\\@evil.example/path", "https://news.example:invalid/path"]
@@ -154,14 +157,14 @@ def test_news_deduplicates_articles_and_urls_and_filters_unsafe_links():
                     news("S16", "", title="", content="")])
     result = build_dashboard(sources, ["2330"], "新聞", ["news"])
     block = result.blocks[0]
-    expected_ids = ["S1", *(f"S{index + 5}" for index in range(len(unsafe))), "S14", "S4"]
+    expected_ids = ["S1", "S4", *(f"S{index + 5}" for index in range(len(unsafe))), "S14"]
     assert block.source_ids == expected_ids
     assert [item.source_id for item in block.items] == expected_ids
     assert block.items[0].article_id == "a"
-    assert block.items[-1].title == "【區間外背景】背景消息"
-    assert all(item.url == "" for item in block.items[1:-1])
-    assert block.items[-2].title == "純文字新聞" and block.items[-2].published_at == "2026-09-11 10:00:00"
-    assert block.items[0].publisher == "新聞來源" and "不屬於指定期間" in block.description
+    assert block.items[1].title == "第四則消息" and block.items[1].url == "https://news.example/four"
+    assert all(item.url == "" for item in block.items[2:])
+    assert block.items[-1].title == "純文字新聞" and block.items[-1].published_at == "2026-09-11 10:00:00"
+    assert block.items[0].publisher == "新聞來源" and block.description == "依來源列出新聞發布時間。"
     assert len(build_dashboard([news(f"S{i + 1}", f"https://news.example/{i}") for i in range(15)],
                               [], "新聞", ["news"]).blocks[0].items) == 12
 
@@ -186,3 +189,27 @@ def test_dashboard_limits_dates_and_symbols_and_skips_unsuitable_data():
     assert build_dashboard([source("analysis_snapshot", "<script>bad()</script>")], [], "摘要") is None
     assert build_dashboard([source("market_technical", "{broken")], [], "股價") is None
     assert build_dashboard([source("fundamental", {"items": [{"field": [], "value": 100}]})], [], "基本面") is None
+
+
+def test_table_cells_round_to_two_decimals_without_negative_zero():
+    """P0-8: no raw 6-decimal values; counts and share totals stay whole numbers."""
+    payload = {"common_start_date": "2026-09-08", "common_end_date": "2026-10-02",
+               "common_price_samples": 18, "common_daily_return_samples": 17,
+               "stocks": [{"symbol": "2330", "first_common_close": 2460, "last_common_close": 2500.0,
+                           "interval_return_pct": 3.73444, "annualized_volatility_pct": 18.022468,
+                           "max_drawdown_pct": -3.643725, "available_price_samples": 18.0,
+                           "missing_observed_dates": 0},
+                          {"symbol": "2317", "interval_return_pct": -0.001, "max_drawdown_pct": -1.953125}],
+               "correlations": [{"symbols": ["2330", "2317"], "pearson_r": 0.574701849}]}
+    comparison, correlation = build_dashboard([source("comparison", payload, symbol="")], ["2330", "2317"],
+                                              "比較報酬和相關係數", ["comparison"]).blocks
+    assert comparison.rows[0][1:] == ["2460.00", "2500.00", "3.73", "18.02", "-3.64", "18", "0"]
+    assert comparison.rows[1][3] == "0.00" and comparison.rows[1][5] == "-1.95"
+    assert correlation.rows == [["2330／2317", "0.57"]]
+    assert "共 18 個交易日" in comparison.description and "只有 17 筆日漲跌幅" in comparison.description
+    chips = source("institutional", {"columns": ["date", "foreign_net", "investment_trust_net", "dealer_net",
+                                                 "total_institutional_net"],
+                                     "rows": [["2026-10-02", -5913974.0, 223181, -0.4, 0]]})
+    table = build_dashboard([chips], ["2330"], "法人", ["institutional"]).blocks[0]
+    # P1-21：張、四捨五入到整數；不滿 1 張的非零值寫「不到 1 張」（決議 2026-10-06）
+    assert table.rows == [["2330", "2026-10-02", "-5914", "223", "不到 1 張", "0"]]

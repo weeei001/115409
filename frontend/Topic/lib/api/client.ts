@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { API_BASE } from '../apiBase';
 import { clearAuth, getToken } from '../auth/storage';
-import { pickDetailMessage } from './errorDetail';
+import { NETWORK_ERROR_MESSAGE, TIMEOUT_MESSAGE, pickDetailMessage } from './errorDetail';
 
 /** 帶 HTTP 狀態碼的錯誤（只有收到伺服器回應時才有 status） */
 export class ApiRequestError extends Error {
@@ -23,12 +23,10 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-/** 沒收到回應時的訊息；「逾時」兩字 formatAdvisorError 會用來判斷 */
+/** 沒收到回應時的訊息；有日期區間的圖表另外用 withDateRangeHint 補下一步 */
 function messageForRequestError(error: { code?: string }): string {
-  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-    return '連線逾時，請稍後再試；長區間圖表可以縮短日期區間。';
-  }
-  return '目前無法連線到伺服器，請稍後再試。';
+  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') return TIMEOUT_MESSAGE;
+  return NETWORK_ERROR_MESSAGE;
 }
 
 apiClient.interceptors.request.use((config) => {

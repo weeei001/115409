@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Ledger, LightGlyph, NextStep } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
+import { NEWS_IMPACT_DISCLAIMER } from '@/lib/disclaimers';
 
 /** 相關新聞帳頁：三則一列（手機單欄），每則是一格有線分隔的條目，結尾一列「更多相關新聞」 */
 export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDetail: () => void }) {
@@ -20,17 +21,20 @@ export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDe
   return (
     <Ledger
       title="相關新聞"
-      // 影響標籤是 AI 判讀的事件影響：用一句燈質列文字說明，不用 AI 圖示或徽章
+      // 影響標籤是 AI 判讀的事件影響：用一句燈質列文字說明（含免責），不用 AI 圖示或徽章
       stamp={
         <span className="inline-flex items-center gap-1.5">
           <LightGlyph state={newsList.loading ? 'loading' : hasError ? 'error' : 'ready'} />
-          {newsList.data ? `檢索結果 ${newsList.data.total.toLocaleString()} 則 · 影響標籤由 AI 判讀` : '影響標籤由 AI 判讀'}
+          <span>
+            {newsList.data ? `${newsList.data.total_is_exact === false ? '找到' : '共'} ${newsList.data.total.toLocaleString()} 則 · ` : null}
+            {NEWS_IMPACT_DISCLAIMER}
+          </span>
         </span>
       }
       cols="grid-cols-1 lg:grid-cols-3"
     >
       {newsList.loading ? (
-        <LoadingRows label="讀取相關新聞中…" className="h-[132px] bg-card lg:col-span-3" />
+        <LoadingRows label="載入相關新聞中…" className="h-[132px] bg-card lg:col-span-3" />
       ) : hasError ? (
         <div className="bg-card p-4 sm:p-5 lg:col-span-3">
           <Notice
@@ -51,11 +55,11 @@ export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDe
           action={
             <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-11">
               <RefreshCw aria-hidden />
-              重新載入
+              重新整理
             </Button>
           }
         >
-          檢索範圍內暫無直接相關的新聞
+          目前沒有直接相關的新聞
         </EmptyState>
       ) : (
         items.map((news) => {

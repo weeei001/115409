@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from app.features.chat.answer_validation import NumericValidationError
 from app.features.chat.claims import numeric_claims_supported
 from app.features.chat.schemas import SourceChunk
 from app.features.chat.service import CitationValidationError, _checked_answer
@@ -98,3 +99,44 @@ def test_missing_allocation_is_not_zero_even_if_other_evidence_contains_zero():
 
 def test_uninitialized_cash_placeholder_is_not_an_account_balance():
     assert not numeric_claims_supported("可用資金為 0 元。", [portfolio_source(initialized=False, available_cash=0)])
+
+
+def daily_source(stock_id, citation_id, chg_pct, vol_vs_ma5_pct):
+    return source(json.dumps({"columns": ["date", "chg_pct", "vol_vs_ma5_pct"],
+                              "rows": [["2026-10-05", chg_pct, vol_vs_ma5_pct]]})).model_copy(
+        update={"stock_id": stock_id, "citation_id": citation_id})
+
+
+PAIR = [daily_source("2330", "S1", 1.4, -15.62), daily_source("2454", "S2", 2.1, 3.5)]
+PAIR_CATALOG = {"2330": {"name": "台積電"}, "2454": {"name": "聯發科"}}
+
+
+@pytest.mark.parametrize("claim,supported", [
+    ("台積電 2026-10-05 成交量較 5 日均量減少 15.62%", True),
+    ("台積電 2026-10-05 成交量較5日均量減少15.62%", True),
+    ("台積電 2026-10-05 量能較 5 日均量萎縮 15.62%", True),
+    ("台積電 2026-10-05 成交量較 5 日均量增加 15.62%", False),
+    ("台積電 2026-10-05 成交量較 5 日均量減少 15.6%", False),
+])
+def test_volume_against_five_day_average_tolerates_spacing_and_keeps_direction(claim, supported):
+    assert numeric_claims_supported(claim, PAIR, PAIR_CATALOG) is supported
+
+
+@pytest.mark.parametrize("claim,supported", [
+    ("台積電與聯發科 2026-10-05 分別上漲 1.4% 與 2.1%", True),
+    ("台積電(2330)與聯發科(2454) 2026-10-05 漲幅分別為 1.4%、2.1%", True),
+    ("台積電與聯發科 2026-10-05 分別上漲 2.1% 與 1.4%", False),
+    ("台積電與聯發科 2026-10-05 分別上漲 1.4%", False),
+    ("台積電與聯發科 2026-10-05 分別上漲 1.4% 與 2.1%,台積電上漲 2.1%", False),
+])
+def test_respectively_pairs_values_with_stocks_in_listed_order(claim, supported):
+    assert numeric_claims_supported(claim, PAIR, PAIR_CATALOG) is supported
+
+
+def test_numeric_rejection_names_the_sentence_for_recovery_only():
+    evidence = daily_source("2330", "S1", 1.4, -15.62)
+    with pytest.raises(NumericValidationError) as caught:
+        _checked_answer("台積電 2026-10-05 收盤正常。台積電 2026-10-05 上漲 9.9%。[S1]",
+                        {"finish_reason": "stop"}, [evidence], company_catalog=PAIR_CATALOG)
+    assert caught.value.claim == "台積電 2026-10-05 上漲 9.9%"
+    assert "9.9" not in str(caught.value.detail)

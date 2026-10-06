@@ -24,6 +24,7 @@ const dates = Array.from({ length: 63 }, (_, index) => {
 const held: Array<() => void> = [];
 const requests: InternalAxiosRequestConfig[] = [];
 let holdStart: string | null = null;
+let failTechnical = false;
 
 const responseData = (config: InternalAxiosRequestConfig): unknown => {
   const url = config.url ?? '';
@@ -60,6 +61,8 @@ apiClient.defaults.adapter = (config) => {
       const rangeEndpoint = /\/(chart\/[^/]+|statistics)$/.test(config.url ?? '');
       if (config.params?.start_date > '2026-10-02' && rangeEndpoint) {
         reject(new Error('所選日期區間沒有資料'));
+      } else if (failTechnical && (config.url ?? '').endsWith('/technical-indicators')) {
+        reject(new Error('技術指標暫時無法取得'));
       } else {
         resolve({ config, status: 200, statusText: 'OK', headers: {}, data: responseData(config) });
       }
@@ -97,7 +100,7 @@ async function main() {
     await act(async () => { current().setShowPriceChange(true); await flush(); });
     assert.equal(current().statistics?.average_close, 1000);
     assert.equal(current().priceChangeData?.data[0].date, '2026-10-02');
-    assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '量能統計（所選日期區間）'));
+    assert.ok(renderer!.root.findAllByType('section').some((node) => String(node.props['aria-label']).startsWith('量能統計')));
     assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '漲跌明細'));
 
     // Empty ranges must drop every range-specific result, including after drawer reopen.
@@ -108,7 +111,7 @@ async function main() {
     assert.equal(current().statistics, null);
     assert.equal(current().history?.total, 0);
     assert.ok(current().volumeInsight, 'fixed rolling volume history is still available');
-    assert.ok(!renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '量能統計（所選日期區間）'));
+    assert.ok(!renderer!.root.findAllByType('section').some((node) => String(node.props['aria-label']).startsWith('量能統計')));
     assert.ok(!renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '漲跌明細'));
     await act(async () => { renderer!.update(<Harness open={false} />); });
     await act(async () => { renderer!.update(<Harness />); });
@@ -120,7 +123,7 @@ async function main() {
     assert.equal(current().statistics?.average_close, 1100);
     assert.equal(current().volumeData?.data[0].date, '2026-10-01');
     assert.equal(current().priceChangeData?.data[0].date, '2026-10-01');
-    assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '量能統計（所選日期區間）'));
+    assert.ok(renderer!.root.findAllByType('section').some((node) => String(node.props['aria-label']).startsWith('量能統計')));
     assert.ok(renderer!.root.findAllByType('section').some((node) => node.props['aria-label'] === '漲跌明細'));
 
     // A late response for range A must never overwrite the current range B.
@@ -165,6 +168,19 @@ async function main() {
     expanded(renderer!);
     assert.equal(current().historyPage, 1);
     assert.equal(pageButton(renderer!, '上一頁').props.disabled, true);
+
+    // 只有 /technical-indicators 失敗：指標記錯誤（不是「沒有資料」），法人與量價籌碼照常
+    failTechnical = true;
+    await act(async () => { current().reloadChips(); await flush(); });
+    assert.ok(current().indicatorsError);
+    assert.equal(current().indicators, null);
+    assert.equal(current().institutionalError, null);
+    assert.ok(current().institutional);
+    assert.equal(current().chipsVolumeError, null);
+    failTechnical = false;
+    await act(async () => { current().reloadChips(); await flush(); });
+    assert.equal(current().indicatorsError, null);
+    assert.ok(current().indicators);
     console.log('PricePanel range, race, drawer and pagination regressions passed');
   } finally {
     await act(async () => { renderer?.unmount(); });

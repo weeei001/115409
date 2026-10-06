@@ -74,10 +74,24 @@ function isBlock(value: unknown): value is ChatDashboardBlock {
   }
 }
 
+/**
+ * openapi 把 description、source_ids、unit、metric.date 列為選填（後端有預設值）；舊紀錄可能沒有這些欄位。
+ * 缺的補上 openapi 的預設值再驗證，型別不對的照樣丟掉。
+ */
+function withDefaults(value: unknown): unknown {
+  if (!record(value)) return value;
+  const block: Record<string, unknown> = { description: '', source_ids: [], ...value };
+  if (value.kind === 'chart' && block.unit === undefined) block.unit = '';
+  if (value.kind === 'metrics' && Array.isArray(value.items)) {
+    block.items = value.items.map((item) => record(item) ? { unit: '', date: null, ...item } : item);
+  }
+  return block;
+}
+
 /** Unknown/malformed blocks never become executable UI or fabricated numeric values. */
 export function parseChatDashboard(value: unknown): ChatDashboard | undefined {
   if (!record(value) || !text(value.title) || !Array.isArray(value.blocks) || value.blocks.length > 60) return;
-  const blocks = value.blocks.filter(isBlock).map((block) => block.kind === 'news'
+  const blocks = value.blocks.map(withDefaults).filter(isBlock).map((block) => block.kind === 'news'
     ? { ...block, items: block.items.map((item) => ({ ...item, url: safeHttpUrl(item.url) ?? '' })) }
     : block);
   return blocks.length ? { title: value.title, blocks } : undefined;

@@ -16,17 +16,13 @@ const buttonVariants = cva(
         default: "border border-brand-deep bg-primary text-primary-foreground hover:bg-brand-deep hover:text-on-brand dark:hover:text-on-brand",
         destructive: "border border-danger-border bg-danger-muted text-danger hover:bg-danger hover:text-background",
         outline: "border border-input bg-card text-foreground hover:border-foreground hover:bg-accent",
-        secondary: "border border-transparent bg-secondary text-secondary-foreground hover:border-border-strong",
         ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-foreground underline decoration-input underline-offset-4 hover:decoration-foreground",
       },
       size: {
         default: "h-11 px-4 py-2 has-[>svg]:px-3",
         sm: "h-11 gap-1.5 px-3 text-[13px] has-[>svg]:px-2.5",
         lg: "h-12 px-6 text-[15px] has-[>svg]:px-4",
         icon: "size-11",
-        "icon-sm": "size-11",
-        "icon-lg": "size-12",
       },
     },
     defaultVariants: {

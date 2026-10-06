@@ -32,7 +32,7 @@ import type { SparkLine, WatchItem } from './scene/screens';
 import { DAWN_CAPTION_TINT } from './scene/theme';
 
 /**
- * 首頁旅程：從海上的燈塔一路捲進觀測室，最後交給下方的觀測台（#terminalId）。
+ * 首頁旅程：從海上的燈塔一路捲進塔頂的窗前，最後交給下方的觀測台（#terminalId）。
  *
  * 這個檔案是首屏就載入的外殼，不 import three：
  * - 首屏是海報 <img> 加真正的 DOM 文字，LCP 不等 WebGL。
@@ -57,7 +57,7 @@ type Mode = 'pending' | JourneyMode;
 
 /** 3D 版面：第幾段文案底下墊第幾張海報（場景還沒接手、或 context 掉了才看得到）。窗用窗那張，桌前與交接都用螢幕那張 */
 const POSTER_OF_CHAPTER = [0, 1, 2, 3, 3] as const;
-/** 海報版面：首屏與三張圖版各算第幾段（決定 rail 亮哪一站：海面、燈塔、觀測室、觀測台） */
+/** 海報版面：首屏與三張圖版各算第幾段（決定 rail 亮哪一站：海面、燈塔、窗前、觀測台） */
 const CHAPTER_OF_PLATE = [0, 1, 2, 4] as const;
 const POSTER_COUNT = 4;
 
@@ -205,6 +205,13 @@ function cornerMask(inner: number): string {
   return `radial-gradient(farthest-side ellipse at 100% 0%, ${stops.join(', ')})`;
 }
 const CORNER = cornerMask(0.58);
+/**
+ * rail 襯底的位置與寬度：右緣至少超出 rail 176px（11rem），而且一定貼到舞台右緣。
+ * 視窗比內容（1320）寬很多時，rail 的右邊距（GUTTER_R）會大於 176px，固定寬度的右緣就落在畫面裡，
+ * 遮罩的圓心（右上角）留下一道垂直硬邊（P1-23、01-F3）。左緣維持在 rail 左邊 464px（640 − 176）。
+ */
+const RAIL_SCRIM_REACH = 'max(11rem, calc((100vw - 1320px) / 2 + 2.5rem))';
+const RAIL_SCRIM_BOX: React.CSSProperties = { right: `calc(-1 * ${RAIL_SCRIM_REACH})`, width: `calc(464px + ${RAIL_SCRIM_REACH})` };
 /** 夜班 rail 底下：--scrim 的暗色角落暈影（光束掃過右上角時，站名還是讀得到） */
 const RAIL_SCRIM_NIGHT: React.CSSProperties = { background: 'var(--scrim)', maskImage: CORNER, WebkitMaskImage: CORNER };
 /** --scrim-k：交接時房間溶成頁面底色，襯底跟著淡掉（底色上不留一塊亮斑）；其他段沒有設定，就是 1 */
@@ -428,14 +435,14 @@ function WindowHeading() {
         <wbr />
         那扇窗，
         <wbr />
-        就是觀測室。
+        就是觀測台。
       </span>
       <span className="dark:hidden">
         迎著晨光的
         <wbr />
         那扇窗，
         <wbr />
-        就是觀測室。
+        就是觀測台。
       </span>
     </>
   );
@@ -483,7 +490,7 @@ function MarketBoard({ board, monitor, stockCount, industryCount }: BoardProps) 
     <div data-board>
       <div className="flex items-baseline justify-between gap-3 border-b border-border-strong pb-2">
         <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">看板</h3>
-        <span className="characteristic">{b ? `收盤 ${b.date} · 非即時` : '最近儲存的收盤 · 非即時'}</span>
+        <span className="characteristic">{b ? `收盤 ${b.date} · 非即時` : '收盤日載入中 · 非即時'}</span>
       </div>
       <dl className="grid gap-px border-x border-b bg-border lg:grid-cols-[300px_minmax(0,1fr)_320px]">
         <div className={cn(BOARD_CELL, 'order-2 lg:order-none')}>
@@ -665,13 +672,13 @@ function Rail({ variant, rail, chapter, onGo, navRef }: RailProps) {
         {/* 桌機：四個站名都寫出來（目前那一站粗一號），底下一片跟文案一樣、看不到邊的柔和襯底（不是方框），一條貫穿四個刻度的細線 */}
         <span
           aria-hidden
-          className="pointer-events-none absolute -top-28 -right-44 -z-10 hidden h-[620px] w-[640px] dark:lg:block"
-          style={{ ...RAIL_SCRIM_NIGHT, opacity: `calc(var(--scrim-k, 1) * ${RAIL_NIGHT_OPACITY[chapter]})` }}
+          className="pointer-events-none absolute -top-28 -z-10 hidden h-[620px] dark:lg:block"
+          style={{ ...RAIL_SCRIM_NIGHT, ...RAIL_SCRIM_BOX, opacity: `calc(var(--scrim-k, 1) * ${RAIL_NIGHT_OPACITY[chapter]})` }}
         />
         <span
           aria-hidden
-          className="pointer-events-none absolute -top-28 -right-44 -z-10 h-[620px] w-[640px] max-lg:hidden dark:hidden"
-          style={railDawnStyle(RAIL_DAWN[chapter].tint, RAIL_DAWN[chapter].opacity)}
+          className="pointer-events-none absolute -top-28 -z-10 h-[620px] max-lg:hidden dark:hidden"
+          style={{ ...railDawnStyle(RAIL_DAWN[chapter].tint, RAIL_DAWN[chapter].opacity), ...RAIL_SCRIM_BOX }}
         />
         <span aria-hidden className="pointer-events-none absolute top-[22px] right-[10.5px] bottom-[22px] w-px bg-(--rail-ink) opacity-70 max-lg:hidden" />
         {buttons}
@@ -1073,7 +1080,16 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
     else goToProgress(target, i);
   };
 
-  const characteristic = board ? `大盤收盤 ${board.date} · 非即時` : CLOSE_DATA_NOTE;
+  // 首屏就看得到加權指數與收盤日（P2-079、04-H1）；漲跌用紅漲綠跌
+  const boardNow = boardFigures(board);
+  const characteristic = boardNow ? (
+    // 每一段不在中間斷行（375 寬不會把日期拆成兩行）
+    <>
+      <span className="whitespace-nowrap">加權指數 <span className="font-mono tabular-nums">{boardNow.close}</span></span>
+      {boardNow.change ? <span className={cn('ml-1.5 font-mono whitespace-nowrap tabular-nums', toneText(boardNow.tone))}>{boardNow.change}</span> : null}
+      {' · '}<span className="whitespace-nowrap">收盤 {boardNow.date}</span>{' · '}<span className="whitespace-nowrap">非即時</span>
+    </>
+  ) : CLOSE_DATA_NOTE;
   const counts =
     stockCount != null && industryCount != null
       ? `${stockCount.toLocaleString('zh-TW')} 檔股票、${industryCount.toLocaleString('zh-TW')} 個產業，每一筆都標著資料日期。`
@@ -1127,16 +1143,16 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
               替你守一盞燈。
             </h1>
             <p className={cn(BODY, 'max-lg:hidden')}>
-              從海上的燈塔出發，登上燈籠下方的觀測室——那裡整理好資料庫最近儲存的收盤價、K 線、三大法人與財經新聞。非即時資料，供學習與專題使用。
+              往下就是觀測台：最近一個交易日的收盤價、K 線、三大法人與財經新聞。非即時資料，供學習與專題使用。
             </p>
-            <p className={cn(BODY, 'mt-2 lg:hidden')}>資料庫最近儲存的收盤價、K 線、法人與新聞。非即時資料，供學習與專題使用。</p>
+            <p className={cn(BODY, 'mt-2 lg:hidden')}>最近一個交易日的收盤價、K 線、法人與新聞。非即時資料，供學習與專題使用。</p>
             <div className="mt-4 flex flex-wrap gap-3 lg:mt-5">
               <Button type="button" onClick={() => goToProgress(WATCH_ROOM_PROGRESS, 3)}>
-                登上燈塔
+                往下看介紹
                 <ArrowDown aria-hidden />
               </Button>
               <Button type="button" variant="outline" onClick={goToTerminal}>
-                直接看觀測台
+                直接看行情
                 <ArrowRight aria-hidden />
               </Button>
             </div>
@@ -1244,7 +1260,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
                 <TowerBody />
               </p>
             </Plate>
-            <Plate n={3} stop="觀測室" flip isDark={isDark} plateRef={(el) => void (plateRefs.current[1] = el)}>
+            <Plate n={3} stop="窗前" flip isDark={isDark} plateRef={(el) => void (plateRefs.current[1] = el)}>
               <h2 className={HEADING_PLATE}>
                 <WindowHeading />
               </h2>

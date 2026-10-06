@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseChatSources, type ChatSource } from '../../lib/types/chat';
-import { chatAnswerBody, newsCitationPath } from '../../lib/utils/chatCitations';
+import { BACKEND_CHAT_DISCLAIMERS, chatAnswerBody, chatCopyText, citationLabels, newsCitationPath, relabelCitations } from '../../lib/utils/chatCitations';
+import { AI_CHAT_DISCLAIMER } from '../../lib/disclaimers';
 import { ChatMessage } from './ChatMessage';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
 
@@ -56,4 +57,57 @@ for (const [status, label] of [['completed', '已完成'], ['failed', '回覆失
   assert.ok(terminal.includes('preserved answer'));
   if (status === 'failed') assert.ok(terminal.includes('safe failure'));
 }
-console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, and per-message targets.');
+
+// P0-7：後端附加的免責句（自稱「投資建議」）不顯示；每則 AI 回覆底部固定顯示前端的免責
+const backendDisclaimer = BACKEND_CHAT_DISCLAIMERS[0];
+// 有【引用來源】：後端把它接在引用尾段後面
+assert.equal(chatAnswerBody(`answer [S1]\n\n【引用來源】\n- [S1] title\n\n${backendDisclaimer}`), 'answer [S1]');
+// 沒有【引用來源】（資料不足的回覆）：直接接在正文後面，要用完整字串剝掉
+assert.equal(chatAnswerBody(`目前提供的資料不足以回答此問題。\n\n${backendDisclaimer}`), '目前提供的資料不足以回答此問題。');
+assert.equal(chatAnswerBody(backendDisclaimer), '');
+// 只剝完整的一段，正文裡提到相近字眼不動
+assert.equal(chatAnswerBody('投資建議僅供參考這句話不會被剝掉'), '投資建議僅供參考這句話不會被剝掉');
+const withDisclaimer = render(`回覆內容 [S1]\n\n${backendDisclaimer}`);
+assert.doesNotMatch(withDisclaimer, /投資建議僅供參考|不保證獲利/);
+assert.ok(withDisclaimer.includes(AI_CHAT_DISCLAIMER));
+assert.ok(withDisclaimer.lastIndexOf(AI_CHAT_DISCLAIMER) > withDisclaimer.indexOf('回覆內容'));
+for (const text of ['沒有引用的回覆', '【綜合摘要】\n結構化回覆']) assert.ok(render(text, []).includes(AI_CHAT_DISCLAIMER), text);
+// 後端改字後的版本：放在【資料限制】之後、【引用來源】之前，也要剝掉；舊版仍照樣剝
+const revisedDisclaimer = BACKEND_CHAT_DISCLAIMERS[1];
+assert.equal(
+  chatAnswerBody(`answer [S1]\n\n【資料限制】\n部分資料缺漏。\n\n${revisedDisclaimer}\n\n【引用來源】\n- [S1] title`),
+  'answer [S1]\n\n【資料限制】\n部分資料缺漏。',
+);
+assert.equal(chatAnswerBody(`目前提供的資料不足以回答此問題。\n\n${revisedDisclaimer}`), '目前提供的資料不足以回答此問題。');
+assert.doesNotMatch(render(`回覆內容 [S1]\n\n${revisedDisclaimer}\n\n【引用來源】\n- [S1] title`), /以上為資料整理/);
+// 模擬帳戶那一輪的版本，同樣剝掉
+const paperDisclaimer = BACKEND_CHAT_DISCLAIMERS[2];
+assert.match(paperDisclaimer, /模擬帳戶/);
+assert.equal(chatAnswerBody(`可考慮投入可用資金的 20%。[S1]\n\n${paperDisclaimer}\n\n【引用來源】\n- [S1] title`), '可考慮投入可用資金的 20%。[S1]');
+// 提問、空白回覆不加
+assert.ok(!renderToStaticMarkup(<ChatMessage message={{ id: 'q', role: 'user', content: '台積電現在適合買進嗎？', timestamp: '' }} reducedMotion streamActive={false} followUpDisabled={false} />).includes(AI_CHAT_DISCLAIMER));
+assert.ok(!renderToStaticMarkup(<ChatMessage message={{ id: 'blank', role: 'assistant', content: '', timestamp: '', status: 'streaming' }} reducedMotion streamActive followUpDisabled={false} />).includes(AI_CHAT_DISCLAIMER));
+
+// P2-033：引用依正文出現順序重新編號，後端的 S1、S2、S5 不再跳號
+const gapped: ChatSource[] = [1, 2, 3, 4, 5].map((n) => ({ citation_id: `S${n}`, title: `來源 ${n}`, content: `內容 ${n}`, pub_time: '', stock_id: '2330', category: 'market' }));
+const gappedBody = '先看 [S5]，再看 [S1] 與 [S2]，又提到 [S5]。';
+const labels = citationLabels(gappedBody, gapped);
+assert.deepEqual([...labels.entries()], [['S5', '1'], ['S1', '2'], ['S2', '3'], ['S3', '4'], ['S4', '5']]);
+assert.equal(relabelCitations(gappedBody, labels), '先看 [1]，再看 [2] 與 [3]，又提到 [1]。');
+// 資料面板多出來的 id 接在後面，不影響正文的編號；不在來源清單的引用不編號
+assert.deepEqual([...citationLabels('[S9] [S2]', gapped.slice(0, 2), ['S9']).entries()], [['S2', '1'], ['S1', '2'], ['S9', '3']]);
+const gappedMarkup = render(gappedBody, gapped);
+const inline = [...gappedMarkup.matchAll(/align-super[^>]*>\[(\d+)\]<\/a>/g)].map((match) => match[1]);
+assert.deepEqual(inline, ['1', '2', '3', '1']);
+// 引用來源清單依新編號排序；原始資料清單也用同一組號碼
+const listed = [...gappedMarkup.matchAll(/aria-label="引用 (\d+)：(來源 \d)，查看原始資料" class="[^"]*flex min-h-11/g)].map((match) => `${match[1]}:${match[2]}`);
+assert.deepEqual(listed, ['1:來源 5', '2:來源 1', '3:來源 2']);
+assert.doesNotMatch(gappedMarkup, /\[S[1-5]\]/);
+// 錨點仍用原始 id
+assert.match(gappedMarkup, /id="chat-source-[^"]*-S5"/);
+
+// 複製：畫面上的正文＋引用來源＋固定免責，不含後端尾段與後端免責句
+const copied = chatCopyText(`${gappedBody}\n\n【引用來源】\n- [S5] 偽造標題\n\n${backendDisclaimer}`, gapped, AI_CHAT_DISCLAIMER);
+assert.equal(copied, `先看 [1]，再看 [2] 與 [3]，又提到 [1]。\n\n引用來源\n[1] 來源 5\n[2] 來源 1\n[3] 來源 2\n\n${AI_CHAT_DISCLAIMER}`);
+assert.equal(chatCopyText('沒有引用', [], AI_CHAT_DISCLAIMER), `沒有引用\n\n${AI_CHAT_DISCLAIMER}`);
+console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, per-message targets, fixed disclaimer, backend disclaimer stripped, sequential citation labels, and copy text.');

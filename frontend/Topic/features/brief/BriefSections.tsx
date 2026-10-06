@@ -1,5 +1,4 @@
 import React from 'react';
-import { AlertTriangle, CalendarClock, Eye } from 'lucide-react';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import type { Brief, Claim, ForwardViews, KeyDay, Risk, WatchPoint } from '@/lib/types/textBrief';
 import { FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
@@ -28,7 +27,7 @@ function ItemGroup<T>({
   render: (item: T) => React.ReactNode;
   label: string;
 }) {
-  if (!items.length) return <Empty>本節沒有通過檢查的依據，暫無法提供{label}判讀。{label === '風險' || label === '負面因素' ? '這不代表沒有風險。' : ''}</Empty>;
+  if (!items.length) return <Empty>本節沒有通過檢查的依據，暫無法提供{label}判讀。{label === '情境風險' || label === '負面因素' ? '這不代表沒有風險。' : ''}</Empty>;
   const preview = items.slice(0, SECTION_PREVIEW);
   const rest = items.slice(SECTION_PREVIEW);
   return (
@@ -100,7 +99,7 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
           </span>
           <span className={cn('font-mono text-sm font-semibold tabular-nums', moveClass(item.move_pct))}>
             {item.move_pct == null
-              ? '—'
+              ? '--'
               : signedText(item.move_pct, 2, '%')}
           </span>
           {item.volume_ratio == null ? null : (
@@ -118,7 +117,7 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
 const RiskItems: React.FC<{ items?: Risk[] }> = ({ items }) => (
   <ItemGroup
     items={items ?? []}
-    label="風險"
+    label="情境風險"
     render={(item) => (
       <ClaimRow key={item.id} claimKey={item.id} ids={item.evidence_ids}>
         <span className="block text-xs font-bold text-muted-foreground">
@@ -223,15 +222,13 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
   <div className="flex flex-col gap-4">
     <SectionCard
       title="不同時間長度的看法"
-      icon={<CalendarClock size={15} className="text-muted-foreground" aria-hidden />}
       hint="只講方向與什麼情況下不成立，不給買賣建議與目標價；天數以交易日計算。"
     >
       <ForwardViewCards views={brief.forward_views} />
     </SectionCard>
 
     <SectionCard
-      title="需要留意的風險"
-      icon={<AlertTriangle size={15} className="text-warning-icon" aria-hidden />}
+      title="情境風險"
       hint="每一項都附上觸發條件，也就是「什麼情況下這個風險會真的發生」。"
     >
       <RiskItems items={brief.risks} />
@@ -239,12 +236,11 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
 
     <SectionCard
       title="接下來觀察什麼"
-      icon={<Eye size={15} className="text-muted-foreground" aria-hidden />}
     >
       <WatchItems items={brief.watch_points} />
     </SectionCard>
 
-    <SectionCard title="關鍵交易日" hint="漲跌幅與量能倍數由後端依當日資料回填，不是 AI 寫的。">
+    <SectionCard title="關鍵交易日" hint="漲跌幅與量能倍數取自當日行情，不是 AI 寫的。">
       <KeyDayItems items={brief.key_days} />
     </SectionCard>
 

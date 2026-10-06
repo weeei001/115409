@@ -1,38 +1,15 @@
 import type { TechnicalDay } from '../types/view';
-import { rsiZone, type Signal } from './indicatorSignals';
+import { finite, rsiSignal as indicatorRsiSignal, rsiZone, type RsiZone, type Signal } from './indicatorSignals';
 
 /**
  * 多股比較「技術指標快照」的判讀標籤。
  * RSI 超買／超賣用 warning（決議 D8-c8）；K 與 D 的相對位置是狀態、不是交叉事件（決議 D9-c24）。
+ * MACD、KD 的判讀和個股頁、首頁同一組字（05 用語表、決議 C4／c59），直接沿用 indicatorSignals；RSI 只多冠「RSI 」。
  */
 
-const finite = (v: number | null | undefined): number | null => (v == null || !Number.isFinite(v) ? null : v);
+export { kdSignal, macdSignal } from './indicatorSignals';
 
-export function rsiSignal(rsi: number | null | undefined): Signal {
-  const value = finite(rsi);
-  const zone = rsiZone(value);
-  if (zone === 'na') return { label: 'RSI 無資料', tone: 'neutral', value };
-  if (zone === 'overbought') return { label: 'RSI 超買', tone: 'warning', value };
-  if (zone === 'oversold') return { label: 'RSI 超賣', tone: 'warning', value };
-  return { label: 'RSI 中性', tone: 'neutral', value };
-}
-
-export function macdSignal(hist: number | null | undefined): Signal {
-  const value = finite(hist);
-  if (value == null) return { label: 'MACD 無資料', tone: 'neutral', value };
-  if (value > 0) return { label: 'MACD 多方', tone: 'up', value };
-  if (value < 0) return { label: 'MACD 空方', tone: 'down', value };
-  return { label: 'MACD 平淡', tone: 'neutral', value };
-}
-
-export function kdSignal(k: number | null | undefined, d: number | null | undefined): Signal {
-  const kv = finite(k);
-  const dv = finite(d);
-  if (kv == null || dv == null) return { label: 'KD 無資料', tone: 'neutral', value: null };
-  if (kv > dv) return { label: 'K 在 D 之上', tone: 'up', value: kv - dv };
-  if (kv < dv) return { label: 'K 在 D 之下', tone: 'down', value: kv - dv };
-  return { label: 'K、D 黏合', tone: 'neutral', value: 0 };
-}
+export const rsiSignal = (rsi: number | null | undefined): Signal => indicatorRsiSignal(rsi, { labelPrefix: 'RSI ' });
 
 /** 收盤相對 MA 的位置；收盤與 MA 取自技術指標同一列（同一天，決議 D9-c24） */
 export function maPositionSignal(close: number | null | undefined, ma: number | null | undefined, periodLabel: string): Signal {
@@ -48,7 +25,7 @@ export function maPositionSignal(close: number | null | undefined, ma: number | 
 type Direction = 'up' | 'down' | 'flat' | 'na';
 
 export interface MomentumBreakdown {
-  rsi: { value: number | null; zone: 'overbought' | 'oversold' | 'neutral' | 'na' };
+  rsi: { value: number | null; zone: RsiZone };
   macd: { value: number | null; direction: Direction };
 }
 
@@ -65,7 +42,7 @@ export function momentumBreakdown(row: TechnicalDay | null): MomentumBreakdown {
 export function directionLabel(direction: Direction): string {
   if (direction === 'up') return '偏多';
   if (direction === 'down') return '偏空';
-  if (direction === 'flat') return '持平';
+  if (direction === 'flat') return '中性';
   return '無資料';
 }
 

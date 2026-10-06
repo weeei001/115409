@@ -10,6 +10,9 @@ import { LightGlyph } from '@/components/common/Ledger';
 import { Button } from '@/components/ui/button';
 import { toggleVariants } from '@/components/ui/toggle';
 import { cn } from '@/lib/cn';
+import { summarizeNewsFilters } from '@/lib/utils/newsFilters';
+import { RELATION_HINTS } from '@/lib/utils/newsImpact';
+import { NEWS_IMPACT_DISCLAIMER } from '@/lib/disclaimers';
 import { loadStockNewsPosition, saveStockNewsPosition, stockNewsViewHref, type StockNewsView } from '@/lib/news/stockNewsView';
 
 const PAGE_SIZE = 8;
@@ -28,7 +31,10 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
     version: 1, symbol, relation, page: newsList.page, filters: newsList.filters,
   });
 
+  // 換頁的退場動畫期間抽屜還在，router 已經是新聞頁：只在個股頁寫回，不然會用新聞頁的網址 replace，弄丟 ?stock=（麵包屑、返回列表都靠它）
+  const ownRoute = useRef(router.pathname);
   useEffect(() => {
+    if (router.pathname !== ownRoute.current) return;
     if (newsList.loading || newsList.error || !newsList.data) return;
     if (router.asPath !== returnTo) void router.replace(returnTo, undefined, { shallow: true, scroll: false });
   }, [newsList.loading, newsList.error, newsList.data, router, returnTo]);
@@ -55,11 +61,12 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
         {/* 抽屜標題已是「相關新聞」，這裡不再重複標題，直接從筆數與篩選開始 */}
         <p className="characteristic inline-flex min-w-0 items-center gap-1.5" aria-live="polite">
           <LightGlyph state={!hydrated || newsList.loading ? 'loading' : newsList.error ? 'error' : 'ready'} />
+          {/* 失敗時沒有筆數可寫，只留熄燈的燈號，不寫「尚無筆數」 */}
           {newsList.data && !newsList.loading
-            ? `${newsList.data.total_is_exact === false ? '檢索結果' : '共'} ${newsList.data.total.toLocaleString()} 則`
+            ? `${newsList.data.total_is_exact === false ? '找到' : '共'} ${newsList.data.total.toLocaleString()} 則`
             : newsList.loading || !hydrated
-              ? '讀取中…'
-              : '尚無筆數'}
+              ? '載入中…'
+              : null}
         </p>
         <div className="flex items-center gap-2">
           <NewsFilters
@@ -82,10 +89,10 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
 
       <p className="mb-4 flex items-start gap-1.5 border-l-2 border-border px-3 py-1 text-xs leading-5 text-muted-foreground">
         <Info size={13} className="mt-0.5 shrink-0" aria-hidden />
-        事件影響不代表股價預測。此處僅列出檢索範圍內的相關結果，查無結果不代表沒有新聞。
+        {NEWS_IMPACT_DISCLAIMER}事件影響不代表股價預測；這裡只列出找到的相關新聞，沒有結果不代表沒有新聞。
       </p>
 
-      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="新聞關聯範圍">
+      <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="新聞關聯範圍" aria-describedby="stock-news-relation-hint">
         {([
           ['direct', '直接關聯'],
           ['industry_context', '產業脈絡'],
@@ -102,6 +109,7 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
           </button>
         ))}
       </div>
+      <p id="stock-news-relation-hint" className="mb-4 text-xs leading-5 text-muted-foreground">{RELATION_HINTS[relation]}</p>
 
       {!hydrated || newsList.loading ? (
         <NewsListSkeleton count={4} />
@@ -109,10 +117,14 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
         <Notice
           tone="danger"
           action={
-            <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-11">
-              <RefreshCw aria-hidden />
-              重試
-            </Button>
+            newsList.errorKind === 'filter' && summarizeNewsFilters(newsList.filters, true).length > 0 ? (
+              <Button size="sm" variant="outline" onClick={newsList.clearAdvanced} className="min-h-11">清除篩選</Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-11">
+                <RefreshCw aria-hidden />
+                重試
+              </Button>
+            )
           }
         >
           {newsList.error}
@@ -147,11 +159,11 @@ export function StockNewsPanel({ symbol, initialView }: { symbol: string; initia
           action={
             <Button size="sm" variant="outline" onClick={newsList.reload} className="min-h-11">
               <RefreshCw aria-hidden />
-              重新載入
+              重新整理
             </Button>
           }
         >
-          檢索範圍內暫無相關新聞
+          目前沒有相關新聞
         </EmptyState>
       )}
     </section>

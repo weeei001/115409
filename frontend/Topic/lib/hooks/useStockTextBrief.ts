@@ -2,17 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { postStockBehaviorTextBrief } from '../api/textBrief';
 import { formatAdvisorError } from '../api/userFacingError';
 import type { TextBriefResponse } from '../types/textBrief';
+import { isTaiwanStockCode } from '../utils/stockValidation';
 
 interface Params {
   symbol: string;
-  /** 分析基準日；留空由後端當成今天 */
-  asOfDate?: string;
 }
 
-/** Read eligible saved analysis. Omit asOfDate for the current news cutoff;
- * explicit dates are historical cutoffs and must never include newer evidence.
- */
-export function useStockTextBrief({ symbol, asOfDate }: Params) {
+/** 讀取後端已存好的分析（cache_only）。不帶 as_of_date，跟著後端最新的資料（決議 D9） */
+export function useStockTextBrief({ symbol }: Params) {
   const requestSeq = useRef(0);
   const lastKeyRef = useRef<string | null>(null);
 
@@ -45,10 +42,10 @@ export function useStockTextBrief({ symbol, asOfDate }: Params) {
 
   const run = useCallback(async () => {
     const trimmed = symbol.trim().toUpperCase();
-    if (!trimmed || !/^\d{4,6}$/.test(trimmed)) return;
+    if (!isTaiwanStockCode(trimmed)) return;
 
-    const key = `${trimmed}:${asOfDate ?? ''}`;
-    // 同一組條件只打一次；失敗後 lastKey 不會留下，所以重試按鈕還是打得出去
+    const key = trimmed;
+    // 同一檔只打一次；失敗後 lastKey 不會留下，所以重試按鈕還是打得出去
     if (pending || lastKeyRef.current === key) return;
 
     const seq = ++requestSeq.current;
@@ -58,7 +55,6 @@ export function useStockTextBrief({ symbol, asOfDate }: Params) {
     try {
       const res = await postStockBehaviorTextBrief({
         symbol: trimmed,
-        ...(asOfDate ? { as_of_date: asOfDate } : {}),
         cache_only: true,
       });
       if (seq !== requestSeq.current) return;
@@ -70,7 +66,7 @@ export function useStockTextBrief({ symbol, asOfDate }: Params) {
     } finally {
       if (seq === requestSeq.current) setPending(false);
     }
-  }, [symbol, asOfDate, pending]);
+  }, [symbol, pending]);
 
   return {
     loading: pending && !data,

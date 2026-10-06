@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildVolumeInsight } from './volumeInsight';
+import { buildVolumeInsight, volumeState, volumeVsMa20Text } from './volumeInsight';
 
 const history: Array<{ date: string; volume_shares: number | null }> = [];
 for (let day = new Date('2026-05-01T00:00:00Z'); history.length < 80; day.setUTCDate(day.getUTCDate() + 1)) {
@@ -40,4 +40,20 @@ assert.equal(zero.ma20, 0);
 assert.equal(zero.ma60, 0);
 assert.equal(zero.vsMa20, null);
 assert.equal(buildVolumeInsight(history.map((row, index) => ({ ...row, volume_shares: index === 79 ? 0 : 100 })), end).vsMa20, -100);
-console.log('Fixed volume windows passed: full trading-day samples, independent arithmetic, weekends, missing/invalid data, and zero volume.');
+// P1-02: the readout row and 量能狀態 share one classifier (±5% = 接近均量), so 0.9% below is never 量縮.
+assert.equal(volumeVsMa20Text(99.1, 100), '接近均量（低於 20 日均量 0.9%）');
+assert.equal(volumeVsMa20Text(105, 100), '接近均量（高於 20 日均量 5.0%）');
+assert.equal(volumeVsMa20Text(106, 100), '量增（高於 20 日均量 6.0%）');
+assert.equal(volumeVsMa20Text(93.8, 100), '量縮（低於 20 日均量 6.2%）');
+assert.equal(volumeVsMa20Text(100, 100), '接近均量（與 20 日均量相差不到 0.1%）');
+assert.equal(volumeVsMa20Text(100.04, 100), '接近均量（與 20 日均量相差不到 0.1%）');
+for (const [volume, ma20] of [[null, 100], [100, null], [100, 0], [NaN, 100], [-1, 100]] as const) {
+  assert.equal(volumeVsMa20Text(volume, ma20), '無 20 日均量可比較');
+}
+assert.equal(insight.state, volumeState(insight.vsMa20));
+assert.equal(insight.state, '量增');
+const near = buildVolumeInsight(history.map((row, index) => ({ ...row, volume_shares: index === 79 ? 99.1 : 100 })), end);
+assert.equal(near.state, '接近均量');
+assert.equal(volumeVsMa20Text(near.latestVolume, near.ma20).startsWith(near.state), true);
+assert.equal(zero.state, '資料不足或無法比較');
+console.log('Fixed volume windows passed: full trading-day samples, independent arithmetic, weekends, missing/invalid data, zero volume, and one shared 量能 label.');

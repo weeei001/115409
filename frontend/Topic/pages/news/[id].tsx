@@ -1,35 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { ArrowLeft, Newspaper, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Button, textLinkClass } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { LedgerHeading, LightGlyph, type LightState } from '@/components/common/Ledger';
-import { NewsArticle } from '@/features/news/NewsArticle';
+import { NewsArticle, scrollIntoViewIfNeeded } from '@/features/news/NewsArticle';
 import { NewsEventAnalysisPanel, type CitationLink } from '@/features/news/NewsEventAnalysisPanel';
 import { buildArticleParagraphs } from '@/features/news/articleParagraphs';
 import { buildCitationIndex } from '@/features/news/citations';
 import { TitleWithBreaks } from '@/features/news/titleBreaks';
 import { fetchNewsDetail } from '@/lib/api/news';
 import type { News } from '@/lib/types/api';
-import { breadcrumbsTrail } from '@/lib/nav';
-import { parseRelatedStocks } from '@/lib/news/newsLinks';
+import { newsDetailBreadcrumbs, parseRelatedStocks } from '@/lib/news/newsLinks';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
+import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
 import { impactTarget } from '@/lib/utils/newsImpact';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { stockNewsReturnHref } from '@/lib/news/stockNewsView';
-import { formatTaipei } from '@/lib/utils/date';
+import { formatDateTime } from '@/lib/utils/date';
+import { newsSourceName } from '@/lib/news/newsSource';
+import { NEWS_IMPACT_DISCLAIMER } from '@/lib/disclaimers';
 
-const isStockCode = (code: string | null | undefined): code is string => Boolean(code && /^\d{4,6}$/.test(code));
 const firstQuery = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) || '';
 
 function pickStock(news: News, stockParam: string): string {
   const companies = news.event_analysis?.impacts.filter((impact) => impact.target_type === 'company') ?? [];
-  if (isStockCode(stockParam) && companies.some((impact) => impact.target_id === stockParam)) return stockParam;
-  if (isStockCode(companies[0]?.target_id)) return companies[0].target_id;
-  if (isStockCode(news.stock_id)) return news.stock_id;
+  if (isTaiwanStockCode(stockParam) && companies.some((impact) => impact.target_id === stockParam)) return stockParam;
+  if (isTaiwanStockCode(companies[0]?.target_id)) return companies[0].target_id;
+  if (isTaiwanStockCode(news.stock_id)) return news.stock_id;
   return '';
 }
 
@@ -129,12 +130,24 @@ export default function NewsDetailPage() {
     return analysis.impacts.some((impact) => /[*＊]$/.test(impactTarget(impact).trim()));
   }, [analysis]);
 
-  const breadcrumbs = useMemo(
-    () => isStockCode(selectedStock)
-      ? breadcrumbsTrail({ label: formatStockLabel(selectedStock), href: selectedStock === stockParam && newsReturn ? newsReturn : `/stock/${selectedStock}` }, '新聞內容與事件影響')
-      : breadcrumbsTrail('新聞內容與事件影響'),
-    [selectedStock, stockParam, newsReturn],
-  );
+  const breadcrumbs = useMemo(() => newsDetailBreadcrumbs(stockParam, newsReturn), [stockParam, newsReturn]);
+  // 新聞卡的「查看事件影響分析」帶 #analysis：資料到了才有分析欄，手機版分析在全文之後，要自己捲過去
+  const analysisReady = Boolean(news);
+  useEffect(() => {
+    if (!analysisReady || window.location.hash !== '#analysis') return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById('analysis');
+      if (target) scrollIntoViewIfNeeded(target, 'start');
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [analysisReady]);
+  const goBack = () => {
+    // 直接開這個網址時沒有上一頁，退回首頁（和頁首的返回鈕一致）
+    if (window.history.length > 1) router.back();
+    else void router.push('/');
+  };
+  const sourceStatus = news?.source_state?.status;
+  const specialSource = sourceStatus === 'historical' || sourceStatus === 'conflict' || sourceStatus === 'superseded';
   const pageTitle = `股海明燈｜${news?.title ?? '新聞內容與事件影響'}`;
 
   return (
@@ -145,20 +158,19 @@ export default function NewsDetailPage() {
       </Head>
 
       <SiteHeader
-        icon={Newspaper}
         title={news?.title || '新聞內容與事件影響'}
         titleNode={news?.title ? <TitleWithBreaks title={news.title} /> : undefined}
         titleWrap={Boolean(news?.title)}
-        subtitle={news?.title ? `${news.source ?? '新聞'} 報導與事件影響分析` : !loading && (error || !news) ? '無法讀取新聞' : '載入中…'}
+        subtitle={news?.title ? `${newsSourceName(news.source) ?? '新聞'}報導與事件影響分析` : !loading && (error || !news) ? '無法讀取新聞' : '載入中…'}
         breadcrumbs={breadcrumbs}
       />
 
       <main aria-label="新聞內容" className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
         {newsReturn && <Button variant="outline" className="mb-4" onClick={() => void router.push(newsReturn)}><ArrowLeft aria-hidden className="text-muted-foreground" />返回相關新聞列表</Button>}
         {loading ? (
-          // 載入＝燈質 Q：與完成後同一張帳頁的形狀，左文右分析，並寫出「讀取中」
+          // 載入＝燈質 Q：與完成後同一張帳頁的形狀，左文右分析，並寫出「載入中」
           <div className="grid grid-cols-1 border bg-card lg:grid-cols-12">
-            <LoadingRows label="讀取新聞內容與事件分析中…" className="h-[440px] lg:col-span-8 lg:border-r" />
+            <LoadingRows label="載入新聞內容與事件分析中…" className="h-[440px] lg:col-span-8 lg:border-r" />
             <div className="q-rows hidden h-[440px] lg:col-span-4 lg:block" aria-hidden />
           </div>
         ) : error || !news ? (
@@ -168,21 +180,20 @@ export default function NewsDetailPage() {
             <Notice tone="danger">{error ?? '找不到指定的新聞文章。'}</Notice>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => router.reload()}><RefreshCw aria-hidden />重試</Button>
-              <Button variant="ghost" onClick={() => router.back()} className="border border-transparent hover:border-border-strong"><ArrowLeft aria-hidden />返回上一頁</Button>
+              <Button variant="ghost" onClick={goBack} className="border border-transparent hover:border-border-strong"><ArrowLeft aria-hidden />返回上一頁</Button>
             </div>
           </section>
         ) : (
           <div className="space-y-4">
-            {news.source_state && (
-              <Notice tone={news.source_state.status === 'conflict' ? 'warning' : 'info'}>
-                <span className="block">{news.source_state.status === 'historical'
-                  ? '目前顯示保存的歷史原文，並非現行有效版本；此頁不套用目前的 AI 事件分析。'
-                  : news.source_state.status === 'conflict'
-                    ? '此來源有內容互相矛盾的版本，尚未確認有效版本；暫不提供 AI 事件影響。'
-                    : news.source_state.status === 'superseded'
-                      ? '此文章已由同來源的其他版本取代，保留原文供追溯；暫不提供 AI 事件影響。'
-                      : '來源首次發布與完整修訂歷史可能不明，不能據此保證重建當時可得資訊。'}</span>
-                {news.source_state.observed_at && <span className="mt-1 block font-mono text-xs tabular-nums opacity-90">此版本觀察時間（台灣）：{formatTaipei(news.source_state.observed_at)}</span>}
+            {/* 一般版本的擷取說明在內文 meta 列下方（NewsArticle）；這裡只提示舊版本、衝突、被取代 */}
+            {news.source_state && (specialSource || revisionId) && (
+              <Notice tone={sourceStatus === 'conflict' ? 'warning' : 'info'}>
+                {specialSource ? <span className="block">{sourceStatus === 'historical'
+                  ? '這是舊版本的原文，不是目前的版本；這個版本不顯示 AI 影響分析。'
+                  : sourceStatus === 'conflict'
+                    ? '來源有多個內容互相矛盾的版本，尚未確認哪一版有效；暫不顯示 AI 影響分析。'
+                    : '來源已更新，這是舊版本，保留原文供對照；暫不顯示 AI 影響分析。'}</span> : null}
+                {specialSource && news.source_state.observed_at && <span className="mt-1 block font-mono text-xs tabular-nums opacity-90">這個版本的擷取時間：{formatDateTime(news.source_state.observed_at)}</span>}
                 {revisionId && <a className={cn('mt-1 inline-flex min-h-11 items-center outline-none focus-lamp', textLinkClass)} href={`/news/${encodeURIComponent(articleId)}${stockParam ? `?stock=${encodeURIComponent(stockParam)}` : ''}`}>查看目前文章與來源狀態</a>}
               </Notice>
             )}
@@ -202,10 +213,10 @@ export default function NewsDetailPage() {
                 寬版：分析欄 sticky 在頁首下方（頁首高度＋1rem），高度不超過視窗剩餘高度。
                 標題列固定在欄頂、只有下面的內容在欄內捲動，標題不會被捲走或被頁首切掉。
               */}
-              <aside className="min-w-0 border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
+              <aside id="analysis" className="min-w-0 scroll-mt-[calc(var(--app-header-height)+1rem)] border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
                 <LedgerHeading
                   title="新聞事件影響分析"
-                  className="mb-4 shrink-0"
+                  className="shrink-0"
                   stamp={
                     <span className="inline-flex items-center gap-1.5">
                       <LightGlyph state={analysisState} />
@@ -213,6 +224,8 @@ export default function NewsDetailPage() {
                     </span>
                   }
                 />
+                {/* 免責放在標題層：寬版不隨欄內捲走，分類收合時也看得到 */}
+                <p className="mt-2 mb-4 shrink-0 text-xs leading-relaxed text-muted-foreground">{NEWS_IMPACT_DISCLAIMER}</p>
                 {/* 欄內捲動區左右各留 4px，focus 圈不會被裁掉 */}
                 <div className="min-w-0 lg:-mx-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain lg:px-1 lg:pb-1">
                   {analysis ? <NewsEventAnalysisPanel analysis={analysis} link={citationLink} /> : <EmptyState className="py-6 text-[13px]">尚無事件影響分析。</EmptyState>}

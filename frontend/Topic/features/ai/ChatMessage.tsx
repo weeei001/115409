@@ -9,7 +9,8 @@ import { isChatFollowUpAction, isChatNavigationAction, isPaperOrderDraftAction }
 import { PaperOrderDraft } from '@/features/order/PaperOrderDraft';
 import { MarkdownBlock } from '@/lib/utils/markdown';
 import { isStructuredRagReply } from '@/lib/utils/parseRagStructuredReply';
-import { CHAT_CITATION_RE, chatAnswerBody, newsCitationPath } from '@/lib/utils/chatCitations';
+import { CHAT_CITATION_RE, chatAnswerBody, chatCopyText, citationLabels, newsCitationPath } from '@/lib/utils/chatCitations';
+import { AI_CHAT_DISCLAIMER } from '@/lib/disclaimers';
 import { cn } from '@/lib/cn';
 import { Button, textLinkClass } from '@/components/ui/button';
 import { RagStructuredReply } from './RagStructuredReply';
@@ -48,6 +49,10 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
   const sources = parseChatSources(message.sources);
   const sourceMap = new Map(sources.map((source) => [source.citation_id, source]));
   const citedIds = [...new Set([...content.matchAll(CHAT_CITATION_RE)].map((match) => match[1]))];
+  /** 畫面上的引用編號（依正文出現順序 1、2、3…）；錨點與比對仍用原本的 citation_id */
+  const labels = isUser ? new Map<string, string>() : citationLabels(content, sources);
+  const labelOf = (id: string) => labels.get(id) ?? id;
+  const orderedSources = [...sources].sort((a, b) => Number(labels.get(a.citation_id)) - Number(labels.get(b.citation_id)));
   const sourceId = (id: string) => `chat-source-${sourceScope}-${id}`;
   /**
    * 引用標記：行內是上標式的等寬小字（內文色、細底線、沒有框）；引用清單裡放在左側欄、撐滿列高。
@@ -59,7 +64,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
       : <span className="text-muted-foreground">[{id}]（來源無法使用）</span>;
     const path = newsCitationPath(source);
     return <a href={path ?? `#${sourceId(id)}`}
-      aria-label={`引用 ${id}：${source.title}${path ? '，查看本站新聞' : '，查看原始資料'}`}
+      aria-label={`引用 ${labelOf(id)}：${source.title}${path ? '，查看本站新聞' : '，查看原始資料'}`}
       className={cn(
         'font-mono text-foreground tabular-nums underline decoration-1 underline-offset-2 hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-2',
         place === 'inline'
@@ -75,7 +80,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
         details.open = true;
         details.querySelector('summary')?.focus();
         details.scrollIntoView({ block: 'nearest' });
-      }}>[{id}]</a>;
+      }}>[{labelOf(id)}]</a>;
   };
   const structured = !isUser && isStructuredRagReply(content);
   const cursor = !isUser && streamActive;
@@ -85,7 +90,8 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      // 複製畫面上看得到的內容：不含後端的引用尾段與免責句，引用編號與畫面一致，最後附上固定免責
+      await navigator.clipboard.writeText(chatCopyText(message.content, sources, AI_CHAT_DISCLAIMER));
       setCopied(true);
       toast.success('已複製回覆');
       window.setTimeout(() => setCopied(false), 2000);
@@ -165,7 +171,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
           <h3 className="mb-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">引用來源</h3>
           {/* 有線的列：標記在左側欄，標題在右 */}
           <ul className="divide-y border-y leading-relaxed">
-            {citedIds.map((id) => <li key={id} className="grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2">
+            {[...citedIds].sort((a, b) => Number(labels.get(a) ?? Infinity) - Number(labels.get(b) ?? Infinity)).map((id) => <li key={id} className="grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2">
               {renderCitation(id, 'margin')}
               <span className="py-2.5 break-words whitespace-pre-wrap text-subtle">{sourceMap.get(id)?.title ?? '來源無法使用'}</span>
             </li>)}
@@ -176,14 +182,14 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
       {sources.length ? (
         <Disclosure ref={rawSourcesRef} className={cn('text-sm', citedIds.length && 'mt-3 border-t')} summary="本輪引用原始資料">
           <div className="divide-y border-y">
-            {sources.map((source) => (
+            {orderedSources.map((source) => (
               <Disclosure
                 key={source.citation_id}
                 id={sourceId(source.citation_id)}
                 summaryProps={{ className: 'py-1 text-foreground' }}
                 summary={
                   <span className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-x-2 break-words whitespace-pre-wrap">
-                    <span className="font-mono text-xs text-muted-foreground tabular-nums">[{source.citation_id}]</span>
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">[{labelOf(source.citation_id)}]</span>
                     <span>{source.title}</span>
                   </span>
                 }
@@ -234,6 +240,11 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
             ))}
           </div>
         </nav>
+      ) : null}
+
+      {/* 每則 AI 回覆底部固定的免責：後端只在部分回覆附加（而且寫法互相矛盾），不依賴它 */}
+      {!isUser && (message.content.trim() || message.dashboard) ? (
+        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{AI_CHAT_DISCLAIMER}</p>
       ) : null}
     </motion.div>
   );

@@ -32,7 +32,7 @@ def run_worker(command: list[str]) -> int:
 
 def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, run=None,
                  impact_execute=True, impact_limit=100, impact_max_cost_usd=0.50,
-                 backfill=False, impact_since: date | None = None, source_enabled=None) -> int:
+                 impact_since: date | None = None, source_enabled=None) -> int:
     run = run or run_worker
     commands = []
     source_enabled = source_enabled or (lambda name: True)
@@ -48,13 +48,6 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
         commands.append(["stock-backfill", "--symbol", symbols])
     if job in {"market", "all"}:
         commands.append(["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()])
-        if backfill:
-            backfill_output = output / "backfill"
-            commands.extend([
-                ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
-                 "--start", start.isoformat(), "--out", str(backfill_output)],
-                ["market-import", "--input-dir", str(backfill_output)],
-            ])
         commands.extend([
             ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
              "--start", start.isoformat(), "--out", str(output)],
@@ -99,13 +92,12 @@ def next_daily(now: datetime, at: time) -> datetime:
 
 
 class Scheduler:
-    def __init__(self, run, now: datetime, monotonic: float, *, interval: float = 1800,
-                 delay: float = 600, market_at: time = time(17), enabled=None):
-        self.run, self.interval, self.delay, self.market_at = run, interval, delay, market_at
+    def __init__(self, run, now: datetime, *, market_at: time = time(17), enabled=None):
+        self.run, self.market_at = run, market_at
         self.enabled = enabled or (lambda name: True)
         self.next_market = next_daily(now, market_at)
 
-    def tick(self, now: datetime, monotonic: float):
+    def tick(self, now: datetime):
         # One scheduled run owns the entire dependency chain.
         if now >= self.next_market and self.enabled("pipeline"):
             self.next_market = next_daily(now, self.market_at)
@@ -115,14 +107,10 @@ class Scheduler:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Standalone v1 scheduler, independent of FastAPI lifecycle")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2021, 1, 1))
-    parser.add_argument("--symbols", help="Limit market processing to these codes; default is all listed/OTC companies")
+    parser.add_argument("--symbols", help="Limit market fetch and brief warmup to these codes; default is every stock_info company")
     parser.add_argument("--out", type=Path, default=state_directory() / "market")
     parser.add_argument("--run-now", action="store_true")
-    parser.add_argument("--backfill", action="store_true",
-                        help="Backfill all historical stock_info data before the first market/AI run")
     parser.add_argument("--job", choices=["pipeline", "market", "cnyes", "ltn", "rag", "text-brief", "impact", "all"])
-    parser.add_argument("--interval-minutes", type=float, default=30)
-    parser.add_argument("--rag-delay-minutes", type=float, default=10)
     parser.add_argument("--market-time", dest="market_time", type=time.fromisoformat, default=time(17))
     parser.add_argument("--impact-execute", dest="impact_execute",
                         action=argparse.BooleanOptionalAction, default=True,
@@ -135,8 +123,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--impact-since", type=date.fromisoformat,
                         help="Fixed publication start date for incremental event analysis; default is the last 30 days")
     args = parser.parse_args(argv)
-    if not math.isfinite(args.interval_minutes) or not math.isfinite(args.rag_delay_minutes) or args.interval_minutes <= 0 or args.rag_delay_minutes < 0:
-        parser.error("interval must be positive and delay must not be negative")
     if args.market_time.tzinfo is not None:
         parser.error("--market-time is a Taiwan local time without a timezone suffix")
     if (args.impact_limit < 1 or not math.isfinite(args.impact_max_cost_usd)
@@ -147,18 +133,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("symbols must not be empty")
     from app.jobs.locking import worker_lock
 
-    backfill = args.backfill
-
     def run(job):
-        nonlocal backfill
-        use_backfill = backfill and job in {"market", "all", "pipeline"}
-        result = run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
-                            backfill=use_backfill,
+        return run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
                             impact_execute=args.impact_execute, impact_limit=args.impact_limit,
                             impact_max_cost_usd=args.impact_max_cost_usd, impact_since=args.impact_since)
-        if use_backfill and result == 0:
-            backfill = False
-        return result
 
     with worker_lock("scheduler"):
         def stop(signum, frame):
@@ -169,14 +147,13 @@ def main(argv: list[str] | None = None) -> int:
                 previous[sig] = signal.signal(sig, stop)
             if args.job:
                 return run(args.job)
-            scheduler = Scheduler(run, datetime.now(TAIPEI), clock.monotonic(),
-                interval=args.interval_minutes * 60, delay=args.rag_delay_minutes * 60, market_at=args.market_time)
+            scheduler = Scheduler(run, datetime.now(TAIPEI), market_at=args.market_time)
             if args.run_now:
                 result = run("pipeline")
                 if result:
                     print(f"job=pipeline exit_code={result} scheduler=continue", flush=True)
             while True:
-                scheduler.tick(datetime.now(TAIPEI), clock.monotonic())
+                scheduler.tick(datetime.now(TAIPEI))
                 clock.sleep(1)
         except KeyboardInterrupt:
             return 0

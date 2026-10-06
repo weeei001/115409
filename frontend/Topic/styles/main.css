@@ -26,7 +26,6 @@
   --destructive: #a3336b;
   --border: #cfd8df;
   --input: #8696a3;
-  --ring: #f2b347;
   --radius: 2px;
 
   /* 文字與線 */
@@ -148,7 +147,6 @@
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
-  --color-ring: var(--ring);
 
   --color-subtle: var(--subtle);
   --color-border-strong: var(--border-strong);

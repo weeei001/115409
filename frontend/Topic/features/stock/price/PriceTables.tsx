@@ -2,7 +2,7 @@ import React from 'react';
 import type { PriceChangeResponse, VolumeAnalysisResponse } from '@/lib/types/api';
 import type { PriceStats } from '@/lib/types/view';
 import type { HistoryPage } from '@/lib/hooks/useStockDashboard';
-import { fmtAmount, fmtNum, fmtPrice, fmtVolume } from '@/lib/utils/format';
+import { fmtAmount, fmtPrice, fmtVolume, lots } from '@/lib/utils/format';
 import { signedText } from '@/components/common/LightEntry';
 import { valueToneText } from '@/lib/utils/tone';
 import { CollapsibleTableSection, TableScrollHint } from '@/components/common/CollapsibleSection';
@@ -34,13 +34,13 @@ function TableFrame({ minWidth, children }: { minWidth: string; children: React.
   );
 }
 
-/** 量能統計（所選日期區間）：最近 15 筆 */
+/** 量能統計：最近 15 個交易日（不是整段所選期間，標題照實寫，04-S3） */
 export function VolumeTable({ data }: { data: VolumeAnalysisResponse | null }) {
   if (!data?.data?.length) return null;
   const rows = [...data.data].sort((a, b) => b.date.localeCompare(a.date)).slice(0, RECENT_ROWS);
   return (
     <CollapsibleTableSection
-      title="量能統計（所選日期區間）"
+      title={`量能統計（最近 ${RECENT_ROWS} 個交易日）`}
       subtitle={`表列 ${rowsSpan(rows)}；含成交金額與漲跌。`}
       expandLabel={`顯示量能明細（${rows.length} 筆）`}
       collapseLabel="收合量能明細"
@@ -154,7 +154,7 @@ export function HistoryTable({ data, loading = false, error, page, pageSize, onP
         <thead>
           <tr className={headRow}>
             <th scope="col" className="h-11 px-4 py-3 text-left font-medium">日期</th>
-            {['開盤', '最高', '最低', '收盤', '漲跌', '成交量（股）', '成交金額'].map((h) => (
+            {['開盤', '最高', '最低', '收盤', '漲跌', '成交量（張）', '成交金額'].map((h) => (
               <th key={h} scope="col" className="px-4 py-3 text-right font-medium">
                 {h}
               </th>
@@ -164,13 +164,14 @@ export function HistoryTable({ data, loading = false, error, page, pageSize, onP
         <tbody>
           {data.rows.map((row, i) => (
             <tr key={`${row.date}-${i}`} className="h-11 border-t transition-colors duration-(--dur-flash) hover:bg-accent">
-              <td className="px-4 py-2.5 font-mono text-muted-foreground">{row.date}</td>
-              <td className="px-4 py-2.5 text-right font-mono">{fmtPrice(row.open)}</td>
-              <td className="px-4 py-2.5 text-right font-mono">{fmtPrice(row.high)}</td>
-              <td className="px-4 py-2.5 text-right font-mono">{fmtPrice(row.low)}</td>
-              <td className="px-4 py-2.5 text-right font-mono font-semibold">{fmtPrice(row.close)}</td>
-              <td className={cn('px-4 py-2.5 text-right font-mono', valueToneText(row.change))}>{signedText(row.change)}</td>
-              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">{fmtNum(row.volume_shares)}</td>
+              <td className="px-4 py-2.5 font-mono text-muted-foreground tabular-nums">{row.date}</td>
+              {/* 價格欄也要等寬數字，上下列才對得齊（04 一致性表） */}
+              <td className="px-4 py-2.5 text-right font-mono tabular-nums">{fmtPrice(row.open)}</td>
+              <td className="px-4 py-2.5 text-right font-mono tabular-nums">{fmtPrice(row.high)}</td>
+              <td className="px-4 py-2.5 text-right font-mono tabular-nums">{fmtPrice(row.low)}</td>
+              <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums">{fmtPrice(row.close)}</td>
+              <td className={cn('px-4 py-2.5 text-right font-mono tabular-nums', valueToneText(row.change))}>{signedText(row.change)}</td>
+              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">{lots(row.volume_shares)}</td>
               <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">
                 {row.amount != null ? `${(row.amount / 1e8).toFixed(2)} 億元` : '--'}
               </td>

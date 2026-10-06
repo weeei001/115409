@@ -81,6 +81,37 @@ def test_missing_target_close_never_uses_later_price(db_session, owner):
     assert filled['fill_price'] == 100
 
 
+def test_target_close_that_never_arrives_cancels_and_releases_budget(db_session, owner):
+    row = buy(db_session, owner)
+    market(db_session, 2)
+    market(db_session, 3, 100)
+    market(db_session, 4, 100)
+    service.reconcile(db_session, owner, at(4))
+    assert service.snapshot(db_session, owner, at(4))['orders'][0]['status'] == 'pending'
+    market(db_session, 5, 100)
+    service.reconcile(db_session, owner, at(5))
+    snapshot = service.snapshot(db_session, owner, at(5))
+    assert snapshot['orders'][0]['id'] == row['id']
+    assert snapshot['orders'][0]['status'] == 'cancelled'
+    assert snapshot['available_cash'] == 1000000
+
+
+def test_nightly_reconcile_continues_after_one_account_fails(db_session, owner, monkeypatch):
+    buy(db_session, owner)
+    market(db_session, 2, 100)
+    settle = service._settle
+
+    def flaky(db, user_id, current):
+        if user_id == 'broken':
+            raise RuntimeError('corrupt account')
+        return settle(db, user_id, current)
+
+    monkeypatch.setattr(service.repo, 'owners', lambda db: ['broken', owner])
+    monkeypatch.setattr(service, '_settle', flaky)
+    assert service.reconcile(db_session, now=at(2)) == {'accounts': 2, 'failed': 1}
+    assert service.snapshot(db_session, owner, at(2))['orders'][0]['status'] == 'filled'
+
+
 def test_review_due_once_without_automatic_sale(db_session, owner):
     buy(db_session, owner, review_after_days=1, reason='Revenue thesis', observation='Next revenue release')
     market(db_session, 2, 100)
@@ -416,3 +447,17 @@ def test_review_countdown_excludes_fill_day_future_and_intraday_sessions(db_sess
     assert due['review_elapsed_days'] == 2
     assert due['review_remaining_days'] == 0
     assert due['review_due_date'] == '2026-09-04'
+
+
+def test_user_facing_rule_text_is_plain_chinese(db_session, owner):
+    """P2-125／P2-126：待成交說明與模擬規則用一般使用者看得懂的說法。"""
+    buy(db_session, owner)
+    portfolio = service.get_portfolio(db_session, owner, now=at(1))
+    pending = [order for order in portfolio['orders'] if order['status'] == 'pending']
+    assert pending and pending[0]['pending_reason'] == (
+        '將以送出後下一個交易日的收盤價成交；該日行情補齊前會等待。'
+        '若之後已有 3 個交易日行情、該日仍沒有收盤價（例如暫停交易），委託會自動取消，釋出保留的資金或股數。')
+    note = portfolio['accounting_note']
+    assert '證券交易稅 0.3%（賣出時）' in note and '計算到小數 2 位' in note and '未計入股息與除權息' in note
+    for phrase in ('賣出稅', '四捨五入至分', '公司行動'):
+        assert phrase not in note

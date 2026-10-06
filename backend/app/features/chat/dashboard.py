@@ -8,6 +8,7 @@ from html import unescape
 from math import isfinite
 from urllib.parse import urlsplit
 
+from app.core.text import strip_tags
 from app.features.retrieval.common import normalize_source_url
 
 from .schemas import (
@@ -38,7 +39,7 @@ def _number(value) -> float | None:
 
 
 def _text(value, limit=240) -> str:
-    return " ".join(re.sub(r"<[^>]*>", "", unescape(value)).split())[:limit] if isinstance(value, str) else ""
+    return " ".join(strip_tags(unescape(value)).split())[:limit] if isinstance(value, str) else ""
 
 
 def _day(value) -> str | None:
@@ -56,9 +57,24 @@ def _period(value) -> str | None:
     return _day(value)
 
 
-def _formatted(value) -> str:
+def _formatted(value, digits: int = 2) -> str:
+    """Table cells: two decimals by default; counts and share totals use digits=0. Never a negative zero."""
     number = _number(value)
-    return "無資料" if number is None else format(number, ".6f").rstrip("0").rstrip(".")
+    if number is None:
+        return "無資料"
+    text = format(number, f".{digits}f")
+    return text[1:] if text.startswith("-") and float(text) == 0 else text
+
+
+def _lots(value) -> str:
+    """Institutional shares → whole 張 (1 張 = 1,000 股, half up); a non-zero amount under one lot reads 「不到 1 張」."""
+    number = _number(value)
+    if number is None:
+        return "無資料"
+    if number != 0 and abs(number) < 1000:
+        return "不到 1 張"
+    lots = int(abs(number) / 1000 + 0.5)
+    return f"-{lots}" if number < 0 and lots else str(lots)
 
 
 def _ids(sources) -> list[str]:
@@ -124,23 +140,25 @@ def _comparison(source, payload, symbols, query):
     start, end = _day(payload.get("common_start_date")), _day(payload.get("common_end_date"))
     price_count = _number(payload.get("common_price_samples"))
     return_count = _number(payload.get("common_daily_return_samples"))
-    description = (f"查詢區間：{_day(payload.get('requested_start_date')) or '未提供'} 至 "
-                   f"{_day(payload.get('requested_end_date')) or '未提供'}；共同收盤：{start or '無資料'} 至 {end or '無資料'}，"
-                   f"{_formatted(price_count)} 筆收盤、{_formatted(return_count)} 筆相鄰日報酬。"
-                   "採未還原收盤價，未含股息與稅費；交易日依現有觀察推定。缺漏不補值，僅比較共同日期，可能漏掉回撤。")
+    description = (f"查詢區間：{_day(payload.get('requested_start_date')) or '未提供'} → "
+                   f"{_day(payload.get('requested_end_date')) or '未提供'}；"
+                   f"各股都有收盤價的日期：{start or '無資料'} → {end or '無資料'}"
+                   + (f"，共 {_formatted(price_count, 0)} 個交易日。" if price_count is not None else "。")
+                   + "用未還原收盤價，不含股息與稅費；缺漏的日子不補值，只比較各股都有資料的日期，可能漏掉回撤。")
     if (return_start := _day(payload.get("daily_return_start_date"))) and (return_end := _day(payload.get("daily_return_end_date"))):
-        description += f"相鄰日報酬區間：{return_start} 至 {return_end}。"
+        description += f"波動與相關係數用 {return_start} → {return_end} 的日漲跌幅計算。"
     if not start or not end:
-        description += "沒有所有股票共同的有效收盤日，無法公平比較。"
+        description += "這幾檔股票沒有共同的交易日，無法公平比較。"
     if return_count is not None and return_count < 20:
-        description += "日報酬樣本少於20筆，波動與相關性估計可能不穩定。"
-    fields = ("first_common_close", "last_common_close", "interval_return_pct", "annualized_volatility_pct",
-              "max_drawdown_pct", "available_price_samples", "missing_observed_dates")
+        description += f"只有 {_formatted(return_count, 0)} 筆日漲跌幅，波動與相關係數可能不穩定。"
+    fields = (("first_common_close", 2), ("last_common_close", 2), ("interval_return_pct", 2),
+              ("annualized_volatility_pct", 2), ("max_drawdown_pct", 2),
+              ("available_price_samples", 0), ("missing_observed_dates", 0))
     blocks = [DashboardTable(
         title="多股比較", description=description, source_ids=_ids([source]),
-        columns=["股票", "共同起始收盤（元）", "共同期末收盤（元）", "區間報酬（%）", "年化波動（%）",
+        columns=["股票", "共同起始收盤（元）", "共同期末收盤（元）", "區間漲跌幅（%）", "年化波動（%）",
                  "最大回撤（%）", "有效股價筆數", "缺漏日期數"],
-        rows=[[_text(symbol, 20), *(_formatted(by_symbol.get(symbol, {}).get(field)) for field in fields)]
+        rows=[[_text(symbol, 20), *(_formatted(by_symbol.get(symbol, {}).get(field), digits) for field, digits in fields)]
               for symbol in requested],
     )]
     correlations = payload.get("correlations")
@@ -151,15 +169,14 @@ def _comparison(source, payload, symbols, query):
             if isinstance(pair, list) and len(pair) == 2 and all(symbol in requested for symbol in pair):
                 rows.append(["／".join(_text(symbol, 20) for symbol in pair), _formatted(item.get("pearson_r"))])
         if rows:
-            blocks.append(DashboardTable(title="日報酬相關係數", description=description,
+            blocks.append(DashboardTable(title="日漲跌幅相關係數", description=description,
                                          source_ids=_ids([source]), columns=["股票組合", "相關係數"], rows=rows[:15]))
     return blocks
 
 
 def _news(sources):
     items, used_sources, article_ids, urls, fallback_keys = [], [], set(), set(), set()
-    background = False
-    for source in sorted(sources, key=lambda item: not item.in_time_range):
+    for source in sources:
         title = _text(source.title)
         if not title and not _text(source.content):
             continue
@@ -184,9 +201,6 @@ def _news(sources):
         if not url and not source.article_id:
             fallback_keys.add(fallback_key)
         title = title or "未提供標題"
-        if not source.in_time_range:
-            title = "【區間外背景】" + title
-            background = True
         items.append({"title": title, "publisher": _text(source.source_name) or "來源未標示",
                       "published_at": published_at, "url": url, "source_id": source.citation_id,
                       "article_id": source.article_id})
@@ -196,7 +210,7 @@ def _news(sources):
     if not items:
         return None
     return DashboardNews(title="相關新聞", source_ids=_ids(used_sources), items=items,
-                         description=("標註「區間外背景」的新聞不屬於指定期間。" if background else "依來源列出新聞發布時間。"))
+                         description="依來源列出新聞發布時間。")
 
 
 def build_dashboard(sources: list[SourceChunk], symbols: list[str], query: str,
@@ -230,7 +244,7 @@ def build_dashboard(sources: list[SourceChunk], symbols: list[str], query: str,
             markets[source.stock_id] = (source, rows)
             if "price" in wanted and (latest := _latest(rows, [field for field, _, _ in _PRICE])):
                 blocks.append(DashboardMetrics(
-                    title=f"{source.stock_id} 價量", description=f"資料日期：{latest['date']}；非即時行情，缺值不回填。",
+                    title=f"{source.stock_id} 價量", description=f"資料日期：{latest['date']}；不是即時行情，缺漏的資料不補。",
                     source_ids=_ids([source]), items=[{"label": label, "value": _number(latest.get(field)),
                                                      "unit": unit, "date": latest["date"]} for field, label, unit in _PRICE],
                 ))
@@ -276,14 +290,15 @@ def build_dashboard(sources: list[SourceChunk], symbols: list[str], query: str,
         rows = []
         for symbol in requested:
             row = institutions.get(symbol, (None, None))[1] or {}
-            rows.append([symbol, row.get("date", "無資料"), *(_formatted(row.get(field)) for field in _CHIPS)])
+            rows.append([symbol, row.get("date", "無資料"), *(_lots(row.get(field)) for field in _CHIPS)])
         blocks.append(DashboardTable(title="法人買賣超", source_ids=_ids([source for source, _ in institutions.values()]),
-            description="單位為股；正數為買超、負數為賣超。各股票分別標示最新有效觀察日期，無資料不當成零。",
-            columns=["股票", "資料日期", "外資（股）", "投信（股）", "自營商（股）", "三大法人合計（股）"], rows=rows))
+            description="單位為張（1 張 = 1,000 股，四捨五入到整數張）；正數為買超、負數為賣超，不滿 1 張寫「不到 1 張」。"
+                        "各股票分別標示最新有效觀察日期，無資料不當成零。",
+            columns=["股票", "資料日期", "外資（張）", "投信（張）", "自營商（張）", "三大法人合計（張）"], rows=rows))
     if "news" in wanted:
         news = _news([source for source in sources if source.category == "news"])
         if news is not None:
             blocks.append(news)
     if len(requested) > 1:
-        blocks.sort(key=lambda block: not (block.kind == "table" and block.title in {"多股比較", "日報酬相關係數"}))
+        blocks.sort(key=lambda block: not (block.kind == "table" and block.title in {"多股比較", "日漲跌幅相關係數"}))
     return ChatDashboard(title="對話資料總覽", blocks=blocks) if blocks else None

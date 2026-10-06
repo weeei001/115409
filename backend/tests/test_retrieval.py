@@ -189,7 +189,6 @@ def test_question_multistock_balanced_relevance_time_order_and_deduplication():
     assert response.hits[0]["id"] == "2330new" and response.hits[5]["id"] == "2317new"
     assert len({item["id"] for item in response.hits}) == 10
     assert all(args["limit"] == 20 for _, args in vector.calls if args["start"])
-    assert not response.fallback_mode
 
 
 def test_question_no_dates_still_excludes_future_and_bad_ranges_fail_early():

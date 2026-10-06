@@ -6,13 +6,10 @@ import {
   LineStyle,
   TickMarkType,
   createChart,
-  type CandlestickData,
-  type HistogramData,
   type IChartApi,
   type ISeriesApi,
   type LineData,
   type Logical,
-  type MouseEventParams,
   type Time,
 } from 'lightweight-charts';
 import type { MaKey, PriceChartData } from '@/lib/types/view';
@@ -20,17 +17,24 @@ import { MA_KEYS } from '@/lib/types/view';
 import { fmtPrice, fmtVolume } from '@/lib/utils/format';
 import {
   DEFAULT_PRICE_CHART_SERIES_VISIBILITY,
+  KLINE_CANDLE_SERIES_OPTIONS,
+  VOLUME_SERIES_OPTIONS,
+  candlestickColors,
   getNextPriceChartSeriesVisibility,
+  klineChartOptions,
+  klineThemeOptions,
+  subscribeCandleCrosshair,
   timeToYmd,
   toBusinessDay,
   toCandlestickSeriesData,
+  toVolumeHistogramData,
   type PriceChartSeriesKey,
   type PriceChartSeriesVisibility,
 } from '@/lib/charts/priceChart';
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { cn } from '@/lib/cn';
-import { buildVolumeInsight, type VolumeInsight } from '@/lib/charts/volumeInsight';
+import { buildVolumeInsight, volumeVsMa20Text, type VolumeInsight } from '@/lib/charts/volumeInsight';
 import { NeatlineSoundings, SOUNDING_FRAME_STYLE, SOUNDING_PAD, sameMarks, type SoundingMarks } from './NeatlineSoundings';
 
 interface Props {
@@ -49,7 +53,7 @@ interface Props {
   heightClassName?: string;
 }
 
-/** 窄螢幕（< 640px）預設只顯示最後幾根 K 棒，K 棒較寬、日期刻度不擠；仍可拖曳與縮放 */
+/** 窄螢幕（< 640px）預設只顯示最後幾根 K 棒，K 棒較寬、日期刻度不擠；仍可左右拖曳與雙指縮放 */
 const MOBILE_BREAKPOINT = 640;
 const MOBILE_VISIBLE_BARS = 40;
 
@@ -118,21 +122,6 @@ function maStructureText(close: number | null, ma20: number | null, ma60: number
   if (close > ma20 && close > ma60) return '股價站上 MA20、MA60，但均線未完全多頭排列';
   if (close < ma20 && close < ma60) return '股價跌破 MA20、MA60，但均線未完全空頭排列';
   return '股價與均線交錯';
-}
-
-function volumeCompare(volume: number | null, ma20: number | null): string {
-  if (volume === null || ma20 === null || ma20 <= 0) return '無 20 日均量可比較';
-  const pct = Math.abs(((volume - ma20) / ma20) * 100).toFixed(1);
-  return volume >= ma20 ? `量增（高於 20 日均量 ${pct}%）` : `量縮（低於 20 日均量 ${pct}%）`;
-}
-
-/** 資料是最近一筆已儲存的收盤，不是今天：句子用基準日開頭，不寫「今日」 */
-function volumeInterpretation(state: string, date: string | null): string {
-  const day = date ? `${date} 的成交量` : '最近交易日成交量';
-  if (state === '量增') return `${day}高於 20 日均量，市場交易熱度增加。若價格同步站上均線，量增可作為趨勢延續的輔助確認。`;
-  if (state === '量縮') return `${day}低於 20 日均量，市場追價意願偏保守。即使價格上漲，也要留意趨勢延續力道可能不足。`;
-  if (state === '接近均量') return `${day}接近 20 日均量，市場交易熱度大致正常。量能沒有明顯放大或萎縮，需配合價格結構觀察。`;
-  return '目前成交量資料不足，暫時無法判斷量能是否支持趨勢。';
 }
 
 const roundOrNull = (v: number | null) => (v === null || !Number.isFinite(v) ? null : Math.round(v));
@@ -257,57 +246,45 @@ export function PriceChart({
     const el = containerRef.current;
     if (!el) return;
     const narrow = el.clientWidth > 0 && el.clientWidth < MOBILE_BREAKPOINT;
-    const chart = createChart(el, {
-      autoSize: true,
-      localization: { timeFormatter: (t: Time) => timeToYmd(t) },
-      crosshair: { mode: 1 },
-      timeScale: {
-        tickMarkFormatter: (t: Time, type: TickMarkType) => formatTickLabel(t, type, tickIndexRef.current.index, tickIndexRef.current.total),
-        // 右側留白讓最後一個日期刻度完整顯示；刻度以 MM-DD 的字寬估間距（手機估 5 字，桌機估 7 字較疏）
-        rightOffset: narrow ? 4 : 3,
-        minBarSpacing: 2,
-        tickMarkMaxCharacterLength: narrow ? 5 : 7,
-      },
-      // 上緣留白：最高價與最上方的價格刻度不重疊；下緣留給成交量；上下緣只畫完整的刻度字
-      rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.26 }, entireTextOnly: true },
-      layout: { attributionLogo: false, background: { color: 'transparent' }, fontSize: 11, fontFamily: 'IBM Plex Mono, Noto Sans TC, ui-monospace, monospace' },
-    });
-    // 最新收盤已寫在圖上方的讀數列，價格軸不再疊一個收盤價標籤（會壓到刻度）
-    candleRef.current = chart.addSeries(CandlestickSeries, { wickVisible: true, borderVisible: true, priceLineVisible: false, lastValueVisible: false });
+    const chart = createChart(
+      el,
+      klineChartOptions({
+        timeScale: {
+          tickMarkFormatter: (t: Time, type: TickMarkType) => formatTickLabel(t, type, tickIndexRef.current.index, tickIndexRef.current.total),
+          // 右側留白讓最後一個日期刻度完整顯示；刻度以 MM-DD 的字寬估間距（手機估 5 字，桌機估 7 字較疏）
+          rightOffset: narrow ? 4 : 3,
+          minBarSpacing: 2,
+          tickMarkMaxCharacterLength: narrow ? 5 : 7,
+        },
+        // 上緣留白：最高價與最上方的價格刻度不重疊；下緣留給成交量；上下緣只畫完整的刻度字
+        rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.26 }, entireTextOnly: true },
+        fontFamily: 'IBM Plex Mono, Noto Sans TC, ui-monospace, monospace',
+      }),
+    );
+    candleRef.current = chart.addSeries(CandlestickSeries, { wickVisible: true, borderVisible: true, ...KLINE_CANDLE_SERIES_OPTIONS });
     closeRef.current = chart.addSeries(LineSeries, { lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false, lastValueVisible: false });
     for (const key of MA_KEYS) {
       maRefs.current[key] = chart.addSeries(LineSeries, { lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
     }
-    volumeRef.current = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: '',
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
+    volumeRef.current = chart.addSeries(HistogramSeries, VOLUME_SERIES_OPTIONS);
     chart.priceScale('').applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
 
-    let frame = 0;
-    chart.subscribeCrosshairMove((param: MouseEventParams<Time>) => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const candle = candleRef.current
-          ? (param.seriesData.get(candleRef.current) as CandlestickData<Time> | undefined)
-          : undefined;
-        if (!param.time || !param.point || !candle || !('open' in candle)) {
-          setHover(null);
-          return;
-        }
-        const { open, high, low, close } = candle;
-        setHover(buildOverlay(timeToYmd(param.time), { open, high, low, close }));
-      });
-    });
+    const cancelCrosshair = subscribeCandleCrosshair(
+      chart,
+      () => candleRef.current,
+      (candle) => {
+        if (!candle) return setHover(null);
+        const { date, ...ohlc } = candle;
+        setHover(buildOverlay(date, ohlc));
+      },
+    );
     // 拖曳、縮放、改變尺寸時重新量圖廓邊緣的起訖日與最高／最低價
     const remeasure = () => scheduleSoundingsRef.current();
     chart.timeScale().subscribeVisibleLogicalRangeChange(remeasure);
     chart.timeScale().subscribeSizeChange(remeasure);
     chartRef.current = chart;
     return () => {
-      cancelAnimationFrame(frame);
+      cancelCrosshair();
       cancelAnimationFrame(measureFrame.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(remeasure);
       chart.timeScale().unsubscribeSizeChange(remeasure);
@@ -321,20 +298,8 @@ export function PriceChart({
   }, []);
 
   useEffect(() => {
-    chartRef.current?.applyOptions({
-      layout: { textColor: palette.tick },
-      grid: { vertLines: { color: palette.gridSubtle }, horzLines: { color: palette.gridSubtle } },
-      rightPriceScale: { borderColor: palette.grid },
-      timeScale: { borderColor: palette.grid },
-    });
-    candleRef.current?.applyOptions({
-      upColor: palette.up,
-      downColor: palette.down,
-      borderUpColor: palette.up,
-      borderDownColor: palette.down,
-      wickUpColor: palette.up,
-      wickDownColor: palette.down,
-    });
+    chartRef.current?.applyOptions(klineThemeOptions(palette, palette.tick));
+    candleRef.current?.applyOptions(candlestickColors(palette));
     closeRef.current?.applyOptions({ color: closeColor });
     for (const key of MA_KEYS) maRefs.current[key]?.applyOptions({ color: maColors[key] });
   }, [palette, maColors, closeColor]);
@@ -356,21 +321,11 @@ export function PriceChart({
         data.overlays[key].filter((p) => p.value !== null).map((p) => ({ time: toBusinessDay(p.time), value: Number(p.value) })),
       );
     }
-    const index = new Map(data.candles.map((c, i) => [c.time, i]));
-    volumeRef.current.setData(
-      data.volume.map((item): HistogramData<Time> => {
-        const i = index.get(item.time);
-        const prev = i ? data.candles[i - 1].close : null;
-        const close = i != null ? data.candles[i].close : null;
-        const color =
-          prev === null || close === null || close === prev ? palette.volumeFlat : close > prev ? palette.volumeUp : palette.volumeDown;
-        return { time: toBusinessDay(item.time), value: item.value, color };
-      }),
-    );
+    volumeRef.current.setData(toVolumeHistogramData(data.candles, data.volume, palette));
     // 決議 c14：可視範圍直接貼合資料，不再固定「今天往前 6 個月」
     const timeScale = chartRef.current?.timeScale();
     timeScale?.fitContent();
-    // 窄螢幕：預設只看最後 40 根，K 棒較寬；使用者仍可拖曳、縮放看全部
+    // 窄螢幕：預設只看最後 40 根，K 棒較寬；使用者仍可左右拖曳、雙指縮放看全部
     const width = containerRef.current?.clientWidth ?? 0;
     const total = data.candles.length;
     if (timeScale && width > 0 && width < MOBILE_BREAKPOINT && total > MOBILE_VISIBLE_BARS) {
@@ -385,7 +340,7 @@ export function PriceChart({
     { label: '低', value: fmtPrice(overlay?.low ?? null) },
     { label: '收', value: fmtPrice(overlay?.close ?? null) },
     ...activeMa.map((key) => ({ label: key, value: fmtPrice(overlay?.ma[key] ?? null) })),
-    { label: '成交量', value: fmtVolume(overlay?.volume ?? null, '無資料') },
+    { label: '成交量', value: fmtVolume(overlay?.volume ?? null) },
   ];
 
   // 圖例＝序列開關：一列純文字開關（色樣＋名稱），不畫外框；關閉的序列加刪除線、色樣變淡。
@@ -458,7 +413,7 @@ export function PriceChart({
         <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">價格圖</p>
         {legendButtons}
         <p className="mt-1 text-[13px] leading-relaxed">
-          下方柱子是每日成交量，越高代表當天交易越熱絡；紅色是上漲日、綠色是下跌日。
+          柱狀為成交量（紅：上漲日，綠：下跌日）。
         </p>
       </div>
 
@@ -485,7 +440,7 @@ export function PriceChart({
               {' · '}
               <span>{relativeText(overlay.close, overlay.ma.MA20, overlay.ma.MA60)}</span>
               {' · '}
-              <span>{volumeCompare(overlay.volume, volumeInsight.ma20)}</span>
+              <span>{volumeVsMa20Text(overlay.volume, volumeInsight.ma20)}</span>
             </>
           ) : (
             '尚無可顯示的交易日'
@@ -502,26 +457,22 @@ export function PriceChart({
           <p className="mt-2 font-semibold">目前趨勢：{trendText(overlay?.close ?? null, overlay?.ma.MA20 ?? null, overlay?.ma.MA60 ?? null)}</p>
           <p className="mt-1 text-subtle">均線結構：{maStructureText(overlay?.close ?? null, overlay?.ma.MA20 ?? null, overlay?.ma.MA60 ?? null)}</p>
           <p className="mt-1 text-subtle">目前位置：{overlay ? relativeText(overlay.close, overlay.ma.MA20, overlay.ma.MA60) : '資料不足'}</p>
-          <p className="mt-2 text-subtle">提醒：若跌破 MA20，短線可能進入整理；若跌破 MA60，中期趨勢可能轉弱。</p>
         </div>
         <div className="bg-card py-4 lg:pl-4">
           <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">輔助資訊｜成交量</p>
-          <p className="mt-2 text-subtle">基準日：<span className="font-mono tabular-nums">{volumeInsight.date ?? '無資料'}</span>（結束日前最後交易日）</p>
+          <p className="mt-2 text-subtle">基準日：<span className="font-mono tabular-nums">{volumeInsight.date ?? '--'}</span>（結束日前最後交易日）</p>
           <p className="mt-1 text-subtle">
-            基準日成交量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.latestVolume, '無資料')}</span>
+            基準日成交量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.latestVolume)}</span>
           </p>
           <p className="mt-1 text-subtle">
             20 日均量：<span className="font-mono whitespace-nowrap tabular-nums">{fmtVolume(volumeInsight.ma20, `資料不足（有效 ${volumeInsight.count20}/20 個交易日）`)}</span>
-            {volumeInsight.vsMa20 === null
-              ? ''
-              : `（${volumeInsight.vsMa20 >= 0 ? '高於' : '低於'} ${Math.abs(volumeInsight.vsMa20).toFixed(1)}%）`}
           </p>
           <p className="mt-1 text-subtle">
             60 日均量：<span className="whitespace-nowrap">{fmtVolume(volumeInsight.ma60, `資料不足（有效 ${volumeInsight.count60}/60 個交易日）`)}</span>
           </p>
           {volumeInsight.ma20 === 0 ? <p className="mt-1 text-subtle">20 日均量為零，無法計算量增減百分比。</p> : null}
-          <p className="mt-1 font-medium">量能狀態：{volumeInsight.state}</p>
-          <p className="mt-2 text-subtle">量能解讀：{volumeInterpretation(volumeInsight.state, volumeInsight.date)}成交量用來輔助判斷趨勢強弱，不是直接買賣訊號。</p>
+          <p className="mt-1 font-medium">量能狀態：{volumeVsMa20Text(volumeInsight.latestVolume, volumeInsight.ma20)}</p>
+          <p className="mt-2 text-subtle">成交量用來輔助判斷趨勢強弱，不是買賣訊號。</p>
         </div>
       </div>
     </div>

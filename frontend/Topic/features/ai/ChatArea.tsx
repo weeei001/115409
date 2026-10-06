@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
 import { parseChatSources } from '@/lib/types/chat';
-import { chatAnswerBody } from '@/lib/utils/chatCitations';
+import { chatAnswerBody, citationLabels } from '@/lib/utils/chatCitations';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
 import { LoadingRows } from '@/components/common/Notice';
@@ -38,6 +38,25 @@ function getScrollContainer(marker: HTMLElement | null): HTMLElement {
   return document.documentElement;
 }
 
+/** 區塊導覽列的高度（min-h-11＋底線）：導覽列還沒出現時先預留，它出現後回覆開頭才不會被蓋住 */
+const NAV_RESERVE = 45;
+
+/**
+ * 元素頂端要捲到的位置：扣掉黏在上方的區塊導覽（手機整頁捲動時還有頁首），也不算條目進場動畫的位移。
+ * reserveNav：導覽列還沒出現時也先扣掉它的高度。
+ */
+function scrollTopFor(element: HTMLElement, container: HTMLElement, nav: HTMLElement | null, reserveNav = false): number {
+  const transform = getComputedStyle(element).transform;
+  const shift = transform && transform !== 'none' ? new DOMMatrixReadOnly(transform).m42 : 0;
+  const isPage = container === document.documentElement;
+  // 頁首高度可能是 rem（樣式表）或 px（頁首量測後寫入），同 pages/ai 的換算
+  const raw = isPage ? getComputedStyle(container).getPropertyValue('--app-header-height').trim() : '';
+  const header = isPage ? (raw.endsWith('rem') ? parseFloat(raw) * parseFloat(getComputedStyle(container).fontSize) : parseFloat(raw)) || 0 : 0;
+  const toolbar = nav && container.contains(nav) ? nav.offsetHeight : reserveNav ? NAV_RESERVE : 0;
+  const origin = isPage ? 0 : container.getBoundingClientRect().top;
+  return element.getBoundingClientRect().top - shift - origin + container.scrollTop - header - toolbar;
+}
+
 /** lg 到 1439px：資料欄收在「資料」開關後面（預設收起），訊息欄拿到整個面板寬；1440 以上兩欄並排 */
 const COLLAPSIBLE_DATA_QUERY = '(min-width: 1024px) and (max-width: 1439.98px)';
 
@@ -56,7 +75,8 @@ function useMediaMatch(query: string): boolean {
 type Section = 'answer' | 'citations' | 'data';
 
 /**
- * 對話區：串流新回覆時自動捲到底，使用者往上捲就停止跟隨，回到離底部 80px 內再恢復。
+ * 對話區：串流新回覆時自動往下跟隨，跟到這則回覆的開頭碰到上緣就停（長回覆完成後停在開頭，不用往回捲）；
+ * 使用者往上捲就停止跟隨，回到離底部 80px 內再恢復（那之後照常跟到底）。
  * 從歷史開啟對話時（不是正在串流）桌機把最新一輪的提問放在訊息欄頂端，資料欄回到頂端。
  * 有資料面板時 1440 以上分兩欄，右欄顯示最近一則有面板的訊息；lg～1439 收進「資料」開關；手機放在對話下方。
  */
@@ -66,6 +86,12 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
   const asideRef = useRef<HTMLElement>(null);
   const targetScope = useId();
   const followRef = useRef(true);
+  /** 已經停在開頭的串流回覆 id：使用者自己捲回底部後，這則就照常跟到底 */
+  const pinnedRef = useRef<string | null>(null);
+  const streamingRef = useRef(streamingMessageId);
+  streamingRef.current = streamingMessageId;
+  /** 自動跟隨剛捲到的位置：它觸發的 scroll 事件不算使用者操作（不然停在開頭時離底部不到 80px 會又開始跟隨） */
+  const autoTopRef = useRef<number | null>(null);
   const reduce = usePrefersReducedMotion();
   const dataCollapsible = useMediaMatch(COLLAPSIBLE_DATA_QUERY);
   /** 「資料」開關：只在 lg～1439 有作用，選擇留在元件狀態裡（換對話也保留） */
@@ -81,6 +107,10 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
     : dashboardMessage.id === streamingMessageId || dashboardMessage.status === 'streaming' ? 'loading' as const
     : dashboardMessage.status === 'failed' ? 'error' as const : 'ready' as const;
   const hasDashboard = Boolean(activeDashboard);
+  /** 資料面板的來源編號和所屬回覆的引用用同一組號碼 */
+  const dashboardLabels = dashboardMessage && activeDashboard
+    ? citationLabels(chatAnswerBody(dashboardMessage.content), parseChatSources(dashboardMessage.sources), activeDashboard.blocks.flatMap((block) => block.source_ids))
+    : null;
   const latestAnswer = [...messages].reverse().find((m) => m.role === 'assistant' && chatAnswerBody(m.content).trim());
   const hasSources = Boolean(latestAnswer && parseChatSources(latestAnswer.sources).length);
   const showNavigation = hasDashboard || hasSources || Boolean(latestAnswer && chatAnswerBody(latestAnswer.content).length >= 600);
@@ -143,15 +173,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
     followRef.current = false;
     const frame = requestAnimationFrame(() => {
       const question = pane.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(latestUserId)}"]`);
-      if (question) {
-        const nav = navigationRef.current;
-        const toolbarHeight = nav && pane.contains(nav) ? nav.offsetHeight : 0;
-        // 條目進場動畫的位移（translateY）不算進落點
-        const transform = getComputedStyle(question).transform;
-        const shift = transform && transform !== 'none' ? new DOMMatrixReadOnly(transform).m42 : 0;
-        const top = question.getBoundingClientRect().top - shift - pane.getBoundingClientRect().top + pane.scrollTop - toolbarHeight;
-        pane.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
-      }
+      if (question) pane.scrollTo({ top: Math.max(0, scrollTopFor(question, pane, navigationRef.current)), behavior: 'auto' });
       asideRef.current?.scrollTo({ top: 0, behavior: 'auto' });
       syncCurrent();
     });
@@ -169,7 +191,18 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
       // 資料面板等獨立捲動的區塊不算
       if (event.target instanceof Element && !event.target.contains(endRef.current)) return;
       const { top, remaining } = position();
-      if (top < previousTop - 1) followRef.current = false;
+      if (autoTopRef.current !== null && Math.abs(top - autoTopRef.current) <= 1) {
+        autoTopRef.current = null;
+        previousTop = top;
+        syncCurrent();
+        return;
+      }
+      // 內容變矮時瀏覽器把捲動位置往上夾（離底部仍是 0），那不是使用者往上捲
+      if (top < previousTop - 1 && remaining > 1) {
+        followRef.current = false;
+        // 使用者自己往上捲過：之後捲回底部就照常跟到底，不再拉回回覆開頭
+        pinnedRef.current = streamingRef.current;
+      }
       else if (remaining <= 80) followRef.current = true;
       previousTop = top;
       syncCurrent();
@@ -190,12 +223,27 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
     const frame = requestAnimationFrame(() => {
       if (followRef.current) {
         const el = getScrollContainer(endRef.current);
-        el.scrollTo({ top: el.scrollHeight, behavior: 'instant' });
+        let top = el.scrollHeight;
+        const reply = streamingMessageId && pinnedRef.current !== streamingMessageId
+          ? el.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(streamingMessageId)}"]`) : null;
+        if (reply) {
+          // 長回覆一定會出現區塊導覽（600 字以上），先預留它的高度
+          const start = Math.max(0, scrollTopFor(reply, el, navigationRef.current, true));
+          if (start < el.scrollHeight - el.clientHeight) {
+            // 回覆開頭已經到上緣：停在這裡，不再跟到底
+            top = start;
+            followRef.current = false;
+            pinnedRef.current = streamingMessageId;
+          }
+        }
+        const target = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+        autoTopRef.current = Math.abs(target - el.scrollTop) > 1 ? target : null;
+        el.scrollTo({ top, behavior: 'instant' });
       }
       syncCurrent();
     });
     return () => cancelAnimationFrame(frame);
-  }, [scrollKey, loading, messages.length, syncCurrent]);
+  }, [scrollKey, loading, messages.length, streamingMessageId, syncCurrent]);
 
   const waitingForReply = loading && messages[messages.length - 1]?.role !== 'assistant';
 
@@ -302,7 +350,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
           >
             <p className="characteristic">AI 回覆</p>
             {/* 載入＝燈質 Q：有線的空白列加一道掃過的光帶 */}
-            <LoadingRows label="正在查詢與整理系統資料…" className="mt-2 h-[88px] border" />
+            <LoadingRows label="正在查詢資料…" className="mt-2 h-[88px] border" />
           </motion.div>
         ) : null}
         <div ref={endRef} className="h-0 shrink-0" aria-hidden />
@@ -328,7 +376,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
               </span>
             ) : null}
           </div>
-          <ChatDashboard dashboard={activeDashboard} />
+          <ChatDashboard dashboard={activeDashboard} sourceLabel={dashboardLabels ? (id) => dashboardLabels.get(id) ?? id : undefined} />
         </aside>
       ) : null}
     </div>

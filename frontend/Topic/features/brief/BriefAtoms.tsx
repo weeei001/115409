@@ -76,7 +76,6 @@ export const DirectionMark: React.FC<{ direction?: Direction; label?: string }> 
 export const SectionCard: React.FC<{
   title: string;
   hint?: string;
-  icon?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ title, hint, actions, children }) => (
@@ -110,8 +109,8 @@ export const CategoryTag: React.FC<{ item: ResolvedEvidence }> = ({ item }) => {
         </Tag>
       ) : null}
       {item.kind === 'guidance' ? (
-        <Tag tone="warn" title="媒體轉述的公司展望或財測，不是已實現的財務結果。">
-          展望，非已實現數據
+        <Tag tone="warn" title="媒體轉述的公司展望或財測，不是公司實際公布的財務結果。">
+          展望，非實際數字
         </Tag>
       ) : null}
     </span>
@@ -131,7 +130,7 @@ interface EvidenceTagListProps {
 
 /**
  * 結論後面的來源標籤。顯示文字一律是可讀名稱（例如「09/03 交易資料」），
- * 原始 id 只放在 title 與證據詳情的小字裡。
+ * 原始 id 不顯示給使用者。
  *
  * 解析不到、或日期晚於基準日的引用不會變成可點擊來源，改成明確的缺漏標記。
  */
@@ -164,7 +163,6 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
             }}
             aria-pressed={active}
             aria-label={`查看來源：${item.label}`}
-            title={`原始代號 ${id}`}
             className={cn(
               'inline-flex min-h-11 max-w-full items-center gap-1 px-0.5 py-1 text-xs leading-5 underline underline-offset-4 decoration-border transition-colors duration-(--dur-flash)',
               active ? 'font-semibold text-foreground decoration-2' : 'text-muted-foreground hover:text-foreground hover:decoration-current',
@@ -176,9 +174,10 @@ export const EvidenceTagList: React.FC<EvidenceTagListProps> = ({
       })}
 
       {broken.map((id) => {
+        // 原始 id 是內部代號，不放進 title 或報讀文字
         const reason = index.resolve(id)
-          ? `原始代號 ${id}：資料日期晚於分析基準日，已停用`
-          : `原始代號 ${id}：在證據目錄中找不到對應資料`;
+          ? '這筆來源的日期晚於分析基準日，已停用'
+          : '在證據來源裡找不到這筆資料';
         return (
           <Badge key={id} tone="outline" className="border-dashed border-input leading-5 font-normal text-muted-foreground" title={reason}>
             <FileWarning size={11} aria-hidden />

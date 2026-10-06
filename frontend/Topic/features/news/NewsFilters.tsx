@@ -9,8 +9,9 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { toggleVariants } from '@/components/ui/toggle';
 import type { NewsListFilters } from '@/lib/hooks/useNewsList';
 import { useIsMobile } from '@/lib/hooks/useClientEnv';
+import { useNewsIndustries } from '@/lib/hooks/useNewsIndustries';
 import { cn } from '@/lib/cn';
-import { NEWS_ADVANCED_FIELDS, summarizeNewsFilters } from '@/lib/utils/newsFilters';
+import { NEWS_ADVANCED_FIELDS, formatNewsDateTimeParam, groupNewsIndustries, newsIndustryText, summarizeNewsFilters, validateNewsTimeRange } from '@/lib/utils/newsFilters';
 
 interface Props {
   draft: NewsListFilters;
@@ -27,7 +28,7 @@ interface Props {
 
 export type NewsDatePreset = 'today' | '3d' | '7d';
 export const NEWS_DATE_PRESETS: { key: NewsDatePreset; label: string; days: number }[] = [
-  { key: 'today', label: '近 1 天', days: 1 },
+  { key: 'today', label: '近 1 日', days: 1 },
   { key: '3d', label: '近 3 日', days: 3 },
   { key: '7d', label: '近 7 日', days: 7 },
 ];
@@ -54,6 +55,11 @@ export function matchNewsDatePreset(filters: NewsListFilters, now = new Date()):
   return 'custom';
 }
 
+/** 草稿的發布時間能不能送出；和 useNewsList 送出前用同一個檢查，不合法時篩選面板不讓套用 */
+export function newsDraftTimeError(draft: NewsListFilters, now = new Date()): string | null {
+  return validateNewsTimeRange(formatNewsDateTimeParam(draft.start_time ?? ''), formatNewsDateTimeParam(draft.end_time ?? ''), now);
+}
+
 /** 方形切換鈕（2px 圓角、不用膠囊）；按下的狀態用粗線＋淺底，不用燈色 */
 const toggleClass = cn(toggleVariants({ variant: 'square', size: 'sm' }), 'min-w-0');
 
@@ -68,12 +74,16 @@ function Field({ label, hint, hintId, className, children }: { label: string; hi
   );
 }
 
-const INDUSTRY_HINT = '上市填 TWSE:代號、上櫃填 TPEx:代號，例如 TWSE:24。';
-
-/** 篩選欄位本體：發布時間（快速區間在前，自訂才展開兩個時間欄）→ 影響條件 → 產業代碼與主題 */
-function FilterFields({ draft, setDraft, disabled, fixedRelation, layout }: Pick<Props, 'draft' | 'setDraft' | 'disabled' | 'fixedRelation'> & { layout: 'popover' | 'sheet' }) {
+/** 篩選欄位本體：發布時間（快速區間在前，自訂才展開兩個時間欄）→ 影響條件 → 產業與主題 */
+function FilterFields({ draft, setDraft, disabled, fixedRelation, layout, timeError, timeErrorId }: Pick<Props, 'draft' | 'setDraft' | 'disabled' | 'fixedRelation'> & { layout: 'popover' | 'sheet'; timeError: string | null; timeErrorId: string }) {
   const industryHintId = useId();
   const dateLegendId = useId();
+  const industries = useNewsIndustries();
+  const industryGroups = groupNewsIndustries(industries.items);
+  const draftIndustry = draft.industry?.trim() ?? '';
+  // 草稿裡的代碼不在清單上（例如從網址帶進來、清單還沒載入）：多放一個選項，下拉選單才對得上目前的值
+  const unlistedIndustry = draftIndustry && !industries.items.some((item) => item.id === draftIndustry) ? draftIndustry : null;
+  const industryHint = industries.status === 'error' ? '產業清單暫時無法載入，請稍後再試。' : industries.status === 'loading' ? '產業清單載入中…' : undefined;
   const [customChosen, setCustomChosen] = useState(false);
   const matched = matchNewsDatePreset(draft);
   const mode = customChosen ? 'custom' : matched;
@@ -109,8 +119,12 @@ function FilterFields({ draft, setDraft, disabled, fixedRelation, layout }: Pick
               <input
                 type="datetime-local"
                 value={draft.start_time ?? ''}
+                // 只是挑選器的提示，擋不住手動輸入；真正的檢查是 newsDraftTimeError
+                max={toDateTimeLocal(new Date())}
                 onChange={(e) => setDraft((prev) => ({ ...prev, start_time: e.target.value }))}
                 disabled={disabled}
+                aria-invalid={timeError ? true : undefined}
+                aria-describedby={timeError ? timeErrorId : undefined}
                 className={cn(inputClass, 'px-2 font-mono text-[13px] tabular-nums [color-scheme:light] dark:[color-scheme:dark]')}
               />
             </Field>
@@ -120,11 +134,14 @@ function FilterFields({ draft, setDraft, disabled, fixedRelation, layout }: Pick
                 value={draft.end_time ?? ''}
                 onChange={(e) => setDraft((prev) => ({ ...prev, end_time: e.target.value }))}
                 disabled={disabled}
+                aria-invalid={timeError ? true : undefined}
+                aria-describedby={timeError ? timeErrorId : undefined}
                 className={cn(inputClass, 'px-2 font-mono text-[13px] tabular-nums [color-scheme:light] dark:[color-scheme:dark]')}
               />
             </Field>
           </div>
         ) : null}
+        <p id={timeErrorId} role="alert" className={cn('text-xs leading-relaxed text-danger', !timeError && 'hidden')}>{timeError}</p>
       </div>
 
       <div className={cn('grid gap-x-2 gap-y-3 border-t pt-3', selectGrid)}>
@@ -142,18 +159,24 @@ function FilterFields({ draft, setDraft, disabled, fixedRelation, layout }: Pick
         ))}
       </div>
 
-      {/* 產業代碼：新聞 API 的 industry 參數要的是「TWSE:24」這種代碼，站內的產業搜尋只給中文產業名與股票，對不上，所以保留文字欄與說明 */}
+      {/* 產業：新聞 API 的 industry 參數要「TWSE:24」這種代碼，選項來自 /news/industries，畫面只顯示中文產業名、依上市／上櫃分組 */}
       <div className={cn('grid items-start gap-3 border-t pt-3', popover ? 'grid-cols-2' : 'grid-cols-1')}>
-        <Field label="產業代碼" hint={popover ? undefined : INDUSTRY_HINT} hintId={popover ? undefined : industryHintId}>
-          <input
-            value={draft.industry ?? ''}
-            maxLength={200}
-            onChange={(e) => setDraft((prev) => ({ ...prev, industry: e.target.value }))}
+        <Field label="產業" hint={industryHint} hintId={industryHintId}>
+          <NativeSelect
+            aria-label="產業"
+            value={draftIndustry}
+            onChange={(e) => setDraft((prev) => ({ ...prev, industry: e.target.value || undefined }))}
             disabled={disabled}
-            aria-describedby={industryHintId}
-            className={cn(inputClass, 'font-mono text-[13px]')}
-            placeholder="例如 TWSE:24"
-          />
+            aria-describedby={industryHint ? industryHintId : undefined}
+          >
+            <option value="">全部</option>
+            {unlistedIndustry ? <option value={unlistedIndustry}>{newsIndustryText(unlistedIndustry)}</option> : null}
+            {industryGroups.map((group) => (
+              <optgroup key={group.market} label={group.market}>
+                {group.options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+              </optgroup>
+            ))}
+          </NativeSelect>
         </Field>
         <Field label="主題">
           <input
@@ -162,10 +185,9 @@ function FilterFields({ draft, setDraft, disabled, fixedRelation, layout }: Pick
             onChange={(e) => setDraft((prev) => ({ ...prev, topic: e.target.value }))}
             disabled={disabled}
             className={inputClass}
-            placeholder="例如 ai"
+            placeholder="例如：AI、電動車"
           />
         </Field>
-        {popover ? <p id={industryHintId} className="col-span-2 -mt-1.5 text-[12px] leading-relaxed text-muted-foreground">產業代碼：{INDUSTRY_HINT}</p> : null}
       </div>
     </>
   );
@@ -180,6 +202,8 @@ export function NewsFilters({ draft, applied, setDraft, onApply, onClearAdvanced
   const [open, setOpen] = useState(false);
   const mobile = useIsMobile();
   const active = summarizeNewsFilters(applied, fixedRelation).length > 0;
+  const timeError = newsDraftTimeError(draft);
+  const timeErrorId = useId();
 
   const trigger = (
     <button
@@ -202,7 +226,8 @@ export function NewsFilters({ draft, applied, setDraft, onApply, onClearAdvanced
   const actions = (
     <>
       <Button
-        disabled={disabled}
+        disabled={disabled || Boolean(timeError)}
+        aria-describedby={timeError ? timeErrorId : undefined}
         onClick={() => {
           onApply();
           setOpen(false);
@@ -224,7 +249,7 @@ export function NewsFilters({ draft, applied, setDraft, onApply, onClearAdvanced
       </Button>
     </>
   );
-  const fields = <FilterFields draft={draft} setDraft={setDraft} disabled={disabled} fixedRelation={fixedRelation} layout={mobile ? 'sheet' : 'popover'} />;
+  const fields = <FilterFields draft={draft} setDraft={setDraft} disabled={disabled} fixedRelation={fixedRelation} layout={mobile ? 'sheet' : 'popover'} timeError={timeError} timeErrorId={timeErrorId} />;
   const description = '調整條件後按「套用篩選」才會生效。';
 
   if (mobile) {
@@ -282,7 +307,8 @@ export function AppliedNewsFilters({ applied, onClearAdvanced, disabled, fixedRe
       triggerRef?.current?.focus();
     }
   }, [applied, disabled, triggerRef]);
-  const summary = summarizeNewsFilters(applied, fixedRelation);
+  const industries = useNewsIndustries(Boolean(applied.industry?.trim()));
+  const summary = summarizeNewsFilters(applied, fixedRelation, industries.items);
   if (!summary.length) return null;
   return (
     <div className="mb-4 flex flex-wrap items-start gap-2">
@@ -297,11 +323,11 @@ export function AppliedNewsFilters({ applied, onClearAdvanced, disabled, fixedRe
   );
 }
 
-/** 載入＝燈質 Q：每則新聞約兩條 44px 的空白列，一道光帶掃過，並寫出「讀取中」（DESIGN.md 第 10 節） */
+/** 載入＝燈質 Q：每則新聞約兩條 44px 的空白列，一道光帶掃過，並寫出「載入中」（DESIGN.md 第 10 節） */
 export function NewsListSkeleton({ count = 5 }: { count?: number }) {
   return (
     <div className="border-t" style={{ height: count * 88 }}>
-      <LoadingRows label="讀取新聞中…" className="h-full" />
+      <LoadingRows label="載入新聞中…" className="h-full" />
     </div>
   );
 }

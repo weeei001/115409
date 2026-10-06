@@ -16,8 +16,8 @@ const notoSansTC = Noto_Sans_TC({ weight: ['400', '500', '700'], display: 'swap'
 const notoSerifTC = Noto_Serif_TC({ weight: '900', display: 'swap', preload: false });
 const ibmPlexMono = IBM_Plex_Mono({ weight: ['400', '500', '600'], display: 'swap', subsets: ['latin'] });
 
-const DEFAULT_TITLE = '股海明燈｜最近儲存收盤行情與財經新聞';
-const DEFAULT_DESCRIPTION = '最近儲存收盤行情（非即時）、財經新聞、多股比較與模擬投資等展示功能（學習／專題用途）。';
+const DEFAULT_TITLE = '股海明燈｜台股收盤行情與財經新聞';
+const DEFAULT_DESCRIPTION = '台股收盤行情（非即時）、財經新聞、多股比較與模擬投資等展示功能（學習／專題用途）。';
 
 export default function App({ Component, pageProps }: AppProps) {
   return (

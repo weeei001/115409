@@ -153,7 +153,7 @@ export default function ResetPasswordPage() {
         <title>股海明燈｜重設密碼</title>
         <meta name="description" content="以電子郵件連結重設登入密碼。" />
       </Head>
-      <SiteHeader icon={KeyRound} title="重設密碼" subtitle="從重設信件的連結開啟，設定新的登入密碼" />
+      <SiteHeader title="重設密碼" subtitle="從重設信件的連結開啟，設定新的登入密碼" />
 
       <AuthLedger
         asideOnMobile

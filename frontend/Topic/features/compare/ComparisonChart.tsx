@@ -253,7 +253,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
               )}
             >
               <Swatch color={chartColors[sym]} dashed={isBenchmark} dim={hidden} />
-              {isBenchmark ? <span className="font-sans">{BENCHMARK_LABEL} TAIEX</span> : sym}
+              {isBenchmark ? <span className="font-sans">加權指數</span> : sym}
             </button>
           );
         })}
@@ -270,9 +270,10 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
       </div>
 
       <div className="space-y-1 border-t pt-3 text-[13px] leading-relaxed text-muted-foreground">
-        <p>{meta.description}缺值保留斷線。</p>
+        {/* 「航跡圖」是本頁自訂的名稱：比較結果裡也說一次它是什麼（P2-096、04-U5） */}
+        <p>航跡圖是這次比較的主圖，各檔走勢畫在同一張圖上。{meta.description}缺值保留斷線。</p>
         <p>
-          大盤基準：臺灣加權股價指數（TAIEX，不含現金股利）。
+          大盤基準：加權指數（不含息）。
           {benchmarkLoading ? '載入中…' : comparison.returnPct == null ? comparison.warning : `同期間漲跌幅 ${fmtPercent(comparison.returnPct, { sign: true })}。${comparison.warning ?? ''}`}
           {mode === 'price' ? ' 指數走勢顯示於「指數化」與「區間漲跌幅」模式。' : ''}
           {' '}<a href="https://www.twse.com.tw/zh/indices/taiex/mi-5min-hist.html" target="_blank" rel="noreferrer" className={cn('text-subtle hover:text-foreground', textLinkClass)}>證交所資料來源</a>
@@ -286,7 +287,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
               <th scope="col">日期</th>
               {chartSymbols.map((sym) => (
                 <th key={sym} scope="col">
-                  {sym}
+                  {sym === BENCHMARK_ID ? '加權指數' : sym}
                 </th>
               ))}
             </tr>

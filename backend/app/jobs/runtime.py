@@ -51,9 +51,7 @@ class JobRuntime:
         self.pending = {}
         self.run_activity = {}
         self.next_notifications = 0.0
-        self.scheduler = Scheduler(self._scheduled, datetime.now(TAIPEI), clock.monotonic(),
-            interval=settings.JOBS_INTERVAL_MINUTES * 60,
-            delay=settings.JOBS_RAG_DELAY_MINUTES * 60,
+        self.scheduler = Scheduler(self._scheduled, datetime.now(TAIPEI),
             market_at=settings.JOBS_MARKET_TIME, enabled=self._enabled)
 
     def start(self):
@@ -136,7 +134,7 @@ class JobRuntime:
                             if queued_name == "pipeline":
                                 self.scheduler.next_market = next_daily(datetime.now(TAIPEI), self.scheduler.market_at)
                         else:
-                            self.scheduler.tick(datetime.now(TAIPEI), clock.monotonic())
+                            self.scheduler.tick(datetime.now(TAIPEI))
                     except SQLAlchemyError:
                         with self.lock:
                             self.status = "unavailable"

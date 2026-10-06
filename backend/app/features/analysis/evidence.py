@@ -14,6 +14,8 @@ VALUATION_RANK_LOOKBACK_DAYS = 365
 FINANCIAL_LOOKBACK_DAYS = 900
 REVENUE_LOOKBACK_DAYS = 800
 SHARES_PER_LOT = 1000
+# A full sentence in missing_fields; the brief shows it without the "缺少：" prefix.
+NEWS_FIRST_PUBLIC_LIMITATION = "新聞的首次發布時間無法確認，分析可能用到事後才公開的資訊。"
 
 FINANCIAL_PUBLISH_LAG_DAYS = 50
 ANNUAL_PUBLISH_LAG_DAYS = 95
@@ -63,7 +65,11 @@ def _round(value: float | None, digits: int) -> float | None:
 
 def _lots(shares: Any) -> int | None:
     value = _f(shares)
-    return None if value is None else int(round(value / SHARES_PER_LOT))
+    if value is None:
+        return None
+    # Half up away from zero, like the chat dashboard and the frontend; round() would bank 2,500 股 to 2 張.
+    lots = int(abs(value) / SHARES_PER_LOT + 0.5)
+    return -lots if value < 0 else lots
 
 def _pct_change(current: float | None, base: float | None) -> float | None:
     if current is None or base is None or base == 0:
@@ -641,7 +647,7 @@ def build_evidence_bundle(*, symbol: str, as_of_date: date,
     if not news:
         timeline_missing.append("近期新聞")
     if any(item.get("source_state", {}).get("limitation") for item in news):
-        timeline_missing.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
+        timeline_missing.append(NEWS_FIRST_PUBLIC_LIMITATION)
     return EvidenceBundle(
         symbol=symbol, as_of_date=as_of_date, daily_timeline=timeline,
         chip_summary=chips, long_term_anchor=anchor, fundamental=fundamental, news=news,

@@ -14,7 +14,7 @@ from app.features.analysis.evidence import (
     build_daily_timeline,
     build_news_items,
 )
-from app.clients.rag import _is_on_or_before_as_of
+from app.features.analysis import evidence as evidence_module
 
 def _price(day: str, close, volume=1_000_000):
     return SimpleNamespace(
@@ -255,12 +255,6 @@ def test_news_summary_is_truncated_and_kind_defaults_to_general():
     assert len(items[0]["value"]) == 21
     assert items[1]["kind"] == "guidance"
 
-def test_same_day_news_with_subsecond_timestamp_is_kept():
-    assert _is_on_or_before_as_of(
-        datetime(2026, 7, 13, 23, 59, 59, 500000), date(2026, 7, 13)
-    )
-    assert not _is_on_or_before_as_of(datetime(2026, 7, 14, 0, 0, 0), date(2026, 7, 13))
-
 def test_news_source_metadata_reaches_catalog_and_llm_payload():
     items = build_news_items(
         [
@@ -324,3 +318,7 @@ def test_anchor_does_not_combine_new_close_with_old_moving_average():
     valuations = _valuation_items([SimpleNamespace(date=date(2026, 7, 13), per=10)], date(2026, 7, 13), _IdGen("fd"))
     assert valuations[0]["sample_count"] == 1 and "pct_rank_1y" not in valuations[0]
 
+
+@pytest.mark.parametrize(("shares", "lots"), [(2500, 3), (-2500, -3), (1499, 1), (-499, 0), (None, None)])
+def test_lots_round_half_away_from_zero_like_the_dashboard(shares, lots):
+    assert evidence_module._lots(shares) == lots

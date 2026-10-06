@@ -2,9 +2,9 @@ import { useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { StockSearch } from '@/components/common/StockSearch';
-import { PRIMARY_NAV } from '@/lib/nav';
+import { isNavPathActive, PRIMARY_NAV } from '@/lib/nav';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
-import { parseBulkSymbolInput } from '@/lib/utils/stockSelection';
+import { bulkSearchTarget } from '@/lib/utils/compareQuery';
 import { cn } from '@/lib/cn';
 
 /**
@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn';
  */
 export function PrimaryNav({ className }: { className?: string }) {
   const router = useRouter();
-  const isActive = (path: string) => (path === '/' ? router.pathname === '/' : router.pathname.startsWith(path));
+  const isActive = (path: string) => isNavPathActive(path, router.pathname);
   return (
     <nav aria-label="主導覽" className={cn('hidden items-stretch lg:flex', className)}>
       {PRIMARY_NAV.map((item) => {
@@ -36,22 +36,49 @@ export function PrimaryNav({ className }: { className?: string }) {
   );
 }
 
-/** 頁首的股票搜尋：選了就到個股頁。清單來自 /stocks/info（有 30 秒快取）；載入失敗就不顯示 */
-export function HeaderStockSearch({ className }: { className?: string }) {
+/** 頁首、首頁的股票搜尋：貼上多個代號時的提示（行為見 bulkSearchTarget） */
+export const NAV_SEARCH_BULK_HINT = '貼上多個代號會開啟多股比較';
+
+/**
+ * 頁首的股票搜尋：選了就到個股頁；貼上多個代號就到多股比較並帶入全部（P2-062）。
+ * 清單來自 /stocks/info（有 30 秒快取）；還沒有清單時不顯示，showStatus 時改寫「載入中／載入失敗」。
+ */
+export function HeaderStockSearch({ className, autoFocus, showStatus = false }: { className?: string; autoFocus?: boolean; showStatus?: boolean }) {
   const router = useRouter();
-  const { data } = useStockInfos();
+  const { data, status, retry } = useStockInfos();
   const stockInfos = useMemo(() => data ?? [], [data]);
 
   const symbols = useMemo(() => stockInfos.map((s) => s.symbol), [stockInfos]);
   const go = useCallback((symbol: string) => void router.push(`/stock/${symbol}`), [router]);
   const bulk = useCallback(
     (input: string) => {
-      const first = parseBulkSymbolInput(input).find((symbol) => symbols.includes(symbol));
-      if (first) go(first);
+      const target = bulkSearchTarget(input, symbols);
+      if (target) void router.push(target);
     },
-    [symbols, go],
+    [symbols, router],
   );
 
-  if (!symbols.length) return null;
-  return <StockSearch symbols={symbols} stockInfos={stockInfos} onSelect={go} onBulkSelect={bulk} placeholder="搜尋代號或公司名稱" className={className} />;
+  if (!symbols.length) {
+    if (!showStatus) return null;
+    return status === 'error' ? (
+      <p className="flex min-h-11 items-center gap-2 text-sm text-muted-foreground">
+        股票清單載入失敗。
+        <button type="button" onClick={retry} className="min-h-11 px-2 font-medium text-foreground underline underline-offset-4">重試</button>
+      </p>
+    ) : (
+      <p className="flex min-h-11 items-center text-sm text-muted-foreground">{status === 'ready' ? '目前沒有可搜尋的股票。' : '股票清單載入中…'}</p>
+    );
+  }
+  return (
+    <StockSearch
+      symbols={symbols}
+      stockInfos={stockInfos}
+      onSelect={go}
+      onBulkSelect={bulk}
+      placeholder="搜尋代號或公司名稱"
+      bulkHint={NAV_SEARCH_BULK_HINT}
+      autoFocus={autoFocus}
+      className={className}
+    />
+  );
 }

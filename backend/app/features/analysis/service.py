@@ -23,7 +23,8 @@ from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from . import repository, validation as gate
 from app.features.news.eligibility import contains_simulation
 from .compliance import compliance_rules_signature
-from .evidence import FIELD_GLOSSARY, TIMELINE_TRADING_DAYS, build_evidence_bundle
+from .evidence import (FIELD_GLOSSARY, NEWS_FIRST_PUBLIC_LIMITATION, TIMELINE_TRADING_DAYS,
+                       build_evidence_bundle)
 from .prompts import TEXT_BRIEF_SYSTEM_PROMPT, few_shot_examples, select_examples
 from .prediction import (StrategyConfig, WeeklyPredictionOutput,
                          build_chart_payload, compute_weighted_regression,
@@ -57,7 +58,7 @@ def text_brief_revision() -> str:
                                 "glossary": FIELD_GLOSSARY,
                                 "compliance": compliance_rules_signature(),
                                 "schema": StockBehaviorTextBrief.model_json_schema(),
-                                "pipeline": "backend-v1-claim-validation-3"})[:12]
+                                "pipeline": "backend-v1-claim-validation-4"})[:12]
 
 
 def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
@@ -362,7 +363,8 @@ class AnalysisService:
             limitations.append(f"新聞服務降級，分析僅使用可取得資料（{rag.reason or rag.status}）。")
         if not any(item.get("kind") == "guidance" for item in bundle.news):
             limitations.append(gate.TEXT_BRIEF_NO_GUIDANCE_LIMITATION)
-        limitations.extend(f"缺少：{field}" for field in bundle.missing_fields)
+        limitations.extend(field if field == NEWS_FIRST_PUBLIC_LIMITATION else f"缺少：{field}"
+                           for field in bundle.missing_fields)
         limitations.append("僅檢查結構、引用及部分可核對數值；未完整核實語義或校準預測信心。")
         if any(re.search(r"FVOCI|\d+家金控", str(item.get("value", ""))) for item in bundle.news):
             limitations.append("新聞包含金控獲利或 FVOCI 等財務口徑；公司與產業合計、當期損益與保留盈餘的比較尚未完整自動核對。")

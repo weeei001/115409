@@ -42,7 +42,8 @@ export function PaperFunds({ portfolio, onChanged }: { portfolio: PaperPortfolio
       const data = await changePaperFunds(pending.kind, pending.amount, pending.id);
       request.current = null; setRetry(false); setAmount(''); setSuccess(true); onChanged(data);
     } catch (err) {
-      setError(userFacingMessage(err, '尚未確認調整結果，請重試。'));
+      // 不知道成功與否時，不叫人直接重試（可能重複調整）：先重新整理看資金紀錄（P2-127）
+      setError(userFacingMessage(err, '無法確認資金是否已調整，請重新整理後查看資金紀錄。'));
       const rejected = err instanceof ApiRequestError && err.status != null && err.status >= 400 && err.status < 500 && ![408, 409, 429].includes(err.status);
       if (rejected) request.current = null;
       setRetry(!rejected);

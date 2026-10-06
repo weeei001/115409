@@ -9,8 +9,9 @@ import { BrandMark } from '@/components/common/BrandMark';
 import { AUTH_CHANGE_EVENT, clearAuth, getStoredUser, getToken } from '@/lib/auth/storage';
 import { adminMe } from '@/lib/api/admin';
 import type { UserPublic } from '@/lib/types/api';
-import { PRIMARY_NAV } from '@/lib/nav';
+import { isNavPathActive, PRIMARY_NAV } from '@/lib/nav';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
+import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import { cn } from '@/lib/cn';
 
 const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
@@ -27,6 +28,9 @@ function avatarLetter(user: UserPublic): string {
   return source ? source.slice(0, 1).toUpperCase() : '?';
 }
 
+/** 視窗取得焦點時，同一個登入多久才再向後端確認一次管理員身分 */
+const ADMIN_RECHECK_MS = 5 * 60_000;
+
 const itemClass =
   'lamp-row group flex min-h-12 w-full items-center gap-3 border-b px-5 py-3 text-left text-sm font-medium focus-lamp-inset';
 
@@ -36,7 +40,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** 主選單抽屜：Esc 關閉、focus trap、鎖背景捲動、關閉後焦點回到觸發鈕都由 Radix 處理 */
+/** 主選單抽屜：Esc 關閉、focus trap、鎖背景捲動、關閉後焦點回到觸發鈕都由 Radix 處理；上一頁先關選單（useDrawerHistory） */
 export function AppNavDrawer() {
   const router = useRouter();
   const reduce = usePrefersReducedMotion();
@@ -44,17 +48,29 @@ export function AppNavDrawer() {
   const [user, setUser] = useState<UserPublic | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // 管理員身分：掛載與登入狀態改變時確認；視窗取得焦點時，同一個登入最多每 5 分鐘再確認一次（權限可能被收回）。
+  // 開關選單不重新確認；確認期間保留同一個登入上一次的結果，「管理後台」不會在選單打開時閃掉再出現。
   useEffect(() => {
     let active = true;
     let controller: AbortController | null = null;
-    const sync = () => {
+    let checked: { token: string; at: number } | null = null;
+    const sync = (event?: Event) => {
       setUser(getStoredUser());
-      setIsAdmin(false);
-      controller?.abort();
       const token = getToken();
-      if (!token) return;
+      if (!token) {
+        controller?.abort();
+        checked = null;
+        setIsAdmin(false);
+        return;
+      }
+      const sameLogin = checked?.token === token;
+      // 換了帳號就不沿用上一個帳號的結果
+      if (!sameLogin) setIsAdmin(false);
+      if (event?.type === 'focus' && sameLogin && checked && Date.now() - checked.at < ADMIN_RECHECK_MS) return;
+      controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
+      checked = { token, at: Date.now() };
       void adminMe(signal).then(() => {
         if (active && !signal.aborted && token === getToken()) setIsAdmin(true);
       }).catch(() => {
@@ -70,6 +86,11 @@ export function AppNavDrawer() {
       window.removeEventListener(AUTH_CHANGE_EVENT, sync);
       window.removeEventListener('focus', sync);
     };
+  }, []);
+
+  // 打開選單時從本機重讀使用者資料（不打 API），顯示名稱改過也會更新
+  useEffect(() => {
+    if (open) setUser(getStoredUser());
   }, [open]);
 
   const loginHref = useMemo(() => {
@@ -77,10 +98,13 @@ export function AppNavDrawer() {
     return { pathname: '/login', query: { returnUrl: router.asPath } };
   }, [router.asPath, router.pathname]);
 
-  const isActive = (path: string) => (path === '/' ? router.pathname === '/' : router.pathname.startsWith(path));
+  const isActive = (path: string) => isNavPathActive(path, router.pathname);
+  // 手機按上一頁（返回鍵）只關選單，不離開頁面（P2-054）
+  const requestClose = useDrawerHistory(open, () => setOpen(false));
   const go = (href: Parameters<typeof router.push>[0]) => {
+    // 先退掉選單推的那一筆紀錄再換頁：上一頁會回到原本的頁面，不會停在「選單開著」的同一頁
+    requestClose(() => void router.push(href));
     setOpen(false);
-    void router.push(href);
   };
 
   const enter = (i: number) =>
@@ -184,7 +208,7 @@ export function AppNavDrawer() {
 
         <div className="shrink-0 border-t border-border-strong px-5 py-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-subtle">換班（晨班／夜班）</span>
+            <span className="text-sm font-medium text-subtle">亮色／暗色</span>
             <ThemeToggle />
           </div>
         </div>

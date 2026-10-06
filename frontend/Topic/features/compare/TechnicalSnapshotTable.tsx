@@ -2,12 +2,13 @@ import { LedgerPanel } from '@/components/common/Ledger';
 import { EmptyState } from '@/components/common/Notice';
 import type { TechnicalDay } from '@/lib/types/view';
 import { kdSignal, macdSignal, maPositionSignal, rsiSignal } from '@/lib/utils/compareSignals';
-import { fmtPercent } from '@/lib/utils/format';
-import type { Signal } from '@/lib/utils/indicatorSignals';
+import { fmtIndicator, INDICATOR_LABELS, MACD_DECIMALS, type Signal } from '@/lib/utils/indicatorSignals';
 import { SignalTag } from '@/components/common/SignalTag';
+import { signedText } from '@/components/common/LightEntry';
 import { cn } from '@/lib/cn';
 
-const fmtFixed = (v: number | null | undefined, decimals = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(decimals));
+/** 小數位和個股頁一致（RSI、KD 1 位；MACD 柱 3 位用 signedText）；缺值用 -- */
+const fmtFixed = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? '--' : fmtIndicator(v));
 
 function SignalCell({ value, signal }: { value: string; signal: Signal }) {
   return (
@@ -45,11 +46,12 @@ export function TechnicalSnapshotTable({
               <thead>
                 <tr className="border-b border-border-strong">
                   <th scope="col" className={cn(th, 'text-left')}>股票</th>
-                  <th scope="col" className={th}>RSI10</th>
-                  <th scope="col" className={th}>MACD 動能</th>
-                  <th scope="col" className={th}>KD (K/D)</th>
-                  <th scope="col" className={th}>vs MA20</th>
-                  <th scope="col" className={th}>vs MA60</th>
+                  {/* 指標名稱和個股頁同一組字；不用英文 vs、半形括號（P2-102） */}
+                  <th scope="col" className={th}>{INDICATOR_LABELS.rsi}</th>
+                  <th scope="col" className={th}>MACD 柱</th>
+                  <th scope="col" className={th}>KD（K／D）</th>
+                  <th scope="col" className={th}>相對 MA20</th>
+                  <th scope="col" className={th}>相對 MA60</th>
                 </tr>
               </thead>
               <tbody>
@@ -58,7 +60,7 @@ export function TechnicalSnapshotTable({
                   // 收盤與均線取同一列（同一天），不拿比較主圖的最後收盤（決議 D9-c24）
                   const ma20 = maPositionSignal(row?.close, row?.ma20, 'MA20');
                   const ma60 = maPositionSignal(row?.close, row?.ma60, 'MA60');
-                  const kdText = row?.kd_k9 != null && row?.kd_d9 != null ? `${fmtFixed(row.kd_k9)} / ${fmtFixed(row.kd_d9)}` : '—';
+                  const kdText = row?.kd_k9 != null && row?.kd_d9 != null ? `${fmtFixed(row.kd_k9)} / ${fmtFixed(row.kd_d9)}` : '--';
                   return (
                     <tr key={sym} className="border-b align-top last:border-b-0">
                       <td className="px-3 py-3 whitespace-nowrap sm:px-4">
@@ -72,16 +74,16 @@ export function TechnicalSnapshotTable({
                         <SignalCell value={fmtFixed(row?.rsi10)} signal={rsiSignal(row?.rsi10)} />
                       </td>
                       <td className={td}>
-                        <SignalCell value={fmtFixed(row?.macd_hist, 3)} signal={macdSignal(row?.macd_hist)} />
+                        <SignalCell value={signedText(row?.macd_hist, MACD_DECIMALS)} signal={macdSignal(row?.macd_hist)} />
                       </td>
                       <td className={td}>
                         <SignalCell value={kdText} signal={kdSignal(row?.kd_k9, row?.kd_d9)} />
                       </td>
                       <td className={td}>
-                        <SignalCell value={fmtPercent(ma20.value, { sign: true })} signal={ma20} />
+                        <SignalCell value={signedText(ma20.value, 2, '%')} signal={ma20} />
                       </td>
                       <td className={td}>
-                        <SignalCell value={fmtPercent(ma60.value, { sign: true })} signal={ma60} />
+                        <SignalCell value={signedText(ma60.value, 2, '%')} signal={ma60} />
                       </td>
                     </tr>
                   );

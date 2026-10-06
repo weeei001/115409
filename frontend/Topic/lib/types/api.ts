@@ -267,6 +267,19 @@ export interface PaginatedNewsResponse {
   items: News[];
 }
 
+/**
+ * GET /news/industries：openapi 的回應 schema 是空的，形狀依後端 `news/service.py` 的 `industries()`（openapi 未列，決議 D5）。
+ * id 是新聞 `industry` 參數要的代碼（例如 TWSE:24）；name 是「上市 · 半導體業」這種含市場前綴的名稱。
+ */
+export interface NewsIndustry {
+  id: string;
+  name: string;
+}
+
+export interface NewsIndustriesResponse {
+  items: NewsIndustry[];
+}
+
 // ── Auth ──
 
 export interface UserPublic {

@@ -117,15 +117,16 @@ export function NextStep({ href, onClick, children }: { href?: string; onClick?:
 
 export type LightState = 'loading' | 'ready' | 'error';
 
-const LIGHT_STATE: Record<LightState, { label: string; className: string }> = {
-  loading: { label: '燈質 Q（急閃）：讀取中', className: 'light-glyph light-glyph-q' },
-  ready: { label: '燈質 F（定光）：資料已載入', className: 'light-glyph light-glyph-f' },
-  error: { label: '熄燈：讀取失敗', className: 'light-glyph light-glyph-ecl' },
+/** 讀螢幕軟體與 title 念的是資料狀態本身，不用燈質代碼與航海術語（P2-061） */
+export const LIGHT_STATE: Record<LightState, { label: string; className: string }> = {
+  loading: { label: '載入中', className: 'light-glyph light-glyph-q' },
+  ready: { label: '已載入', className: 'light-glyph light-glyph-f' },
+  error: { label: '載入失敗', className: 'light-glyph light-glyph-ecl' },
 };
 
 /**
- * 燈質記號：用燈塔表的燈質寫法標資料狀態。
- * Q（急閃）＝讀取中、F（定光）＝資料已載入、熄燈＝失敗。只有 8px，放在戳記或面板標題旁。
+ * 燈質記號：視覺上用燈塔表的燈質畫法標資料狀態。
+ * Q（急閃）＝載入中、F（定光）＝已載入、熄燈＝載入失敗。只有 8px，放在戳記或面板標題旁。
  */
 export function LightGlyph({ state, className }: { state: LightState; className?: string }) {
   const meta = LIGHT_STATE[state];

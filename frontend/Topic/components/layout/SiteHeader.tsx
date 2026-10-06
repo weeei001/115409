@@ -1,11 +1,12 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { ArrowLeft, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Search, X } from 'lucide-react';
 import { AppNavDrawer } from './AppNavDrawer';
 import { ThemeToggle } from './ThemeToggle';
 import { Breadcrumbs } from './Breadcrumbs';
 import { HeaderStockSearch, PrimaryNav } from './PrimaryNav';
+import { MainContentAnchor } from './MainContentAnchor';
 import { BrandMark } from '@/components/common/BrandMark';
 import { Button } from '@/components/ui/button';
 import { DataStamp } from '@/components/common/Ledger';
@@ -15,8 +16,6 @@ import { useLatestCloseDate } from '@/lib/hooks/useLatestCloseDate';
 import { cn } from '@/lib/cn';
 
 export interface SiteHeaderProps {
-  /** 保留給呼叫端相容；頁首不再顯示圖示方塊 */
-  icon?: LucideIcon;
   title: string;
   subtitle?: string;
   /** 省略時依路由自動產生 */
@@ -30,7 +29,8 @@ export interface SiteHeaderProps {
 }
 
 /**
- * 子頁頁首：sticky 的一條平列（返回、品牌、資料日戳記、主選單、換班），
+ * 子頁頁首：sticky 的一條平列（返回、品牌、資料日戳記、搜尋、主選單、亮暗切換），
+ * 1024 以下沒有放搜尋框的空間：按搜尋鈕在平列下方展開一列全寬搜尋（P1-19、04-U3），換頁或按 Esc 收起。
  * 底下是不跟著捲動的標題區（麵包屑、襯線 h1、副標）。標題區的粗線在換頁時由左到右畫出（光束掃過）。
  */
 export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap = false, titleAction }: SiteHeaderProps) {
@@ -40,6 +40,17 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
   const latestClose = useLatestCloseDate();
 
   const crumbs = breadcrumbs ?? breadcrumbsForPath(router.pathname, router.asPath);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRowId = useId();
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+
+  // 選了股票換到別頁就收起
+  useEffect(() => setSearchOpen(false), [router.asPath]);
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    searchButtonRef.current?.focus();
+  };
 
   const handleBack = () => {
     if (typeof window !== 'undefined' && window.history.length > 1) router.back();
@@ -63,10 +74,35 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
           <PrimaryNav className="ml-auto" />
           <div className="flex shrink-0 items-center gap-2">
             <HeaderStockSearch className="hidden w-56 lg:block" />
+            <Button
+              ref={searchButtonRef}
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setSearchOpen((open) => !open)}
+              aria-label={searchOpen ? '收起股票搜尋' : '搜尋股票'}
+              aria-expanded={searchOpen}
+              aria-controls={searchRowId}
+              className="text-subtle hover:text-foreground lg:hidden"
+            >
+              {searchOpen ? <X className="size-[18px]" aria-hidden /> : <Search className="size-[18px]" aria-hidden />}
+            </Button>
             <AppNavDrawer />
             <ThemeToggle />
           </div>
         </div>
+        {searchOpen ? (
+          <div
+            id={searchRowId}
+            className="mx-auto max-w-[1320px] border-t px-4 py-2 sm:px-6 lg:hidden"
+            onKeyDown={(event) => {
+              // 清單已經關著時再按 Esc 才收起整列（清單開著時 Esc 先關清單）
+              if (event.key === 'Escape' && event.target instanceof HTMLInputElement && event.target.getAttribute('aria-expanded') !== 'true') closeSearch();
+            }}
+          >
+            <HeaderStockSearch autoFocus showStatus className="w-full" />
+          </div>
+        ) : null}
       </header>
       <div className="shrink-0 bg-card">
         <div className="mx-auto max-w-[1320px] px-4 pt-4 pb-4 sm:px-6 lg:px-10 lg:pt-6 lg:pb-6">
@@ -92,6 +128,7 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
         </div>
         <div key={router.asPath} className="anim-beam-draw h-px w-full bg-border-strong" aria-hidden />
       </div>
+      <MainContentAnchor />
     </>
   );
 }

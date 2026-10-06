@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { Bot, History } from 'lucide-react';
+import { History } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import { cn } from '@/lib/cn';
 const EXAMPLE_QUESTIONS: ExampleQuestionGroup[] = [
   { caption: '個股與指標', questions: ['整理台積電的走勢、法人與營收重點', '用 KD 和量價分析台積電目前的走勢'] },
   { caption: '多股比較', questions: ['比較台積電、聯發科與鴻海的報酬和風險'] },
-  { caption: '新聞與使用說明', questions: ['最近有哪些影響台股的新聞？', '這個系統可以幫我做什麼？'] },
+  { caption: '新聞與使用說明', questions: ['最近有哪些影響台股的新聞？', '這個網站可以幫我做什麼？'] },
 ];
 
 export default function AiPage() {
@@ -108,7 +108,7 @@ export default function AiPage() {
         <meta name="description" content="在 AI 對話中掌握個股分析、多股比較、技術指標、新聞與系統功能，直接點選建議問題繼續探索。" />
       </Head>
       {/* 對話開啟後（lg 以上）收起副標：免責已固定在輸入列下方，高度留給訊息 */}
-      <SiteHeader icon={Bot} title="AI 對話" subtitle={compactChrome ? undefined : '個股、比較、指標與新聞重點（非投資建議）'} />
+      <SiteHeader title="AI 對話" subtitle={compactChrome ? undefined : '個股、比較、指標與新聞重點（非投資建議）'} />
 
       <main aria-label="AI 對話" className={cn(
         'mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 pt-4 sm:px-6 lg:min-h-0 lg:px-10',

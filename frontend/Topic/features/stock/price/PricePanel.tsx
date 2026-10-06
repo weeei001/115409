@@ -8,12 +8,13 @@ import { Ledger, LedgerPanel, LightGlyph } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
+import { withDateRangeHint } from '@/lib/api/errorDetail';
 import { EmptyRangeActions } from '../EmptyRangeActions';
 import { MaPeriodSelector } from './MaPeriodSelector';
 import { HistoryTable, PriceChangeTable, StatisticsPanel, VolumeTable } from './PriceTables';
 
 /**
- * 「價量走勢與統計」抽屜內容：控制列 → K 線 → 量能／漲跌表 → 所選日期區間統計 → 歷史股價。
+ * 「K 線與量能」抽屜內容：控制列 → K 線 → 量能／漲跌表 → 所選日期區間統計 → 歷史股價。
  * 頁面首屏已有框在圖廓裡的 K 線，這裡的圖只用一般邊框（一頁只有一個圖廓）。
  */
 export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }) {
@@ -59,18 +60,18 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
             </Button>
           }
         >
-          {chartError}
+          {withDateRangeHint(chartError)}
         </Notice>
       ) : null}
 
-      {/* 抽屜標題是「價量走勢與統計」：第一段不再叫「價量走勢」，直接寫它的內容 */}
+      {/* 抽屜標題是「K 線與量能」：第一段直接寫它的內容 */}
       <Ledger
         as="h3"
         title="K 線與成交量"
         stamp={
           <span className="inline-flex items-center gap-1.5">
             <LightGlyph state={chartLoading ? 'loading' : chartError && !priceChart ? 'error' : 'ready'} />
-            {span ? <span data-plotted-span>K 線 {plottedSpanText(span)}</span> : chartLoading ? '讀取中…' : '尚無資料日期'}
+            {span ? <span data-plotted-span>K 線 {plottedSpanText(span)}</span> : chartLoading ? '載入中…' : '尚無資料日期'}
           </span>
         }
       >
@@ -79,7 +80,8 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
             <DateRangePicker startDate={startDate} endDate={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <MaPeriodSelector value={maPeriods} onChange={setMaPeriods} disabled={chartLoading} />
-              <label className="inline-flex min-h-11 items-center gap-2 text-sm text-subtle">
+              {/* 整個標籤都能點：游標與 hover 要看得出來（03-F12） */}
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-subtle transition-colors duration-(--dur-flash) hover:text-foreground">
                 <Checkbox checked={showPriceChange} onCheckedChange={(v) => setShowPriceChange(v === true)} />
                 顯示漲跌明細
               </label>
@@ -89,7 +91,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
 
         <LedgerPanel className="px-3 sm:px-5">
           {chartLoading ? (
-            <LoadingRows label="讀取 K 線中…" className="h-[50dvh] max-h-[420px] min-h-[280px] border-y" />
+            <LoadingRows label="載入 K 線中…" className="h-[50dvh] max-h-[420px] min-h-[280px] border-y" />
           ) : priceChart ? (
             <PriceChart data={priceChart} activeMa={activeMa} volumeInsight={volumeInsight} frame="plain" />
           ) : (
@@ -113,7 +115,7 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
       {!chartLoading && statistics ? <StatisticsPanel stats={statistics} /> : null}
 
       <section>
-        <HistoryTable data={history} loading={historyLoading} error={historyError} page={historyPage} pageSize={historyPageSize} onPageChange={setHistoryPage} />
+        <HistoryTable data={history} loading={historyLoading} error={historyError ? withDateRangeHint(historyError) : null} page={historyPage} pageSize={historyPageSize} onPageChange={setHistoryPage} />
       </section>
     </div>
   );

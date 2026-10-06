@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { closeChange, fetchCloseSeries, lastCloseChange, type CloseSeries } from '@/lib/api/closeSeries';
 import {
   fetchCandlestickMA,
   fetchInstitutionalTrades,
   fetchLatestPrice,
-  fetchMultipleStocks,
   fetchStatistics,
   fetchStockInfos,
   fetchTechnicalIndicators,
@@ -60,32 +60,35 @@ export type ChartRangeKey = (typeof CHART_RANGES)[number]['key'];
 
 /** 觀測台 K 線要的均線；和圖例一致 */
 export const TERMINAL_MA_PERIODS = '5,20,60';
-const WATCH_BATCH = 10;
 const WATCH_LOOKBACK_MONTHS = 2;
 const DETAIL_LOOKBACK_MONTHS = 3;
 const CACHE_MS = 60_000;
 /** 資料庫沒有收藏、也沒有這一檔時的預設選擇 */
 const DEFAULT_SYMBOL = '2330';
 
-/** deps 變了就重抓；舊請求的結果會被丟掉 */
-function useLoadable<T>(fn: (() => Promise<T>) | null, deps: readonly unknown[], fallbackMessage: string): Loadable<T> {
-  const [state, setState] = useState<{ status: LoadStatus; data: T | null; error: string | null }>({ status: fn ? 'loading' : 'idle', data: null, error: null });
+/**
+ * deps 變了就重抓；舊請求的結果會被丟掉。
+ * owner 是這份資料屬於哪一檔：換了一檔就不沿用上一檔的資料（同一檔換區間時保留舊資料到新資料進來），
+ * effect 還沒跑的那一次 render 也當成載入中，面板不會在新股票名稱下畫出上一檔的資料。
+ */
+function useLoadable<T>(fn: (() => Promise<T>) | null, deps: readonly unknown[], fallbackMessage: string, owner?: string | null): Loadable<T> {
+  const [state, setState] = useState<{ status: LoadStatus; data: T | null; error: string | null; owner?: string | null }>({ status: fn ? 'loading' : 'idle', data: null, error: null, owner });
   const [attempt, setAttempt] = useState(0);
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     if (!fn) {
-      setState({ status: 'idle', data: null, error: null });
+      setState({ status: 'idle', data: null, error: null, owner });
       return;
     }
     let active = true;
-    setState((prev) => ({ status: 'loading', data: prev.data, error: null }));
+    setState((prev) => ({ status: 'loading', data: prev.owner === owner ? prev.data : null, error: null, owner }));
     fn()
       .then((data) => {
-        if (active) setState({ status: 'ready', data, error: null });
+        if (active) setState({ status: 'ready', data, error: null, owner });
       })
       .catch((err) => {
-        if (active) setState({ status: 'error', data: null, error: userFacingMessage(err, fallbackMessage) });
+        if (active) setState({ status: 'error', data: null, error: userFacingMessage(err, fallbackMessage), owner });
       });
     return () => {
       active = false;
@@ -93,44 +96,8 @@ function useLoadable<T>(fn: (() => Promise<T>) | null, deps: readonly unknown[],
     // 依賴刻意不含 fn：fn 每次 render 都是新的函式，由呼叫端傳入的 deps 決定何時重抓
   }, [...deps, attempt]);
 
-  return { ...state, reload };
-}
-
-function chunk<T>(list: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
-  return out;
-}
-
-interface SymbolSeries {
-  closes: number[];
-  date: string | null;
-}
-
-/** /stocks/compare/multiple：一次取多檔的每日收盤，整理成每檔一條由舊到新的序列 */
-async function fetchWatchSeries(symbols: string[], start: string, end: string): Promise<Record<string, SymbolSeries>> {
-  const out: Record<string, SymbolSeries> = {};
-  const results = await Promise.allSettled(
-    chunk(symbols, WATCH_BATCH).map((group) =>
-      dedupeFetch(`terminal-watch ${group.join(',')} ${start} ${end}`, () => fetchMultipleStocks(group.join(','), start, end), CACHE_MS),
-    ),
-  );
-  if (results.every((r) => r.status === 'rejected')) throw (results[0] as PromiseRejectedResult).reason;
-  for (const r of results) {
-    if (r.status !== 'fulfilled') continue;
-    const days = [...r.value.data].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    for (const symbol of r.value.symbols) {
-      const series: SymbolSeries = { closes: [], date: null };
-      for (const day of days) {
-        const price = day.prices[symbol];
-        if (price == null || !Number.isFinite(price)) continue;
-        series.closes.push(price);
-        series.date = day.date;
-      }
-      out[symbol] = series;
-    }
-  }
-  return out;
+  if (state.owner !== owner) return { status: fn ? 'loading' : 'idle', data: null, error: null, reload };
+  return { status: state.status, data: state.data, error: state.error, reload };
 }
 
 /**
@@ -158,15 +125,15 @@ export function useTerminalData() {
       const last = res.data[res.data.length - 1];
       if (!last) return null;
       const prev = res.data.length > 1 ? res.data[res.data.length - 2].close : null;
-      const change = prev != null ? last.close - prev : null;
-      return { close: last.close, change, changePercent: change != null && prev ? (change / prev) * 100 : null, date: last.date, closes };
+      return { close: last.close, ...closeChange(last.close, prev), date: last.date, closes };
     },
     [today],
     '無法載入大盤資料',
   );
 
-  const watchState = useLoadable<Record<string, SymbolSeries>>(
-    symbolKey ? () => fetchWatchSeries(symbolKey.split(','), shiftYmdMonths(today, -WATCH_LOOKBACK_MONTHS), today) : null,
+  // /stocks/compare/multiple：每 10 檔一次，取多檔的每日收盤，整理成每檔一條由舊到新的序列
+  const watchState = useLoadable<Record<string, CloseSeries>>(
+    symbolKey ? () => fetchCloseSeries(symbolKey.split(','), shiftYmdMonths(today, -WATCH_LOOKBACK_MONTHS), today, 'terminal-watch') : null,
     [symbolKey, today],
     '觀測清單載入失敗',
   );
@@ -180,17 +147,11 @@ export function useTerminalData() {
     const series = watchState.data;
     return stockInfos.map((info) => {
       const s = series?.[info.symbol];
-      const n = s?.closes.length ?? 0;
-      const close = n ? s!.closes[n - 1] : null;
-      const prev = n > 1 ? s!.closes[n - 2] : null;
-      const change = close != null && prev != null ? close - prev : null;
       return {
         symbol: info.symbol,
         name: info.name,
         industry: info.industry ?? null,
-        close,
-        change,
-        changePercent: change != null && prev ? (change / prev) * 100 : null,
+        ...lastCloseChange(s?.closes ?? []),
         date: s?.date ?? null,
         closes: s?.closes ?? [],
         favorite: favoriteSet.has(info.symbol),
@@ -215,33 +176,38 @@ export function useTerminalData() {
   const rangeMonths = CHART_RANGES.find((r) => r.key === range)?.months ?? 3;
   const detailStart = shiftYmdMonths(today, -DETAIL_LOOKBACK_MONTHS);
 
-  const quote = useLoadable<DailyQuote>(selected ? async () => toDailyQuote(await fetchLatestPrice(selected)) : null, [selected], '無法載入報價');
+  const quote = useLoadable<DailyQuote>(selected ? async () => toDailyQuote(await fetchLatestPrice(selected)) : null, [selected], '無法載入報價', selected);
   const priceChart = useLoadable<PriceChartData | null>(
     selected
       ? async () => candlestickMaToPriceChart(await fetchCandlestickMA(selected, shiftYmdMonths(today, -rangeMonths), today, TERMINAL_MA_PERIODS))
       : null,
     [selected, rangeMonths, today],
     '無法載入 K 線資料',
+    selected,
   );
   const stats = useLoadable<PriceStats>(
     selected ? async () => toPriceStats(await fetchStatistics(selected, shiftYmdMonths(today, -rangeMonths), today)) : null,
     [selected, rangeMonths, today],
     '無法載入區間統計',
+    selected,
   );
   const institutional = useLoadable<InstitutionalDay | null>(
     selected ? async () => lastItem(mapInstitutionalTrades(await fetchInstitutionalTrades(selected, detailStart, today))) : null,
     [selected, detailStart, today],
     '無法載入法人資料',
+    selected,
   );
   const technical = useLoadable<TechnicalDay | null>(
     selected ? async () => lastItem(mapTechnicalIndicators(await fetchTechnicalIndicators(selected, detailStart, today))) : null,
     [selected, detailStart, today],
     '無法載入技術指標',
+    selected,
   );
   const chips = useLoadable<ChipsVolumeData[]>(
     selected ? async () => (await fetchVolumeWithChips(selected, detailStart, today)).data : null,
     [selected, detailStart, today],
     '無法載入量與籌碼資料',
+    selected,
   );
 
   const board: BeaconJourneyProps['board'] = boardState.data

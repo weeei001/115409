@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.text import strip_tags
 from app.db.engine import make_engine
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_version import NewsSourceSelection
@@ -77,7 +78,7 @@ def article_id(source: str, title: str, pub_time: str) -> str:
 def clean_html_content(raw: str | None) -> str:
     text = html.unescape(raw or "")
     text = re.sub(r"<br\s*/?>|</p>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", "", text).replace("\xa0", " ")
+    text = strip_tags(text).replace("\xa0", " ")
     text = re.sub(r"\n\s+\n", "\n\n", text)
     text = _remove_ad_phrases(text)
     text = _compact_lines(text, BOTTOM_KEYWORDS)
@@ -515,7 +516,6 @@ def crawler_main(source: str, argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--scheduled-once", action="store_true")
     if source == "cnyes":
-        group.add_argument("--backfill-month", action="store_true")
         group.add_argument("--refresh-existing", action="store_true",
                            help="Refresh existing CNYES article bodies from their detail pages")
         parser.add_argument("--limit", type=int, help="Maximum CNYES articles to inspect")

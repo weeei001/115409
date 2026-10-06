@@ -9,12 +9,13 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from app.features.market.company_catalog import company_aliases
-from .proposals import FOREIGN_CURRENCY, NUMBER, decimal_number, guarantees_outcome, parse_proposals
+from .proposals import BOUNDARY, FOREIGN_CURRENCY, NUMBER, decimal_number, guarantees_outcome, parse_proposals
 from .schemas import SourceChunk
 
 DATE = r"\d{4}-\d{2}-\d{2}"
@@ -38,7 +39,7 @@ STRUCTURED_PERCENTAGES = {
     "gross_margin_pct": r"(?:單季)?毛利率",
     "operating_margin_pct": r"(?:單季)?營業利益率",
     "dividend_yield": r"(?:現金)?殖利率",
-    "vol_vs_ma5_pct": r"(?:成交量(?:相對|較)(?:五|5)日均量(?:的)?(?:增減|增加|減少)|量能增減)",
+    "vol_vs_ma5_pct": r"(?:(?:成交量|量能)\s*(?:相對|較|比)\s*(?:五|5)\s*日均量\s*(?:的)?\s*(?:增減|增加|減少|放大|萎縮)|量能增減)",
 }
 ANCHOR_PERCENTAGES = ("close_pos_in_1y_pct", "vs_ma60_pct", "vs_ma240_pct")
 GROWTH_FIELDS = {"eps": ("yoy_pct", "qoq_pct"), "revenue_monthly": ("yoy_pct", "mom_pct")}
@@ -115,6 +116,15 @@ class Claim:
     period: str | None = None
 
 
+TAIPEI = ZoneInfo("Asia/Taipei")
+
+
+def _taipei_day(value: str) -> str:
+    """Snapshots are stamped in UTC; answers date them by the Taipei calendar day."""
+    moment = datetime.fromisoformat(value)
+    return (moment.astimezone(TAIPEI) if moment.tzinfo else moment).date().isoformat()
+
+
 def _number(raw) -> Decimal:
     return decimal_number(raw)
 
@@ -143,6 +153,11 @@ def _normalize(text: str) -> str:
 def _context(text: str, position: int, aliases: dict[str, str]):
     prefix = re.split(r"[。!?;\n]", text[:position])[-1]
     dates = tuple(re.findall(DATE, prefix))
+    return (max(_subjects(prefix, aliases), default=(0, 0, None), key=lambda item: item[:2])[2], dates)
+
+
+def _subjects(prefix: str, aliases: dict[str, str]):
+    """Stock mentions in a sentence prefix as (start, length, symbol)."""
     without_dates = re.sub(DATE, " " * 10, prefix)
     without_dates = re.sub(r"\d{4}-\d{2}", " " * 7, without_dates)
     # Period labels are not ticker symbols. Full observation dates remain
@@ -160,10 +175,27 @@ def _context(text: str, position: int, aliases: dict[str, str]):
         r"(?<![\d.])(\d{4,6})(?![\d.]|\s*(?:元|萬|張|股(?!價)|%))", without_dates)]
     for alias, symbol in aliases.items():
         subjects.extend((m.start(), len(alias), symbol) for m in re.finditer(re.escape(alias), without_dates, re.I))
-    return (max(subjects, default=(0, 0, None), key=lambda item: item[:2])[2], dates)
+    return subjects
 
 
 def _claims(text: str, aliases: dict[str, str]):
+    """Observations in position order; "A 與 B 分別 x、y" pairs values with stocks in order."""
+    claims = sorted(_listed_claims(text, aliases), key=lambda claim: claim.start)
+    for marker in re.finditer("分別", text):
+        sentence_start = max(text.rfind(mark, 0, marker.start()) for mark in "。!?;\n") + 1
+        boundary = BOUNDARY.search(text, marker.end())
+        clause_end = boundary.start() if boundary else len(text)
+        listed = list(dict.fromkeys(symbol for *_, symbol in sorted(
+            _subjects(text[sentence_start:marker.start()], aliases))))
+        indexes = [index for index, claim in enumerate(claims)
+                   if marker.end() <= claim.start < clause_end and claim.symbol is not None]
+        if len(listed) >= 2 and len(indexes) == len(listed):
+            for index, symbol in zip(indexes, listed):
+                claims[index] = replace(claims[index], symbol=symbol)
+    yield from claims
+
+
+def _listed_claims(text: str, aliases: dict[str, str]):
     occupied = []
     amounts = []
     growth_subjects = []
@@ -217,7 +249,7 @@ def _claims(text: str, aliases: dict[str, str]):
         elif unit == "張":
             value *= 1000
         decline = label.endswith("下跌") or (label.endswith("跌幅") and not label.endswith("漲跌幅"))
-        if (decline or (metric == "vol_vs_ma5_pct" and label.endswith("減少"))) and value > 0:
+        if (decline or (metric == "vol_vs_ma5_pct" and label.endswith(("減少", "萎縮")))) and value > 0:
             value = -value
         elif label.endswith("上漲") and value < 0:
             normalized_unit = "invalid direction"
@@ -332,7 +364,7 @@ def _evidence(sources, aliases):
                     add(metric, stock.get(metric), stock.get("symbol", ""), payload.get(endpoint), periods=periods)
         elif source.category == "personal":
             portfolio = payload.get("portfolio", {})
-            snapshot_day = datetime.fromisoformat(portfolio["as_of"]).date().isoformat() if portfolio.get("as_of") else None
+            snapshot_day = _taipei_day(portfolio["as_of"]) if portfolio.get("as_of") else None
             if portfolio.get("initialized") is True:
                 for metric in (*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS):
                     add(metric, portfolio.get(metric), day=snapshot_day)
@@ -400,6 +432,13 @@ def _matches(claim: Claim, fact: Fact) -> bool:
 def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "",
                              continuation: str = "") -> bool:
     """Reject recognized contradictions; unknown prose remains unverified."""
+    return unsupported_numeric_claim(paragraph, sources, company_catalog,
+                                     context=context, continuation=continuation) is None
+
+
+def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "",
+                              continuation: str = "") -> str | None:
+    """The sentence holding the first rejected number, "" if evidence cannot be read, None if supported."""
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}
     try:
@@ -414,19 +453,19 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company
             sentence = (re.split(r"[。!?;\n]", full_text[:claim.end])[-1]
                         + re.split(r"[。!?;\n]", full_text[claim.end:])[0])
             if claim.unit == "%" and guarantees_outcome(sentence):
-                return False
+                return sentence.strip()
             if not claim.unit.startswith("invalid") and any(
                     proposal.start < claim.end <= proposal.end for proposal in proposals):
                 continue
             local = re.split(r"[。!?;\n,，]", text[:claim.end])[-1]
             if claim.unit == "%" and re.search(
                     r"保證|一定|必定|必然|預期|預測|未來|下(?:個月|週|周|月)|明(?:天|日|年)", local):
-                return False
+                return sentence.strip()
             if any(_matches(claim, fact) for fact in facts):
                 continue
             if claim.metric is None and claim.value in literals:
                 continue
-            return False
-        return True
+            return sentence.strip()
+        return None
     except (ValueError, TypeError, KeyError, AttributeError, InvalidOperation):
-        return False
+        return ""

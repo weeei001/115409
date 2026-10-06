@@ -55,7 +55,7 @@ export function buildClaimIndex(brief: Brief | null | undefined): Map<string, Cl
   (brief.risks ?? []).forEach((it) =>
     add({
       key: it.id,
-      section: '主要風險',
+      section: '情境風險',
       text: it.description,
       evidenceIds: it.evidence_ids ?? [],
     })

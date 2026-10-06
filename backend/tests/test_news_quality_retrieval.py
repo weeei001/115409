@@ -229,10 +229,3 @@ def test_company_aliases_require_catalog_membership_and_match_word_boundaries():
         assert extract_candidate_stocks(None, None, name, None, catalog) == [symbol]
         assert extract_candidate_stocks(None, None, name, None, {}) == []
     assert company_mentions("notTSMC MediaTekology", None, catalog) == []
-
-
-def test_input_hash_requires_catalog_name_for_every_company():
-    from app.features.news.sentiment import article_input_hash
-    article = SimpleNamespace(title="Company results", content="Revenue", pub_time="2024-01-01")
-    assert article_input_hash(article, "2330", {}) is None
-    assert article_input_hash(article, "1101", {"1101": {"name": "台泥"}})

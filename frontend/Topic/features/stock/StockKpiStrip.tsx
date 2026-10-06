@@ -1,28 +1,21 @@
 import React from 'react';
-import type { InstitutionalDay, PriceChartData, TechnicalDay } from '@/lib/types/view';
+import type { PriceChartData } from '@/lib/types/view';
 import { signedText } from '@/components/common/LightEntry';
 import { LightGlyph, type LightState } from '@/components/common/Ledger';
 import { getValueTone, type ValueTone } from '@/lib/utils/tone';
-import { rsiZone } from '@/lib/utils/indicatorSignals';
 import { cn } from '@/lib/cn';
-import { signedShares } from './signedShares';
 
 interface Props {
   priceChart: PriceChartData | null;
-  institutionalLatest: InstitutionalDay | null;
-  indicatorLatest: TechnicalDay | null;
-  /** 區間列（K 線）與最近交易日列（法人、指標）各自的資料狀態，寫成燈質記號 */
+  /** 區間列（K 線）的資料狀態，寫成燈質記號 */
   chartState?: LightState;
-  chipsState?: LightState;
 }
 
 interface Cell {
   label: string;
   value: string;
   /** 只有有正負方向的數值才上漲跌色（決議 D8） */
-  tone: ValueTone | 'warning';
-  /** 判讀門檻：直接寫在格子裡，觸控也看得到 */
-  hint?: string;
+  tone: ValueTone;
 }
 
 interface Group {
@@ -38,7 +31,6 @@ const TONE_CLASS: Record<Cell['tone'], string> = {
   up: 'text-up',
   down: 'text-down',
   neutral: 'text-foreground',
-  warning: 'text-warning',
 };
 
 function rangeGroup(priceChart: PriceChartData | null): Group {
@@ -55,50 +47,20 @@ function rangeGroup(priceChart: PriceChartData | null): Group {
     dates: firstDate && lastDate ? `${firstDate} → ${lastDate}` : undefined,
     cells: [
       // 個股頁預設畫面唯一的區間漲跌幅：標籤直接寫出實際筆數（K 線載入的交易日數）
-      { label: candles.length ? `近 ${candles.length} 個交易日漲跌幅` : '區間漲跌幅', value: pct == null || !Number.isFinite(pct) ? '—' : signedText(pct, 2, '%'), tone: getValueTone(pct) },
-      { label: '區間最高', value: highs.length ? Math.max(...highs).toFixed(2) : '—', tone: 'neutral' },
-      { label: '區間最低', value: lows.length ? Math.min(...lows).toFixed(2) : '—', tone: 'neutral' },
+      { label: candles.length ? `近 ${candles.length} 個交易日漲跌幅` : '區間漲跌幅', value: pct == null || !Number.isFinite(pct) ? '--' : signedText(pct, 2, '%'), tone: getValueTone(pct) },
+      { label: '區間最高', value: highs.length ? Math.max(...highs).toFixed(2) : '--', tone: 'neutral' },
+      { label: '區間最低', value: lows.length ? Math.min(...lows).toFixed(2) : '--', tone: 'neutral' },
     ],
   };
 }
 
 /**
- * 個股關鍵指標：一張只有橫豎細線的燈質表（不另外框成方塊，直接印在頁面底色上）。每一列先寫時間窗（列首），再列三格「標籤靠左、數字靠右」。
- * 桌機每列 4 格（列首＋3），手機 2 欄（列首佔一格），格數剛好整除，不露灰底。
+ * 個股關鍵指標：一張只有橫豎細線的燈質表（不另外框成方塊，直接印在頁面底色上）。先寫時間窗（列首），再列三格「標籤靠左、數字靠右」。
+ * 桌機一列 4 格（列首＋3），手機 2 欄（列首佔一格），格數剛好整除，不露灰底。
+ * 只放 K 線區間的數字；最近交易日的法人合計、RSI、MACD 柱在下方「法人與指標」，不重複（04-S2）。
  */
-export function StockKpiStrip({ priceChart, institutionalLatest, indicatorLatest, chartState, chipsState }: Props) {
-  const rsi = indicatorLatest?.rsi10 ?? null;
-  const zone = rsiZone(rsi);
-  const macd = indicatorLatest?.macd_hist ?? null;
-  const dates = [...new Set([institutionalLatest?.date, indicatorLatest?.date].filter(Boolean))];
-  const groups: Group[] = [
-    { ...rangeGroup(priceChart), state: chartState },
-    {
-      window: '最近交易日',
-      dates: dates.length ? dates.join('／') : undefined,
-      state: chipsState,
-      cells: [
-        {
-          label: '法人合計',
-          value: signedShares(institutionalLatest?.total_institutional_net, '—'),
-          tone: getValueTone(institutionalLatest?.total_institutional_net),
-          hint: '三大法人買賣超',
-        },
-        {
-          label: 'RSI10',
-          value: rsi != null ? rsi.toFixed(1) : '—',
-          tone: zone === 'overbought' || zone === 'oversold' ? 'warning' : 'neutral',
-          hint: '≥70 超買／≤30 超賣',
-        },
-        {
-          label: 'MACD 柱',
-          value: macd != null ? signedText(macd, 3) : '—',
-          tone: getValueTone(macd),
-          hint: '正值偏多／負值偏空',
-        },
-      ],
-    },
-  ];
+export function StockKpiStrip({ priceChart, chartState }: Props) {
+  const groups: Group[] = [{ ...rangeGroup(priceChart), state: chartState }];
 
   return (
     <div className="grid gap-px border-y bg-border" role="group" aria-label="個股關鍵指標">
@@ -128,7 +90,6 @@ export function StockKpiStrip({ priceChart, institutionalLatest, indicatorLatest
                 <dt className="min-w-0">
                   <span className="sr-only">{group.window}</span>
                   <span className="block text-[13px] leading-tight text-subtle">{cell.label}</span>
-                  {cell.hint ? <span className="characteristic mt-0.5 block">{cell.hint}</span> : null}
                 </dt>
                 <dd className={cn('ml-auto font-mono text-[15px] font-semibold whitespace-nowrap tabular-nums', TONE_CLASS[cell.tone])}>{cell.value}</dd>
               </div>

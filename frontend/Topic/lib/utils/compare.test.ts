@@ -17,6 +17,9 @@ import {
   toCompareChartSeries,
 } from './compare';
 import { kdSignal, maPositionSignal, rsiSignal } from './compareSignals';
+import * as compareSignals from './compareSignals';
+import * as indicatorSignals from './indicatorSignals';
+import { fmtAmount, fmtPercent } from './format';
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 const change = (rows: Array<[string, number, number]>): PriceChangeResponse => ({
@@ -102,7 +105,7 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.equal(vm.qualityMeta.alignedDays, 2);
   assert.deepEqual(vm.qualityMeta.samplesBySymbol, { A: 4, B: 2 });
   assert.ok(close(vm.qualityMeta.missingRatioBySymbol.B, 0.5));
-  assert.match(vm.qualityMeta.qualityWarnings.join('\n'), /B 缺少 50.0% 的日漲跌樣本/);
+  assert.match(vm.qualityMeta.qualityWarnings.join('\n'), /B 有 50.0% 的交易日缺資料；缺漏日不計入，最大回撤只用有資料的收盤價計算。/);
   const b = vm.metricsRows[1];
   assert.ok(close(b.maxDrawdownPct as number, (60 / 110 - 1) * 100));
   assert.ok(close(b.maxDailyLossPct as number, 10), 'the missing interval is not a daily decline');
@@ -165,6 +168,18 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.ok(close(ma.value as number, 10));
 }
 
+// 比較頁沿用個股頁的判讀：MACD、KD 是同一個函式，RSI 只多冠「RSI 」（缺值兩邊都寫「RSI 無資料」）
+{
+  assert.equal(compareSignals.macdSignal, indicatorSignals.macdSignal);
+  assert.equal(compareSignals.kdSignal, indicatorSignals.kdSignal);
+  for (const [value, plain] of [[75, '超買'], [25, '超賣'], [50, '中性']] as const) {
+    assert.equal(indicatorSignals.rsiSignal(value).label, plain);
+    assert.deepEqual(rsiSignal(value), { ...indicatorSignals.rsiSignal(value), label: `RSI ${plain}` });
+  }
+  assert.equal(indicatorSignals.rsiSignal(Number.NaN).label, 'RSI 無資料');
+  assert.equal(indicatorSignals.rsiSignal(75, { labelPrefix: 'RSI ' }).label, 'RSI 超買');
+}
+
 // 類別冠軍：有方向的指標依正負上色，波動與相關性、缺值維持中性（決議 D13）
 {
   const metric = (symbol: string, totalReturnPct: number, volatilityPct: number): CompareMetricsRow => ({
@@ -186,12 +201,40 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   );
   assert.deepEqual(tones(falling), {
     bestReturn: 'down', minVolatility: 'neutral', institutionalFavorite: 'down',
-    strongestMomentum: 'neutral', lowestCorrelationPair: 'neutral',
+    strongestMomentum: 'neutral',
   });
-  const rising = buildCategoryLeaders(['A'], [metric('A', 3, 20)], { A: aggregate('A', 500) }, { A: null }, {}, {});
+  // 兩檔只有一組配對：不列「相關性最低組合」（P2-092）
+  assert.equal(falling.some((leader) => leader.id === 'lowestCorrelationPair'), false);
+  assert.equal(falling.find((leader) => leader.id === 'bestReturn')?.value, '−2.00%', 'Leader values use U+2212');
+  assert.equal(falling.find((leader) => leader.id === 'bestReturn')?.title, '區間漲跌幅最高');
+  const rising = buildCategoryLeaders(['A'], [metric('A', 3, 20)], { A: aggregate('A', 500_000) }, { A: null }, {}, {});
   assert.equal(tones(rising).bestReturn, 'up');
   assert.equal(tones(rising).institutionalFavorite, 'up');
+  // P1-21：法人買超不滿 1 張（500 股）寫「不到 1 張」、不上漲跌色
+  const underOneLot = buildCategoryLeaders(['A'], [metric('A', 3, 20)], { A: aggregate('A', 500) }, { A: null }, {}, {});
+  assert.equal(tones(underOneLot).institutionalFavorite, 'neutral');
+  assert.equal(underOneLot.find((leader) => leader.id === 'institutionalFavorite')?.value, '不到 1 張');
   assert.equal(tones(buildCategoryLeaders(['A'], [metric('A', 0, 20)], {}, {}, {}, {})).bestReturn, 'neutral');
+  // 四捨五入後是 0.00%：不帶號、不上漲跌色（顏色跟著畫面上的值）
+  const nearZero = buildCategoryLeaders(['A'], [metric('A', -0.004, 20)], {}, { A: { ma20: 100.004, ma60: 100 } as TechnicalDay }, {}, {});
+  assert.equal(nearZero.find((leader) => leader.id === 'bestReturn')?.value, '0.00%');
+  assert.equal(tones(nearZero).bestReturn, 'neutral');
+  assert.equal(nearZero.find((leader) => leader.id === 'strongestMomentum')?.value, '0.00%');
+  assert.equal(tones(nearZero).strongestMomentum, 'neutral');
+}
+
+// fmtPercent 先四捨五入再決定正負號；fmtAmount 負值也依絕對值縮放
+{
+  assert.equal(fmtPercent(-0.004), '0.00%');
+  assert.equal(fmtPercent(0.004, { sign: true }), '0.00%');
+  assert.equal(fmtPercent(-0.0004, { fromRatio: true, decimals: 1 }), '0.0%');
+  assert.equal(fmtPercent(0.005, { sign: true }), '+0.01%');
+  assert.equal(fmtPercent(-0.006), '-0.01%');
+  assert.equal(fmtPercent(3.456, { sign: true }), '+3.46%');
+  assert.equal(fmtAmount(5e8), '5.00 億元');
+  assert.equal(fmtAmount(-5e8), '-5.00 億元');
+  assert.equal(fmtAmount(-12_345), '-1.23 萬元');
+  assert.equal(fmtAmount(-12.34), '-12 元');
 }
 
 // Unsorted histories align endpoints once; charts, metrics, and leaders agree.
@@ -227,7 +270,7 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   }
   const leaders = buildCategoryLeaders(chart.symbols, vm.metricsRows, {}, {}, vm.correlationMatrix, vm.correlationSamples);
   assert.equal(leaders.find((leader) => leader.id === 'bestReturn')?.symbol, 'A');
-  assert.equal(leaders.find((leader) => leader.id === 'lowestCorrelationPair')?.symbol, '--');
+  assert.equal(leaders.find((leader) => leader.id === 'lowestCorrelationPair'), undefined, 'Two stocks have no correlation ranking');
   assert.ok(close(vm.metricsRows[0].maxDrawdownPct as number, -20));
   assert.ok(close(vm.metricsRows[0].maxDailyGainPct as number, 50));
   assert.equal(vm.metricsRows[0].volatilityPct, null, 'one observed daily interval cannot define sample volatility');
@@ -292,9 +335,10 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
     .find((item) => item.id === 'lowestCorrelationPair');
   assert.equal(leader?.symbol, 'A × C');
   assert.match(leader?.reason ?? '', /20 筆/);
-  const insufficient = buildCategoryLeaders(['A', 'B'], [], {}, {}, matrix, samples)
+  const insufficient = buildCategoryLeaders(['A', 'B', 'C'], [], {}, {}, matrix, { A: { B: 19, C: 5 }, B: { A: 19, C: 3 }, C: { A: 5, B: 3 } })
     .find((item) => item.id === 'lowestCorrelationPair');
   assert.equal(insufficient?.symbol, '--');
+  assert.equal(buildCategoryLeaders(['A', 'B'], [], {}, {}, matrix, samples).some((item) => item.id === 'lowestCorrelationPair'), false);
 }
 
 // A missing institutional observation remains a gap, even between known totals.

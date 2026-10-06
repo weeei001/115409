@@ -54,8 +54,15 @@ class RetrievalResponse(BaseModel):
 
 
 @dataclass
+class RagResult:
+    news_sources: list[dict[str, Any]] = field(default_factory=list)
+    fallback_mode: bool = False
+    status: str = "available"
+    reason: str | None = None
+
+
+@dataclass
 class QuestionSearchResult:
     hits: list[dict[str, Any]] = field(default_factory=list)
     time_from: str | None = None
     time_to: str | None = None
-    fallback_mode: bool = False

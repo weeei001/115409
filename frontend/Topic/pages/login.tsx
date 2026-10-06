@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -23,7 +23,8 @@ import {
 } from '@/features/auth/AuthForm';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '@/features/auth/GoogleSignInButton';
 import { authGoogle, authLogin } from '@/lib/api/auth';
-import { setAuth } from '@/lib/auth/storage';
+import { getStoredUser, getToken, setAuth } from '@/lib/auth/storage';
+import { useAuthAccount } from '@/lib/auth/account';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { ROUTE_PAGE_LABELS } from '@/lib/nav';
 import { cn } from '@/lib/cn';
@@ -50,6 +51,18 @@ export default function LoginPage() {
   const registerHref = useMemo(() => (returnUrl ? `/register?returnUrl=${encodeURIComponent(returnUrl)}` : '/register'), [returnUrl]);
 
   const redirectAfterLogin = useCallback(() => router.push(returnUrl ?? '/'), [router, returnUrl]);
+
+  // 已登入時打開登入頁（例如另一個分頁還停在未登入的收藏頁，按了「登入」）：
+  // 有 returnUrl 就直接回去（03-F17）；returnUrl 已先經過 safeReturnUrl（P1-33），只會是站內路徑。
+  // 只在頁面就緒時判斷一次，在這頁登入成功後的導頁由 redirectAfterLogin 負責
+  const checkedSignedIn = useRef(false);
+  useEffect(() => {
+    if (!router.isReady || checkedSignedIn.current) return;
+    checkedSignedIn.current = true;
+    if (getToken() && returnUrl) void router.replace(returnUrl);
+  }, [router, returnUrl]);
+  const account = useAuthAccount();
+  const signedInEmail = account ? getStoredUser()?.email ?? null : null;
 
   const handleGoogleCredential = useCallback(
     async (credential: string) => {
@@ -96,12 +109,12 @@ export default function LoginPage() {
         <title>股海明燈｜登入</title>
         <meta name="description" content="登入股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={LogIn} title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬投資" />
+      <SiteHeader title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬投資" />
 
       <AuthLedger
         aside={
           // 亮著燈的那扇窗：有人在值班。說明寫副標沒說的事——登入狀態留在哪裡
-          <AuthPlate poster={3} caption="觀測室的窗" ratio="photo">
+          <AuthPlate poster={3} caption="觀測台的窗" ratio="photo">
             登入狀態存在這台瀏覽器，關掉分頁也還在；共用電腦用完記得從選單登出。
           </AuthPlate>
         }
@@ -122,7 +135,11 @@ export default function LoginPage() {
               </>
             }
           >
-            {returnUrl ? (
+            {account && !returnUrl ? (
+              <Notice className="mt-3 mb-1">
+                你目前已登入{signedInEmail ? `（${signedInEmail}）` : ''}。在這裡登入其他帳號，會取代目前的登入。
+              </Notice>
+            ) : returnUrl ? (
               <Notice className="mt-3 mb-1">登入後會回到「{returnPageName(returnUrl)}」。</Notice>
             ) : null}
             <FormError id="login-form-error" message={error} />

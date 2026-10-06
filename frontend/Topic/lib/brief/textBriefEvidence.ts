@@ -1,5 +1,5 @@
 import type { DailyEvidenceValue, EvidenceItem } from '../types/textBrief';
-import { fmtAmount, fmtNum, fmtPercent } from '../utils/format';
+import { fmtAmount, fmtNum, fmtPercent, fmtVolume, lotsToShares, signedShares } from '../utils/format';
 import { safeHttpUrl } from '../utils/url';
 
 /**
@@ -30,7 +30,7 @@ export const EVIDENCE_CATEGORY: Record<EvidenceCategory, EvidenceCategoryMeta> =
   },
   guidance: {
     label: '法說／財測媒體轉述',
-    origin: '媒體轉述的公司財測或法說內容，屬於未來展望，不是已實現的財務結果。',
+    origin: '媒體轉述的公司財測或法說內容，屬於未來展望，不是公司實際公布的財務結果。',
   },
   news: {
     label: '財經新聞',
@@ -78,7 +78,7 @@ export interface ResolvedEvidence {
   url: string | null;
   /** Immutable local article revision, separate from the publisher's mutable page. */
   savedVersionUrl: string | null;
-  /** 新聞性質；guidance 要另外標示「非已實現數據」 */
+  /** 新聞性質；guidance 要另外標示「非實際數字」 */
   kind: string | null;
   /** 日期晚於 as_of_date：資料有問題，不可當成可點擊來源 */
   futureDated: boolean;
@@ -174,7 +174,7 @@ function dailyMetrics(value: DailyEvidenceValue): EvidenceMetric[] {
     metrics.push({ name: '漲跌幅', value: fmtPercent(value.chg_pct, { sign: true }) });
   }
   if (value.vol_lots != null) {
-    metrics.push({ name: '成交量', value: `${fmtNum(value.vol_lots)} 張` });
+    metrics.push({ name: '成交量', value: fmtVolume(lotsToShares(value.vol_lots)) });
   }
   if (value.vol_vs_ma5_pct != null) {
     metrics.push({
@@ -185,10 +185,10 @@ function dailyMetrics(value: DailyEvidenceValue): EvidenceMetric[] {
   if (value.foreign_net_lots != null) {
     metrics.push({
       name: '外資買賣超',
-      value: `${value.foreign_net_lots > 0 ? '+' : ''}${fmtNum(value.foreign_net_lots)} 張`,
+      value: signedShares(lotsToShares(value.foreign_net_lots)),
     });
   }
-  for (const [field, name] of [['macd', 'MACD'], ['macd_signal', 'MACD 訊號線'], ['macd_hist', 'MACD 柱狀體']] as const) {
+  for (const [field, name] of [['macd', 'MACD'], ['macd_signal', 'MACD 訊號線'], ['macd_hist', 'MACD 柱']] as const) {
     if (value[field] != null) metrics.push({ name, value: String(value[field]) });
   }
   return metrics;
@@ -204,9 +204,11 @@ function scalarMetrics(item: EvidenceItem, meta: FieldMeta): EvidenceMetric[] {
     } else if (item.field === 'revenue_monthly') {
       // 單位換算後保留原始數字，避免「顯示數字與證據不一致」
       metrics.push({ name: meta.name, value: `${fmtAmount(raw)}（${fmtNum(raw)} 元）` });
+    } else if (meta.unit === '張') {
+      // 買賣超張數：帶正負號、負號 U+2212，和個股頁法人卡同一個 helper（DESIGN.md 第 7 節）
+      metrics.push({ name: meta.name, value: signedShares(lotsToShares(raw)) });
     } else {
-      const signed = meta.unit === '張' && raw > 0 ? '+' : '';
-      metrics.push({ name: meta.name, value: `${signed}${fmtNum(raw)}${meta.unit ? ` ${meta.unit}` : ''}` });
+      metrics.push({ name: meta.name, value: `${fmtNum(raw)}${meta.unit ? ` ${meta.unit}` : ''}` });
     }
   } else if (raw != null && typeof raw !== 'object') {
     metrics.push({ name: meta.name, value: String(raw) });
@@ -219,7 +221,7 @@ function scalarMetrics(item: EvidenceItem, meta: FieldMeta): EvidenceMetric[] {
     metrics.push({ name: '近一年位階', value: `第 ${item.pct_rank_1y} 百分位` });
   }
   if (item.sample_count != null) {
-    metrics.push({ name: '估值樣本', value: `${item.sample_count} 筆（${item.window_start ?? '未知'} 至 ${item.window_end ?? '未知'}）` });
+    metrics.push({ name: '估值樣本', value: `${item.sample_count} 筆（${item.window_start ?? '未知'} → ${item.window_end ?? '未知'}）` });
   }
   if (item.available_at) metrics.push({ name: '保守可用日', value: item.available_at });
   if (item.last4q?.length) {

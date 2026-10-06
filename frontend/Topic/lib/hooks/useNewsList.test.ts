@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { buildFetchParams } from './useNewsList';
+import { buildFetchParams, newsListErrorKind, withFixedNewsFilters } from './useNewsList';
+import { ApiRequestError } from '../api/client';
+import { parseNewsTime, validateNewsTimeRange } from '../utils/newsFilters';
+import { formatDate, formatDateTime, parseNewsDate } from '../utils/date';
 import { visibleImpacts } from '../utils/newsImpact';
 import type { News, NewsImpact } from '../types/api';
 
@@ -14,7 +17,49 @@ assert.equal(params.importance, 'high');
 assert.equal(params.relation, 'industry_context');
 assert.equal(params.stock, '2330');
 assert.ok(params.start_time?.includes('2026-09-01'));
+
+// The home list has no fixed relation, so a relation restored from ?newsView= survives; a fixed one still wins.
+assert.deepEqual(withFixedNewsFilters({ relation: 'market_context', topic: 'ai' }, {}),
+  { relation: 'market_context', topic: 'ai', stock: undefined });
+assert.equal(withFixedNewsFilters({ relation: 'market_context' }, { fixedStock: '2330', fixedRelation: 'direct' }).relation, 'direct');
+assert.equal(withFixedNewsFilters(undefined, {}).relation, undefined);
 assert.equal(buildFetchParams(1, 8, { start_time: '2026-09-25', end_time: '2026-09-01' }, {}).error !== null, true);
+
+// Start time later than min(end, now) is rejected before the request (backend: end = min(end_time, now)).
+const now = new Date('2026-10-06T10:00:00+08:00');
+assert.equal(validateNewsTimeRange('2026-10-01T09:00:00', undefined, now), null, 'past start, open end');
+assert.equal(validateNewsTimeRange('2026-10-06T10:00:00', undefined, now), null, 'start equal to now');
+assert.equal(validateNewsTimeRange('2027-01-01T09:00:00', undefined, now), '開始時間不能晚於現在，請重新選擇。', 'future start, open end (05-D1)');
+assert.equal(validateNewsTimeRange('2027-01-01T09:00:00', '2027-02-01T09:00:00', now), '開始時間不能晚於現在，請重新選擇。', 'start and end both in the future');
+assert.equal(validateNewsTimeRange('2026-10-05T09:00:00', '2026-10-01T09:00:00', now), '開始時間不能晚於結束時間，請重新選擇。');
+assert.equal(validateNewsTimeRange('2026-10-01', '2026-10-05', now), null, 'date-only values');
+assert.equal(validateNewsTimeRange(undefined, '2026-10-05T09:00:00', now), null, 'end only');
+assert.equal(validateNewsTimeRange('not-a-date', undefined, now), '時間格式不正確，請重新選擇。');
+// Values without a zone are Taiwan time, like the backend, whatever the browser zone is.
+assert.equal(parseNewsTime('2026-10-06T10:00'), Date.parse('2026-10-06T10:00:00+08:00'));
+assert.equal(parseNewsTime('2026-10-06'), Date.parse('2026-10-06T00:00:00+08:00'));
+// 顯示新聞時間也用同一規則：不帶時區的 pub_time 是台北時間（用 TZ=America/Los_Angeles 跑也要過）
+assert.equal(parseNewsDate('2025-10-18 22:03:55').getTime(), Date.parse('2025-10-18T22:03:55+08:00'));
+assert.equal(parseNewsDate('2025-10-18T22:03:55').getTime(), Date.parse('2025-10-18T22:03:55+08:00'));
+assert.equal(parseNewsDate('2025-10-18T22:03:55.123456').getTime(), Date.parse('2025-10-18T22:03:55.123+08:00'));
+assert.equal(parseNewsDate('2025-10-18T14:03:55+00:00').getTime(), Date.parse('2025-10-18T22:03:55+08:00'));
+assert.equal(formatDateTime('2025-10-18 22:03:55'), '2025/10/18 22:03');
+assert.equal(formatDate('2025-10-18 23:30:00'), '2025/10/18');
+assert.equal(formatDate('2025-10-18T20:00:00+00:00'), '2025/10/19', 'formatDate uses the Taipei calendar day');
+assert.notEqual(validateNewsTimeRange('2026-10-06T10:01', undefined, now), null, 'one minute after now');
+const future = buildFetchParams(1, 8, { start_time: '2027-01-01T09:00' }, { fixedStock: '2330', retrieval: true }, now);
+assert.equal(future.error, '開始時間不能晚於現在，請重新選擇。');
+assert.deepEqual(future.params, {});
+assert.equal(buildFetchParams(1, 8, { start_time: '2026-10-01T09:00' }, {}, now).error, null);
+
+// Only filter problems offer「清除篩選」; offline, timeouts and 5xx keep「重試」.
+assert.equal(newsListErrorKind(new ApiRequestError('x', 400)), 'filter');
+assert.equal(newsListErrorKind(new ApiRequestError('x', 422)), 'filter');
+assert.equal(newsListErrorKind(new ApiRequestError('x', 500)), 'request');
+assert.equal(newsListErrorKind(new ApiRequestError('x', 404)), 'request');
+assert.equal(newsListErrorKind(new ApiRequestError('x')), 'request', 'no response (offline, timeout)');
+assert.equal(newsListErrorKind(new Error('x')), 'request');
+
 const news = { target_industries: ['24'], event_analysis: { status: 'success', impacts: [
   { target_type: 'industry', target_id: 'shipping' },
   { target_type: 'industry', target_id: '24' },

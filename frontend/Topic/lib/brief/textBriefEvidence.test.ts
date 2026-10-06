@@ -83,7 +83,7 @@ const AS_OF = '2026-09-03';
       '漲跌幅 +0.21%',
       '成交量 13,477 張',
       '量能較五日均量 -43%',
-      '外資買賣超 -961 張',
+      '外資買賣超 −961 張',
     ]
   );
 
@@ -164,7 +164,7 @@ const AS_OF = '2026-09-03';
 
   const claims = buildClaimIndex(brief);
   assert.deepEqual(claims.get('cs_01')?.evidenceIds, ['d_40', 'lt_04']);
-  assert.equal(claims.get('rk_01')?.section, '主要風險');
+  assert.equal(claims.get('rk_01')?.section, '情境風險');
   assert.equal(claims.get('fv:short_1_5')?.section, '短線 1–5 日');
 
   // 點證據 → 反查所有引用它的結論（順序＝畫面順序）
@@ -193,6 +193,7 @@ const AS_OF = '2026-09-03';
   assert.equal(byKey.momentum.levelLabel, '普通'); // 相對季線 +0.1%
   assert.equal(byKey.chips.levelLabel, '買超'); // 近十日 +3,989 張
   assert.equal(byKey.risk.levelLabel, 'AI 列出 3 項');
+  assert.equal(byKey.risk.label, '情境風險');
 
   // 門檻邊界
   const strong = buildFacets([
@@ -212,6 +213,13 @@ const AS_OF = '2026-09-03';
   assert.deepEqual(
     unknown.map((facet) => facet.levelLabel),
     ['資料不足', '資料不足', '資料不足', '資料不足', '未列出']
+  );
+  // 缺資料時要寫出缺什麼，不提內部的「證據目錄」；情境風險空的時候不能說成沒有風險
+  assert.ok(unknown.every((facet) => !facet.basis.includes('證據目錄')));
+  assert.equal(unknown.find((facet) => facet.key === 'risk')!.basis, '本次未列出或未通過檢查（不代表沒有風險）');
+  assert.equal(
+    buildFacets([{ id: 'fd_06', field: 'per', value: 28.98 }]).find((facet) => facet.key === 'valuation')!.basis,
+    '缺少近一年百分位，無法分級'
   );
 
   // Chart selection must not supply evidence for a separately dated snapshot.
@@ -254,7 +262,7 @@ console.log('textBrief evidence / claims / facets tests passed');
 
 {
   const item = resolveEvidenceItem({ id: 'd_40', field: 'daily_timeline', value: { close: 2475, macd: 12, macd_signal: 6.19, macd_hist: 5.81 } });
-  assert.ok(item.metrics.some(metric => metric.name === 'MACD 柱狀體' && metric.value === '5.81'));
+  assert.ok(item.metrics.some(metric => metric.name === 'MACD 柱' && metric.value === '5.81'));
   assert.ok(item.metrics.some(metric => metric.name === 'MACD 訊號線' && metric.value === '6.19'));
   assert.ok(item.metrics.some(metric => metric.name === '收盤價' && metric.value === '2475 元'));
   const empty = {} as Brief;

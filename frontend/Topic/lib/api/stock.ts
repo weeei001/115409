@@ -15,6 +15,7 @@ import type {
   VolumeAnalysisResponse,
 } from '../types/api';
 
+// 這裡只擋會弄壞 URL 路徑的字元（英數 1–10 碼），比 isTaiwanStockCode 寬：API 層不判斷是不是台股代號
 function stockPathSegment(symbol: string): string {
   if (typeof symbol !== 'string' || !/^[A-Za-z0-9]{1,10}$/.test(symbol)) {
     throw new Error('Invalid stock symbol');

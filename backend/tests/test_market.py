@@ -110,6 +110,15 @@ def test_statistics_comparison_and_price_change_preserve_nulls(client, db_sessio
     assert [row["change_percent"] for row in changes] == [0.0, 3.33]
 
 
+def test_price_change_first_row_uses_its_own_change(client, db_session):
+    first, last = date(2026, 5, 19), date(2026, 5, 20)
+    db_session.add_all([price(first, "100", change=Decimal("-20")), price(last, "103.33")])
+    db_session.commit()
+    params = {"start_date": first.isoformat(), "end_date": last.isoformat()}
+    changes = client.get("/stocks/2330/chart/price-change", params=params).json()["data"]
+    assert [row["change_percent"] for row in changes] == [-16.67, 3.33]
+
+
 def test_integrated_chart_partial_data_and_exact_join(client, db_session):
     day = date(2026, 5, 20)
     db_session.add_all([price(day), price(day - timedelta(days=1)),
@@ -125,8 +134,7 @@ def test_integrated_chart_partial_data_and_exact_join(client, db_session):
     assert "boll_mid20" not in result["technical_indicators"][0]
     technical = client.get("/stocks/2330/technical-indicators", params=params).json()
     assert technical["data"][0]["boll_mid20"] == "90.12"
-    chips = client.get("/stocks/2330/volume-with-chips", params=params).json()
-    assert chips == client.get("/stocks/2330/chart/chips-volume", params=params).json()
+    assert client.get("/stocks/2330/chart/chips-volume", params=params).status_code == 404
     assert client.get("/stocks/2330/integrated-chart", params={
         "start_date": "2026-05-19", "end_date": "2026-05-19"}).json()["institutional_trades"] == []
 

@@ -11,13 +11,13 @@ from app.features.chat.schemas import SourceChunk
 CATALOG = {"2330": {"name": "台積電"}, "2317": {"name": "鴻海"}, "2454": {"name": "聯發科"}}
 
 
-def personal_source():
+def personal_source(as_of="2026-10-05T09:00:00+08:00"):
     payload = {
         "favorites": [{"symbol": symbol, "name": info["name"]} for symbol, info in CATALOG.items()],
         "portfolio": {
             "initialized": True, "available_cash": 20000, "cash": 25000,
             "equity": 50000, "holdings_value": 25000, "total_pnl": 0,
-            "as_of": "2026-10-05T09:00:00+08:00",
+            "as_of": as_of,
             "cash_allocation_pct": 50, "available_cash_allocation_pct": 40,
             "reserved_cash_allocation_pct": 10, "holdings_allocation_pct": 50,
             "positions": [
@@ -54,6 +54,13 @@ def test_account_observations_do_not_inherit_a_preceding_stock_or_market_date(an
 ])
 def test_separating_account_context_preserves_direct_date_and_value_checks(answer):
     assert not numeric_claims_supported(answer, [personal_source()], CATALOG)
+
+
+def test_utc_snapshot_is_dated_by_the_taipei_day():
+    # 台北 10/6 02:00 的快照，UTC 仍是 10/5。
+    source = personal_source(as_of="2026-10-05T18:00:00+00:00")
+    assert numeric_claims_supported("2026-10-06可用資金20000元。", [source], CATALOG)
+    assert not numeric_claims_supported("2026-10-05可用資金20000元。", [source], CATALOG)
 
 
 @pytest.mark.parametrize("answer", [

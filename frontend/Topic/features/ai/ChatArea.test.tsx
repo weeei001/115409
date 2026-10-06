@@ -29,4 +29,13 @@ assert.equal((withoutLatestSources.match(/aria-controls=/g) ?? []).length, 1);
 const dataOnly = render([message('empty', '', { dashboard })]);
 assert.equal((dataOnly.match(/aria-controls=/g) ?? []).length, 1);
 assert.match(dataOnly, />資料<\/button>/);
+// 資料面板的來源編號和所屬回覆的引用同一組號碼：正文先引用 S5 → 回覆與面板都顯示 [1]
+const sources5 = ['S1', 'S5'].map((id) => ({ ...source, citation_id: id, title: `來源 ${id}` }));
+const labelled = render([message('dash', '先看 [S5] 再看 [S1]', { sources: sources5, dashboard: { title: 'D', blocks: [{ ...dashboard.blocks[0], source_ids: ['S5', 'S1'] }] } })]);
+const panel = labelled.slice(labelled.indexOf('aria-label="分析資料面板"'));
+assert.match(panel, /資料來源：<\/span><span[^>]*>\[1\]<\/span><span[^>]*>\[2\]<\/span>/);
+assert.doesNotMatch(panel, /\[S[15]\]/);
+const waiting = renderToStaticMarkup(<ChatArea messages={[{ id: 'q', role: 'user', content: '問題', timestamp: '' }]} loading streamingMessageId={null} exampleQuestions={[]} onSend={() => undefined} />);
+assert.match(waiting, /正在查詢資料…/);
+assert.doesNotMatch(waiting, /系統資料/);
 console.log('Chat area navigation fixtures passed: latest answer/source targets, actual displayed dashboard, short/empty/missing targets, and visible focus.');

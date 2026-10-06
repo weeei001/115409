@@ -44,7 +44,7 @@ const many = groupImpactsByTarget([
 assert.deepEqual(many.map((g) => g.key), ['company:2330', 'market:TW', 'company:2317']);
 assert.equal(many[0].eventCount, 1, 'Two impacts from the same event count as one event');
 assert.equal(many[0].impacts.length, 2);
-assert.equal(many[1].label, '台股大盤');
+assert.equal(many[1].label, '大盤', '影響範圍統一叫「大盤／產業／個股」');
 assert.equal(many.reduce((n, g) => n + g.impacts.length, 0), 4);
 assert.deepEqual(groupImpactsByTarget([]), []);
 console.log('News impact grouping (one tag per target, mixed is neutral, nothing dropped) checks passed.');

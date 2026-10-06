@@ -95,14 +95,6 @@ def get_institutional_trades(
     return service.institutional_trades(db, symbol, start_date, end_date)
 
 
-@router.get("/{symbol}/chart/chips-volume", response_model=s.ChipsVolumeChartResponse,
-            responses={404: {"description": "Not found"}})
-def get_chips_volume_chart(
-    symbol: str, start_date: date = Query(...), end_date: date = Query(...), db: Session = Depends(get_db),
-):
-    return service.volume_with_chips(db, symbol, start_date, end_date)
-
-
 @router.get("/{symbol}/volume-with-chips", response_model=s.ChipsVolumeChartResponse,
             responses={404: {"description": "Not found"}})
 def get_volume_with_chips(

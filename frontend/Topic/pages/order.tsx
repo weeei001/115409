@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { BookOpen, RefreshCw, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Expandable, FoldSection } from '@/components/common/CollapsibleSection';
@@ -13,12 +13,14 @@ import { Button } from '@/components/ui/button';
 import { LoginPrompt } from '@/features/auth/LoginPrompt';
 import { PaperFunds } from '@/features/order/PaperFunds';
 import { PaperOrderDraft } from '@/features/order/PaperOrderDraft';
-import { acknowledgePaperReview, cancelPaperOrder, fetchPaperPortfolio, paperDiscussion, paperDateTime, paperMoney, paperStatus, type PaperDraft, type PaperOrder, type PaperPortfolio, type PaperReview } from '@/lib/api/paperPortfolio';
+import { acknowledgePaperReview, cancelPaperOrder, fetchPaperPortfolio, paperDiscussion, paperDateTime, paperMoney, paperMoneyWithUnit, paperStatus, positionReturnPct, PAPER_PORTFOLIO_PROMPT, type PaperDraft, type PaperOrder, type PaperPortfolio, type PaperReview } from '@/lib/api/paperPortfolio';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { Badge } from '@/components/ui/badge';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
-import { notificationAccountSnapshot, subscribeNotificationAccount } from '@/lib/notifications/account';
+import { useAuthAccount } from '@/lib/auth/account';
+import { withSign } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
+import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
 
 const pageClass = 'mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10';
@@ -28,8 +30,7 @@ const defRow = 'flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 g
 
 /** 損益：依正負上色並帶正負號（紅漲綠跌）；缺行情時寫「等待行情」 */
 function Pnl({ value, className }: { value: number | null; className?: string }) {
-  const sign = value == null ? '' : value > 0 ? '+' : value < 0 ? '−' : '';
-  return <span className={cn('font-mono tabular-nums', valueToneText(value), className)}>{value == null ? '等待行情' : sign + paperMoney(Math.abs(value))}</span>;
+  return <span className={cn('font-mono tabular-nums', valueToneText(value), className)}>{value == null ? '等待行情' : withSign(value, paperMoney(Math.abs(value)))}</span>;
 }
 
 function Percent({ value }: { value: number | null | undefined }) {
@@ -43,7 +44,7 @@ function StatusBadge({ status }: { status: PaperOrder['status'] }) {
 
 export default function OrderPage() {
   const router = useRouter();
-  const account = useSyncExternalStore(subscribeNotificationAccount, notificationAccountSnapshot, () => '');
+  const account = useAuthAccount();
   const [ready, setReady] = useState(false);
   const [snapshot, setSnapshot] = useState<{ account: string; data: PaperPortfolio } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -87,6 +88,12 @@ export default function OrderPage() {
     catch (err) { if (accountRef.current === owner) setError(userFacingMessage(err, '操作失敗，請稍後再試。')); }
     finally { if (accountRef.current === owner) { mutationRef.current = false; setBusy(null); } }
   };
+  /** 取消委託無法還原：先確認（P2-120、04-O4） */
+  const cancelOrder = (order: PaperOrder) => {
+    const side = order.side === 'buy' ? '買進' : '賣出';
+    if (!window.confirm(`確定取消 ${label(order.symbol)} 的${side}委託？取消後無法還原，要再下單得重新送出。`)) return;
+    void mutate(order.id, () => cancelPaperOrder(order.id));
+  };
   const openDraft = (value: Partial<PaperDraft>) => {
     setDraft({ key: Date.now(), value });
     window.setTimeout(() => { draftRef.current?.scrollIntoView({ block: 'nearest' }); draftRef.current?.focus(); }, 0);
@@ -120,7 +127,7 @@ export default function OrderPage() {
       <p className="mt-2 text-[15px] leading-[1.8] whitespace-pre-wrap">{review.reason || '這筆投資尚未填寫理由。'}</p>
       {review.observation ? <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">觀察重點：{review.observation}</p> : null}
       <dl className="mt-3 grid gap-px border-y bg-border text-sm sm:grid-cols-2">
-        <div className={cn(defRow, 'sm:pr-4')}><dt className="text-muted-foreground">期間漲跌（{review.review_after_days} 個交易日）</dt><dd><Percent value={review.price_return_pct} /></dd></div>
+        <div className={cn(defRow, 'sm:pr-4')}><dt className="text-muted-foreground">區間漲跌幅（{review.review_after_days} 個交易日）</dt><dd><Percent value={review.price_return_pct} /></dd></div>
         <div className={cn(defRow, 'sm:pl-4')}><dt className="text-muted-foreground">同期大盤</dt><dd><Percent value={review.benchmark_return_pct} /></dd></div>
       </dl>
       {review.comparison_note ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{review.comparison_note}</p> : null}
@@ -138,11 +145,11 @@ export default function OrderPage() {
           <p className="flex flex-wrap items-center gap-2 text-sm font-medium"><span className="font-mono tabular-nums">{order.symbol}</span>{names[order.symbol] ?? ''} · {order.side === 'buy' ? '買進' : '賣出'} <StatusBadge status={order.status} /></p>
           <p className="mt-1 text-[13px] text-subtle">{order.status === 'filled'
             ? <><span className="font-mono tabular-nums">{order.filled_quantity?.toLocaleString()}</span> 股 × <span className="font-mono tabular-nums">{paperMoney(order.fill_price)}</span> 元 · {order.trade_date} 成交</>
-            : order.side === 'buy' ? <>買入金額 <span className="font-mono tabular-nums">{paperMoney(order.budget)}</span> 元</> : <><span className="font-mono tabular-nums">{order.quantity?.toLocaleString()}</span> 股</>}</p>
+            : order.side === 'buy' ? <>買進金額 <span className="font-mono tabular-nums">{paperMoney(order.budget)}</span> 元</> : <><span className="font-mono tabular-nums">{order.quantity?.toLocaleString()}</span> 股</>}</p>
           <p className="characteristic mt-0.5">送出 {paperDateTime(order.created_at)}</p>
           {order.status === 'pending' && order.pending_reason ? <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{order.pending_reason}</p> : null}
         </div>
-        {order.status === 'pending' ? <Button variant="outline" size="sm" disabled={busy !== null} aria-busy={busy === order.id || undefined} onClick={() => void mutate(order.id, () => cancelPaperOrder(order.id))}>{busy === order.id ? '取消中…' : '取消委託'}</Button> : null}
+        {order.status === 'pending' ? <Button variant="outline" size="sm" disabled={busy !== null} aria-busy={busy === order.id || undefined} onClick={() => cancelOrder(order)}>{busy === order.id ? '取消中…' : '取消委託'}</Button> : null}
       </div>
       {order.reason ? <Expandable className="mt-3" expandLabel="當時的想法" collapseLabel="收起當時的想法" contentClassName="px-3 pt-3 text-sm">
         <p className="leading-relaxed whitespace-pre-wrap">{order.reason}</p>
@@ -165,11 +172,12 @@ export default function OrderPage() {
   if (!ready) {
     content = <div className="border-t border-border-strong"><LoadingRows label="確認登入狀態中…" className="h-[176px]" /></div>;
   } else if (!account) {
-    content = <LoginPrompt title="用自己的預算，開始練習投資" action="登入並開始" returnUrl="/order">設定模擬資金，和 AI 討論你關注的股票，再決定怎麼買。交易與決策紀錄會存在你的帳戶裡。</LoginPrompt>;
+    // 登入後回到原本的網址：通知的回顧連結（?review=）不會遺失（P2-121、03-F18）
+    content = <LoginPrompt title="用自己的預算，開始練習投資" action="登入並開始" returnUrl={safeReturnUrl(router.asPath) ?? '/order'}>設定模擬資金，和 AI 整理你收藏的股票資料，再決定怎麼買。交易與決策紀錄會存在你的帳號裡。</LoginPrompt>;
   } else if (!data) {
     content = error
       ? <Notice tone="danger" action={retry}>{error}</Notice>
-      : <div className="border-t border-border-strong"><LoadingRows label="讀取模擬投資中…" className="h-[176px]" /></div>;
+      : <div className="border-t border-border-strong"><LoadingRows label="載入模擬投資中…" className="h-[176px]" /></div>;
   } else if (!data.initialized) {
     content = (
       <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
@@ -192,8 +200,8 @@ export default function OrderPage() {
             stamp={<span className="inline-flex items-center gap-1.5"><LightGlyph state={state} />{state === 'loading' ? '更新中' : state === 'error' ? '更新失敗' : marketDate ? `持股依 ${marketDate} 收盤估值` : '已更新'}</span>}
             // 手機：燈質列一行、按鈕另起一行並排滿寬；sm 以上回到標題列右側
             actions={<div className="flex basis-full gap-2 sm:basis-auto">
-              <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-none"><Link href={{ pathname: '/ai', query: { prompt: '請參考我的模擬投資可用資金、持股與收藏股票，協助我討論下一步投資安排。' } }}>與 AI 討論</Link></Button>
-              <Button size="sm" variant={draft ? 'outline' : 'default'} className="flex-1 sm:flex-none" onClick={() => openDraft({ side: 'buy' })}>模擬買入</Button>
+              <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-none"><Link href={{ pathname: '/ai', query: { prompt: PAPER_PORTFOLIO_PROMPT } }}>與 AI 討論</Link></Button>
+              <Button size="sm" variant={draft ? 'outline' : 'default'} className="flex-1 sm:flex-none" onClick={() => openDraft({ side: 'buy' })}>模擬買進</Button>
               <Button variant="ghost" size="icon" onClick={() => void load()} disabled={loading} aria-label="重新整理" className="border border-transparent hover:border-border-strong"><RefreshCw aria-hidden /></Button>
             </div>}
           >
@@ -233,6 +241,7 @@ export default function OrderPage() {
               ) : data.positions.map((position) => {
                 const latest = data.orders.find((order) => order.symbol === position.symbol && order.side === 'buy' && order.status === 'filled');
                 const sellable = position.quantity - position.reserved_quantity;
+                const returnPct = positionReturnPct(position);
                 return (
                   <LedgerPanel key={position.symbol}>
                     <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
@@ -241,20 +250,22 @@ export default function OrderPage() {
                         <p className="characteristic mt-0.5">{position.quantity.toLocaleString()} 股{position.reserved_quantity ? ` · ${position.reserved_quantity.toLocaleString()} 股賣出委託中` : ''}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-mono text-lg font-semibold tabular-nums">{paperMoney(position.market_value)}<span className="ml-1 text-xs font-normal text-muted-foreground">元</span></p>
-                        <p className="mt-0.5 text-[13px] text-muted-foreground">未實現損益 <Pnl value={position.unrealized_pnl} /></p>
+                        <p className="font-mono text-lg font-semibold tabular-nums">
+                          {position.market_value == null ? '等待行情' : <>{paperMoney(position.market_value)}<span className="ml-1 text-xs font-normal text-muted-foreground">元</span></>}
+                        </p>
+                        <p className="mt-0.5 text-[13px] text-muted-foreground">未實現損益 <Pnl value={position.unrealized_pnl} /> · 報酬率 <Percent value={returnPct} /></p>
                       </div>
                     </div>
-                    <Expandable className="mt-3" expandLabel="持股詳情與投資想法" collapseLabel="收起持股詳情" contentClassName="px-3 pt-3 text-sm">
-                      <dl className="grid gap-px border-y bg-border sm:grid-cols-2">
-                        <div className={cn(defRow, 'sm:pr-4')}><dt className="text-muted-foreground">平均成本</dt><dd className="font-mono tabular-nums">{paperMoney(position.average_cost)} 元</dd></div>
-                        <div className={cn(defRow, 'sm:pl-4')}><dt className="text-muted-foreground">最近收盤</dt><dd className="font-mono tabular-nums">{position.market_price == null ? '等待行情' : `${paperMoney(position.market_price)} 元 · ${position.market_date}`}</dd></div>
-                      </dl>
-                      <p className="mt-3 leading-relaxed whitespace-pre-wrap">{latest?.reason || '還沒留下投資想法，可以與 AI 一起討論。'}</p>
+                    <dl className="mt-3 grid gap-px border-y bg-border text-sm sm:grid-cols-2">
+                      <div className={cn(defRow, 'sm:pr-4')}><dt className="text-muted-foreground">平均成本</dt><dd className="font-mono tabular-nums">{paperMoneyWithUnit(position.average_cost)}</dd></div>
+                      <div className={cn(defRow, 'sm:pl-4')}><dt className="text-muted-foreground">最近收盤</dt><dd className="font-mono tabular-nums">{position.market_price == null ? '等待行情' : `${paperMoneyWithUnit(position.market_price)} · ${position.market_date}`}</dd></div>
+                    </dl>
+                    <Expandable className="mt-3" expandLabel="投資想法" collapseLabel="收起投資想法" contentClassName="px-3 pt-3 text-sm">
+                      <p className="leading-relaxed whitespace-pre-wrap">{latest?.reason || '還沒留下投資想法，可以與 AI 一起討論。'}</p>
                     </Expandable>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Button asChild variant="outline" size="sm"><Link href={paperDiscussion(position.symbol)}>與 AI 討論</Link></Button>
-                      <Button variant="outline" size="sm" aria-label={`買入 ${label(position.symbol)}`} onClick={() => openDraft({ symbol: position.symbol, side: 'buy' })}>買入</Button>
+                      <Button variant="outline" size="sm" aria-label={`買進 ${label(position.symbol)}`} onClick={() => openDraft({ symbol: position.symbol, side: 'buy' })}>買進</Button>
                       <Button variant="outline" size="sm" aria-label={`賣出 ${label(position.symbol)}`} disabled={sellable <= 0} onClick={() => openDraft({ symbol: position.symbol, side: 'sell', quantity: sellable })}>賣出</Button>
                     </div>
                   </LedgerPanel>
@@ -263,7 +274,7 @@ export default function OrderPage() {
             </Ledger>
 
             <Ledger aria-labelledby="reviews-heading" title={<span id="reviews-heading" className="scroll-mt-24">投資回顧</span>} stamp={due.length ? `${due.length} 筆待回顧` : '沒有待回顧'}>
-              {due.length ? due.map(reviewPanel) : <LedgerPanel padded={false}><EmptyState>目前沒有待回顧的投資。買進成交後，到了設定的交易日數會出現在這裡。</EmptyState></LedgerPanel>}
+              {due.length ? due.map(reviewPanel) : <LedgerPanel padded={false}><EmptyState>目前沒有待回顧的投資。買進成交後，到了回顧日（預設第 20 個交易日）會出現在這裡。</EmptyState></LedgerPanel>}
             </Ledger>
 
             <Ledger aria-labelledby="orders-heading" title={<span id="orders-heading">交易紀錄</span>} stamp={pendingOrders.length ? `${pendingOrders.length} 筆待成交` : `共 ${data.orders.length} 筆`}>
@@ -287,7 +298,7 @@ export default function OrderPage() {
 
   return <>
     <Head><title>股海明燈｜模擬投資</title><meta name="description" content="用自己的投資預算，與 AI 一起練習投資。" /></Head>
-    <SiteHeader icon={BookOpen} title="模擬投資" subtitle="從你的預算開始，練習每一次投資決定" />
+    <SiteHeader title="模擬投資" subtitle="從你的預算開始，練習每一次投資決定" />
     <main className={pageClass} aria-label="模擬投資">{content}</main>
   </>;
 }

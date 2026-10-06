@@ -187,7 +187,7 @@ export function useChat() {
   const send = useCallback(async (text: string) => {
     if (!readyRef.current || abortRef.current) return;
     if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
-    if (!ownerRef.current) { setNotice('登入狀態尚未就緒，請重新登入後再試。'); return; }
+    if (!ownerRef.current) { setNotice('登入狀態確認失敗，請重新登入。'); return; }
     text = text.trim();
     if (!text) return;
     interrupt();

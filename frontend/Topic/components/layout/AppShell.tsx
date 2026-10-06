@@ -3,7 +3,9 @@ import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'motion/react';
 import { SiteFooter } from './SiteFooter';
 import { ScrollToTop } from './ScrollToTop';
+import { FrozenRouter } from './FrozenRouter';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
+import { useScrollRestoration } from '@/lib/navigation/useScrollRestoration';
 
 /** 換頁：舊頁 --dur-flash（125ms）淡出，新頁 --dur-sweep（250ms）淡入並上移 8px */
 const EXIT = { duration: 0.125, ease: [0.4, 0, 1, 1] as const };
@@ -17,16 +19,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     routeChanged.current = true;
   }, []);
+  /** 上一頁、下一頁還原捲動位置：有淡出時等舊頁淡出完才開始（P1-14） */
+  const onExitComplete = useScrollRestoration(!reduce);
 
   return (
     <div className="relative isolate flex min-h-[100dvh] w-full flex-col bg-background pb-[var(--app-safe-area-bottom)]">
-      <div id="main-content" tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col outline-none focus-visible:shadow-none">
+      {/* 「跳至主要內容」的落點在各頁頁首之後（MainContentAnchor），不是這一層：這一層包住了頁首（03-F6） */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {reduce ? (
           children
         ) : (
           // 不在 AnimatePresence 設 initial={false}：它會讓底下所有 motion 元件在首次載入時略過進場動畫（決議 c65）。
           // 只放在這個 motion.div 上不會往下傳（animate 不是 variant 名稱，子元件沿用上層 context）
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait" onExitComplete={onExitComplete}>
             <motion.div
               key={router.route}
               initial={routeChanged.current ? { opacity: 0, y: 8 } : false}
@@ -34,7 +39,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               exit={{ opacity: 0, transition: EXIT }}
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
-              {children}
+              {/* 淡出中的舊頁沿用離開前的 router，不會用新路由的參數重算（P1-15） */}
+              <FrozenRouter>{children}</FrozenRouter>
             </motion.div>
           </AnimatePresence>
         )}

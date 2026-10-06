@@ -6,7 +6,7 @@ from app.core.errors import ServiceUnavailable
 
 from app.features.market.company_catalog import company_aliases
 
-from .claims import _normalize, numeric_claims_supported
+from .claims import _normalize, unsupported_numeric_claim
 from .proposals import plan_supported
 from .prompts import INSUFFICIENT_EVIDENCE_ANSWER
 from .schemas import SourceChunk
@@ -27,6 +27,11 @@ class CitationValidationError(AnswerValidationError):
 
 class NumericValidationError(CitationValidationError):
     reason = "numbers"
+
+    def __init__(self, detail, *, claim: str = ""):
+        super().__init__(detail)
+        # Recovery prompt only; HTTP handlers serialize detail, never the rejected prose.
+        self.claim = claim
 
 
 class EmptyAnswerError(AnswerValidationError):
@@ -89,10 +94,12 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
     for index, paragraph in enumerate(paragraphs):
         prior_context = "\n\n".join(paragraphs[:index]) + "\n\n" if index else ""
         for text, citations, context in _citation_units(paragraph):
-            if not numeric_claims_supported(text, [available[citation] for citation in citations],
-                                            company_catalog=company_catalog, context=prior_context + context,
-                                            continuation=paragraph[len(context) + len(text):]):
-                raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE)
+            failed = unsupported_numeric_claim(text, [available[citation] for citation in citations],
+                                               company_catalog=company_catalog, context=prior_context + context,
+                                               continuation=paragraph[len(context) + len(text):])
+            if failed is not None:
+                raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE,
+                                             claim=failed or _normalize(text).strip())
 
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}

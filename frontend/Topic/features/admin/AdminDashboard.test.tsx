@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { acceptedJobAudit, adminDuration, adminRunScope, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob } from '../../lib/api/admin';
+import { acceptedJobAudit, adminDuration, adminJobAlerts, adminRetryBlockedReason, adminRunScope, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob, filterAdminRuns } from '../../lib/api/admin';
 import type { AdminAudit, AdminJob, AdminRun } from '../../lib/api/admin';
-import { AdminAuditResult, AdminJobs, AdminRunHistory } from '../../pages/admin';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { adminLoginHref, AdminAuditResult, AdminJobAlertSummary, AdminJobs, AdminRunHistory } from '../../pages/admin';
 import { AdminRunDiagnostics } from './RunDiagnostics';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
 
@@ -56,14 +58,22 @@ const historyMarkup = renderToStaticMarkup(<AdminRunHistory runs={[run]} jobs={[
 assert.match(historyMarkup, /disabled=""[^>]*aria-label="重跑行情更新執行紀錄 7"/);
 assert.match(historyMarkup, /2026\/9\/30 10:00:00/);
 assert.match(historyMarkup, /5 秒/);
-assert.match(historyMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
 assert.equal(renderedElements(historyMarkup, 'script').length, 0);
-assert.ok(renderedText(historyMarkup).includes(run.error!));
+// P2-148：診斷收在列內的按鈕，按了才展開；名稱是「執行診斷」（錯誤訊息的跳脫在下方 diagnosticMarkup 驗證）
+assert.match(historyMarkup, /aria-expanded="false"[^>]*>執行診斷/);
+assert.doesNotMatch(historyMarkup, /安全診斷/);
+// P2-142：手機版一筆一張，起訖時間寫在同一行
+assert.match(historyMarkup, /<ul class="divide-y sm:hidden"/);
+assert.match(historyMarkup, /2026\/9\/30 10:00:00 → 2026\/9\/30 10:00:05/);
 const diagnosticMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={{ ...run, diagnostics: {
   run_id: 7, error_category: 'stage_nonzero', failed_stages: [{ stage: 'news-impact-batch', exit_code: 1 }],
   stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',
 } }} />);
 assert.match(diagnosticMarkup, /根因待查/);
+assert.match(diagnosticMarkup, /執行診斷/);
+assert.match(diagnosticMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
+assert.equal(renderedElements(diagnosticMarkup, 'script').length, 0);
+assert.ok(renderedText(diagnosticMarkup).includes(run.error!));
 assert.match(diagnosticMarkup, /子工作處理進度未知/);
 assert.match(diagnosticMarkup, /admin_run=7/);
 assert.match(diagnosticMarkup, /news-impact-batch/);
@@ -81,8 +91,9 @@ const now = '2026-10-01T13:00:00Z';
 const future = { ...job, paused: false, next_run_at: '2026-10-01T13:30:00Z' };
 const due = { ...future, next_run_at: '2026-10-01T12:30:00Z' };
 assert.match(adminScheduleState(future, [future], now), /預定時間/);
-assert.match(adminScheduleState(due, [due], now), /已到期.*原因未知/);
-assert.match(adminScheduleState(due, [due, { ...job, active_run_id: 39 }], now), /已到期.*#39/);
+assert.match(adminScheduleState(due, [due], now), /已到排程時間.*原因未知/);
+assert.equal(adminScheduleState(due, [due, { ...job, active_run_id: 39 }], now), '已到排程時間，等 #39 完成後開始');
+assert.doesNotMatch(adminScheduleState(due, [due, { ...job, active_run_id: 39 }], now), /序列排程/);
 assert.match(adminScheduleState({ ...due, active_run_id: 7 }, [due], now), /正在執行 #7/);
 assert.match(adminScheduleState({ ...due, queued_run_id: 8 }, [due], now), /已排入等待 #8/);
 assert.match(adminScheduleState(job, [job], now), /已暫停/);
@@ -97,7 +108,7 @@ assert.match(summaryMarkup, /最近成功：.*執行紀錄 #1/);
 assert.match(summaryMarkup, /連續失敗 40 次/);
 assert.match(summaryMarkup, /統計全部已保存紀錄/);
 assert.match(summaryMarkup, /資料截至日：未知/);
-assert.match(summaryMarkup, /已到期/);
+assert.match(summaryMarkup, /已到排程時間/);
 assert.doesNotMatch(summaryMarkup, /資料已成功更新|死鎖/);
 const audit: AdminAudit = { id: 12, actor_email: 'operator@example.test', action: 'job.run', target: 'market',
   status: 'succeeded', created_at: now, details: { run_id: 7 } };
@@ -123,7 +134,7 @@ for (const value of ['0', '007', ['7'], '7#other', NaN, Infinity, 2147483648, un
 assert.equal(adminRunId('7'), 7);
 assert.equal(adminRunId(7), 7);
 assert.equal(adminDuration(3744), '62 分 24 秒');
-assert.equal(adminDuration(null), '—');
+assert.equal(adminDuration(null), '--');
 assert.equal(adminRunScope({ job_name: 'text-brief', symbol: '2330' }), '股票 2330');
 assert.equal(adminRunScope({ job_name: 'text-brief' }), '全部股票');
 assert.match(adminScheduleState({ ...job, active_run_id: 9 }, [job]), /正在執行 #9/);
@@ -132,6 +143,7 @@ const brief = { ...job, name: 'text-brief', paused: false, schedule: 'After news
 const briefMarkup = renderToStaticMarkup(<AdminJobs jobs={[brief]} disabled={false} onAction={() => undefined} />);
 assert.match(briefMarkup, /label for="brief-symbol"/);
 assert.match(briefMarkup, /select id="brief-symbol" required=""/);
+// P2-145：無障礙名稱包含看得到的文字
 assert.match(briefMarkup, /disabled=""[^>]*aria-label="立即執行個股摘要"/);
 assert.match(briefMarkup, /新聞索引完成後自動執行/);
 assert.match(briefMarkup, /暫停個股摘要排程/);
@@ -147,6 +159,47 @@ assert.match(liveMarkup, /執行範圍：股票 2330/);
 const scopedHistory = renderToStaticMarkup(<AdminRunHistory runs={[{ ...run, job_name: 'text-brief', symbol: '2330' }, { ...run, id: 8, job_name: 'text-brief' }]} jobs={[brief]} disabled={false} onRetry={() => undefined} />);
 assert.match(scopedHistory, /股票 2330/);
 assert.match(scopedHistory, /全部股票/);
+// P2-145：重跑停用時寫出原因
+assert.equal(adminRetryBlockedReason(run, [job], '行情更新'), null);
+assert.equal(adminRetryBlockedReason(run, [{ ...job, active_run_id: 9 }], '行情更新'), '行情更新執行中，完成後可重跑。');
+assert.equal(adminRetryBlockedReason({ ...run, status: 'running' }, [job], '行情更新'), '這筆執行尚未結束，結束後可重跑。');
+assert.equal(adminRetryBlockedReason(run, [], '行情更新'), '這項工作已不在排程裡，無法重跑。');
+const blockedHistory = renderToStaticMarkup(<AdminRunHistory runs={[run]} jobs={[{ ...job, active_run_id: 9 }]} disabled={false} onRetry={() => undefined} />);
+assert.match(blockedHistory, /aria-describedby="run-7-retry-reason"/);
+assert.match(blockedHistory, /行情更新執行中，完成後可重跑。/);
+// P2-148：狀態篩選
+const mixed = [run, { ...run, id: 8, status: 'succeeded' }, { ...run, id: 9, status: 'running' }, { ...run, id: 10, status: 'interrupted' }];
+assert.deepEqual(filterAdminRuns(mixed, 'failed').map((item) => item.id), [7, 10]);
+assert.deepEqual(filterAdminRuns(mixed, 'running').map((item) => item.id), [9]);
+assert.equal(filterAdminRuns(mixed, 'all').length, 4);
+// P2-146：首屏工作摘要
+const alerts = adminJobAlerts([
+  { ...job, name: 'rag', paused: false, schedule: 'Every 30 minutes', result_summary: { history_scope: 'all_stored_runs', terminal_runs: 50, last_success: null, last_failure: run, consecutive_failed: 43 } },
+  { ...job, name: 'ltn', paused: true, schedule: 'Every 30 minutes', result_summary: { history_scope: 'all_stored_runs', terminal_runs: 30, last_success: null, last_failure: run, consecutive_failed: 24 } },
+  { ...job, name: 'impact', paused: true, schedule: 'Manual' },
+]);
+assert.deepEqual(alerts, { failing: [{ name: 'rag', count: 43 }, { name: 'ltn', count: 24 }], paused: ['ltn'] });
+const alertMarkup = renderToStaticMarkup(<AdminJobAlertSummary jobs={[
+  { ...job, name: 'rag', paused: false, schedule: 'Every 30 minutes', result_summary: { history_scope: 'all_stored_runs', terminal_runs: 50, last_success: null, last_failure: run, consecutive_failed: 43 } },
+  { ...job, name: 'ltn', paused: true, schedule: 'Every 30 minutes' },
+]} />);
+assert.match(alertMarkup, /2 項工作：1 項連續失敗 · 1 項暫停/);
+assert.match(alertMarkup, /href="#job-rag"[^>]*>新聞索引 連續失敗 43 次/);
+assert.match(alertMarkup, /href="#job-ltn"[^>]*>自由財經新聞 已暫停/);
+// P2-149：後端英文標籤不直接上畫面
+const backfill = renderToStaticMarkup(<AdminJobs jobs={[{ ...job, name: 'stock-backfill', label: 'Stock market history', schedule: 'Manual', paused: false }]} disabled={false} onAction={() => undefined} />);
+assert.match(backfill, /個股市場資料回補/);
+assert.doesNotMatch(backfill, /Stock market history/);
+assert.match(backfill, /id="job-stock-backfill"/);
+// P2-143：未登入導去登入時保留 ?run=、?tab=
+assert.deepEqual(adminLoginHref('/admin?run=3'), { pathname: '/login', query: { returnUrl: '/admin?run=3' } });
+assert.deepEqual(adminLoginHref('//evil.example'), { pathname: '/login', query: { returnUrl: '/admin' } });
+// P1-34（admin 部分）、P2-144：用共用的登入狀態訂閱（含其他分頁的 storage 事件）；分頁寫進網址
+const adminSource = readFileSync(join(__dirname, '../../pages/admin.tsx'), 'utf8');
+assert.match(adminSource, /subscribeAuthAccount\(onAuthChange\)/);
+assert.doesNotMatch(adminSource, /addEventListener\(AUTH_CHANGE_EVENT, onAuthChange\)/);
+assert.match(adminSource, /query: Record<string, unknown>|tab: next/);
+assert.doesNotMatch(adminSource, /台北時間/);
 console.log('Admin checks passed: paused manual runs, overlap guards, completed retries, unavailable actions, manual-only jobs, Taipei timestamps, and escaped errors.');
 
 const backfillJob = { ...job, name: 'stock-backfill', schedule: 'Manual', paused: false };

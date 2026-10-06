@@ -2,14 +2,13 @@ import type { CompareFundamentalsData } from '@/lib/api/compareFundamentals';
 import type { CategoryLeader, CompareQualityMeta, CorrelationMatrix, InstitutionalAggregate } from '@/lib/types/compare';
 import { lowestCorrelationPair } from '@/lib/utils/compare';
 import { buildFundamentalsComparison } from '@/lib/utils/compareFundamentals';
-import { fmtInstitutionalShares } from '@/lib/utils/format';
+import { signedShares } from '@/lib/utils/format';
 
 /**
  * 「延伸分析」索引表每一列的一句發現。只挑出頁面上已算好的值（類別冠軍、各面板用的同一批彙總），
  * 不新算指標、不寫推論；挑不出真實的一句話時回傳 null，由索引表改顯示該分析的說明。
  */
 
-const signed = (value: number, text: string) => (value > 0 && !text.startsWith('+') ? `+${text}` : text);
 
 /** 類別冠軍的讀數：有方向（up）的補上正號，和類別冠軍表的寫法一致 */
 const leaderValue = (item: CategoryLeader) => (item.tone === 'up' && !item.value.startsWith('+') ? `+${item.value}` : item.value);
@@ -36,7 +35,7 @@ export function fundamentalsFinding(symbols: string[], data: Record<string, Comp
   return [
     `月營收${aligned.revenue ? '同月份可比' : '月份未對齊'}`,
     `估值${aligned.valuation ? '同日期可比' : '日期未對齊'}`,
-    `EPS ${aligned.eps ? '同期間口徑可比' : '期間或口徑未對齊'}`,
+    `EPS ${aligned.eps ? '同期間、同編製基礎可比' : '期間或編製基礎未對齊'}`,
   ].join('、') + '；不排名';
 }
 
@@ -47,7 +46,8 @@ export function institutionalFinding(symbols: string[], aggregateMap: Record<str
     .filter((agg): agg is InstitutionalAggregate => Boolean(agg) && agg.totalNet != null && Number.isFinite(agg.totalNet));
   if (!totals.length) return null;
   const sorted = [...totals].sort((a, b) => (b.totalNet as number) - (a.totalNet as number));
-  const fmt = (agg: InstitutionalAggregate) => signed(agg.totalNet as number, fmtInstitutionalShares(agg.totalNet));
+  // 張、帶正負號，負號 U+2212（05 用語表、DESIGN.md 第 7 節）；不滿 1 張寫「不到 1 張」
+  const fmt = (agg: InstitutionalAggregate) => signedShares(agg.totalNet);
   const top = sorted[0];
   const bottom = sorted[sorted.length - 1];
   if (sorted.length === 1) return `${top.symbol} 期間法人合計淨額 ${fmt(top)}`;
@@ -101,6 +101,6 @@ export function correlationFinding(
 export function methodFinding(meta: CompareQualityMeta, tradingDays: number | null): string {
   if (!meta.analysisRange) return '共同有效收盤價不足 2 天，無法建立實際比較期間';
   const days = tradingDays ? `，共 ${tradingDays} 個交易日` : '';
-  const warnings = meta.qualityWarnings.length ? `；${meta.qualityWarnings.length} 項可解釋性提醒` : '';
+  const warnings = meta.qualityWarnings.length ? `；${meta.qualityWarnings.length} 項資料提醒` : '';
   return `實際比較期間 ${meta.analysisRange.startDate} → ${meta.analysisRange.endDate}${days}；共同日漲跌樣本 ${meta.alignedDays} 筆${warnings}`;
 }

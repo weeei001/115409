@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
+import { RefreshCw } from 'lucide-react';
 import type { EChartsOption } from '@/lib/charts/echarts';
 import type { TechnicalDay } from '@/lib/types/view';
 import { bollOption, kdOption, plottedSpan, plottedSpanText, rsiMacdOptions } from '@/lib/charts/adapters';
 import { fmtPrice } from '@/lib/utils/format';
-import { kdSignal, macdSignal, rsiSignal, rsiZone, type SignalTone } from '@/lib/utils/indicatorSignals';
+import { fmtIndicator, kdSignal, MACD_DECIMALS, macdSignal, rsiSignal, rsiZone, type SignalTone } from '@/lib/utils/indicatorSignals';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { EChart } from '@/components/charts/EChart';
-import { EmptyState, LoadingRows } from '@/components/common/Notice';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
+import { Button } from '@/components/ui/button';
 import { signedText } from '@/components/common/LightEntry';
 import { LedgerHeading, LightGlyph } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
@@ -70,9 +72,9 @@ function buildIndicators(rows: TechnicalDay[], isDark: boolean): Indicator[] {
   return [
     {
       key: 'rsi',
-      title: 'RSI 相對強弱',
+      title: 'RSI 相對強弱（10）',
       option: rsiOption,
-      reading: rsi.value != null ? `RSI10 ${rsi.value.toFixed(1)}` : null,
+      reading: rsi.value != null ? `RSI10 ${fmtIndicator(rsi.value)}` : null,
       verdict: rsi.value != null ? rsi.label : null,
       tone: rsi.tone,
       note:
@@ -84,18 +86,18 @@ function buildIndicators(rows: TechnicalDay[], isDark: boolean): Indicator[] {
     },
     {
       key: 'macd',
-      title: 'MACD',
+      title: 'MACD（12, 26, 9）',
       option: macdOption,
-      reading: macd.value != null ? `柱 ${signedText(macd.value, 3)}` : null,
+      reading: macd.value != null ? `柱 ${signedText(macd.value, MACD_DECIMALS)}` : null,
       verdict: macd.value != null ? macd.label : null,
       tone: macd.tone,
       note: `${latest.macd_dif != null && dea != null ? `DIF ${latest.macd_dif.toFixed(2)}、DEA ${dea.toFixed(2)}；` : ''}柱為正值偏多、負值偏空。`,
     },
     {
       key: 'kd',
-      title: 'KD 隨機指標',
+      title: 'KD 隨機指標（9）',
       option: kdOption(rows, isDark),
-      reading: latest.kd_k9 != null && latest.kd_d9 != null ? `K ${latest.kd_k9.toFixed(1)} / D ${latest.kd_d9.toFixed(1)}` : null,
+      reading: latest.kd_k9 != null && latest.kd_d9 != null ? `K ${fmtIndicator(latest.kd_k9)} / D ${fmtIndicator(latest.kd_d9)}` : null,
       verdict: kd.value != null ? kd.label : null,
       tone: kd.tone,
       note: 'K 在 D 之上偏多、之下偏空；這是兩線的相對位置，不是交叉事件。',
@@ -113,10 +115,10 @@ function buildIndicators(rows: TechnicalDay[], isDark: boolean): Indicator[] {
 }
 
 /**
- * 「技術指標詳細」抽屜：先放一張全寬的主圖（RSI，和頁面上「指標訊號」卡的第一列一致），
+ * 「技術指標明細」抽屜：先放一張全寬的主圖（RSI，和頁面上「指標訊號」卡的第一列一致），
  * 其餘指標排成有線分隔的清單，每列左邊用文字寫判讀、右邊是較小的圖。
  */
-export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows: TechnicalDay[] | null; loading: boolean } & Actions) {
+export function IndicatorsPanel({ rows, loading, error = null, onRetry, onWidenRange }: { rows: TechnicalDay[] | null; loading: boolean; error?: string | null } & Actions) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const indicators = useMemo(() => (rows?.length ? buildIndicators(rows, isDark) : null), [rows, isDark]);
@@ -128,9 +130,26 @@ export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows
     return (
       // 載入＝燈質 Q：有線的空白列，光帶掃過
       <div className="flex flex-col gap-6" aria-busy="true">
-        <LoadingRows label="讀取技術指標中…" className="h-[320px] border-y" />
+        <LoadingRows label="載入技術指標中…" className="h-[320px] border-y" />
         <LoadingRows className="h-[360px] border-y" />
       </div>
+    );
+  }
+
+  // /technical-indicators 失敗：寫錯誤與重試，不寫「尚無資料」也不叫人拉長區間
+  if (error) {
+    return (
+      <Notice
+        tone="danger"
+        action={
+          <Button size="sm" variant="outline" onClick={onRetry} className="min-h-11">
+            <RefreshCw aria-hidden />
+            重試
+          </Button>
+        }
+      >
+        {error}
+      </Notice>
     );
   }
 

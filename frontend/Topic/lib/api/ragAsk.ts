@@ -109,9 +109,14 @@ export async function ragAskStream(
   const ctrl = new AbortController();
   const timeoutMs = getRagApiTimeoutMs();
   let timedOut = false;
-  let lastStage = '';
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+  // 逾時算的是「多久沒有新內容」：每收到一段就重新計時，持續串流中的長回覆不會被切斷
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const armTimer = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+  };
+  armTimer();
   const abort = () => ctrl.abort();
   if (options?.signal) {
     if (options.signal.aborted) ctrl.abort();
@@ -159,10 +164,7 @@ export async function ragAskStream(
       if (!event || typeof event.type !== 'string') return false;
       switch (event.type) {
         case 'status':
-          if (typeof event.content === 'string') {
-            lastStage = event.content.trim().replace(/\s+/g, ' ').slice(0, 200);
-            handlers.onStatus?.(event.content);
-          }
+          if (typeof event.content === 'string') handlers.onStatus?.(event.content);
           return false;
         case 'dashboard': {
           const dashboard = parseChatDashboard(event.dashboard);
@@ -192,6 +194,7 @@ export async function ragAskStream(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      armTimer();
       const chunk = decoder.decode(value, { stream: true });
       fullRaw += chunk;
       carry += chunk;
@@ -219,12 +222,12 @@ export async function ragAskStream(
   } catch (err) {
     if (options?.signal?.aborted) throw new DOMException('Request cancelled', 'AbortError');
     const message = timedOut
-      ? `AI 回覆等待超過 ${Math.round(timeoutMs / 1000)} 秒，已停止等待。請重新提問。`
+      ? `AI 回覆超過 ${Math.round(timeoutMs / 1000)} 秒沒有新進度，已停止等待。請重新提問。`
       : err instanceof ApiRequestError
         ? userFacingMessage(err, '伺服器無法完成回覆，請稍後再試。')
         : '與伺服器的連線中斷，尚未取得完整回覆。請確認網路連線後重試。';
-    throw new ApiRequestError(lastStage ? `${message} 最後處理階段：${lastStage}` : message,
-      err instanceof ApiRequestError ? err.status : undefined, { cause: err });
+    // 不接「最後處理階段：…」：那是後端的內部進度文字，接在錯誤後面讀起來像除錯資訊（05）
+    throw new ApiRequestError(message, err instanceof ApiRequestError ? err.status : undefined, { cause: err });
   } finally {
     clearTimeout(timer);
     options?.signal?.removeEventListener('abort', abort);
