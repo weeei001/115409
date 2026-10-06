@@ -36,17 +36,6 @@ def test_text_brief_without_symbols_lets_warmup_read_stock_info(tmp_path):
     assert commands == [["cache-warmup"]]
 
 
-def test_backfill_runs_before_market_import_and_ai(tmp_path):
-    commands = []
-    assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols=None, output=tmp_path,
-        backfill=True, run=lambda command: commands.append(command) or 0) == 0
-    assert [command[0] for command in commands[:5]] == [
-        "market-backfill", "market-fetch", "market-import", "market-fetch", "market-import"]
-    assert commands[1] == ["market-fetch", "--from-stock-info", "--start", "2026-07-01",
-                            "--out", str(tmp_path / "backfill")]
-    assert commands[-1] == ["cache-warmup"]
-
-
 @pytest.mark.parametrize("failures,expected,commands", [
     ({}, 0, ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]),
     ({"news-ingest": 7}, 7, ["migrate-news-impact-schema", "news-ingest"]),
@@ -88,11 +77,11 @@ def test_daily_deadline_is_future_taipei_time(now, at, expected):
 def test_daily_pipeline_runs_once_without_independent_followups():
     calls = []
     start = datetime(2026, 7, 13, 16, tzinfo=scheduler.TAIPEI)
-    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, start, 0)
-    worker.tick(start + timedelta(minutes=30), 1800)
+    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, start)
+    worker.tick(start + timedelta(minutes=30))
     assert calls == []
-    worker.tick(start + timedelta(hours=1), 3600)
-    worker.tick(start + timedelta(hours=2), 7200)
+    worker.tick(start + timedelta(hours=1))
+    worker.tick(start + timedelta(hours=2))
     assert calls == ["pipeline"]
     assert worker.next_market == datetime(2026, 7, 14, 17, tzinfo=scheduler.TAIPEI)
 
@@ -188,7 +177,7 @@ def test_one_shot_cli_has_stop_handlers_and_restores_them(monkeypatch, tmp_path)
         assert callable(active.get(scheduler.signal.SIGINT))
         assert callable(active.get(scheduler.signal.SIGTERM))
         assert job == "rag" and kwargs == {"start": date(2026, 7, 1), "symbols": "2330,2317", "output": tmp_path,
-            "backfill": False, "impact_execute": True, "impact_limit": 100, "impact_max_cost_usd": 0.5, "impact_since": None}
+            "impact_execute": True, "impact_limit": 100, "impact_max_cost_usd": 0.5, "impact_since": None}
         operations.append(("run", job))
         return 9
 
@@ -229,17 +218,17 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
         return 0
 
     class Scheduled:
-        def __init__(self, run, now, monotonic, **kwargs):
+        def __init__(self, run, now, **kwargs):
             assert now.utcoffset() == timedelta(hours=8)
-            assert kwargs["interval"] == 120 and kwargs["delay"] == 30
-        def tick(self, now, monotonic):
+            assert kwargs["market_at"] == time(18, 30)
+        def tick(self, now):
             operations.append(("tick", None))
             active[scheduler.signal.SIGTERM](scheduler.signal.SIGTERM, None)
 
     monkeypatch.setattr(scheduler.signal, "signal", signal_handler)
     monkeypatch.setattr(scheduler, "run_pipeline", run)
     monkeypatch.setattr(scheduler, "Scheduler", Scheduled)
-    assert scheduler.main(["--run-now", "--interval-minutes", "2", "--rag-delay-minutes", "0.5"]) == 0
+    assert scheduler.main(["--run-now", "--market-time", "18:30"]) == 0
     assert ("run", "pipeline") in operations and ("tick", None) in operations
     assert active == {sig: f"previous-{sig}" for sig in (scheduler.signal.SIGINT, scheduler.signal.SIGTERM)}
     assert operations[-1] == ("unlock", "scheduler")
@@ -266,7 +255,7 @@ def test_failed_startup_keeps_scheduling_and_one_shot_preserves_failure_exit(
     class Scheduled:
         def __init__(self, *args, **kwargs):
             pass
-        def tick(self, now, monotonic):
+        def tick(self, now):
             operations.append(("tick", None))
             active[scheduler.signal.SIGTERM](scheduler.signal.SIGTERM, None)
 
@@ -292,8 +281,6 @@ def test_failed_startup_keeps_scheduling_and_one_shot_preserves_failure_exit(
 
 
 @pytest.mark.parametrize("args", [
-    ["--interval-minutes", "0"], ["--interval-minutes", "nan"], ["--interval-minutes", "inf"],
-    ["--rag-delay-minutes", "-1"], ["--rag-delay-minutes", "nan"], ["--rag-delay-minutes", "inf"],
     ["--symbols", ","], ["--market-time", "17:00+01:00"],
     ["--impact-limit", "0"], ["--impact-max-cost-usd", "-1"],
     ["--impact-max-cost-usd", "nan"], ["--impact-max-cost-usd", "inf"],
@@ -319,6 +306,7 @@ def test_scheduler_is_an_explicit_worker_without_asgi_dependencies():
 @pytest.mark.parametrize("args", [
     ["--job", "sentiment"], ["--sentiment-execute"], ["--no-sentiment-execute"],
     ["--sentiment-limit", "25"], ["--sentiment-max-cost-usd", "0.2"],
+    ["--backfill"], ["--interval-minutes", "30"], ["--rag-delay-minutes", "10"],
 ])
 def test_removed_sentiment_options_fail_before_any_worker(args, monkeypatch):
     monkeypatch.setattr(scheduler, "run_worker", lambda *_: pytest.fail("No worker may run"))
@@ -341,7 +329,7 @@ def test_fixed_impact_start_reaches_worker_and_sync_without_changing_default(mon
 def test_paused_pipeline_does_not_run():
     calls = []
     now = datetime(2026, 7, 13, 8, tzinfo=scheduler.TAIPEI)
-    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, now, 0,
+    worker = scheduler.Scheduler(lambda job: calls.append(job) or 0, now,
         enabled=lambda job: False)
-    worker.tick(now + timedelta(days=1), 86400)
+    worker.tick(now + timedelta(days=1))
     assert calls == []

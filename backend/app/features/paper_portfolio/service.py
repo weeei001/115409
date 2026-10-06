@@ -1,4 +1,5 @@
 """Authenticated virtual cash ledger. All prices are daily closing prices, all sizes shares."""
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from hashlib import sha256
@@ -11,6 +12,8 @@ from app.db.models.notification import Notification
 from app.features.paper_portfolio import repository as repo
 
 TAIPEI = ZoneInfo('Asia/Taipei')
+# Once the symbol has this many later priced sessions, a still-missing target close means it did not trade.
+STALE_TARGET_SESSIONS = 3
 
 
 def _now(now=None):
@@ -102,7 +105,9 @@ def _order(row, sessions=None):
     result['trade_date'] = row.trade_date.isoformat() if row.trade_date else None
     for key in ('budget', 'fill_price', 'fee', 'tax', 'fee_rate', 'tax_rate'):
         result[key] = float(result[key]) if result[key] is not None else None
-    result['pending_reason'] = '將以送出後下一個交易日的收盤價成交；當天沒有行情就順延。' if row.status == 'pending' else None
+    result['pending_reason'] = ('將以送出後下一個交易日的收盤價成交；該日行情補齊前會等待。'
+                                '若之後已有 3 個交易日行情、該日仍沒有收盤價（例如暫停交易），委託會自動取消，釋出保留的資金或股數。'
+                                if row.status == 'pending' else None)
     return result
 
 
@@ -188,6 +193,9 @@ def _settle(db, user_id, current):
             continue
         price = repo.price(db, row.symbol, trade_day)
         if price is None or price.close is None or price.close <= 0:
+            # Late imports still fill at the target close; a halted or delisted day never will.
+            if repo.priced_sessions_after(db, row.symbol, trade_day, days[-1]) >= STALE_TARGET_SESSIONS:
+                row.status = 'cancelled'
             continue
         if row.side == 'buy':
             qty = int((row.budget / (price.close * (1 + row.fee_rate))).to_integral_value(rounding=ROUND_DOWN))
@@ -232,14 +240,19 @@ def _settle(db, user_id, current):
 def reconcile(db, user_id=None, now=None):
     current = _now(now)
     owners = [user_id] if user_id is not None else repo.owners(db)
+    failed = 0
     for owner in owners:
         try:
             _settle(db, owner, current)
             db.commit()
         except Exception:
             db.rollback()
-            raise
-    return {'accounts': len(owners)}
+            if user_id is not None:
+                raise
+            # One broken account must not block settlement for everyone after it.
+            logging.getLogger(__name__).exception('Paper settlement failed for account %s', owner)
+            failed += 1
+    return {'accounts': len(owners), 'failed': failed}
 
 
 def snapshot(db, user_id, now=None):

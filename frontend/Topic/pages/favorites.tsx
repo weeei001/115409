@@ -1,8 +1,6 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect } from 'react';
 import Head from 'next/head';
-import ErrorPage from 'next/error';
 import { useRouter } from 'next/router';
-import { Star } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { LoadingRows } from '@/components/common/Notice';
@@ -10,14 +8,18 @@ import { LoginPrompt } from '@/features/auth/LoginPrompt';
 import { FavoriteList } from '@/features/favorites/FavoriteList';
 import { FavoriteStockSearch } from '@/features/favorites/FavoriteStockSearch';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
-import { notificationAccountSnapshot, subscribeNotificationAccount } from '@/lib/notifications/account';
+import { useAuthAccount } from '@/lib/auth/account';
 
 export default function FavoritesPage() {
   const router = useRouter();
   const { status } = useFavorites();
   const initializing = status === 'idle';
-  const account = useSyncExternalStore(subscribeNotificationAccount, notificationAccountSnapshot, () => '');
-  if (router.asPath.split('#')[1] === 'notifications') return <ErrorPage statusCode={404} />;
+  const account = useAuthAccount();
+  // 舊連結 /favorites#notifications：通知設定已搬到 /notifications。hash 只有瀏覽器端讀得到，在 effect 裡判斷，render 不讀
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (window.location.hash === '#notifications') void router.replace('/notifications');
+  }, [router.isReady]);
 
   return (
     <>
@@ -25,7 +27,7 @@ export default function FavoritesPage() {
         <title>股海明燈｜收藏股</title>
         <meta name="description" content="管理收藏個股，快速查看關注股票的行情。" />
       </Head>
-      <SiteHeader icon={Star} title="收藏股" subtitle="管理關注的個股" />
+      <SiteHeader title="收藏股" subtitle="管理關注的個股" />
       <main aria-label="收藏股" className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
         {initializing ? (
           <div className="border-t border-border-strong">

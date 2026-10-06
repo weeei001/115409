@@ -175,8 +175,7 @@ def _comparison(source, payload, symbols, query):
 
 def _news(sources):
     items, used_sources, article_ids, urls, fallback_keys = [], [], set(), set(), set()
-    background = False
-    for source in sorted(sources, key=lambda item: not item.in_time_range):
+    for source in sources:
         title = _text(source.title)
         if not title and not _text(source.content):
             continue
@@ -201,9 +200,6 @@ def _news(sources):
         if not url and not source.article_id:
             fallback_keys.add(fallback_key)
         title = title or "未提供標題"
-        if not source.in_time_range:
-            title = "【區間外背景】" + title
-            background = True
         items.append({"title": title, "publisher": _text(source.source_name) or "來源未標示",
                       "published_at": published_at, "url": url, "source_id": source.citation_id,
                       "article_id": source.article_id})
@@ -213,7 +209,7 @@ def _news(sources):
     if not items:
         return None
     return DashboardNews(title="相關新聞", source_ids=_ids(used_sources), items=items,
-                         description=("標註「區間外背景」的新聞不屬於指定期間。" if background else "依來源列出新聞發布時間。"))
+                         description="依來源列出新聞發布時間。")
 
 
 def build_dashboard(sources: list[SourceChunk], symbols: list[str], query: str,

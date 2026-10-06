@@ -515,7 +515,6 @@ def crawler_main(source: str, argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--scheduled-once", action="store_true")
     if source == "cnyes":
-        group.add_argument("--backfill-month", action="store_true")
         group.add_argument("--refresh-existing", action="store_true",
                            help="Refresh existing CNYES article bodies from their detail pages")
         parser.add_argument("--limit", type=int, help="Maximum CNYES articles to inspect")

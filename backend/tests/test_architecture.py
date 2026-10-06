@@ -93,7 +93,6 @@ from app.features.auth import service
 from app.features.admin import service
 from app.features.market import service
 from app.features.news import service
-from app.features.orders import service
 from app.features.favorites import service
 from app.features.analysis import service
 from app.features.chat import service

@@ -65,7 +65,11 @@ def _round(value: float | None, digits: int) -> float | None:
 
 def _lots(shares: Any) -> int | None:
     value = _f(shares)
-    return None if value is None else int(round(value / SHARES_PER_LOT))
+    if value is None:
+        return None
+    # Half up away from zero, like the chat dashboard and the frontend; round() would bank 2,500 股 to 2 張.
+    lots = int(abs(value) / SHARES_PER_LOT + 0.5)
+    return -lots if value < 0 else lots
 
 def _pct_change(current: float | None, base: float | None) -> float | None:
     if current is None or base is None or base == 0:

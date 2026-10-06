@@ -8,8 +8,7 @@ import type { InstitutionalAggregate } from '@/lib/types/compare';
 import type { InstitutionalDay } from '@/lib/types/view';
 import { buildInstitutionalCumulative } from '@/lib/utils/compare';
 import { valueToneText } from '@/lib/utils/tone';
-import { lotToneValue } from '@/lib/utils/format';
-import { signedShares } from '@/features/stock/signedShares';
+import { lotToneValue, signedShares } from '@/lib/utils/format';
 import { cn } from '@/lib/cn';
 
 interface Props {

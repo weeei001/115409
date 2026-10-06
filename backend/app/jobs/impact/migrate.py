@@ -1,7 +1,6 @@
 """Idempotent schema upgrade for article-level event impacts."""
 from sqlalchemy import inspect, select, text
 
-from app.db.base import Base
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.news.impact import article_source_hash

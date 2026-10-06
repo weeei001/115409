@@ -29,4 +29,4 @@ def main(argv=None):
             print(json.dumps(result, default=str, sort_keys=True))
         finally:
             engine.dispose()
-    return 0
+    return 1 if result.get("failed") else 0

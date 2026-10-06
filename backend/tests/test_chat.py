@@ -54,20 +54,20 @@ class FakeModels:
 
 
 class FakeRetrieval:
-    def __init__(self, *, hits=None, fallback=False):
+    def __init__(self, *, hits=None):
         self.vector = SimpleNamespace(require_enabled=lambda: None)
         self.hits = hits if hits is not None else [
-            {"id": "one", "score": 0.87654321, "_in_time_range": True,
+            {"id": "one", "score": 0.87654321,
              "payload": {"title": "營收報告", "source": "cnyes", "pub_time": "2026-09-10 12:00:00",
                          "stock_id": "2330", "url": "https://news.test/report", "page_content": "營收增加。"}},
-            {"id": "nulls", "score": None, "_in_time_range": False,
+            {"id": "nulls", "score": None,
              "payload": {key: None for key in ("title", "source", "pub_time", "stock_id", "url", "page_content")}},
         ]
-        self.fallback, self.calls = fallback, []
+        self.calls = []
 
     async def search_question(self, query, *, symbols, time_from, time_to):
         self.calls.append({"query": query, "symbols": symbols, "time_from": time_from, "time_to": time_to})
-        return SimpleNamespace(hits=self.hits, time_from=time_from, time_to=time_to, fallback_mode=self.fallback)
+        return SimpleNamespace(hits=self.hits, time_from=time_from, time_to=time_to)
 
 
 @pytest.fixture
@@ -108,11 +108,10 @@ def test_json_answer_keeps_contract_sources_tokens_and_ignores_demo_token(chat):
                ("title", "source", "source_name", "pub_time", "url", "stock_id", "content"))
     assert data["sources"][1]["citation_id"] == "S2"
     assert data["sources"][1]["article_id"] is None
-    assert data["sources"][1]["in_time_range"] is False
     assert retrieval.calls[0]["time_from"] == "2026-08-12 15:30:00"
     assert "private-main-backend-jwt" not in json.dumps(llm.calls, default=str)
     prompt = llm.calls[-1][1]["prompt"]
-    assert "[★ 片段1]" in prompt and "[片段2]" in prompt and "來源：鉅亨網" in prompt
+    assert "[片段1]" in prompt and "[片段2]" in prompt and "來源：鉅亨網" in prompt
     assert "https://news.test/report" in prompt
 
 
@@ -135,14 +134,11 @@ def test_all_listed_company_and_macro_news_do_not_require_six_stock_market_suppo
     assert "想分析或比較哪幾檔股票" not in response.json()["answer"]
 
 
-def test_frontend_stream_consumes_text_and_receives_fallback_warning(chat):
+def test_frontend_stream_consumes_text(chat):
     client, _, llm, retrieval = chat
-    retrieval.fallback = True
     result = events(client.post("/api/ask", json={"query": "台積電最近新聞", "stock_id": None, "stream": True}))
     rendered = "".join(event["content"] for event in result if event["type"] == "text")
     assert rendered.startswith(MODEL_ANSWER)
-    assert "找不到符合指定時間範圍" in rendered
-    assert rendered.index("【資料限制】") < rendered.index("【引用來源】")
     assert result[-1]["type"] == "done" and result[-1]["answer"] == rendered
     assert result[-1]["actions"][0]["path"] == "/stock/2330" and result[-1]["sources"]
     assert result[-1]["time_range"]["to"] == "2026-09-11 15:30:00"
@@ -232,6 +228,10 @@ def test_invalid_or_reversed_intent_dates_use_question_dates(chat):
     ("上個月", "2026-08-01 00:00:00", "2026-08-31 23:59:59"),
     ("2024年第一季", "2024-01-01 00:00:00", "2024-03-31 23:59:59"),
     ("2024年下半年", "2024-07-01 00:00:00", "2024-12-31 23:59:59"),
+    ("最近", "2026-08-12 15:30:00", "2026-09-11 15:30:00"),
+    ("最近三個月", "2026-06-13 15:30:00", "2026-09-11 15:30:00"),
+    ("最近半年", "2026-03-15 15:30:00", "2026-09-11 15:30:00"),
+    ("最近一年", "2025-09-11 15:30:00", "2026-09-11 15:30:00"),
     ("一般財經", None, None),
 ])
 def test_calendar_fallback_boundaries(query, start, end):

@@ -1,15 +1,16 @@
 import { useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { RefreshCw, TrendingUp } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { HeaderStockSearch } from '@/components/layout/PrimaryNav';
 import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { FavoriteToggle } from '@/features/favorites/FavoriteToggle';
 import { StockDashboard } from '@/features/stock/StockDashboard';
-import { isStockSymbol, useStockDashboard } from '@/lib/hooks/useStockDashboard';
+import { useStockDashboard } from '@/lib/hooks/useStockDashboard';
 import { formatStockLabel, useStockDisplayName } from '@/lib/utils/symbolNames';
+import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
 import { breadcrumbsForStock, breadcrumbsTrail } from '@/lib/nav';
 import { useLatestCloseDate } from '@/lib/hooks/useLatestCloseDate';
 
@@ -54,7 +55,6 @@ function StockDashboardView({ symbol }: { symbol: string }) {
   const boardDate = useLatestCloseDate();
   const header = (subtitle: string, titleWrap = false) => (
     <SiteHeader
-      icon={TrendingUp}
       breadcrumbs={breadcrumbsForStock(symbol)}
       title={stockName ?? label}
       subtitle={subtitle}
@@ -150,7 +150,7 @@ export default function StockDetailPage() {
     );
   }
 
-  if (!isStockSymbol(symbol)) {
+  if (!isTaiwanStockCode(symbol)) {
     return (
       <div className="flex min-h-[100dvh] flex-col">
         {/* 格式錯誤的代號也要有自己的網頁標題，不沿用預設標題（01-F9） */}
@@ -158,7 +158,6 @@ export default function StockDetailPage() {
           <title>股海明燈｜股票代號格式錯誤</title>
         </Head>
         <SiteHeader
-          icon={TrendingUp}
           breadcrumbs={breadcrumbsTrail('個股')}
           title={symbol ? `${symbol} 無效代號` : '個股儀表板'}
           subtitle="股票代號格式錯誤"

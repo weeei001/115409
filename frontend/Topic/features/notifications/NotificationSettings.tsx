@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Bell, CalendarDays, Newspaper, RefreshCw, TrendingUp } from 'lucide-react';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
@@ -12,7 +12,7 @@ import { fetchNotificationInbox, fetchNotificationPreferences, saveNotificationP
 import { deviceEnabled, disablePush, enablePush, pushConfigured, PUSH_EVENT } from '@/lib/notifications/push';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { userFacingMessage } from '@/lib/api/errorDetail';
-import { notificationAccountSnapshot, subscribeNotificationAccount } from '@/lib/notifications/account';
+import { authAccountSnapshot, useAuthAccount } from '@/lib/auth/account';
 import { formatTaipei } from '@/lib/utils/date';
 
 /** 標籤下方的輸入框（全站同一套外觀，見 components/ui/input） */
@@ -34,6 +34,17 @@ export function preferencesSnapshot(preferences: NotificationPreferences | null,
   return preferences ? JSON.stringify([preferences, quietEnabled]) : '';
 }
 
+/** 漲跌幅門檻的輸入範圍，和輸入框的 min／max 一致 */
+const THRESHOLD_MIN = 1;
+const THRESHOLD_MAX = 30;
+
+/** 門檻輸入框的原始字串 → 數字；空白、不是數字或超出 1–30 時回傳 null（不能儲存） */
+export function parsePriceThreshold(text: string): number | null {
+  if (!text.trim()) return null;
+  const value = Number(text);
+  return Number.isFinite(value) && value >= THRESHOLD_MIN && value <= THRESHOLD_MAX ? value : null;
+}
+
 export function FeedbackLine({ feedback, area }: { feedback: Feedback | null; area: FeedbackArea }) {
   if (feedback?.area !== area) return null;
   return <Notice tone={feedback.tone} className="mt-3">{feedback.text}</Notice>;
@@ -45,13 +56,15 @@ const notificationKinds: Record<string, { label: string; icon: typeof Bell }> = 
 };
 
 export function NotificationSettings() {
-  const account = useSyncExternalStore(subscribeNotificationAccount, notificationAccountSnapshot, () => '');
+  const account = useAuthAccount();
   return account ? <AccountNotificationSettings key={account} account={account} /> : null;
 }
 
 function AccountNotificationSettings({ account }: { account: string }) {
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const [quietEnabled, setQuietEnabled] = useState(false);
+  /** 門檻輸入框的原始字串：編輯中可以清空，儲存時才轉成數字 */
+  const [thresholdText, setThresholdText] = useState('');
   const [items, setItems] = useState<InboxNotification[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [enabled, setEnabled] = useState(false);
@@ -68,22 +81,23 @@ function AccountNotificationSettings({ account }: { account: string }) {
     setError('');
     setLoading(true);
     void Promise.all([fetchNotificationPreferences(), fetchNotificationInbox()]).then(([prefs, inbox]) => {
-      if (active && notificationAccountSnapshot() === account) {
+      if (active && authAccountSnapshot() === account) {
         const hasQuietHours = prefs.quiet_start !== prefs.quiet_end;
         const loaded = hasQuietHours ? prefs : { ...prefs, quiet_start: 22, quiet_end: 8 };
         setQuietEnabled(hasQuietHours);
         setPreferences(loaded);
+        setThresholdText(String(loaded.price_threshold));
         setSavedPrefs(preferencesSnapshot(loaded, hasQuietHours));
         setItems(inbox);
       }
-    }).catch((err) => { if (active && notificationAccountSnapshot() === account) setError(userFacingMessage(err, '無法載入通知，請重試。')); })
-      .finally(() => { if (active && notificationAccountSnapshot() === account) setLoading(false); });
-    const refreshInbox = () => { void fetchNotificationInbox().then((inbox) => { if (active && notificationAccountSnapshot() === account) setItems(inbox); }).catch(() => {}); };
+    }).catch((err) => { if (active && authAccountSnapshot() === account) setError(userFacingMessage(err, '無法載入通知，請重試。')); })
+      .finally(() => { if (active && authAccountSnapshot() === account) setLoading(false); });
+    const refreshInbox = () => { void fetchNotificationInbox().then((inbox) => { if (active && authAccountSnapshot() === account) setItems(inbox); }).catch(() => {}); };
     window.addEventListener(PUSH_EVENT, refreshInbox);
     return () => { active = false; window.removeEventListener(PUSH_EVENT, refreshInbox); };
   }, [revision, account]);
   async function run(area: FeedbackArea, action: () => Promise<string>) {
-    if (notificationAccountSnapshot() !== account) return;
+    if (authAccountSnapshot() !== account) return;
     setBusy(true); setFeedback(null);
     try { setFeedback({ area, tone: 'success', text: await action() }); }
     catch (err) { setFeedback({ area, tone: 'danger', text: userFacingMessage(err, '操作失敗，請稍後重試。') }); }
@@ -91,7 +105,11 @@ function AccountNotificationSettings({ account }: { account: string }) {
   }
   const reload = () => { setFeedback(null); setRevision((value) => value + 1); };
   const quietInvalid = preferences != null && quietEnabled && preferences.quiet_start === preferences.quiet_end;
-  const prefsDirty = preferences != null && preferencesSnapshot(preferences, quietEnabled) !== savedPrefs;
+  const threshold = parsePriceThreshold(thresholdText);
+  const thresholdInvalid = preferences != null && threshold === null;
+  /** 表單目前的內容（門檻用輸入框的值）；門檻不合法時沿用原值，另外由 thresholdInvalid 擋下儲存 */
+  const formPreferences = preferences && threshold !== null ? { ...preferences, price_threshold: threshold } : preferences;
+  const prefsDirty = preferences != null && (thresholdInvalid || preferencesSnapshot(formPreferences, quietEnabled) !== savedPrefs);
 
   let inbox: ReactNode;
   if (loading) {
@@ -169,11 +187,12 @@ function AccountNotificationSettings({ account }: { account: string }) {
                   : <><p className="text-sm text-muted-foreground">通知偏好沒有載入。</p><Button variant="outline" className="mt-3" onClick={reload}><RefreshCw aria-hidden />重試</Button></>
             ) : <form aria-busy={busy} onSubmit={(event) => {
               event.preventDefault();
-              if (quietInvalid) return;
-              const submitted = preferencesSnapshot(preferences, quietEnabled);
+              if (quietInvalid || thresholdInvalid || !formPreferences) return;
+              const submitted = preferencesSnapshot(formPreferences, quietEnabled);
               void run('prefs', async () => {
                 // Preserve the existing API representation of disabled quiet hours.
-                await saveNotificationPreferences(quietEnabled ? preferences : { ...preferences, quiet_start: 0, quiet_end: 0 });
+                await saveNotificationPreferences(quietEnabled ? formPreferences : { ...formPreferences, quiet_start: 0, quiet_end: 0 });
+                setPreferences(formPreferences);
                 setSavedPrefs(submitted);
                 return '通知偏好已儲存。';
               });
@@ -192,9 +211,11 @@ function AccountNotificationSettings({ account }: { account: string }) {
                 </div>
                 <div>
                   <label className={fieldLabelClass}>漲跌幅門檻（%）
-                    <input type="number" min="1" max="30" step="0.1" required value={preferences.price_threshold} onChange={(event) => setPreferences({ ...preferences, price_threshold: Number(event.target.value) })} className={cn(fieldInput, 'font-mono tabular-nums')} aria-describedby="price-notification-help" />
+                    <input type="number" min={THRESHOLD_MIN} max={THRESHOLD_MAX} step="0.1" required value={thresholdText} onChange={(event) => setThresholdText(event.target.value)} className={cn(fieldInput, 'font-mono tabular-nums')} aria-invalid={thresholdInvalid} aria-describedby="price-notification-help" />
                   </label>
-                  <p id="price-notification-help" className="mt-1.5 text-xs leading-relaxed text-muted-foreground">相較前一交易日收盤價；每檔股票的上漲、下跌方向每日各提醒一次。</p>
+                  <p id="price-notification-help" className={cn('mt-1.5 text-xs leading-relaxed', thresholdInvalid ? 'text-danger' : 'text-muted-foreground')}>
+                    {thresholdInvalid ? `請輸入 ${THRESHOLD_MIN} 到 ${THRESHOLD_MAX} 之間的數字。` : '相較前一交易日收盤價；每檔股票的上漲、下跌方向每日各提醒一次。'}
+                  </p>
                 </div>
                 <div className="border-t pt-4">
                   <label className={cn('flex min-h-11 items-center gap-3 text-sm font-medium', checkRowClass)}>
@@ -216,7 +237,7 @@ function AccountNotificationSettings({ account }: { account: string }) {
                   </>}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <Button type="submit" disabled={quietInvalid} aria-busy={busy || undefined} aria-describedby={prefsDirty ? 'notification-prefs-dirty' : undefined} className="w-full sm:w-auto sm:min-w-44">{busy ? '處理中…' : '儲存通知偏好'}</Button>
+                  <Button type="submit" disabled={quietInvalid || thresholdInvalid} aria-busy={busy || undefined} aria-describedby={prefsDirty ? 'notification-prefs-dirty' : undefined} className="w-full sm:w-auto sm:min-w-44">{busy ? '處理中…' : '儲存通知偏好'}</Button>
                   {prefsDirty ? <span id="notification-prefs-dirty" className="text-[13px] font-medium text-warning">尚未儲存</span> : null}
                 </div>
               </fieldset>

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { StockInfo } from '@/lib/types/api';
-import { focusLeftCombobox, searchStockOptions, stockSearchStatus } from './StockSearch';
+import { searchStockOptions, stockSearchStatus } from './StockSearch';
+import { focusLeftCombobox } from './Combobox';
 
 const stocks: StockInfo[] = [
   { symbol: '2330', name: '台積電', industry: '半導體業' },

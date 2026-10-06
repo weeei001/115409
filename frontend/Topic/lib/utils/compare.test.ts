@@ -17,6 +17,9 @@ import {
   toCompareChartSeries,
 } from './compare';
 import { kdSignal, maPositionSignal, rsiSignal } from './compareSignals';
+import * as compareSignals from './compareSignals';
+import * as indicatorSignals from './indicatorSignals';
+import { fmtAmount, fmtPercent } from './format';
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 const change = (rows: Array<[string, number, number]>): PriceChangeResponse => ({
@@ -165,6 +168,18 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.ok(close(ma.value as number, 10));
 }
 
+// 比較頁沿用個股頁的判讀：MACD、KD 是同一個函式，RSI 只多冠「RSI 」（缺值兩邊都寫「RSI 無資料」）
+{
+  assert.equal(compareSignals.macdSignal, indicatorSignals.macdSignal);
+  assert.equal(compareSignals.kdSignal, indicatorSignals.kdSignal);
+  for (const [value, plain] of [[75, '超買'], [25, '超賣'], [50, '中性']] as const) {
+    assert.equal(indicatorSignals.rsiSignal(value).label, plain);
+    assert.deepEqual(rsiSignal(value), { ...indicatorSignals.rsiSignal(value), label: `RSI ${plain}` });
+  }
+  assert.equal(indicatorSignals.rsiSignal(Number.NaN).label, 'RSI 無資料');
+  assert.equal(indicatorSignals.rsiSignal(75, { labelPrefix: 'RSI ' }).label, 'RSI 超買');
+}
+
 // 類別冠軍：有方向的指標依正負上色，波動與相關性、缺值維持中性（決議 D13）
 {
   const metric = (symbol: string, totalReturnPct: number, volatilityPct: number): CompareMetricsRow => ({
@@ -200,6 +215,26 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.equal(tones(underOneLot).institutionalFavorite, 'neutral');
   assert.equal(underOneLot.find((leader) => leader.id === 'institutionalFavorite')?.value, '不到 1 張');
   assert.equal(tones(buildCategoryLeaders(['A'], [metric('A', 0, 20)], {}, {}, {}, {})).bestReturn, 'neutral');
+  // 四捨五入後是 0.00%：不帶號、不上漲跌色（顏色跟著畫面上的值）
+  const nearZero = buildCategoryLeaders(['A'], [metric('A', -0.004, 20)], {}, { A: { ma20: 100.004, ma60: 100 } as TechnicalDay }, {}, {});
+  assert.equal(nearZero.find((leader) => leader.id === 'bestReturn')?.value, '0.00%');
+  assert.equal(tones(nearZero).bestReturn, 'neutral');
+  assert.equal(nearZero.find((leader) => leader.id === 'strongestMomentum')?.value, '0.00%');
+  assert.equal(tones(nearZero).strongestMomentum, 'neutral');
+}
+
+// fmtPercent 先四捨五入再決定正負號；fmtAmount 負值也依絕對值縮放
+{
+  assert.equal(fmtPercent(-0.004), '0.00%');
+  assert.equal(fmtPercent(0.004, { sign: true }), '0.00%');
+  assert.equal(fmtPercent(-0.0004, { fromRatio: true, decimals: 1 }), '0.0%');
+  assert.equal(fmtPercent(0.005, { sign: true }), '+0.01%');
+  assert.equal(fmtPercent(-0.006), '-0.01%');
+  assert.equal(fmtPercent(3.456, { sign: true }), '+3.46%');
+  assert.equal(fmtAmount(5e8), '5.00 億元');
+  assert.equal(fmtAmount(-5e8), '-5.00 億元');
+  assert.equal(fmtAmount(-12_345), '-1.23 萬元');
+  assert.equal(fmtAmount(-12.34), '-12 元');
 }
 
 // Unsorted histories align endpoints once; charts, metrics, and leaders agree.

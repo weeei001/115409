@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { RefreshCw } from 'lucide-react';
 import type { EChartsOption } from '@/lib/charts/echarts';
 import type { TechnicalDay } from '@/lib/types/view';
 import { bollOption, kdOption, plottedSpan, plottedSpanText, rsiMacdOptions } from '@/lib/charts/adapters';
@@ -6,7 +7,8 @@ import { fmtPrice } from '@/lib/utils/format';
 import { fmtIndicator, kdSignal, MACD_DECIMALS, macdSignal, rsiSignal, rsiZone, type SignalTone } from '@/lib/utils/indicatorSignals';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { EChart } from '@/components/charts/EChart';
-import { EmptyState, LoadingRows } from '@/components/common/Notice';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
+import { Button } from '@/components/ui/button';
 import { signedText } from '@/components/common/LightEntry';
 import { LedgerHeading, LightGlyph } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
@@ -116,7 +118,7 @@ function buildIndicators(rows: TechnicalDay[], isDark: boolean): Indicator[] {
  * 「技術指標明細」抽屜：先放一張全寬的主圖（RSI，和頁面上「指標訊號」卡的第一列一致），
  * 其餘指標排成有線分隔的清單，每列左邊用文字寫判讀、右邊是較小的圖。
  */
-export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows: TechnicalDay[] | null; loading: boolean } & Actions) {
+export function IndicatorsPanel({ rows, loading, error = null, onRetry, onWidenRange }: { rows: TechnicalDay[] | null; loading: boolean; error?: string | null } & Actions) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const indicators = useMemo(() => (rows?.length ? buildIndicators(rows, isDark) : null), [rows, isDark]);
@@ -131,6 +133,23 @@ export function IndicatorsPanel({ rows, loading, onRetry, onWidenRange }: { rows
         <LoadingRows label="載入技術指標中…" className="h-[320px] border-y" />
         <LoadingRows className="h-[360px] border-y" />
       </div>
+    );
+  }
+
+  // /technical-indicators 失敗：寫錯誤與重試，不寫「尚無資料」也不叫人拉長區間
+  if (error) {
+    return (
+      <Notice
+        tone="danger"
+        action={
+          <Button size="sm" variant="outline" onClick={onRetry} className="min-h-11">
+            <RefreshCw aria-hidden />
+            重試
+          </Button>
+        }
+      >
+        {error}
+      </Notice>
     );
   }
 

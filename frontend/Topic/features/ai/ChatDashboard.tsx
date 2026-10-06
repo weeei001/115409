@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { EChartsOption } from '@/lib/charts/echarts';
 import { getChartPalette, AI_SERIES_PALETTE } from '@/lib/charts/theme';
 import { baseAxis, chartGrid, legend, lineLook, tooltip, valueAxis } from '@/lib/charts/adapters';
+import { uMinus, withSign } from '@/lib/utils/format';
 import { getValueTone, toneText, type ValueTone } from '@/lib/utils/tone';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import type { ChatDashboard as ChatDashboardData, ChatDashboardBlock, DashboardChart } from '@/lib/types/chatDashboard';
@@ -23,9 +24,7 @@ const MISSING = '--';
 const rounded = (value: number) => Math.round(value * 100) / 100 || 0;
 
 function formatNumber(value: number): string {
-  const shown = rounded(value);
-  const body = numberFormat.format(Math.abs(shown));
-  return shown < 0 ? `−${body}` : body;
+  return uMinus(numberFormat.format(rounded(value)));
 }
 
 function formatValue(value: number | null | undefined, unit = ''): string {
@@ -45,7 +44,8 @@ function isDirectional(label: string): boolean {
 
 function formatSignedValue(value: number | null | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return MISSING;
-  return rounded(value) > 0 ? `+${formatNumber(value)}` : formatNumber(value);
+  const shown = rounded(value);
+  return withSign(shown, numberFormat.format(Math.abs(shown)));
 }
 
 const signedTone = (value: number | null | undefined): ValueTone =>

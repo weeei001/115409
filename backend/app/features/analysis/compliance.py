@@ -96,9 +96,6 @@ def scan_compliance_hits(text: str, *, grounded_condition: bool = False) -> list
             hits.append(ComplianceHit(rule_name, "soft", snippet))
     return hits
 
-def scan_compliance(text: str) -> list[str]:
-    return [f"{hit.rule}: {hit.snippet}" for hit in scan_compliance_hits(text)]
-
 def compliance_rules_signature() -> list[str]:
     return [f"source-note:{_TARGET_PRICE_SOURCE_NOTE.pattern}"] + [
         f"{severity}:{name}:{pattern.pattern}"

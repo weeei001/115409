@@ -28,6 +28,9 @@ function avatarLetter(user: UserPublic): string {
   return source ? source.slice(0, 1).toUpperCase() : '?';
 }
 
+/** 視窗取得焦點時，同一個登入多久才再向後端確認一次管理員身分 */
+const ADMIN_RECHECK_MS = 5 * 60_000;
+
 const itemClass =
   'lamp-row group flex min-h-12 w-full items-center gap-3 border-b px-5 py-3 text-left text-sm font-medium focus-lamp-inset';
 
@@ -45,17 +48,29 @@ export function AppNavDrawer() {
   const [user, setUser] = useState<UserPublic | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // 管理員身分：掛載與登入狀態改變時確認；視窗取得焦點時，同一個登入最多每 5 分鐘再確認一次（權限可能被收回）。
+  // 開關選單不重新確認；確認期間保留同一個登入上一次的結果，「管理後台」不會在選單打開時閃掉再出現。
   useEffect(() => {
     let active = true;
     let controller: AbortController | null = null;
-    const sync = () => {
+    let checked: { token: string; at: number } | null = null;
+    const sync = (event?: Event) => {
       setUser(getStoredUser());
-      setIsAdmin(false);
-      controller?.abort();
       const token = getToken();
-      if (!token) return;
+      if (!token) {
+        controller?.abort();
+        checked = null;
+        setIsAdmin(false);
+        return;
+      }
+      const sameLogin = checked?.token === token;
+      // 換了帳號就不沿用上一個帳號的結果
+      if (!sameLogin) setIsAdmin(false);
+      if (event?.type === 'focus' && sameLogin && checked && Date.now() - checked.at < ADMIN_RECHECK_MS) return;
+      controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
+      checked = { token, at: Date.now() };
       void adminMe(signal).then(() => {
         if (active && !signal.aborted && token === getToken()) setIsAdmin(true);
       }).catch(() => {
@@ -71,6 +86,11 @@ export function AppNavDrawer() {
       window.removeEventListener(AUTH_CHANGE_EVENT, sync);
       window.removeEventListener('focus', sync);
     };
+  }, []);
+
+  // 打開選單時從本機重讀使用者資料（不打 API），顯示名稱改過也會更新
+  useEffect(() => {
+    if (open) setUser(getStoredUser());
   }, [open]);
 
   const loginHref = useMemo(() => {

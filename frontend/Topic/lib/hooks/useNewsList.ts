@@ -68,6 +68,7 @@ export function buildFetchParams(
   if (rangeError) return { params: {}, error: rangeError };
 
   const trimmedKeyword = filters.keyword?.trim();
+  // 純數字關鍵字都當代號送給後端（不限 4–6 碼，比 isTaiwanStockCode 寬）
   const isStockCode = trimmedKeyword && /^\d+$/.test(trimmedKeyword);
 
   const params: FetchNewsParams = {

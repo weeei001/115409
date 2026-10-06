@@ -12,7 +12,7 @@ import {
   recentChipsRows,
   recentInstitutionalRows,
 } from '@/lib/charts/adapters';
-import { fmtInstitutionalShares as fmtShares, lotToneValue } from '@/lib/utils/format';
+import { fmtInstitutionalShares as fmtShares, lots, lotToneValue, signedLots, signedShares } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { EChart } from '@/components/charts/EChart';
@@ -23,12 +23,29 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/cn';
-import { lots, signedLots, signedShares } from '../signedShares';
 import { EmptyRangeActions, type EmptyRangeActionsProps as EmptyActions } from '../EmptyRangeActions';
 
+/** 這一塊的資料請求失敗：錯誤＋重試，不寫成「沒有資料」 */
+function ErrorNotice({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Notice
+      tone="danger"
+      action={
+        <Button size="sm" variant="outline" onClick={onRetry} className="min-h-11">
+          <RefreshCw aria-hidden />
+          重試
+        </Button>
+      }
+    >
+      {message}
+    </Notice>
+  );
+}
+
 /** 最近交易日四格：用 1px 線分隔，標籤靠左、數字靠右，只有淨額上漲跌色 */
-function KpiCards({ latest, loading, actions }: { latest: InstitutionalDay | null; loading: boolean; actions: EmptyActions }) {
+function KpiCards({ latest, loading, error, actions }: { latest: InstitutionalDay | null; loading: boolean; error: string | null; actions: EmptyActions }) {
   if (loading) return <LoadingRows className="h-[88px] bg-card" />;
+  if (error) return <ErrorNotice message={error} onRetry={actions.onRetry} />;
   if (!latest) {
     return (
       <EmptyState className="bg-card py-6" action={<EmptyRangeActions {...actions} />}>
@@ -201,12 +218,15 @@ const TABS = [
   { key: 'history', label: '歷史明細', description: '逐日明細（由新到舊）· 單位 張' },
 ] as const;
 
-function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
+function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chipsVolumeError, actions }: {
   rows: InstitutionalDay[] | null;
   latest: InstitutionalDay | null;
   chipsVolume: ChipsVolumeData[] | null;
   loading: boolean;
-  error: string | null;
+  /** /institutional-trades 失敗（每日流向、累計、最近交易日、歷史明細） */
+  institutionalError: string | null;
+  /** /volume-with-chips 失敗（量價籌碼） */
+  chipsVolumeError: string | null;
   actions: EmptyActions;
 }) {
   const { theme } = useTheme();
@@ -235,9 +255,10 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
   const body = (key: string) => {
     if (loading && key !== 'today') return <LoadingRows className="h-[300px] border-y" />;
     const empty = (text: string) => <EmptyState action={<EmptyRangeActions {...actions} />}>{text}</EmptyState>;
+    const error = key === 'chips' ? chipsVolumeError : institutionalError;
+    if (error) return <ErrorNotice message={error} onRetry={actions.onRetry} />;
     switch (key) {
       case 'flow':
-        if (error) return empty(error);
         // 只用 ECharts 內建的可點圖例（決議 c61）
         return flow ? <EChart title="三大法人每日買賣超（張）" option={flow} height={280} /> : empty('尚無法人買賣超資料');
       case 'cumulative':
@@ -283,23 +304,11 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, error, actions }: {
 
 /** 「籌碼明細」抽屜內容 */
 export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }) {
-  const { chipsError, reloadChips, chipsLoading, institutional, institutionalLatest, chipsVolume, widenDateRange } = dashboard;
+  const { institutionalError, chipsVolumeError, reloadChips, chipsLoading, institutional, institutionalLatest, chipsVolume, widenDateRange } = dashboard;
   const actions: EmptyActions = { onRetry: reloadChips, onWidenRange: widenDateRange };
+  // 錯誤寫在失敗的那一塊（法人或量價籌碼），另一支成功的照常顯示
   return (
     <div className="flex flex-col gap-10">
-      {chipsError ? (
-        <Notice
-          tone="danger"
-          action={
-            <Button size="sm" variant="outline" onClick={reloadChips} className="min-h-11">
-              <RefreshCw aria-hidden />
-              重試
-            </Button>
-          }
-        >
-          {chipsError}
-        </Notice>
-      ) : null}
       <Ledger
         as="h3"
         title="最近交易日法人買賣超"
@@ -310,17 +319,25 @@ export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }
             <DataStamp
               date={institutionalLatest?.date}
               label="法人"
-              state={chipsLoading ? 'loading' : chipsError ? 'error' : 'ready'}
+              state={chipsLoading ? 'loading' : institutionalError ? 'error' : 'ready'}
               className="align-middle"
             />
           </>
         }
       >
-        <KpiCards latest={institutionalLatest} loading={chipsLoading} actions={actions} />
+        <KpiCards latest={institutionalLatest} loading={chipsLoading} error={institutionalError} actions={actions} />
       </Ledger>
       <Ledger as="h3" title="法人籌碼走勢" stamp="單位 張">
         <LedgerPanel>
-          <ChipsTabs rows={institutional} latest={institutionalLatest} chipsVolume={chipsVolume} loading={chipsLoading} error={chipsError} actions={actions} />
+          <ChipsTabs
+            rows={institutional}
+            latest={institutionalLatest}
+            chipsVolume={chipsVolume}
+            loading={chipsLoading}
+            institutionalError={institutionalError}
+            chipsVolumeError={chipsVolumeError}
+            actions={actions}
+          />
         </LedgerPanel>
       </Ledger>
     </div>

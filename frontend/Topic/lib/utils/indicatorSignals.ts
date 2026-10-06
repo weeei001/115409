@@ -12,7 +12,7 @@ export interface Signal {
   value: number | null;
 }
 
-const finite = (v: number | null | undefined): number | null => (v == null || !Number.isFinite(v) ? null : v);
+export const finite = (v: number | null | undefined): number | null => (v == null || !Number.isFinite(v) ? null : v);
 
 /** 指標名稱帶計算參數（後端 jobs/indicators.py：RSI10、KD 9 日、MACD 12/26/9），各處用同一組字（04-U7） */
 export const INDICATOR_LABELS = {
@@ -35,13 +35,17 @@ export function rsiZone(rsi: number | null | undefined): RsiZone {
   return 'neutral';
 }
 
-export function rsiSignal(rsi: number | null | undefined): Signal {
+/**
+ * labelPrefix 冠在超買／超賣／中性前面：個股頁、首頁的格子已有「RSI」欄名，不冠；
+ * 多股比較的快照表傳 'RSI '（「RSI 超買」），缺值一律寫「RSI 無資料」。
+ */
+export function rsiSignal(rsi: number | null | undefined, { labelPrefix = '' }: { labelPrefix?: string } = {}): Signal {
   const value = finite(rsi);
   const zone = rsiZone(value);
   if (zone === 'na') return { label: 'RSI 無資料', tone: 'neutral', value };
-  if (zone === 'overbought') return { label: '超買', tone: 'warning', value };
-  if (zone === 'oversold') return { label: '超賣', tone: 'warning', value };
-  return { label: '中性', tone: 'neutral', value };
+  if (zone === 'overbought') return { label: `${labelPrefix}超買`, tone: 'warning', value };
+  if (zone === 'oversold') return { label: `${labelPrefix}超賣`, tone: 'warning', value };
+  return { label: `${labelPrefix}中性`, tone: 'neutral', value };
 }
 
 export function macdSignal(hist: number | null | undefined): Signal {

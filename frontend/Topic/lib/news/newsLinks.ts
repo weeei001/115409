@@ -2,13 +2,14 @@ import type { News } from '../types/api';
 import { DomUtils, parseDocument } from 'htmlparser2';
 import { breadcrumbsTrail, type BreadcrumbItem } from '../nav';
 import { formatStockLabel } from '../utils/symbolNames';
+import { isTaiwanStockCode } from '../utils/stockValidation';
 
 export const UNSUPPORTED_STOCK_MARKET_MESSAGE = '此市場暫不支援個股分析';
 
 /** Only Taiwan identifiers can address this application's stock pages. */
 export function taiwanStockCode(identifier: string): string | null {
   const value = identifier.trim();
-  if (/^\d{4,6}$/.test(value)) return value;
+  if (isTaiwanStockCode(value)) return value;
   const prefix = /^(?:TW|TWSE|TPEX|TWS|TWO):\s*(\d{4,6})$/i.exec(value);
   const suffix = /^(\d{4,6})[.-](?:TW|TWO)$/i.exec(value);
   return (prefix ?? suffix)?.[1] ?? null;
@@ -44,7 +45,7 @@ export function newsHref(articleId: string, stock?: string) {
  * 從首頁進來時不要拿第一檔關聯股充當上一層（04-N2）。
  */
 export function newsDetailBreadcrumbs(stockParam: string, newsReturn: string | null): BreadcrumbItem[] {
-  return /^\d{4,6}$/.test(stockParam)
+  return isTaiwanStockCode(stockParam)
     ? breadcrumbsTrail({ label: formatStockLabel(stockParam), href: newsReturn ?? `/stock/${stockParam}` }, '新聞內容與事件影響')
     : breadcrumbsTrail('新聞內容與事件影響');
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import { Notice } from '@/components/common/Notice';
@@ -11,7 +11,7 @@ import { createPaperOrder, estimatePaperBuy, estimatePaperSell, fetchPaperPortfo
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { ApiRequestError } from '@/lib/api/client';
 import { fetchLatestPrice } from '@/lib/api/stock';
-import { notificationAccountSnapshot, subscribeNotificationAccount } from '@/lib/notifications/account';
+import { useAuthAccount } from '@/lib/auth/account';
 import { StockSearch } from '@/components/common/StockSearch';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
 import { parseBulkSymbolInput } from '@/lib/utils/stockSelection';
@@ -57,7 +57,7 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
   embedded?: boolean;
 }) {
   const scope = useId();
-  const account = useSyncExternalStore(subscribeNotificationAccount, notificationAccountSnapshot, () => '');
+  const account = useAuthAccount();
   // 股票用搜尋選（顯示名稱），不再是純文字欄（P1-30）
   const { data: stockInfos } = useStockInfos({ enabled: Boolean(account) });
   const stockList = useMemo(() => stockInfos ?? [], [stockInfos]);

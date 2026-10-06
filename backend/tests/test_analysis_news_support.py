@@ -320,7 +320,7 @@ def test_explicit_retrospective_and_intraday_sources_keep_attribution(published,
 
 
 def test_unverified_first_publication_is_one_plain_limitation(db_session, settings):
-    from app.clients.rag import RagResult
+    from app.features.retrieval.schemas import RagResult
     from app.db.models.stock_info import StockInfo
     from app.features.analysis.evidence import NEWS_FIRST_PUBLIC_LIMITATION
     from test_analysis_service import FakeLlm, FakeRag, run_service, seed_prices

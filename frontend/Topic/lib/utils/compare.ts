@@ -10,7 +10,7 @@ import type {
 } from '../types/compare';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import { COMPARE_SYMBOL_COLORS } from '../charts/theme';
-import { fmtInstitutionalShares, fmtPercent, lotToneValue } from './format';
+import { fmtInstitutionalShares, fmtPercent, lotToneValue, uMinus } from './format';
 import { directionLabel, maTrendSpreadPct, momentumBreakdown } from './compareSignals';
 import { getValueTone } from './tone';
 
@@ -110,7 +110,7 @@ const byDate = <T extends { date: string }>(a: T, b: T) => a.date.localeCompare(
 
 /**
  * 可用的日報酬列：依日期排序後去掉區間第一天。第一天的 change_percent 是相對區間前一天，
- * 後端實際回 0（決議 D9-c25）；指標表、相關係數、有效樣本與共同交易日都用這份（決議 c71）。
+ * 不屬於區間內的報酬（決議 D9-c25）；指標表、相關係數、有效樣本與共同交易日都用這份（決議 c71）。
  */
 function dailyReturnRows(change: ComparePriceHistory | null) {
   return [...(change?.data ?? [])]
@@ -481,16 +481,16 @@ export function buildCategoryLeaders(
     return `共同日漲跌樣本 ${samples} 筆；${v < 0 ? '期間呈反向變動' : '期間呈同向變動'}，不代表未來關係。`;
   })();
 
-  // 負號一律 U+2212（05 用語表）
-  const minus = (text: string) => text.replace(/^-/, '−');
+  // 漲跌色依畫面上的值（fmtPercent 四捨五入到 2 位）：顯示 0.00% 就是中性
+  const shownPctTone = (v: number | null) => getValueTone(v == null ? v : Number(v.toFixed(2)));
   const leaders: CategoryLeader[] = [
     bestReturn
       ? {
           id: 'bestReturn',
           title: '區間漲跌幅最高',
           symbol: bestReturn.symbol,
-          value: minus(fmtPercent(bestReturn.totalReturnPct, { sign: true })),
-          tone: getValueTone(bestReturn.totalReturnPct),
+          value: uMinus(fmtPercent(bestReturn.totalReturnPct, { sign: true })),
+          tone: shownPctTone(bestReturn.totalReturnPct),
           reason: '依共同起訖日未還原收盤價計算，不含股息。',
         }
       : fallbackLeader('bestReturn', '區間漲跌幅最高', '不足兩個共同有效收盤日。'),
@@ -509,7 +509,7 @@ export function buildCategoryLeaders(
           id: 'institutionalFavorite',
           title: '法人合計買超最高',
           symbol: topInstitutional.symbol,
-          value: minus(fmtInstitutionalShares(topInstitutional.totalNet)),
+          value: fmtInstitutionalShares(topInstitutional.totalNet),
           tone: getValueTone(lotToneValue(topInstitutional.totalNet)),
           reason: '期間法人合計淨買賣超量最高；未依股本或成交量調整。',
         }
@@ -519,8 +519,8 @@ export function buildCategoryLeaders(
           id: 'strongestMomentum',
           title: '均線最偏多',
           symbol: topMomentum.symbol,
-          value: minus(fmtPercent(topMomentum.score, { sign: true })),
-          tone: getValueTone(topMomentum.score),
+          value: uMinus(fmtPercent(topMomentum.score, { sign: true })),
+          tone: shownPctTone(topMomentum.score),
           reason: momentumReason,
         }
       : fallbackLeader('strongestMomentum', '均線最偏多', '技術指標資料不足。'),
@@ -529,7 +529,7 @@ export function buildCategoryLeaders(
           id: 'lowestCorrelationPair',
           title: '相關性最低組合',
           symbol: `${lowestPair.a} × ${lowestPair.b}`,
-          value: `ρ ${minus(lowestPair.value.toFixed(2))}`,
+          value: `ρ ${uMinus(lowestPair.value.toFixed(2))}`,
           tone: 'neutral',
           reason: correlationReason,
         }

@@ -41,7 +41,6 @@ def test_indicators_preserve_lookback_rounding_and_upsert(db_session):
     ("vectorize-news", "app.jobs.ingestion.cli", "main", ("vectorize-news",)),
     ("news-ingest", "app.jobs.ingestion.cli", "main", ("news-ingest",)),
     ("scheduler", "app.jobs.scheduler", "main", ()),
-    ("legacy-scheduler", "app.jobs.scheduler", "main", ()),
     ("methodology-train", "app.jobs.research.methodology_trainer", "main", ()),
     ("backtest-learned", "app.jobs.research.backtest_learned_prompt", "main", ()),
 ])

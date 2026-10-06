@@ -1,4 +1,5 @@
 import { formatStockLabel } from './utils/symbolNames';
+import { isTaiwanStockCode } from './utils/stockValidation';
 import type { ChatAction } from './types/chat';
 
 /** 主選單／頁尾共用導覽（路徑與標籤唯一來源） */
@@ -17,7 +18,7 @@ export function isChatNavigationAction(value: unknown): value is Extract<ChatAct
   return action.type === 'navigate' &&
     typeof action.label === 'string' && action.label.trim().length > 0 &&
     typeof action.path === 'string' &&
-    (PRIMARY_NAV.some((item) => item.path === action.path) || /^\/stock\/\d{4,6}$/.test(action.path));
+    (PRIMARY_NAV.some((item) => item.path === action.path) || (action.path.startsWith('/stock/') && isTaiwanStockCode(action.path.slice('/stock/'.length))));
 }
 
 export function isChatFollowUpAction(value: unknown): value is Extract<ChatAction, { type: 'follow_up' }> {
@@ -39,6 +40,7 @@ export function isPaperOrderDraftAction(value: unknown): value is Extract<ChatAc
   return action.type === 'paper_order_draft' && typeof action.draft_id === 'string'
     && /^[a-zA-Z0-9-]{1,100}$/.test(action.draft_id)
     && typeof action.label === 'string' && action.label.length <= 200
+    // 模擬下單草稿收英數 1–10 碼，和 compareQuery 同一條，比 isTaiwanStockCode 寬
     && typeof action.symbol === 'string' && /^[0-9A-Z]{1,10}$/.test(action.symbol)
     && (action.side === 'buy' || action.side === 'sell')
     && positive(action.budget) && positive(action.quantity)
@@ -92,7 +94,7 @@ export function breadcrumbsTrail(...segments: Array<string | BreadcrumbItem>): B
 function isRoutableStockSymbol(symbol: string): boolean {
   const code = symbol.trim();
   if (!code || code === '[id]') return false;
-  return /^\d{4,6}$/.test(code);
+  return isTaiwanStockCode(code);
 }
 
 export function breadcrumbsForStock(symbol: string, stockName?: string): BreadcrumbItem[] {

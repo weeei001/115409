@@ -1,7 +1,7 @@
 import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { DataStamp, LedgerPanel, LightGlyph, NextStep, type LightState } from '@/components/common/Ledger';
-import { EmptyState, LoadingRows } from '@/components/common/Notice';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { cn } from '@/lib/cn';
 
 interface Props {
@@ -20,6 +20,10 @@ interface Props {
   emptyText?: string;
   /** 空狀態的下一步（例如「重新載入」） */
   emptyAction?: React.ReactNode;
+  /** 這一格的資料請求失敗：顯示錯誤（不是空狀態） */
+  error?: string | null;
+  /** 錯誤的下一步（「重試」） */
+  errorAction?: React.ReactNode;
   action?: { label: string; onClick: () => void };
   children?: React.ReactNode;
   className?: string;
@@ -41,6 +45,8 @@ export function CardShell({
   isEmpty,
   emptyText = '尚無資料',
   emptyAction,
+  error,
+  errorAction,
   action,
   children,
   className,
@@ -72,6 +78,10 @@ export function CardShell({
           <div className="flex flex-1 flex-col border-t" style={{ minHeight: `${loadingRows * 44}px` }}>
             <LoadingRows className="flex-1" />
           </div>
+        ) : error ? (
+          <Notice tone="danger" action={errorAction}>
+            {error}
+          </Notice>
         ) : isEmpty ? (
           <EmptyState className="flex-1" action={emptyAction}>
             {emptyText}

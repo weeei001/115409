@@ -8,7 +8,6 @@ import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.clients.rag import RagResult
 from app.core.errors import AppError, NotFound, ServiceUnavailable
 from app.features.market.company_catalog import load_catalog
 from app.features.news.impact import config_hash
@@ -19,7 +18,7 @@ from . import repository
 from .facts import group_shared_facts
 from .common import TAIPEI, article_identity, get_source_name, parse_timestamp, source_provenance
 from .impact_metadata import IMPACT_PAYLOAD_KEYS, current_analysis, current_chunk_ids
-from .schemas import NewsSource, QuestionSearchResult, RetrievalRequest, RetrievalResponse
+from .schemas import NewsSource, QuestionSearchResult, RagResult, RetrievalRequest, RetrievalResponse
 
 
 _MARKET_NOISE = (
@@ -400,7 +399,7 @@ class RetrievalService:
             recent = await self._query(vector, symbols=stock_filter, start=start, end=end,
                                        limit=per_group * 4)
 
-            def select(candidates: list[dict], budget: int, *, in_range: bool) -> list[dict]:
+            def select(candidates: list[dict], budget: int) -> list[dict]:
                 selected = []
                 for hit in sorted(candidates, key=lambda item: float(item.get("score") or 0), reverse=True):
                     if len(selected) >= budget:
@@ -412,14 +411,14 @@ class RetrievalService:
                         continue
                     seen_chunks.add(key)
                     article_counts[article] = article_counts.get(article, 0) + 1
-                    selected.append({**hit, "_in_time_range": in_range})
+                    selected.append(hit)
                 return selected
 
-            selected = select(recent, per_group, in_range=True)
+            selected = select(recent, per_group)
             if len(selected) < per_group and len(recent) >= per_group * 4:
                 expanded = await self._query(vector, symbols=stock_filter, start=start, end=end,
                                              limit=min(200, per_group * 12))
-                selected.extend(select(expanded, per_group - len(selected), in_range=True))
+                selected.extend(select(expanded, per_group - len(selected)))
             hits.extend(selected)
         if not hits:
             raise NotFound("未找到相關新聞：指定時間範圍內沒有可用資料，未使用更早的新聞補足。")
@@ -432,5 +431,4 @@ class RetrievalService:
                 for hit, source in zip(hits, grouped)]
         return QuestionSearchResult(hits=hits,
             time_from=start.replace(tzinfo=None).isoformat(sep=" ") if start else None,
-            time_to=end.replace(tzinfo=None).isoformat(sep=" "),
-            fallback_mode=False)
+            time_to=end.replace(tzinfo=None).isoformat(sep=" "))

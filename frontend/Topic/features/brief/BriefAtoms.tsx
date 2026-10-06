@@ -76,7 +76,6 @@ export const DirectionMark: React.FC<{ direction?: Direction; label?: string }> 
 export const SectionCard: React.FC<{
   title: string;
   hint?: string;
-  icon?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ title, hint, actions, children }) => (

@@ -1,5 +1,6 @@
 import type { NewsListFilters } from '../hooks/useNewsList';
 import type { NewsIndustry } from '../types/api';
+import { parseNewsTime } from './date';
 
 export const NEWS_ADVANCED_FIELDS = [
   { key: 'scope', label: '影響範圍', options: [['', '全部'], ['market', '大盤'], ['industry', '產業'], ['company', '個股']] },
@@ -72,13 +73,8 @@ export function formatNewsDateTimeParam(value: string): string | undefined {
   return trimmed;
 }
 
-/** 不帶時區的時間當成台灣時間，和後端一致（`retrieval/common.py` 的 `parse_timestamp`） */
-export function parseNewsTime(value: string): number {
-  const trimmed = value.trim();
-  const match = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(:\d{2})?)?$/.exec(trimmed);
-  if (!match) return Date.parse(trimmed);
-  return Date.parse(`${match[1]}T${match[2] ?? '00:00'}${match[3] ?? ':00'}+08:00`);
-}
+// 不帶時區的時間當成台灣時間；實作和新聞時間的顯示共用（utils/date）
+export { parseNewsTime };
 
 /**
  * 後端的結束時間是 min(迄, 現在)（`retrieval/service.py`），所以開始時間晚於現在也會被拒：

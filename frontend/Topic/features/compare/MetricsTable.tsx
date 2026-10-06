@@ -4,7 +4,7 @@ import { FoldSection, TableScrollHint } from '@/components/common/CollapsibleSec
 import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import type { CompareMetricsRow } from '@/lib/types/compare';
 import { sortMetricsRows, type CompareSortState } from '@/lib/utils/compare';
-import { fmtAmount, fmtPercent, fmtVolume } from '@/lib/utils/format';
+import { fmtAmount, fmtPercent, fmtVolume, uMinus } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
 
@@ -42,9 +42,6 @@ function markedValues(rows: CompareMetricsRow[]): Partial<Record<keyof CompareMe
   return out;
 }
 
-/** 表格數字的負號一律 U+2212（DESIGN.md 第 7 節、05 用語表） */
-export const uMinus = (text: string) => text.replace(/^-/, '−');
-
 /**
  * 平均成交值（成交 API 的金額是新台幣元）。
  * 畫面上縮放成萬元／億元；title 與讀螢幕軟體的文字寫「約 105.98 億元（10,598,088,022 元）」，不給浮點原值（P1-27）。
@@ -52,11 +49,11 @@ export const uMinus = (text: string) => text.replace(/^-/, '−');
 export function formatCompareAmount(value: number | null) {
   if (value == null || !Number.isFinite(value)) return { label: '--', detail: '平均成交值資料未提供' };
   const sign = value < 0 ? '−' : '';
-  const scaled = fmtAmount(Math.abs(value));
+  const label = uMinus(fmtAmount(value));
   const whole = `${sign}${Math.round(Math.abs(value)).toLocaleString('zh-TW')} 元`;
   return {
-    label: `${sign}${scaled}`,
-    detail: Math.abs(value) >= 1e4 ? `約 ${sign}${scaled}（${whole}）` : whole,
+    label,
+    detail: Math.abs(value) >= 1e4 ? `約 ${label}（${whole}）` : whole,
   };
 }
 

@@ -53,6 +53,16 @@ def evidence():
     "若報酬率為-5%，暫停加碼。",
     "建議投入NT$20000可用資金。",
     "建議設定目標報酬率10%但不保證實現。",
+    "停損可設在8%。",
+    "停損點約設在8%。",
+    "目標報酬率可抓15%。",
+    "跌破8%停損。",
+    "可考慮在回檔5%至10%時分批買進。",
+    "若回檔5%，再分批布局。",
+    "若回檔5%再分批布局。",
+    "短線若漲超過10%可考慮部分獲利了結。",
+    "一旦跌破1,000元就停損。",
+    "每次投入30%資金分批買進。",
 ])
 def test_explicit_proposals_and_conditions_are_not_existing_observations(text):
     assert numeric_claims_supported(text, evidence(), CATALOG)
@@ -89,6 +99,13 @@ def test_explicit_proposals_and_conditions_are_not_existing_observations(text):
     "建議設定目標報酬率10%保證實現。",
     "建議設定目標報酬率10%，一定達成。",
     "建議投入100%。",
+    "目前停損可設在8%。",
+    "跌破8%。",
+    "台積電下跌9.9%後可分批買進。",
+    "近一個月回檔5%後可分批買進。",
+    "若回檔-5%再分批布局。",
+    "若回檔5%一定反彈。",
+    "停損設在8%，目前股價999元。",
 ])
 def test_proposals_do_not_exempt_invalid_ranges_predictions_or_observations(text):
     assert not numeric_claims_supported(text, evidence(), CATALOG)

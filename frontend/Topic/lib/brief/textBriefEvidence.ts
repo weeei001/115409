@@ -1,5 +1,5 @@
 import type { DailyEvidenceValue, EvidenceItem } from '../types/textBrief';
-import { fmtAmount, fmtNum, fmtPercent } from '../utils/format';
+import { fmtAmount, fmtNum, fmtPercent, fmtVolume, lotsToShares, signedShares } from '../utils/format';
 import { safeHttpUrl } from '../utils/url';
 
 /**
@@ -174,7 +174,7 @@ function dailyMetrics(value: DailyEvidenceValue): EvidenceMetric[] {
     metrics.push({ name: '漲跌幅', value: fmtPercent(value.chg_pct, { sign: true }) });
   }
   if (value.vol_lots != null) {
-    metrics.push({ name: '成交量', value: `${fmtNum(value.vol_lots)} 張` });
+    metrics.push({ name: '成交量', value: fmtVolume(lotsToShares(value.vol_lots)) });
   }
   if (value.vol_vs_ma5_pct != null) {
     metrics.push({
@@ -185,7 +185,7 @@ function dailyMetrics(value: DailyEvidenceValue): EvidenceMetric[] {
   if (value.foreign_net_lots != null) {
     metrics.push({
       name: '外資買賣超',
-      value: `${value.foreign_net_lots > 0 ? '+' : ''}${fmtNum(value.foreign_net_lots)} 張`,
+      value: signedShares(lotsToShares(value.foreign_net_lots)),
     });
   }
   for (const [field, name] of [['macd', 'MACD'], ['macd_signal', 'MACD 訊號線'], ['macd_hist', 'MACD 柱']] as const) {
@@ -204,9 +204,11 @@ function scalarMetrics(item: EvidenceItem, meta: FieldMeta): EvidenceMetric[] {
     } else if (item.field === 'revenue_monthly') {
       // 單位換算後保留原始數字，避免「顯示數字與證據不一致」
       metrics.push({ name: meta.name, value: `${fmtAmount(raw)}（${fmtNum(raw)} 元）` });
+    } else if (meta.unit === '張') {
+      // 買賣超張數：帶正負號、負號 U+2212，和個股頁法人卡同一個 helper（DESIGN.md 第 7 節）
+      metrics.push({ name: meta.name, value: signedShares(lotsToShares(raw)) });
     } else {
-      const signed = meta.unit === '張' && raw > 0 ? '+' : '';
-      metrics.push({ name: meta.name, value: `${signed}${fmtNum(raw)}${meta.unit ? ` ${meta.unit}` : ''}` });
+      metrics.push({ name: meta.name, value: `${fmtNum(raw)}${meta.unit ? ` ${meta.unit}` : ''}` });
     }
   } else if (raw != null && typeof raw !== 'object') {
     metrics.push({ name: meta.name, value: String(raw) });

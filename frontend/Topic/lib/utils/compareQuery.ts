@@ -40,6 +40,7 @@ export function parseCompareQuery(query: Record<string, unknown>, knownSymbols: 
   const known = knownSymbols ? new Set(knownSymbols.map((symbol) => symbol.toUpperCase())) : null;
   const symbols: string[] = [];
   for (const symbol of parseBulkSymbolInput(raw)) {
+    // 比較網址收英數 1–10 碼（比 isTaiwanStockCode 寬），有 knownSymbols 時再篩成清單裡有的代號
     if (!/^[0-9A-Z]{1,10}$/.test(symbol) || symbols.includes(symbol)) continue;
     if (known && !known.has(symbol)) continue;
     symbols.push(symbol);

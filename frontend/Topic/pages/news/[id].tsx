@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { ArrowLeft, Newspaper, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Button, textLinkClass } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
@@ -16,6 +16,7 @@ import { fetchNewsDetail } from '@/lib/api/news';
 import type { News } from '@/lib/types/api';
 import { newsDetailBreadcrumbs, parseRelatedStocks } from '@/lib/news/newsLinks';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
+import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
 import { impactTarget } from '@/lib/utils/newsImpact';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { stockNewsReturnHref } from '@/lib/news/stockNewsView';
@@ -23,14 +24,13 @@ import { formatDateTime } from '@/lib/utils/date';
 import { newsSourceName } from '@/lib/news/newsSource';
 import { NEWS_IMPACT_DISCLAIMER } from '@/lib/disclaimers';
 
-const isStockCode = (code: string | null | undefined): code is string => Boolean(code && /^\d{4,6}$/.test(code));
 const firstQuery = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) || '';
 
 function pickStock(news: News, stockParam: string): string {
   const companies = news.event_analysis?.impacts.filter((impact) => impact.target_type === 'company') ?? [];
-  if (isStockCode(stockParam) && companies.some((impact) => impact.target_id === stockParam)) return stockParam;
-  if (isStockCode(companies[0]?.target_id)) return companies[0].target_id;
-  if (isStockCode(news.stock_id)) return news.stock_id;
+  if (isTaiwanStockCode(stockParam) && companies.some((impact) => impact.target_id === stockParam)) return stockParam;
+  if (isTaiwanStockCode(companies[0]?.target_id)) return companies[0].target_id;
+  if (isTaiwanStockCode(news.stock_id)) return news.stock_id;
   return '';
 }
 
@@ -158,7 +158,6 @@ export default function NewsDetailPage() {
       </Head>
 
       <SiteHeader
-        icon={Newspaper}
         title={news?.title || '新聞內容與事件影響'}
         titleNode={news?.title ? <TitleWithBreaks title={news.title} /> : undefined}
         titleWrap={Boolean(news?.title)}

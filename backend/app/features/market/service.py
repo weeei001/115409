@@ -125,6 +125,9 @@ def price_change(db: Session, symbol: str, start_date: date, end_date: date):
     for row in prices:
         if row.close:
             current = float(row.close)
+            if previous is None and row.change is not None and current - float(row.change) > 0:
+                # The range's first row has no in-window predecessor; its own change gives the prior close.
+                previous = current - float(row.change)
             percent = round((current - previous) / previous * 100, 2) if previous else 0.0
             data.append({"date": row.date.isoformat(), "close": current,
                          "change": float(row.change or 0), "change_percent": percent})

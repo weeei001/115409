@@ -3,6 +3,7 @@ import { EmptyState } from '@/components/common/Notice';
 import { correlationColor, correlationGradient, getChartPalette } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import type { CorrelationMatrix } from '@/lib/types/compare';
+import { uMinus } from '@/lib/utils/format';
 import { cn } from '@/lib/cn';
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 
 /** ρ 一律 2 位小數（P2-104），負號用 U+2212（P2-105） */
 export function signedRho(rho: number): string {
-  return rho.toFixed(2).replace(/^-/, '−');
+  return uMinus(rho.toFixed(2));
 }
 
 /** 依標準閾值（|ρ| ≥ 0.7 高、0.3–0.7 中度、< 0.3 低）回傳解讀 */

@@ -3,13 +3,15 @@ import { ChevronRight } from 'lucide-react';
 import { ROUTE_PAGE_LABELS, type BreadcrumbItem } from '@/lib/nav';
 import { cn } from '@/lib/cn';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
+import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
 
 function breadcrumbHref(raw: unknown) {
   const path = safeReturnUrl(raw);
   if (!path) return null;
   const url = new URL(path, 'https://breadcrumb.local');
   const route = Object.keys(ROUTE_PAGE_LABELS).find((known) => known === url.pathname);
-  const pathname = route ?? (/^\/stock\/\d{4,6}$/.test(url.pathname) ? url.pathname : null);
+  const isStockPage = url.pathname.startsWith('/stock/') && isTaiwanStockCode(url.pathname.slice('/stock/'.length));
+  const pathname = route ?? (isStockPage ? url.pathname : null);
   if (!pathname) return null;
   // Next encodes query values and keeps the destination on an allowed local route.
   return { pathname, query: Object.fromEntries(url.searchParams), hash: url.hash };

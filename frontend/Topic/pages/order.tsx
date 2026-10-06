@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { BookOpen, RefreshCw, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Expandable, FoldSection } from '@/components/common/CollapsibleSection';
@@ -17,7 +17,8 @@ import { acknowledgePaperReview, cancelPaperOrder, fetchPaperPortfolio, paperDis
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { Badge } from '@/components/ui/badge';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
-import { notificationAccountSnapshot, subscribeNotificationAccount } from '@/lib/notifications/account';
+import { useAuthAccount } from '@/lib/auth/account';
+import { withSign } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
@@ -29,8 +30,7 @@ const defRow = 'flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 g
 
 /** 損益：依正負上色並帶正負號（紅漲綠跌）；缺行情時寫「等待行情」 */
 function Pnl({ value, className }: { value: number | null; className?: string }) {
-  const sign = value == null ? '' : value > 0 ? '+' : value < 0 ? '−' : '';
-  return <span className={cn('font-mono tabular-nums', valueToneText(value), className)}>{value == null ? '等待行情' : sign + paperMoney(Math.abs(value))}</span>;
+  return <span className={cn('font-mono tabular-nums', valueToneText(value), className)}>{value == null ? '等待行情' : withSign(value, paperMoney(Math.abs(value)))}</span>;
 }
 
 function Percent({ value }: { value: number | null | undefined }) {
@@ -44,7 +44,7 @@ function StatusBadge({ status }: { status: PaperOrder['status'] }) {
 
 export default function OrderPage() {
   const router = useRouter();
-  const account = useSyncExternalStore(subscribeNotificationAccount, notificationAccountSnapshot, () => '');
+  const account = useAuthAccount();
   const [ready, setReady] = useState(false);
   const [snapshot, setSnapshot] = useState<{ account: string; data: PaperPortfolio } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -298,7 +298,7 @@ export default function OrderPage() {
 
   return <>
     <Head><title>股海明燈｜模擬投資</title><meta name="description" content="用自己的投資預算，與 AI 一起練習投資。" /></Head>
-    <SiteHeader icon={BookOpen} title="模擬投資" subtitle="從你的預算開始，練習每一次投資決定" />
+    <SiteHeader title="模擬投資" subtitle="從你的預算開始，練習每一次投資決定" />
     <main className={pageClass} aria-label="模擬投資">{content}</main>
   </>;
 }

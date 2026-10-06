@@ -1,5 +1,5 @@
 import type { News, NewsImpact, NewsImpactDirection, NewsImpactScope } from '../types';
-import { toneBadge, type BadgeTone } from './tone';
+import type { BadgeTone } from './tone';
 
 export const DIRECTION_LABELS: Record<NewsImpactDirection, string> = {
   positive: '正向', negative: '負向', neutral: '中性', mixed: '正負並存', uncertain: '方向未明',
@@ -69,11 +69,6 @@ export const DIRECTION_TONE: Record<NewsImpactDirection, BadgeTone> = {
   mixed: 'neutral',
   uncertain: 'neutral',
 };
-
-/** 同上的徽章 class（ImpactDirectionTag 用 DIRECTION_TONE 傳給 Badge，結果相同） */
-export const DIRECTION_CLASSES = Object.fromEntries(
-  Object.entries(DIRECTION_TONE).map(([direction, tone]) => [direction, toneBadge(tone, { emphasis: true })]),
-) as Record<NewsImpactDirection, string>;
 
 export function impactTarget(impact: NewsImpact): string {
   return impact.target_name || (impact.target_type === 'company' ? impact.target_id : SCOPE_LABELS[impact.target_type]);

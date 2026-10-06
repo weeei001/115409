@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from app.db.models.user import User
 from app.db.models.paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview
 from app.db.models.daily_price import DailyPrice
@@ -43,6 +43,11 @@ def sessions(db, until):
 
 def price(db, symbol, day):
     return db.get(DailyPrice, (day, symbol))
+
+
+def priced_sessions_after(db, symbol, after, until):
+    return db.scalar(select(func.count()).select_from(DailyPrice).where(
+        DailyPrice.symbol == symbol, DailyPrice.date > after, DailyPrice.date <= until, DailyPrice.close > 0))
 
 
 def latest_price(db, symbol, until):

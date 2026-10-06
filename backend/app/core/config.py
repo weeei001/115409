@@ -84,13 +84,8 @@ class Settings(BaseSettings):
     CHAT_LLM_MAX_RETRIES: int = 0
     LLM_INPUT_PRICE_PER_M: float = 0.20
     LLM_OUTPUT_PRICE_PER_M: float = 1.20
-    SENTIMENT_USD_TWD_RATE: float = 32.0
     ANALYSIS_TIMEOUT_SECONDS: int = 1200
     SIMULATION_CACHE_DIR: Path = Field(default_factory=lambda: state_directory() / "simulation")
-
-    RAG_API_URL: str = ""
-    RAG_API_KEY: str = ""
-    RAG_API_TIMEOUT: int = 10
 
     QDRANT_URL: str = ""
     QDRANT_HOST: str = ""
@@ -141,16 +136,12 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "FastAPI MySQL Application"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = False
     # Intentional configurable network binding; environment examples use loopback.
     APP_HOST: str = "0.0.0.0"  # nosec B104
     APP_PORT: int = 8002
     APP_RELOAD: bool = False
 
     JOBS_ENABLED: bool = True
-    # Legacy settings retained for configuration compatibility; the pipeline runs daily.
-    JOBS_INTERVAL_MINUTES: float = Field(30, gt=0, allow_inf_nan=False)
-    JOBS_RAG_DELAY_MINUTES: float = Field(10, ge=0, allow_inf_nan=False)
     JOBS_MARKET_TIME: time = time(17)
     JOBS_START_DATE: date = date(2021, 1, 1)
     JOBS_IMPACT_SINCE: date | None = None

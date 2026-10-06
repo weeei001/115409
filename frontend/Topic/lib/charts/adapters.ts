@@ -3,7 +3,7 @@ import type { ChipsVolumeData } from '../types/api';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import type { CompareChartMode } from '../types/compare';
 import type { CompareChartSeries } from '../utils/compare';
-import { LESS_THAN_ONE_LOT, fmtInstitutionalShares, fmtLotsAxisLabel, isUnderOneLot, lotsNumber, sharesToLots } from '../utils/format';
+import { LESS_THAN_ONE_LOT, fmtInstitutionalShares, fmtLotsAxisLabel, isUnderOneLot, lotsNumber, sharesToLots, withSign } from '../utils/format';
 import { getChartPalette, getInstitutionColors, getMaColors, type ChartPalette } from './theme';
 
 /** 自訂 tooltip 是 HTML 字串（ECharts renderMode 'html' 會當 innerHTML）：拼進去的 API 值一律先跳脫（02-F5） */
@@ -183,11 +183,11 @@ function swatch(color: unknown): string {
 const institutionalAxisLabel = { formatter: (value: number) => fmtLotsAxisLabel(Number(value)) };
 const lotsPoint = (shares: number | null | undefined): number | null =>
   shares == null || !Number.isFinite(shares) ? null : sharesToLots(shares);
-/** 資料點（張）→「1,234 張」 */
-const lotsValueFormatter = (v: unknown): string => (typeof v === 'number' ? fmtInstitutionalShares(v * 1000).replace(/^-/, '−') : '--');
+/** 資料點（張）→「1,234 張」，負號 U+2212 */
+const lotsValueFormatter = (v: unknown): string => (typeof v === 'number' ? fmtInstitutionalShares(v * 1000) : '--');
 
 /**
- * 法人 tooltip 的股數 → 整數張，和法人明細表一樣（features/stock/signedShares.ts 的 lots／signedLots）。
+ * 法人 tooltip 的股數 → 整數張，和法人明細表一樣（lib/utils/format.ts 的 lots／signedLots）。
  * 買、賣、淨各自四捨五入到整數張，相減最多差 1 張（04-S5 原本是 8萬／5萬／淨 4萬那種整數萬的落差）。
  * 淨額帶正負號（U+2212）；不滿 1 張的非零值寫「不到 1」（標頭已寫「張」）。
  */
@@ -195,8 +195,7 @@ export function institutionalTooltipLots(value: number | null | undefined, signe
   if (value == null || !Number.isFinite(value)) return '--';
   if (isUnderOneLot(value)) return LESS_THAN_ONE_LOT.replace(/ 張$/, '');
   const abs = lotsNumber(value);
-  if (!signed || abs === '0') return abs;
-  return value > 0 ? `+${abs}` : `−${abs}`;
+  return signed ? withSign(value, abs) : abs;
 }
 
 /**

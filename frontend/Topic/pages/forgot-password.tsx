@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
-import { KeyRound, Mail } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { NextStep } from '@/components/common/Ledger';
 import { Notice } from '@/components/common/Notice';
@@ -47,7 +47,7 @@ export default function ForgotPasswordPage() {
         <title>股海明燈｜忘記密碼</title>
         <meta name="description" content="申請重設連結，寄到註冊用的電子郵件。" />
       </Head>
-      <SiteHeader icon={KeyRound} title="忘記密碼" subtitle="填寫註冊用的電子郵件，系統會寄出重設連結" />
+      <SiteHeader title="忘記密碼" subtitle="填寫註冊用的電子郵件，系統會寄出重設連結" />
 
       <AuthLedger
         asideOnMobile

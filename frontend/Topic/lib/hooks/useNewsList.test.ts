@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { buildFetchParams, newsListErrorKind, withFixedNewsFilters } from './useNewsList';
 import { ApiRequestError } from '../api/client';
 import { parseNewsTime, validateNewsTimeRange } from '../utils/newsFilters';
+import { formatDate, formatDateTime, parseNewsDate } from '../utils/date';
 import { visibleImpacts } from '../utils/newsImpact';
 import type { News, NewsImpact } from '../types/api';
 
@@ -37,6 +38,14 @@ assert.equal(validateNewsTimeRange('not-a-date', undefined, now), '時間格式�
 // Values without a zone are Taiwan time, like the backend, whatever the browser zone is.
 assert.equal(parseNewsTime('2026-10-06T10:00'), Date.parse('2026-10-06T10:00:00+08:00'));
 assert.equal(parseNewsTime('2026-10-06'), Date.parse('2026-10-06T00:00:00+08:00'));
+// 顯示新聞時間也用同一規則：不帶時區的 pub_time 是台北時間（用 TZ=America/Los_Angeles 跑也要過）
+assert.equal(parseNewsDate('2025-10-18 22:03:55').getTime(), Date.parse('2025-10-18T22:03:55+08:00'));
+assert.equal(parseNewsDate('2025-10-18T22:03:55').getTime(), Date.parse('2025-10-18T22:03:55+08:00'));
+assert.equal(parseNewsDate('2025-10-18T22:03:55.123456').getTime(), Date.parse('2025-10-18T22:03:55.123+08:00'));
+assert.equal(parseNewsDate('2025-10-18T14:03:55+00:00').getTime(), Date.parse('2025-10-18T22:03:55+08:00'));
+assert.equal(formatDateTime('2025-10-18 22:03:55'), '2025/10/18 22:03');
+assert.equal(formatDate('2025-10-18 23:30:00'), '2025/10/18');
+assert.equal(formatDate('2025-10-18T20:00:00+00:00'), '2025/10/19', 'formatDate uses the Taipei calendar day');
 assert.notEqual(validateNewsTimeRange('2026-10-06T10:01', undefined, now), null, 'one minute after now');
 const future = buildFetchParams(1, 8, { start_time: '2027-01-01T09:00' }, { fixedStock: '2330', retrieval: true }, now);
 assert.equal(future.error, '開始時間不能晚於現在，請重新選擇。');

@@ -514,7 +514,7 @@ export default function AdminPage() {
   };
 
   const head = <Head><title>股海明燈｜管理後台</title><meta name="description" content="查看服務狀態、控制工作排程及管理後台權限。" /><meta name="robots" content="noindex,nofollow" /></Head>;
-  const header = <SiteHeader icon={ShieldCheck} title="管理後台" subtitle="服務狀態與工作排程" />;
+  const header = <SiteHeader title="管理後台" subtitle="服務狀態與工作排程" />;
   if (access !== 'allowed') return <>{head}{header}<main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10"><div className="flex max-w-xl flex-col gap-4">
     {access === 'loading' ? <div className="border-t border-border-strong"><LoadingRows label="確認後台權限中…" className="h-[88px]" /></div>
       : access === 'denied' ? <Notice tone="danger">目前帳號沒有管理後台權限。請由管理員授予權限後再進入。</Notice>

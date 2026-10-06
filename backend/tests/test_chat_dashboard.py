@@ -137,17 +137,17 @@ def test_financial_periods_and_institutional_share_units_are_preserved_with_focu
     assert table.columns[2:] == ["外資（張）", "投信（張）", "自營商（張）", "三大法人合計（張）"]
 
 
-def news(citation, url, *, article=None, title="News", in_range=True, content="News evidence"):
+def news(citation, url, *, article=None, title="News", content="News evidence"):
     return SourceChunk(title=title, source="publisher", source_name="<b>新聞來源</b>", stock_id="2330",
                        citation_id=citation, content=content, pub_time="2026-09-11 10:00:00",
-                       url=url, score=1, category="news", article_id=article, in_time_range=in_range)
+                       url=url, score=1, category="news", article_id=article)
 
 
 def test_news_deduplicates_articles_and_urls_and_filters_unsafe_links():
     sources = [news("S1", "https://news.example/one", article="a"),
                news("S2", "https://news.example/duplicate", article="a"),
                news("S3", "https://news.example/one", article="different"),
-               news("S4", "https://news.example/background", title="<b>背景消息</b>", in_range=False)]
+               news("S4", "https://news.example/four", title="<b>第四則消息</b>")]
     unsafe = ["javascript:alert(1)", "data:text/html,test", "//news.example/path", "ftp://news.example/path",
               "https://user:password@news.example/path", "https://news.example/has space",
               "https://news.example\\@evil.example/path", "https://news.example:invalid/path"]
@@ -157,14 +157,14 @@ def test_news_deduplicates_articles_and_urls_and_filters_unsafe_links():
                     news("S16", "", title="", content="")])
     result = build_dashboard(sources, ["2330"], "新聞", ["news"])
     block = result.blocks[0]
-    expected_ids = ["S1", *(f"S{index + 5}" for index in range(len(unsafe))), "S14", "S4"]
+    expected_ids = ["S1", "S4", *(f"S{index + 5}" for index in range(len(unsafe))), "S14"]
     assert block.source_ids == expected_ids
     assert [item.source_id for item in block.items] == expected_ids
     assert block.items[0].article_id == "a"
-    assert block.items[-1].title == "【區間外背景】背景消息"
-    assert all(item.url == "" for item in block.items[1:-1])
-    assert block.items[-2].title == "純文字新聞" and block.items[-2].published_at == "2026-09-11 10:00:00"
-    assert block.items[0].publisher == "新聞來源" and "不屬於指定期間" in block.description
+    assert block.items[1].title == "第四則消息" and block.items[1].url == "https://news.example/four"
+    assert all(item.url == "" for item in block.items[2:])
+    assert block.items[-1].title == "純文字新聞" and block.items[-1].published_at == "2026-09-11 10:00:00"
+    assert block.items[0].publisher == "新聞來源" and block.description == "依來源列出新聞發布時間。"
     assert len(build_dashboard([news(f"S{i + 1}", f"https://news.example/{i}") for i in range(15)],
                               [], "新聞", ["news"]).blocks[0].items) == 12
 

@@ -1,5 +1,4 @@
 import React from 'react';
-import { AlertTriangle, CalendarClock, Eye } from 'lucide-react';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import type { Brief, Claim, ForwardViews, KeyDay, Risk, WatchPoint } from '@/lib/types/textBrief';
 import { FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
@@ -223,7 +222,6 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
   <div className="flex flex-col gap-4">
     <SectionCard
       title="不同時間長度的看法"
-      icon={<CalendarClock size={15} className="text-muted-foreground" aria-hidden />}
       hint="只講方向與什麼情況下不成立，不給買賣建議與目標價；天數以交易日計算。"
     >
       <ForwardViewCards views={brief.forward_views} />
@@ -231,7 +229,6 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
 
     <SectionCard
       title="情境風險"
-      icon={<AlertTriangle size={15} className="text-warning-icon" aria-hidden />}
       hint="每一項都附上觸發條件，也就是「什麼情況下這個風險會真的發生」。"
     >
       <RiskItems items={brief.risks} />
@@ -239,7 +236,6 @@ export const ScenarioTab: React.FC<{ brief: Brief }> = ({ brief }) => (
 
     <SectionCard
       title="接下來觀察什麼"
-      icon={<Eye size={15} className="text-muted-foreground" aria-hidden />}
     >
       <WatchItems items={brief.watch_points} />
     </SectionCard>

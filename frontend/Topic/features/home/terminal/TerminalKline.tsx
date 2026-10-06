@@ -1,20 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  CandlestickSeries,
-  HistogramSeries,
-  LineSeries,
-  createChart,
-  type CandlestickData,
-  type HistogramData,
-  type IChartApi,
-  type ISeriesApi,
-  type LineData,
-  type MouseEventParams,
-  type Time,
-} from 'lightweight-charts';
+import { CandlestickSeries, HistogramSeries, LineSeries, createChart, type IChartApi, type ISeriesApi, type LineData, type Time } from 'lightweight-charts';
 import type { MaKey, PriceChartData } from '@/lib/types/view';
-import { KLINE_INTERACTION_OPTIONS } from '@/lib/charts/klineInteraction';
-import { timeToYmd, toBusinessDay, toCandlestickSeriesData } from '@/lib/charts/priceChart';
+import {
+  KLINE_CANDLE_SERIES_OPTIONS,
+  VOLUME_SERIES_OPTIONS,
+  candlestickColors,
+  klineChartOptions,
+  klineThemeOptions,
+  subscribeCandleCrosshair,
+  timeToYmd,
+  toBusinessDay,
+  toCandlestickSeriesData,
+  toVolumeHistogramData,
+} from '@/lib/charts/priceChart';
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { fmtPrice, fmtVolume } from '@/lib/utils/format';
@@ -61,36 +59,29 @@ export function TerminalKline({ data, title }: { data: PriceChartData; title: st
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const chart = createChart(el, {
-      autoSize: true,
-      localization: { timeFormatter: (t: Time) => timeToYmd(t) },
-      crosshair: { mode: 1 },
-      timeScale: { tickMarkFormatter: (t: Time) => timeToYmd(t).slice(5), rightOffset: 3, fixLeftEdge: true },
-      rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.24 } },
-      layout: { attributionLogo: false, background: { color: 'transparent' }, fontFamily: 'IBM Plex Mono, Noto Sans TC, monospace', fontSize: 11 },
-      ...KLINE_INTERACTION_OPTIONS,
-    });
-    // 最後一筆的價格標籤會蓋住軸上的刻度；收盤已經寫在上方讀數列
-    candleRef.current = chart.addSeries(CandlestickSeries, { priceLineVisible: false, lastValueVisible: false });
+    const chart = createChart(
+      el,
+      klineChartOptions({
+        timeScale: { tickMarkFormatter: (t: Time) => timeToYmd(t).slice(5), rightOffset: 3, fixLeftEdge: true },
+        rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.24 } },
+        fontFamily: 'IBM Plex Mono, Noto Sans TC, monospace',
+      }),
+    );
+    candleRef.current = chart.addSeries(CandlestickSeries, KLINE_CANDLE_SERIES_OPTIONS);
     for (const key of MA) {
       maRefs.current[key] = chart.addSeries(LineSeries, { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
     }
-    volumeRef.current = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', lastValueVisible: false, priceLineVisible: false });
+    volumeRef.current = chart.addSeries(HistogramSeries, VOLUME_SERIES_OPTIONS);
     chart.priceScale('').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
-    let frame = 0;
-    chart.subscribeCrosshairMove((param: MouseEventParams<Time>) => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const candle = candleRef.current ? (param.seriesData.get(candleRef.current) as CandlestickData<Time> | undefined) : undefined;
-        if (!param.time || !param.point || !candle || !('open' in candle)) return setHover(null);
-        const date = timeToYmd(param.time);
-        setHover({ date, open: candle.open, high: candle.high, low: candle.low, close: candle.close, volume: volumeRefMap.current.get(date) ?? null });
-      });
-    });
+    const cancelCrosshair = subscribeCandleCrosshair(
+      chart,
+      () => candleRef.current,
+      (candle) => setHover(candle ? { ...candle, volume: volumeRefMap.current.get(candle.date) ?? null } : null),
+    );
     chartRef.current = chart;
     return () => {
-      cancelAnimationFrame(frame);
+      cancelCrosshair();
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
@@ -101,20 +92,10 @@ export function TerminalKline({ data, title }: { data: PriceChartData; title: st
 
   useEffect(() => {
     chartRef.current?.applyOptions({
-      layout: { textColor: palette.tickMuted },
-      grid: { vertLines: { color: palette.gridSubtle }, horzLines: { color: palette.gridSubtle } },
-      rightPriceScale: { borderColor: palette.grid },
-      timeScale: { borderColor: palette.grid },
+      ...klineThemeOptions(palette, palette.tickMuted),
       crosshair: { vertLine: { color: palette.brand, labelBackgroundColor: palette.tooltipBg }, horzLine: { color: palette.brand, labelBackgroundColor: palette.tooltipBg } },
     });
-    candleRef.current?.applyOptions({
-      upColor: palette.up,
-      downColor: palette.down,
-      borderUpColor: palette.up,
-      borderDownColor: palette.down,
-      wickUpColor: palette.up,
-      wickDownColor: palette.down,
-    });
+    candleRef.current?.applyOptions(candlestickColors(palette));
     for (const key of MA) maRefs.current[key]?.applyOptions({ color: maColors[key] });
   }, [palette, maColors]);
 
@@ -126,13 +107,8 @@ export function TerminalKline({ data, title }: { data: PriceChartData; title: st
         .map((p) => ({ time: toBusinessDay(p.time), value: p.value }));
       maRefs.current[key]?.setData(points);
     }
-    const closeByDate = new Map(data.candles.map((c) => [c.time, c]));
-    const bars: HistogramData<Time>[] = data.volume.map((v) => {
-      const c = closeByDate.get(v.time);
-      const color = !c || c.close === c.open ? palette.volumeFlat : c.close > c.open ? palette.volumeUp : palette.volumeDown;
-      return { time: toBusinessDay(v.time), value: v.value, color };
-    });
-    volumeRef.current?.setData(bars);
+    // 成交量柱依收盤對前一日收盤上色（同個股頁 PriceChart）；第一根沒有前一日，用平盤色
+    volumeRef.current?.setData(toVolumeHistogramData(data.candles, data.volume, palette));
     chartRef.current?.timeScale().fitContent();
   }, [data, palette]);
 

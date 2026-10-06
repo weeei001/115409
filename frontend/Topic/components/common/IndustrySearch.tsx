@@ -1,8 +1,8 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Factory } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { StockInfo } from '@/lib/types/api';
-import { focusLeftCombobox } from './StockSearch';
+import { ComboboxPopover, comboboxInputClass, useCombobox } from './Combobox';
 
 export interface IndustryOption {
   industry: string;
@@ -59,32 +59,15 @@ export function industryOptionNote(option: IndustryOption): string {
 
 export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, onSelect, className }: Props) {
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const listboxId = useId();
-  const statusId = useId();
   const options = useMemo(() => buildIndustryOptions(stockInfos, supportedSymbols, selectedSymbols), [supportedSymbols, selectedSymbols, stockInfos]);
   const filtered = useMemo(() => searchIndustryOptions(options, query), [options, query]);
-
-  const close = () => {
-    setOpen(false);
-    setActiveIndex(-1);
-  };
-
-  useEffect(() => {
-    // 點外面就關，並清掉反白（P2-063）；pointerdown 同時涵蓋滑鼠與觸控
-    const onDown = (event: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, []);
+  // 已全部加入或無可加入的產業不能選：不反白、方向鍵跳過
+  const combobox = useCombobox({ itemCount: filtered.length, isSelectable: (index) => filtered[index].symbols.length > 0 });
+  const { open, activeIndex, close } = combobox;
 
   const reset = () => {
     setQuery('');
-    setOpen(false);
-    setActiveIndex(-1);
+    close();
   };
 
   const selectOption = (option: IndustryOption) => {
@@ -99,39 +82,13 @@ export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, 
       close();
       return;
     }
-    const selectable = filtered.flatMap((option, index) => option.symbols.length > 0 ? [index] : []);
-    if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      if (selectable.length === 0) return;
-      event.preventDefault();
-      setOpen(true);
-      setActiveIndex(selectable[0]);
-      return;
-    }
+    if (combobox.handleNavigationKey(event)) return;
     if (event.key === 'Enter') {
       event.preventDefault();
-      if (selectable.includes(activeIndex)) return selectOption(filtered[activeIndex]);
-      if (selectable.length > 0) return selectOption(filtered[selectable[0]]);
-      return;
-    }
-    if (!open || selectable.length === 0) return;
-    const position = selectable.indexOf(activeIndex);
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault();
-        setActiveIndex(selectable[(position + 1) % selectable.length]);
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        setActiveIndex(selectable[position <= 0 ? selectable.length - 1 : position - 1]);
-        break;
-      case 'Home':
-        event.preventDefault();
-        setActiveIndex(selectable[0]);
-        break;
-      case 'End':
-        event.preventDefault();
-        setActiveIndex(selectable[selectable.length - 1]);
-        break;
+      // 有反白就選它；否則選第一個可選的產業
+      if (filtered[activeIndex]?.symbols.length > 0) return selectOption(filtered[activeIndex]);
+      const first = filtered.find((option) => option.symbols.length > 0);
+      if (first) selectOption(first);
     }
   };
 
@@ -145,68 +102,39 @@ export function IndustrySearch({ stockInfos, supportedSymbols, selectedSymbols, 
       : '選取後會加入這個產業還沒選的股票';
 
   return (
-    <div ref={rootRef} className={cn('relative w-full min-w-0', className)}>
+    <div ref={combobox.rootRef} className={cn('relative w-full min-w-0', className)}>
       <Factory size={17} aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
       <input
         type="text"
-        role="combobox"
+        {...combobox.inputProps(showList, Boolean(statusText))}
         aria-label="搜尋產業並加入股票"
-        aria-expanded={showList}
-        aria-controls={showList ? listboxId : undefined}
-        aria-autocomplete="list"
-        aria-activedescendant={showList && filtered[activeIndex]?.symbols.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
-        aria-describedby={statusText ? statusId : undefined}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
-          setOpen(true);
-          setActiveIndex(-1);
+          combobox.openFresh();
         }}
         onKeyDown={handleKeyDown}
-        onFocus={() => setOpen(true)}
-        onBlur={(event) => {
-          // Tab 離開就關，不蓋住後面的欄位（P1-20、03-F7）
-          if (focusLeftCombobox(rootRef.current, event.relatedTarget)) close();
-        }}
         placeholder="搜尋產業並加入…"
-        className="h-11 w-full min-w-0 rounded-md border border-input bg-card pr-4 pl-10 text-base text-foreground transition-colors duration-(--dur-flash) placeholder:text-muted-foreground hover:border-border-strong focus-lamp sm:text-sm"
+        className={comboboxInputClass}
       />
       {expanded ? (
-        <div className="absolute top-full right-0 left-0 z-50 mt-1 overflow-hidden rounded-md border border-border-strong bg-popover shadow-raised">
-          {showList ? (
-            <ul id={listboxId} role="listbox" aria-label="產業選擇" tabIndex={-1} className="max-h-80 overflow-y-auto">
-              {/* 可選的產業用 lamp-row（反白時淺色底＋左側 2px 燈色標線）；已全部加入或無可加入的產業不反白 */}
-              {filtered.map((option, index) => (
-                <li
-                  key={option.industry}
-                  id={`${listboxId}-option-${index}`}
-                  role="option"
-                  aria-disabled={option.symbols.length === 0}
-                  aria-selected={option.symbols.length > 0 && index === activeIndex}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectOption(option)}
-                  onMouseEnter={() => setActiveIndex(option.symbols.length > 0 ? index : -1)}
-                  className={cn('flex min-h-11 flex-col justify-center border-b px-4 py-1.5', option.symbols.length === 0 ? 'cursor-default text-muted-foreground' : 'lamp-row cursor-pointer text-foreground')}
-                >
-                  <span className="flex min-w-0 items-baseline justify-between gap-3">
-                    <span className="min-w-0 truncate text-sm font-medium">{option.industry}</span>
-                    {option.symbols.length > 0 ? <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{option.symbols.length} 檔</span> : null}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">{industryOptionNote(option)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {statusText ? (
-            <p
-              id={statusId}
-              role={filtered.length === 0 ? 'status' : undefined}
-              className={cn('text-muted-foreground', filtered.length === 0 ? 'px-4 py-3 text-[13px] leading-relaxed' : 'bg-muted px-4 py-2 text-xs')}
+        <ComboboxPopover combobox={combobox} showList={showList} listLabel="產業選擇" statusText={statusText} empty={filtered.length === 0}>
+          {/* 可選的產業用 lamp-row（反白時淺色底＋左側 2px 燈色標線）；已全部加入或無可加入的產業不反白 */}
+          {filtered.map((option, index) => (
+            <li
+              key={option.industry}
+              {...combobox.optionProps(index)}
+              onClick={() => selectOption(option)}
+              className={cn('flex min-h-11 flex-col justify-center border-b px-4 py-1.5', option.symbols.length === 0 ? 'cursor-default text-muted-foreground' : 'lamp-row cursor-pointer text-foreground')}
             >
-              {statusText}
-            </p>
-          ) : null}
-        </div>
+              <span className="flex min-w-0 items-baseline justify-between gap-3">
+                <span className="min-w-0 truncate text-sm font-medium">{option.industry}</span>
+                {option.symbols.length > 0 ? <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{option.symbols.length} 檔</span> : null}
+              </span>
+              <span className="block text-xs text-muted-foreground">{industryOptionNote(option)}</span>
+            </li>
+          ))}
+        </ComboboxPopover>
       ) : null}
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { ArrowLeft, Search, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Search, X } from 'lucide-react';
 import { AppNavDrawer } from './AppNavDrawer';
 import { ThemeToggle } from './ThemeToggle';
 import { Breadcrumbs } from './Breadcrumbs';
@@ -16,8 +16,6 @@ import { useLatestCloseDate } from '@/lib/hooks/useLatestCloseDate';
 import { cn } from '@/lib/cn';
 
 export interface SiteHeaderProps {
-  /** 保留給呼叫端相容；頁首不再顯示圖示方塊 */
-  icon?: LucideIcon;
   title: string;
   subtitle?: string;
   /** 省略時依路由自動產生 */

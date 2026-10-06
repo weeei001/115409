@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { News } from '../types';
-import { DIRECTION_CLASSES, visibleImpacts } from './newsImpact';
+import { DIRECTION_TONE, visibleImpacts } from './newsImpact';
+import { toneBadge } from './tone';
 
 const news = {
   article_id: 'example',
@@ -24,9 +25,12 @@ assert.deepEqual(visibleImpacts(news, '2317'), []);
 news.event_analysis!.status = 'pending';
 assert.deepEqual(visibleImpacts(news), []);
 
-// 台股慣例：正向＝漲（紅）、負向＝跌（綠），其餘中性
-assert.equal(DIRECTION_CLASSES.positive, 'bg-up-muted text-up-emphasis border-up/30');
-assert.equal(DIRECTION_CLASSES.negative, 'bg-down-muted text-down-emphasis border-down/30');
+// 台股慣例：正向＝漲（紅）、負向＝跌（綠），其餘中性；ImpactDirectionTag 把 DIRECTION_TONE 傳給 Badge（emphasis）
+assert.equal(DIRECTION_TONE.positive, 'up');
+assert.equal(DIRECTION_TONE.negative, 'down');
+assert.equal(toneBadge(DIRECTION_TONE.positive, { emphasis: true }), 'bg-up-muted text-up-emphasis border-up/30');
+assert.equal(toneBadge(DIRECTION_TONE.negative, { emphasis: true }), 'bg-down-muted text-down-emphasis border-down/30');
 for (const direction of ['neutral', 'mixed', 'uncertain'] as const) {
-  assert.equal(DIRECTION_CLASSES[direction], 'bg-muted text-subtle border-border');
+  assert.equal(DIRECTION_TONE[direction], 'neutral');
+  assert.equal(toneBadge(DIRECTION_TONE[direction], { emphasis: true }), 'bg-muted text-subtle border-border');
 }

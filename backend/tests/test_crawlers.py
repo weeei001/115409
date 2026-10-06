@@ -306,7 +306,7 @@ def test_ltn_unavailable_list_is_not_reported_as_success():
     assert urls == [] and failed == 3
 
 
-@pytest.mark.parametrize("source, arguments, days", [("cnyes", [], 30), ("cnyes", ["--backfill-month"], 30),
+@pytest.mark.parametrize("source, arguments, days", [("cnyes", [], 30),
     ("cnyes", ["--scheduled-once"], 5), ("ltn", [], 30), ("ltn", ["--scheduled-once", "--lookback-days", "90"], 90)])
 def test_cli_preserves_lookback_options_and_disposes_engine(source, arguments, days, settings, monkeypatch, capsys):
     engine, captured = Mock(), []

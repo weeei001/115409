@@ -11,7 +11,7 @@ COMMANDS = (
     "admin-grant",
     "migrate-admin-schema",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
-    "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
+    "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
@@ -121,7 +121,7 @@ def dispatch(job: str, argv: list[str]) -> int:
         finally:
             engine.dispose()
         return 0
-    if job in {"scheduler", "legacy-scheduler"}:
+    if job == "scheduler":
         from app.jobs.scheduler import main as schedule
         return schedule(argv)
 

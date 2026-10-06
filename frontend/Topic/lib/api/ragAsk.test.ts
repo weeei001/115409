@@ -327,9 +327,41 @@ async function check() {
       },
       pull() { expire(); },
     }));
-    await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), noStage(/AI 回覆等待超過 \d+ 秒/));
+    await assert.rejects(ragAskStream({ query: expectedQuery }, { onText: () => {} }), noStage(/AI 回覆超過 \d+ 秒沒有新進度/));
   } finally {
     globalThis.setTimeout = originalSetTimeout;
+  }
+  // 逾時是「多久沒有新內容」：每段之間都隔了一個逾時長度（總長超過逾時），但持續有內容進來就不中斷
+  {
+    const originalClearTimeout = globalThis.clearTimeout;
+    const timers = new Map<number, () => void>();
+    let nextId = 0;
+    let armedBeforeLastChunk = 0;
+    globalThis.setTimeout = ((callback: () => void) => { nextId += 1; timers.set(nextId, callback); return nextId; }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((id: number) => { timers.delete(id); }) as unknown as typeof clearTimeout;
+    const chunks = ['data: {"type":"text","content":"A"}\n\n', 'data: {"type":"text","content":"B"}\n\n', 'data: {"type":"done","actions":[]}\n\n'];
+    const streamed: string[] = [];
+    try {
+      globalThis.fetch = async (_url, options) => new Response(new ReadableStream({
+        start(controller) {
+          options?.signal?.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true });
+        },
+        pull(controller) {
+          // 上一段送出前就設好的計時器都已到期
+          for (const [id, callback] of [...timers]) if (id <= armedBeforeLastChunk) callback();
+          armedBeforeLastChunk = nextId;
+          const chunk = chunks.shift();
+          if (chunk) controller.enqueue(encoder.encode(chunk));
+          else controller.close();
+        },
+      }, { highWaterMark: 0 }));
+      const result = await ragAskStream({ query: expectedQuery }, { onText: (chunk) => streamed.push(chunk) });
+      assert.deepEqual(result, { hadStreamText: true, completed: true });
+      assert.deepEqual(streamed, ['A', 'B']);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
   }
   const cancelled = new AbortController();
   globalThis.fetch = async () => { cancelled.abort(); throw new DOMException('Aborted', 'AbortError'); };

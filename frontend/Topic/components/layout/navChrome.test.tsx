@@ -7,7 +7,7 @@ import { SiteHeader } from './SiteHeader';
 import { SiteFooter } from './SiteFooter';
 import { Breadcrumbs } from './Breadcrumbs';
 import { LightGlyph } from '../common/Ledger';
-import { isNavPathActive } from '../../lib/nav';
+import { isChatNavigationAction, isNavPathActive } from '../../lib/nav';
 import { bulkSearchTarget, compareHref, parseCompareQuery } from '../../lib/utils/compareQuery';
 
 const router = (pathname: string) => ({
@@ -60,6 +60,19 @@ assert.equal(isNavPathActive('/order', '/orders'), false);
 {
   const html = render(<Breadcrumbs items={[{ label: '首頁', href: '/' }, { label: '收藏股' }]} />);
   assert.match(html.match(/<a[^>]*>首頁<\/a>/)?.[0] ?? '', /min-w-11/);
+}
+
+// 麵包屑與 AI 導覽按鈕只連到 4–6 碼台股代號的個股頁（isTaiwanStockCode）
+{
+  const crumbs = (href: string) => render(<Breadcrumbs items={[{ label: '個股', href }, { label: '新聞' }]} />);
+  assert.match(crumbs('/stock/00878?range=3m'), /href="\/stock\/00878\?range=3m"/);
+  assert.doesNotMatch(crumbs('/stock/1234567'), /<a/);
+  assert.doesNotMatch(crumbs('/stock/AAPL'), /<a/);
+  const navigate = (path: string) => isChatNavigationAction({ type: 'navigate', label: '前往', path });
+  assert.equal(navigate('/stock/2330'), true);
+  assert.equal(navigate('/stock/123'), false);
+  assert.equal(navigate('/stock/2330/extra'), false);
+  assert.equal(navigate('/stocks/2330'), false);
 }
 
 // P2-061：燈質記號念出資料狀態

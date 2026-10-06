@@ -6,13 +6,10 @@ import {
   LineStyle,
   TickMarkType,
   createChart,
-  type CandlestickData,
-  type HistogramData,
   type IChartApi,
   type ISeriesApi,
   type LineData,
   type Logical,
-  type MouseEventParams,
   type Time,
 } from 'lightweight-charts';
 import type { MaKey, PriceChartData } from '@/lib/types/view';
@@ -20,10 +17,17 @@ import { MA_KEYS } from '@/lib/types/view';
 import { fmtPrice, fmtVolume } from '@/lib/utils/format';
 import {
   DEFAULT_PRICE_CHART_SERIES_VISIBILITY,
+  KLINE_CANDLE_SERIES_OPTIONS,
+  VOLUME_SERIES_OPTIONS,
+  candlestickColors,
   getNextPriceChartSeriesVisibility,
+  klineChartOptions,
+  klineThemeOptions,
+  subscribeCandleCrosshair,
   timeToYmd,
   toBusinessDay,
   toCandlestickSeriesData,
+  toVolumeHistogramData,
   type PriceChartSeriesKey,
   type PriceChartSeriesVisibility,
 } from '@/lib/charts/priceChart';
@@ -31,7 +35,6 @@ import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { cn } from '@/lib/cn';
 import { buildVolumeInsight, volumeVsMa20Text, type VolumeInsight } from '@/lib/charts/volumeInsight';
-import { KLINE_INTERACTION_OPTIONS } from '@/lib/charts/klineInteraction';
 import { NeatlineSoundings, SOUNDING_FRAME_STYLE, SOUNDING_PAD, sameMarks, type SoundingMarks } from './NeatlineSoundings';
 
 interface Props {
@@ -243,58 +246,45 @@ export function PriceChart({
     const el = containerRef.current;
     if (!el) return;
     const narrow = el.clientWidth > 0 && el.clientWidth < MOBILE_BREAKPOINT;
-    const chart = createChart(el, {
-      autoSize: true,
-      localization: { timeFormatter: (t: Time) => timeToYmd(t) },
-      crosshair: { mode: 1 },
-      timeScale: {
-        tickMarkFormatter: (t: Time, type: TickMarkType) => formatTickLabel(t, type, tickIndexRef.current.index, tickIndexRef.current.total),
-        // 右側留白讓最後一個日期刻度完整顯示；刻度以 MM-DD 的字寬估間距（手機估 5 字，桌機估 7 字較疏）
-        rightOffset: narrow ? 4 : 3,
-        minBarSpacing: 2,
-        tickMarkMaxCharacterLength: narrow ? 5 : 7,
-      },
-      // 上緣留白：最高價與最上方的價格刻度不重疊；下緣留給成交量；上下緣只畫完整的刻度字
-      rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.26 }, entireTextOnly: true },
-      layout: { attributionLogo: false, background: { color: 'transparent' }, fontSize: 11, fontFamily: 'IBM Plex Mono, Noto Sans TC, ui-monospace, monospace' },
-      ...KLINE_INTERACTION_OPTIONS,
-    });
-    // 最新收盤已寫在圖上方的讀數列，價格軸不再疊一個收盤價標籤（會壓到刻度）
-    candleRef.current = chart.addSeries(CandlestickSeries, { wickVisible: true, borderVisible: true, priceLineVisible: false, lastValueVisible: false });
+    const chart = createChart(
+      el,
+      klineChartOptions({
+        timeScale: {
+          tickMarkFormatter: (t: Time, type: TickMarkType) => formatTickLabel(t, type, tickIndexRef.current.index, tickIndexRef.current.total),
+          // 右側留白讓最後一個日期刻度完整顯示；刻度以 MM-DD 的字寬估間距（手機估 5 字，桌機估 7 字較疏）
+          rightOffset: narrow ? 4 : 3,
+          minBarSpacing: 2,
+          tickMarkMaxCharacterLength: narrow ? 5 : 7,
+        },
+        // 上緣留白：最高價與最上方的價格刻度不重疊；下緣留給成交量；上下緣只畫完整的刻度字
+        rightPriceScale: { scaleMargins: { top: 0.08, bottom: 0.26 }, entireTextOnly: true },
+        fontFamily: 'IBM Plex Mono, Noto Sans TC, ui-monospace, monospace',
+      }),
+    );
+    candleRef.current = chart.addSeries(CandlestickSeries, { wickVisible: true, borderVisible: true, ...KLINE_CANDLE_SERIES_OPTIONS });
     closeRef.current = chart.addSeries(LineSeries, { lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false, lastValueVisible: false });
     for (const key of MA_KEYS) {
       maRefs.current[key] = chart.addSeries(LineSeries, { lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
     }
-    volumeRef.current = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: '',
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
+    volumeRef.current = chart.addSeries(HistogramSeries, VOLUME_SERIES_OPTIONS);
     chart.priceScale('').applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
 
-    let frame = 0;
-    chart.subscribeCrosshairMove((param: MouseEventParams<Time>) => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const candle = candleRef.current
-          ? (param.seriesData.get(candleRef.current) as CandlestickData<Time> | undefined)
-          : undefined;
-        if (!param.time || !param.point || !candle || !('open' in candle)) {
-          setHover(null);
-          return;
-        }
-        const { open, high, low, close } = candle;
-        setHover(buildOverlay(timeToYmd(param.time), { open, high, low, close }));
-      });
-    });
+    const cancelCrosshair = subscribeCandleCrosshair(
+      chart,
+      () => candleRef.current,
+      (candle) => {
+        if (!candle) return setHover(null);
+        const { date, ...ohlc } = candle;
+        setHover(buildOverlay(date, ohlc));
+      },
+    );
     // 拖曳、縮放、改變尺寸時重新量圖廓邊緣的起訖日與最高／最低價
     const remeasure = () => scheduleSoundingsRef.current();
     chart.timeScale().subscribeVisibleLogicalRangeChange(remeasure);
     chart.timeScale().subscribeSizeChange(remeasure);
     chartRef.current = chart;
     return () => {
-      cancelAnimationFrame(frame);
+      cancelCrosshair();
       cancelAnimationFrame(measureFrame.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(remeasure);
       chart.timeScale().unsubscribeSizeChange(remeasure);
@@ -308,20 +298,8 @@ export function PriceChart({
   }, []);
 
   useEffect(() => {
-    chartRef.current?.applyOptions({
-      layout: { textColor: palette.tick },
-      grid: { vertLines: { color: palette.gridSubtle }, horzLines: { color: palette.gridSubtle } },
-      rightPriceScale: { borderColor: palette.grid },
-      timeScale: { borderColor: palette.grid },
-    });
-    candleRef.current?.applyOptions({
-      upColor: palette.up,
-      downColor: palette.down,
-      borderUpColor: palette.up,
-      borderDownColor: palette.down,
-      wickUpColor: palette.up,
-      wickDownColor: palette.down,
-    });
+    chartRef.current?.applyOptions(klineThemeOptions(palette, palette.tick));
+    candleRef.current?.applyOptions(candlestickColors(palette));
     closeRef.current?.applyOptions({ color: closeColor });
     for (const key of MA_KEYS) maRefs.current[key]?.applyOptions({ color: maColors[key] });
   }, [palette, maColors, closeColor]);
@@ -343,17 +321,7 @@ export function PriceChart({
         data.overlays[key].filter((p) => p.value !== null).map((p) => ({ time: toBusinessDay(p.time), value: Number(p.value) })),
       );
     }
-    const index = new Map(data.candles.map((c, i) => [c.time, i]));
-    volumeRef.current.setData(
-      data.volume.map((item): HistogramData<Time> => {
-        const i = index.get(item.time);
-        const prev = i ? data.candles[i - 1].close : null;
-        const close = i != null ? data.candles[i].close : null;
-        const color =
-          prev === null || close === null || close === prev ? palette.volumeFlat : close > prev ? palette.volumeUp : palette.volumeDown;
-        return { time: toBusinessDay(item.time), value: item.value, color };
-      }),
-    );
+    volumeRef.current.setData(toVolumeHistogramData(data.candles, data.volume, palette));
     // 決議 c14：可視範圍直接貼合資料，不再固定「今天往前 6 個月」
     const timeScale = chartRef.current?.timeScale();
     timeScale?.fitContent();

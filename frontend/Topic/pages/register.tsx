@@ -103,7 +103,7 @@ export default function RegisterPage() {
         <title>股海明燈｜註冊</title>
         <meta name="description" content="建立股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={UserPlus} title="註冊" subtitle="用電子郵件與密碼建立帳號，顯示名稱選填" />
+      <SiteHeader title="註冊" subtitle="用電子郵件與密碼建立帳號，顯示名稱選填" />
 
       <AuthLedger
         aside={

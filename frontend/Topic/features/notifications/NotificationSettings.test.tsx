@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { NotificationPreferences } from '../../lib/api/notifications';
-import { FeedbackLine, preferencesSnapshot } from './NotificationSettings';
+import { FeedbackLine, parsePriceThreshold, preferencesSnapshot } from './NotificationSettings';
 
 const prefs: NotificationPreferences = {
   daily_summary: true,
@@ -20,6 +20,18 @@ assert.notEqual(preferencesSnapshot({ ...prefs, price_threshold: 6 }, true), sav
 assert.notEqual(preferencesSnapshot(prefs, false), saved, 'Turning quiet hours off must be dirty');
 assert.equal(preferencesSnapshot(null, true), '', 'No form yet means nothing to save');
 
+// 門檻輸入框保留原始字串：可以清空再輸入，儲存時才轉數字，空白或超出 1–30 不能儲存
+assert.equal(parsePriceThreshold('5'), 5);
+assert.equal(parsePriceThreshold('2.5'), 2.5);
+assert.equal(parsePriceThreshold('1'), 1);
+assert.equal(parsePriceThreshold('30'), 30);
+assert.equal(parsePriceThreshold(''), null, 'An empty field is not 0');
+assert.equal(parsePriceThreshold('  '), null);
+assert.equal(parsePriceThreshold('0'), null);
+assert.equal(parsePriceThreshold('0.5'), null);
+assert.equal(parsePriceThreshold('30.1'), null);
+assert.equal(parsePriceThreshold('abc'), null);
+
 // 操作結果只出現在按下的那一區（儲存鈕旁），不在頁首
 const success = { area: 'prefs' as const, tone: 'success' as const, text: '通知偏好已儲存。' };
 assert.match(renderToStaticMarkup(<FeedbackLine feedback={success} area="prefs" />), /role="status"[^>]*>.*通知偏好已儲存。/);
@@ -28,4 +40,4 @@ assert.equal(renderToStaticMarkup(<FeedbackLine feedback={null} area="prefs" />)
 const failure = { area: 'prefs' as const, tone: 'danger' as const, text: '目前無法連線到伺服器，請稍後再試。' };
 assert.match(renderToStaticMarkup(<FeedbackLine feedback={failure} area="prefs" />), /role="alert"/, 'Save failures must be announced next to the button');
 
-console.log('Notification settings tests passed: dirty detection and feedback placement.');
+console.log('Notification settings tests passed: dirty detection, threshold parsing and feedback placement.');

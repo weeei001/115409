@@ -28,9 +28,9 @@ from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
 from .personal_context import personal_scopes, read_personal_context, paper_draft
 
-from .prompts import (ANSWER_PROMPT, answer_system_prompt, recovery_system_prompt, INTENT_SYSTEM_PROMPT,
-                      INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
-                      NO_NEWS_MESSAGE, TIME_FALLBACK_WARNING)
+from .prompts import (ANSWER_PROMPT, answer_system_prompt, failed_claim_guidance, recovery_system_prompt,
+                      INTENT_SYSTEM_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
+                      NO_NEWS_MESSAGE)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
 
 
@@ -72,12 +72,15 @@ def extract_time_filter(query: str, now: datetime | None = None) -> tuple[str | 
     elif "上個月" in query:
         end = midnight.replace(day=1) - timedelta(seconds=1)
         start = end.replace(day=1, hour=0, minute=0, second=0)
-    elif re.search(r"最近|近期|近一個月|近1個月", query):
-        start, end = now - timedelta(days=30), now
+    # 較長的「近 N 期間」要先比對，否則「最近三個月」會被泛用的「最近」吃成 30 天。
     elif re.search(r"近三個月|近3個月|近一季", query):
         start, end = now - timedelta(days=90), now
-    elif re.search(r"近半年|近六個月", query):
+    elif re.search(r"近半年|近六個月|近6個月", query):
         start, end = now - timedelta(days=180), now
+    elif re.search(r"近一年|近1年|近十二個月|近12個月", query):
+        start, end = now - timedelta(days=365), now
+    elif re.search(r"最近|近期|近一個月|近1個月", query):
+        start, end = now - timedelta(days=30), now
     elif match := re.search(r"(\d{4})年", query):
         year = int(match.group(1))
         if not 1 <= year <= 9999:
@@ -309,7 +312,8 @@ class ChatService:
             time_to = min(datetime.fromisoformat(time_to), now).strftime("%Y-%m-%d %H:%M:%S")
         if time_from and datetime.fromisoformat(time_from) > now:
             time_from = None
-        if time_from or time_to:
+        user_time_range = bool(time_from or time_to)
+        if user_time_range:
             response.time_range = {"from": time_from, "to": time_to}
         warning = ""
         unavailable = (["股票服務名單暫時無法讀取，無法確認可查詢的股票範圍。"]
@@ -338,10 +342,9 @@ class ChatService:
                         source_name=get_source_name(source), pub_time=payload.get("pub_time", ""),
                         url=normalize_source_url(payload.get("url", "")), stock_id=payload.get("stock_id", ""),
                         content=payload.get("page_content", ""), score=round(hit.get("score") or 0, 4),
-                        in_time_range=hit.get("_in_time_range", True), **source_provenance(payload)))
+                        **source_provenance(payload)))
                 if found.time_from or found.time_to:
                     response.time_range = {"from": found.time_from, "to": found.time_to}
-                warning = TIME_FALLBACK_WARNING if found.fallback_mode else ""
             except AppError as exc:
                 if exc.status_code not in {404, 503, 504}:
                     raise
@@ -390,14 +393,13 @@ class ChatService:
         context_parts = []
         for number, item in enumerate(response.sources, 1):
             item.citation_id = f"S{number}"
-            star = "★ " if item.category == "news" and item.in_time_range else ""
             impact_context = ("\n事件影響判讀（AI 推論；須以原文核對，不等於股價預測）："
                               + json.dumps(item.impact_context, ensure_ascii=False)) if item.impact_context else ""
             if item.shared_facts:
                 impact_context += "\n共同事實（相同 fact_id 非獨立佐證）：" + json.dumps(item.shared_facts, ensure_ascii=False)
             if item.source_relationships:
                 impact_context += "\n來源與目標關係（industry_context 為產業背景，非該公司已發生事實）：" + json.dumps(item.source_relationships, ensure_ascii=False)
-            context_parts.append(f"[{star}片段{number}] [{item.citation_id}] 標題：{item.title}\n"
+            context_parts.append(f"[片段{number}] [{item.citation_id}] 標題：{item.title}\n"
                                  f"類別：{item.category} | 股票：{item.stock_id}\n"
                                  f"來源：{item.source_name} | 時間：{item.pub_time or '參考定義／無發布時間'}\n"
                                  f"內容：{item.content}{impact_context}\n連結：{item.url}")
@@ -408,7 +410,8 @@ class ChatService:
             response.dashboard.blocks[0].description += "\n" + personal_analysis_note
         time_focus = ""
         if response.time_range:
-            time_focus = f"使用者指定期間：{json.dumps(response.time_range, ensure_ascii=False)}"
+            label = "使用者指定期間" if user_time_range else "新聞檢索期間（使用者未指定，預設最近 30 天）"
+            time_focus = f"{label}：{json.dumps(response.time_range, ensure_ascii=False)}"
         if "market" in needs:
             time_focus += ("\n行情資料為附日期的每日觀測，並非即時報價。請使用提供的共同期間比較；"
                            "未指定期間時，價格比較採最近 30 個日曆日。各股技術指標時序最多包含 "
@@ -442,7 +445,8 @@ class ChatService:
             logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
                                              exc.reason, metadata.get("finish_reason"), len(response.sources))
             result = await self.llm.text(
-                system_prompt=recovery_system_prompt(request.answer_detail, exc.reason),
+                system_prompt=(recovery_system_prompt(request.answer_detail, exc.reason)
+                               + failed_claim_guidance(getattr(exc, "claim", ""))),
                 prompt=prompt,
             )
             yield "正在重新核對回答的引用與數值…"

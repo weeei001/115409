@@ -594,12 +594,6 @@ def _normalize_text_brief_payload(
     except ValidationError as exc:
         return None, discarded, truncated
 
-def _format_validation_errors(exc: ValidationError) -> str:
-    return "; ".join(
-        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-        for error in exc.errors()
-    )
-
 def _filter_text_brief_evidence_ids(
     value: Any,
     *,
@@ -852,28 +846,6 @@ def _backfill_key_days(
         )
         kept.append(item)
     brief_payload["key_days"] = kept
-
-def _check_key_day_numbers(
-    brief_payload: dict[str, Any],
-    *,
-    known_percentages: set[float],
-) -> list[str]:
-    unverified: list[str] = []
-    for item in brief_payload["key_days"]:
-        if item.get("move_pct") is None:
-            unverified.append(f"{item['id']}: 該日缺少漲跌幅資料")
-        text = item.get("what")
-        if not isinstance(text, str):
-            continue
-        for match in PERCENT_IN_TEXT_RE.finditer(text):
-            value = round(float(match.group(1)), 2)
-            if any(
-                abs(value - candidate) <= TEXT_BRIEF_NUMBER_TOLERANCE_PP
-                for candidate in known_percentages
-            ):
-                continue
-            unverified.append(f"{item['id']}: {match.group(0)}")
-    return unverified
 
 def _collect_jargon_hits(brief_payload: dict[str, Any]) -> list[str]:
     hits: list[str] = []

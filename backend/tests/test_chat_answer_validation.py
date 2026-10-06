@@ -102,6 +102,7 @@ def test_recovery_uses_failure_category_and_publishes_only_valid_replacement(cha
     assert "200 元" not in response.text
     assert reasons == [reason]
     assert len(attempts) == (1 if stream else 2)
+    assert ("「股價 200 元」" in attempts[-1]["system_prompt"]) is (reason == "numbers")
 
 
 @pytest.mark.parametrize("stream", [False, True])

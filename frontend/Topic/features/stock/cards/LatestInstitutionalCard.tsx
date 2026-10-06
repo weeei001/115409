@@ -1,9 +1,8 @@
-import { Landmark } from 'lucide-react';
+import { Landmark, RefreshCw } from 'lucide-react';
 import type { InstitutionalDay } from '@/lib/types/view';
 import { valueToneText } from '@/lib/utils/tone';
-import { lotToneValue } from '@/lib/utils/format';
+import { lotToneValue, signedShares } from '@/lib/utils/format';
 import { Button } from '@/components/ui/button';
-import { signedShares } from '../signedShares';
 import { CardShell } from './CardShell';
 import type { LightState } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
@@ -14,13 +13,15 @@ interface Props {
   /** 燈質記號（Q／F／熄燈） */
   state?: LightState;
   onOpenDetail: () => void;
-  /** 沒有資料時的「重新載入」 */
+  /** 沒有資料時的「重新載入」、載入失敗時的「重試」 */
   onRetry?: () => void;
+  /** /institutional-trades 載入失敗的訊息 */
+  error?: string | null;
   className?: string;
 }
 
 /** 最近交易日（最近一筆已儲存資料）的三大法人買賣超；資料不是即時，所以不叫「今日」 */
-export function LatestInstitutionalCard({ latest, loading, state, onOpenDetail, onRetry, className }: Props) {
+export function LatestInstitutionalCard({ latest, loading, state, onOpenDetail, onRetry, error, className }: Props) {
   const rows = [
     { label: '外資', value: latest?.foreign_net },
     { label: '投信', value: latest?.investment_trust_net },
@@ -40,6 +41,8 @@ export function LatestInstitutionalCard({ latest, loading, state, onOpenDetail, 
       isEmpty={!latest}
       emptyText="尚無最近交易日的法人資料"
       emptyAction={onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry} className="min-h-11">重新載入</Button> : undefined}
+      error={error}
+      errorAction={onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry} className="min-h-11"><RefreshCw aria-hidden />重試</Button> : undefined}
       action={{ label: '籌碼明細', onClick: onOpenDetail }}
       className={className}
     >

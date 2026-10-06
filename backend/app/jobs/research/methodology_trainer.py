@@ -35,7 +35,7 @@ from app.jobs.research.backtest_digest_eval import (
     make_nim_client, load_price_frame, actual_from_rows, classify,
     build_context_from_pit, build_prediction_prompt, predict_change_pct,
     parse_prediction_json,
-    PROMPT_REQUIRED_PLACEHOLDERS, PROMPT_OUTPUT_KEYS, DEFAULT_PROMPT_TEMPLATE,
+    PROMPT_REQUIRED_PLACEHOLDERS,
 )
 
 

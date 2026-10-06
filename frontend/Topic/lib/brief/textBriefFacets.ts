@@ -1,5 +1,5 @@
 import type { Brief, EvidenceItem } from '../types/textBrief';
-import { fmtNum, fmtPercent } from '../utils/format';
+import { fmtPercent, lotsToShares, signedShares } from '../utils/format';
 
 /**
  * 五個分析面向的分級。
@@ -159,7 +159,7 @@ function chipsFacet(items: EvidenceItem[]): Facet {
     label: '法人籌碼',
     tone,
     levelLabel: value > 0 ? '買超' : value < 0 ? '賣超' : '中性',
-    basis: `近十日外資累計 ${value > 0 ? '+' : ''}${fmtNum(value)} 張`,
+    basis: `近十日外資累計 ${signedShares(lotsToShares(value))}`,
     rule,
     evidenceIds: [chips.id],
   };

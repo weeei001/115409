@@ -33,7 +33,9 @@ export function StockDashboard({ dashboard, stockName }: Props) {
   const { symbol, latest, loading, baseDate, priceChart, chipsLoading, institutionalLatest, indicators, indicatorLatest } = dashboard;
   // 燈質記號：讀取中＝Q、已載入＝F、讀取失敗（且沒有可顯示的舊資料）＝熄燈；只用 hook 已有的狀態
   const chartState: LightState = dashboard.chartLoading ? 'loading' : dashboard.chartError && !priceChart ? 'error' : 'ready';
-  const chipsState: LightState = chipsLoading ? 'loading' : dashboard.chipsError ? 'error' : 'ready';
+  // 法人與指標各看各的端點：只有一支失敗時，失敗的那一格熄燈並顯示錯誤
+  const institutionalState: LightState = chipsLoading ? 'loading' : dashboard.institutionalError ? 'error' : 'ready';
+  const indicatorsState: LightState = chipsLoading ? 'loading' : dashboard.indicatorsError ? 'error' : 'ready';
   // The latest analysis cutoff is independent of the last trading day.
   const textBrief = useStockTextBrief({ symbol });
   const maStructureLabel = useMemo(() => getMaStructureLabel(summarizePricePosition(priceChart)), [priceChart]);
@@ -61,11 +63,12 @@ export function StockDashboard({ dashboard, stockName }: Props) {
     setDrawer('ai');
   };
 
-  // 只在代號／基準日／就緒狀態變動時自動發動
+  // 個股資料就緒後自動讀取 AI 分析；只在代號或就緒狀態變動時發動
+  const ready = !loading && Boolean(latest);
   useEffect(() => {
-    if (!symbol.trim() || loading || !baseDate || !latest) return;
+    if (!symbol.trim() || !ready) return;
     void textBrief.run();
-  }, [symbol, baseDate, loading, latest]);
+  }, [symbol, ready]);
 
   if (!latest) return null;
   const subtitle = stockName ? `${symbol} ${stockName}` : symbol;
@@ -82,8 +85,22 @@ export function StockDashboard({ dashboard, stockName }: Props) {
           標準指標排在 AI 分析之前；法人合計、RSI、MACD 柱只在這裡出現一次，不在 KPI 列重複（04-S2） */}
       <AnimatedSection delay={0.05}>
         <Ledger title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
-          <LatestInstitutionalCard latest={institutionalLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('institutional')} onRetry={dashboard.reloadChips} />
-          <IndicatorSignalsCard latest={indicatorLatest} loading={chipsLoading} state={chipsState} onOpenDetail={() => setDrawer('indicators')} />
+          <LatestInstitutionalCard
+            latest={institutionalLatest}
+            loading={chipsLoading}
+            state={institutionalState}
+            error={dashboard.institutionalError}
+            onOpenDetail={() => setDrawer('institutional')}
+            onRetry={dashboard.reloadChips}
+          />
+          <IndicatorSignalsCard
+            latest={indicatorLatest}
+            loading={chipsLoading}
+            state={indicatorsState}
+            error={dashboard.indicatorsError}
+            onOpenDetail={() => setDrawer('indicators')}
+            onRetry={dashboard.reloadChips}
+          />
         </Ledger>
       </AnimatedSection>
 
@@ -115,7 +132,13 @@ export function StockDashboard({ dashboard, stockName }: Props) {
         <ChipsPanel dashboard={dashboard} />
       </DetailDrawer>
       <DetailDrawer open={drawer === 'indicators'} onClose={close} title="技術指標明細" subtitle="RSI、MACD、KD、布林通道">
-        <IndicatorsPanel rows={indicators} loading={chipsLoading} onRetry={dashboard.reloadChips} onWidenRange={dashboard.widenDateRange} />
+        <IndicatorsPanel
+          rows={indicators}
+          loading={chipsLoading}
+          error={dashboard.indicatorsError}
+          onRetry={dashboard.reloadChips}
+          onWidenRange={dashboard.widenDateRange}
+        />
       </DetailDrawer>
       <DetailDrawer open={drawer === 'ai'} onClose={close} title="AI 投資分析" subtitle="判斷、引用依據與分析限制">
         <StockTextBriefPanel

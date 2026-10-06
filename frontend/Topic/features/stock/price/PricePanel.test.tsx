@@ -24,6 +24,7 @@ const dates = Array.from({ length: 63 }, (_, index) => {
 const held: Array<() => void> = [];
 const requests: InternalAxiosRequestConfig[] = [];
 let holdStart: string | null = null;
+let failTechnical = false;
 
 const responseData = (config: InternalAxiosRequestConfig): unknown => {
   const url = config.url ?? '';
@@ -60,6 +61,8 @@ apiClient.defaults.adapter = (config) => {
       const rangeEndpoint = /\/(chart\/[^/]+|statistics)$/.test(config.url ?? '');
       if (config.params?.start_date > '2026-10-02' && rangeEndpoint) {
         reject(new Error('所選日期區間沒有資料'));
+      } else if (failTechnical && (config.url ?? '').endsWith('/technical-indicators')) {
+        reject(new Error('技術指標暫時無法取得'));
       } else {
         resolve({ config, status: 200, statusText: 'OK', headers: {}, data: responseData(config) });
       }
@@ -165,6 +168,19 @@ async function main() {
     expanded(renderer!);
     assert.equal(current().historyPage, 1);
     assert.equal(pageButton(renderer!, '上一頁').props.disabled, true);
+
+    // 只有 /technical-indicators 失敗：指標記錯誤（不是「沒有資料」），法人與量價籌碼照常
+    failTechnical = true;
+    await act(async () => { current().reloadChips(); await flush(); });
+    assert.ok(current().indicatorsError);
+    assert.equal(current().indicators, null);
+    assert.equal(current().institutionalError, null);
+    assert.ok(current().institutional);
+    assert.equal(current().chipsVolumeError, null);
+    failTechnical = false;
+    await act(async () => { current().reloadChips(); await flush(); });
+    assert.equal(current().indicatorsError, null);
+    assert.ok(current().indicators);
     console.log('PricePanel range, race, drawer and pagination regressions passed');
   } finally {
     await act(async () => { renderer?.unmount(); });

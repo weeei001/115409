@@ -17,11 +17,22 @@ VALUE = re.compile(
 )
 BOUNDARY = re.compile(r"[。!?;\n]|(?<!\d)[,，]|[,，](?!\d)")
 INTRO = re.compile(r"\s*(?:(?:[-•·]|\d+[.)])\s*)?"
-                   r"(?:我的建議是|建議(?:你)?|你可以(?:考慮)?|可以(?:考慮)?|可考慮|可(?!用)|不妨)\s*")
+                   r"(?:我的建議是|建議(?:你)?|你可以(?:考慮)?|可以(?:考慮)?|可考慮|可(?!用)|不妨"
+                   r"|每次|每批|首批|第[一二三1-3]批|分批)\s*")
 CONDITION = re.compile(r"\s*(?:若|如果|假設|假如)\s*")
 MODIFIER = r"(?:(?:先|再|並|另|另外|然後|接著|其中|其餘|每檔|各檔|單一|分批|暫時|至少|最多|約|大約|的|\s|[、：:])*)"
 FUNDS = r"(?:可用資金|可用現金|模擬資金|投資預算|賣出所得|現金|資金|總資產|持股)"
 ACTION = r"(?:投入|分配|配置|保留|買入|買進|加碼)"
+# Hypothetical price moves that trigger a plan. Plain rises/falls need an
+# explicit condition word; the others read as thresholds when an action follows.
+TRIGGER_CONDITION = r"(?:若|如果|假設|假如|萬一|一旦|當)"
+STANDALONE_TRIGGER = r"(?:回檔|回落|拉回|跌破|漲破|突破|(?:漲|跌)幅?(?:超過|逾))"
+TRIGGER = rf"(?:{STANDALONE_TRIGGER}|(?:漲|跌)幅?達到?|下跌|上漲|下修|反彈|漲|跌)"
+TRIGGER_ACTION = (r"\s*(?:以上|以內|左右|附近)?\s*(?:時|的話|之後|後|再|就|則|即|便)?.{0,10}?"
+                  r"(?:停損|停利|出場|進場|買進|買入|布局|佈局|加碼|減碼|賣出|獲利了結|分批|評估|觀察|考慮|暫停)")
+RISK = r"(?:停損|停利|目標報酬率?)(?:點|幅度|跌幅|漲幅|比例|線)?"
+SETTER = r"(?:可|可以|建議|宜|不妨|先)?(?:設定?|抓|訂|定|控制|放)?(?:在|為|於|至|到)?"
+OBSERVED = r"目前|現在|已|實際|現況|截至|近|過去|累計|今日|今天|昨日|昨天|本週|上週|本月|上月|今年|去年"
 
 
 def decimal_number(raw):
@@ -83,6 +94,24 @@ def _subject(before, after, aliases):
     return min(following, key=lambda item: (item[0], -item[1]))[2] if following else ""
 
 
+def _threshold(before, after, aliases):
+    """Stop settings and hypothetical move triggers stated without a leading suggestion."""
+    introduction = INTRO.match(before)
+    prefix = before[introduction.end():] if introduction else before
+    prefix = _without_subject(re.sub(r"^\s*(?:[-•·]|\d+[.)])\s*", "", prefix), aliases).strip()
+    if re.search(r"\d", prefix) or re.search(OBSERVED, prefix):
+        return None
+    if re.fullmatch(rf"{MODIFIER}(?:設定)?{RISK}{MODIFIER}{SETTER}{MODIFIER}", prefix):
+        return "risk", ""
+    condition = re.match(rf"[^%]{{0,8}}?{TRIGGER_CONDITION}", prefix)
+    trigger = re.fullmatch(rf"{MODIFIER}在?{MODIFIER}(?:股價|收盤價?)?{MODIFIER}(?P<verb>{TRIGGER}){MODIFIER}",
+                           prefix[condition.end():] if condition else prefix)
+    if trigger and (condition or (re.fullmatch(STANDALONE_TRIGGER, trigger["verb"])
+                                  and re.match(TRIGGER_ACTION, after))):
+        return "condition", "move"
+    return None
+
+
 def _role(before, after, aliases, *, continued=False, allow_target=False):
     """Require a local action/threshold; a suggestion elsewhere grants no exemption."""
     condition = CONDITION.match(before)
@@ -92,7 +121,9 @@ def _role(before, after, aliases, *, continued=False, allow_target=False):
                         r"(?:為|是|達|跌至|漲至|跌到|漲到|約)?\s*", subject):
             action = "price" if subject.startswith(("股價", "收盤")) else "rate" if subject.startswith("報酬率") else "change"
             return "condition", action
-        return None
+    threshold = _threshold(before, after, aliases)
+    if threshold or condition:
+        return threshold
     introduction = INTRO.match(before)
     if not introduction and not continued:
         return None
@@ -189,7 +220,8 @@ def parse_proposals(text, aliases=None):
                 raise ValueError("Invalid proposal range")
             if kind in {"risk", "target"} and unit != "%":
                 raise ValueError("Invalid threshold unit")
-            if kind == "condition" and unit != ("TWD" if action == "price" else "%"):
+            if kind == "condition" and unit not in ({"TWD", "%"} if action == "move"
+                                                    else {"TWD" if action == "price" else "%"}):
                 raise ValueError("Invalid condition unit")
             if kind == "allocation" and unit == "shares":
                 raise ValueError("Share counts cannot describe a cash allocation")

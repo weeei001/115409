@@ -39,18 +39,6 @@ def populate(db, models):
             config_hash=CONFIG_HASH, status="success", label="positive", reason="Revenue grows",
             evidence='[{"field":"title","quote":"Revenue grows"}]', analyzed_at=CREATED),
     ])
-    orders = [
-        (1, "2330", "buy", -2, 3, "long_term", None, 270750),
-        (2, "2330", "sell", -1, 1, None, None, 100000),
-        (3, "2330", "buy", -1, 2, "by_date", DAY, 200000),
-        (4, "2317", "buy", 0, 1, "by_date", date(2099, 1, 1), 75150),
-        (5, "NULL", "buy", 0, 1, "long_term", None, 1000),
-    ]
-    for id_, symbol, side, delta, quantity, plan, planned, amount in orders:
-        db.add(models.SimulatedOrder(id=id_, user_id="demo", symbol=symbol, side=side,
-            trade_date=DAY + timedelta(days=delta), quantity=quantity, sell_plan=plan,
-            planned_sell_date=planned, status="filled", estimated_amount=amount,
-            created_at=CREATED + timedelta(seconds=id_)))
     db.commit()
 
 
@@ -67,7 +55,7 @@ def requests():
     yield "/stocks/2330/statistics", dates
     yield "/stocks/compare/multiple", {**dates, "symbols": "2330,2317"}
     for suffix in ("chart/candlestick-ma", "chart/volume", "chart/price-change", "institutional-trades",
-                   "chart/chips-volume", "volume-with-chips", "technical-indicators", "integrated-chart",
+                   "volume-with-chips", "technical-indicators", "integrated-chart",
                    "fundamentals/monthly-revenues", "fundamentals/valuations",
                    "fundamentals/dividend-results", "chips/margin-trades", "chips/foreign-shareholding",
                    "chips/holding-share-levels"):
@@ -82,11 +70,6 @@ def requests():
     yield "/news/article-a", {"stock": "2330"}
     yield "/news/article-a", {"stock": "2317"}
     yield "/news/missing", {}
-    yield "/simulated-orders/", {"user_id": "demo"}
-    yield "/simulated-orders/", {"user_id": "demo", "limit": 2}
-    yield "/simulated-orders/available-lots", {"user_id": "demo", "symbol": "2330"}
-    yield "/simulated-orders/available-lots", {"user_id": "demo", "symbol": "missing"}
-    yield "/simulated-orders/profit-by-category", {"user_id": "demo"}
 
 
 def capture(client):

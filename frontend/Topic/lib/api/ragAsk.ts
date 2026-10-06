@@ -110,7 +110,13 @@ export async function ragAskStream(
   const timeoutMs = getRagApiTimeoutMs();
   let timedOut = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+  // 逾時算的是「多久沒有新內容」：每收到一段就重新計時，持續串流中的長回覆不會被切斷
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const armTimer = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+  };
+  armTimer();
   const abort = () => ctrl.abort();
   if (options?.signal) {
     if (options.signal.aborted) ctrl.abort();
@@ -188,6 +194,7 @@ export async function ragAskStream(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      armTimer();
       const chunk = decoder.decode(value, { stream: true });
       fullRaw += chunk;
       carry += chunk;
@@ -215,7 +222,7 @@ export async function ragAskStream(
   } catch (err) {
     if (options?.signal?.aborted) throw new DOMException('Request cancelled', 'AbortError');
     const message = timedOut
-      ? `AI 回覆等待超過 ${Math.round(timeoutMs / 1000)} 秒，已停止等待。請重新提問。`
+      ? `AI 回覆超過 ${Math.round(timeoutMs / 1000)} 秒沒有新進度，已停止等待。請重新提問。`
       : err instanceof ApiRequestError
         ? userFacingMessage(err, '伺服器無法完成回覆，請稍後再試。')
         : '與伺服器的連線中斷，尚未取得完整回覆。請確認網路連線後重試。';

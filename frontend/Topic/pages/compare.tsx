@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { toast } from 'sonner';
-import { GitCompare, RefreshCw, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { DateRangePicker } from '@/components/common/DateRangePicker';
@@ -185,7 +185,7 @@ export default function ComparePage() {
         <title>股海明燈｜多股比較</title>
         <meta name="description" content="結合產業背景，以共同期間比較多檔台股的價格漲跌、波動、回撤、法人買賣超與相關性。" />
       </Head>
-      <SiteHeader icon={GitCompare} title="多股比較" subtitle="依產業背景，同期比較價格、風險與相關性" />
+      <SiteHeader title="多股比較" subtitle="依產業背景，同期比較價格、風險與相關性" />
 
       <main aria-label="多股比較" className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-10 px-4 py-6 sm:px-6 lg:gap-16 lg:px-10 lg:py-10">
         <AnimatedSection delay={0.05}>

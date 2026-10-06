@@ -1,28 +1,24 @@
 import React from 'react';
 import Link from 'next/link';
-import { fmtPrice } from '@/lib/utils/format';
+import { fmtPrice, withSign } from '@/lib/utils/format';
 import { getValueTone, toneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
 
 /** 帶正負號的漲跌；負號用 U+2212，和數字等寬 */
 export function signedText(value: number | null | undefined, decimals = 2, suffix = ''): string {
   if (value == null || !Number.isFinite(value)) return '--';
-  const abs = Math.abs(value).toFixed(decimals);
-  if (value > 0) return `+${abs}${suffix}`;
-  if (value < 0) return `−${abs}${suffix}`;
-  return `${abs}${suffix}`;
+  return `${withSign(value, Math.abs(value).toFixed(decimals))}${suffix}`;
 }
 
 export interface LightEntryProps {
   symbol: string;
   name?: string;
-  industry?: string | null;
   close?: number | null;
   change?: number | null;
   changePercent?: number | null;
   /** 資料日（YYYY-MM-DD） */
   date?: string | null;
-  /** 取代名稱下方「產業 · 資料日」的燈質列（例如「收藏於 …」） */
+  /** 取代名稱下方「資料日」的燈質列（例如「收藏於 …」） */
   meta?: React.ReactNode;
   /** 不放收盤與漲跌欄（收藏清單、比較清單只列代號與名稱） */
   hideQuote?: boolean;
@@ -47,7 +43,7 @@ export interface LightEntryProps {
  * 條目列：全站共用的一筆股票。代號是編號、產業是所屬海岸、收盤／漲跌／資料日是它的燈質。
  * 漲跌依數值正負上色（DESIGN.md 第 7 節），並且一律帶正負號，不只靠顏色。
  */
-export function LightEntry({ symbol, name, industry, close, change, changePercent, date, meta, hideQuote, selected, leading, extra, trailing, onSelect, href, label, className, tabIndex }: LightEntryProps) {
+export function LightEntry({ symbol, name, close, change, changePercent, date, meta, hideQuote, selected, leading, extra, trailing, onSelect, href, label, className, tabIndex }: LightEntryProps) {
   const tone = toneText(getValueTone(change));
   const body = (
     <>
@@ -57,9 +53,9 @@ export function LightEntry({ symbol, name, industry, close, change, changePercen
         <span className="block truncate text-sm font-medium">{name || symbol}</span>
         {meta ? (
           <span className="characteristic block truncate">{meta}</span>
-        ) : industry || date ? (
+        ) : date ? (
           <span className="block truncate text-xs text-muted-foreground">
-            {[industry, date ? `收 ${date}` : null].filter(Boolean).join(' · ')}
+            {`收 ${date}`}
           </span>
         ) : null}
       </span>

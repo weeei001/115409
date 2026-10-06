@@ -6,7 +6,6 @@ import json
 import math
 import re
 import time
-from calendar import monthrange
 from datetime import date
 from pathlib import Path
 
@@ -369,9 +368,7 @@ def backfill(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Backfill official TWSE/TPEx market history")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--stocks")
-    group.add_argument("--from-stock-info", action="store_true")
+    parser.add_argument("--stocks")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2024, 9, 25))
     parser.add_argument("--end", type=date.fromisoformat, default=date.today())
     parser.add_argument("--out", type=Path,

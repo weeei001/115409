@@ -109,7 +109,7 @@ export default function LoginPage() {
         <title>股海明燈｜登入</title>
         <meta name="description" content="登入股海明燈帳號。" />
       </Head>
-      <SiteHeader icon={LogIn} title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬投資" />
+      <SiteHeader title="登入" subtitle="登入後可以保存 AI 對話、收藏股與模擬投資" />
 
       <AuthLedger
         aside={

@@ -2,7 +2,7 @@ import type { CompareFundamentalsData } from '@/lib/api/compareFundamentals';
 import type { CategoryLeader, CompareQualityMeta, CorrelationMatrix, InstitutionalAggregate } from '@/lib/types/compare';
 import { lowestCorrelationPair } from '@/lib/utils/compare';
 import { buildFundamentalsComparison } from '@/lib/utils/compareFundamentals';
-import { signedShares } from '@/features/stock/signedShares';
+import { signedShares } from '@/lib/utils/format';
 
 /**
  * 「延伸分析」索引表每一列的一句發現。只挑出頁面上已算好的值（類別冠軍、各面板用的同一批彙總），
