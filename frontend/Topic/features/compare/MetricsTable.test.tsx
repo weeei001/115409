@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { CompareMetricsRow } from '@/lib/types/compare';
 import { buildMetricsRow, sortMetricsRows } from '@/lib/utils/compare';
+import { renderedTextNodes } from '@/lib/testing/markup';
 import { formatCompareAmount, MetricsTable } from './MetricsTable';
 
 const fixtures: Array<[number | null, string]> = [
@@ -44,7 +45,7 @@ assert.match(html, /class="sr-only">約 693\.89 億元（69,389,214,209 元）/)
 const negative = renderToStaticMarkup(<MetricsTable rows={[{ ...row('2330', 1), totalReturnPct: -10.87 }, row('2317', 1)]} symbolColors={{}} benchmarkReturnPct={1} />);
 assert.match(negative, /−10\.87%/);
 assert.match(negative, /−11\.87/);
-assert.doesNotMatch(negative.replace(/<[^>]+>/g, ' '), /(^|\s)-\d/);
+assert.ok(!renderedTextNodes(negative).some((node) => /(^|\s)-\d/.test(node)));
 assert.match(html, /28,966 張/); // P1-21：平均成交量用張
 assert.match(html, /2\.50%/);
 assert.deepEqual(rows, before);

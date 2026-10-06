@@ -11,8 +11,9 @@ import { EvidenceTagList } from './BriefAtoms';
 import { EvidenceDetail } from './EvidenceDetail';
 import { restoreFocus } from './EvidencePanel';
 import { resolveEvidenceItem } from '../../lib/brief/textBriefEvidence';
+import { renderedText } from '../../lib/testing/markup';
 
-const text = (html: string) => html.replace(/<[^>]+>/g, '');
+const text = (html: string) => renderedText(html);
 
 const CATALOG: EvidenceItem[] = [
   { id: 'fd_06', field: 'per', date: '2026-09-03', value: 28.98 },

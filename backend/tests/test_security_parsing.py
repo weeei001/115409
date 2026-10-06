@@ -2,6 +2,11 @@
 import subprocess
 import sys
 from pathlib import Path
+from time import perf_counter
+
+import pytest
+
+from app.core.text import strip_tags
 
 
 def test_unit_and_revenue_parsers_reject_long_near_matches_without_backtracking():
@@ -23,3 +28,23 @@ assert _MONTHLY_REVENUE.search("2026年8月營收" + "1" * 50000 + "結束") is 
     completed = subprocess.run([sys.executable, "-c", script],
         cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=5)
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("<p>台積電</p>", "台積電"),
+    ("<<script>script>alert(1)", "script>alert(1)"),
+    ("<<a>b>", "b>"),
+    ("尾巴 <script src=x", "尾巴 "),
+    ("本益比 < 10 倍", "本益比 < 10 倍"),
+    ("a < b 且 c > d", "a < b 且 c > d"),
+    ("< <a>b>", "< b>"),
+])
+def test_strip_tags_leaves_no_tag_opener(raw, expected):
+    assert strip_tags(raw) == expected
+
+
+def test_strip_tags_is_linear_on_nested_and_unterminated_openers():
+    started = perf_counter()
+    assert strip_tags("<" * 100_000 + "a>" + "b>" * 100_000) == "b>" * 100_000
+    assert strip_tags("<" * 200_000 + "1") == "<" * 200_000 + "1"
+    assert perf_counter() - started < 1

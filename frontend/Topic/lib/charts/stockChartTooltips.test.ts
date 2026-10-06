@@ -11,9 +11,10 @@ import {
   riskReturnScatterOption,
   rsiMacdOptions,
 } from './adapters';
+import { renderedText } from '../testing/markup';
 
 type Formatter = (params: unknown) => string;
-const text = (html: string) => html.replace(/<[^>]+>/g, '');
+const text = (html: string) => renderedText(html);
 
 const day = (date: string, extra: Partial<InstitutionalDay> = {}): InstitutionalDay => ({
   date,

@@ -8,8 +8,9 @@ import { LatestInstitutionalCard } from './cards/LatestInstitutionalCard';
 import { IndicatorsPanel } from './indicators/IndicatorsPanel';
 import { ChipsPanel } from './chips/ChipsPanel';
 import type { UseStockDashboardResult } from '../../lib/hooks/useStockDashboard';
+import { renderedText } from '../../lib/testing/markup';
 
-const text = (html: string) => html.replace(/<[^>]+>/g, '');
+const text = (html: string) => renderedText(html);
 
 const priceChart = {
   candles: [

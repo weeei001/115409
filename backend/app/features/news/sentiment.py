@@ -4,6 +4,7 @@ from functools import lru_cache
 import html
 import re
 
+from app.core.text import strip_tags
 from app.features.market.company_catalog import company_aliases
 
 
@@ -124,7 +125,7 @@ def _company_references(title: str | None, content: str | None, catalog: dict) -
 
 
 def clean_text(raw_text: str | None) -> str:
-    text = re.sub(r"<[^>]+>", "", html.unescape(raw_text or ""), flags=re.IGNORECASE)
+    text = strip_tags(html.unescape(raw_text or ""))
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = "\n".join(re.sub(r"[^\S\r\n]+", " ", line).strip() for line in text.split("\n"))
     return re.sub(r"\n{3,}", "\n\n", text).strip()

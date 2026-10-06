@@ -6,8 +6,9 @@ import { MethodologyPanel } from './MethodologyPanel';
 import { CompareHero } from './CompareHero';
 import { TechnicalSnapshotTable } from './TechnicalSnapshotTable';
 import { institutionalFinding, methodFinding } from './analysisFindings';
+import { renderedText } from '@/lib/testing/markup';
 
-const text = (html: string) => html.replace(/<[^>]+>/g, '');
+const text = (html: string) => renderedText(html);
 
 // P2-093：延伸分析可以同時展開多項
 assert.deepEqual(toggleOpenKey([], 'a'), ['a']);

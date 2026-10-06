@@ -8,3 +8,8 @@ export function renderedElements(markup: string, tagName: string) {
 export function renderedText(markup: string | Parameters<typeof DomUtils.textContent>[0]) {
   return DomUtils.textContent(typeof markup === 'string' ? parseDocument(markup) : markup);
 }
+
+/** Each rendered text node, so checks can anchor at element boundaries. */
+export function renderedTextNodes(markup: string) {
+  return DomUtils.filter((node) => node.type === 'text', parseDocument(markup)).map((node) => DomUtils.textContent(node));
+}

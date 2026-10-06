@@ -8,6 +8,7 @@ from html import unescape
 from math import isfinite
 from urllib.parse import urlsplit
 
+from app.core.text import strip_tags
 from app.features.retrieval.common import normalize_source_url
 
 from .schemas import (
@@ -38,7 +39,7 @@ def _number(value) -> float | None:
 
 
 def _text(value, limit=240) -> str:
-    return " ".join(re.sub(r"<[^>]*>", "", unescape(value)).split())[:limit] if isinstance(value, str) else ""
+    return " ".join(strip_tags(unescape(value)).split())[:limit] if isinstance(value, str) else ""
 
 
 def _day(value) -> str | None:
