@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
 import type { NextRouter } from 'next/router';

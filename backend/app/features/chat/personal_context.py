@@ -60,9 +60,11 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
     symbols = [row["symbol"] for row in payload.get("favorites", [])]
     portfolio = payload.get("portfolio", {})
     symbols.extend(row["symbol"] for row in portfolio.get("positions", []) if row.get("symbol"))
-    payload["analysis_limit"] = "Market/news analysis covers at most the first 6 personal symbols per question."
+    symbols = list(dict.fromkeys(symbols))
+    payload["analysis_limit"] = "Market/news analysis covers at most the first 6 personal symbols per question, in favorites order followed by remaining portfolio positions."
     source = reference_source("本次登入使用者的收藏與模擬投資資料", json.dumps(payload, ensure_ascii=False, default=str), category="personal")
-    return list(dict.fromkeys(symbols))[:6], source
+    source.stock_ids = symbols
+    return symbols[:6], source
 
 
 def paper_draft(query, symbols, request):
@@ -78,12 +80,12 @@ def paper_draft(query, symbols, request):
         return None
     quantity = None
     amount = None
-    units = re.findall(r"(?<![\d.,-])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(張|股)", query)
+    units = re.findall(r"(?<![\d.,-])(\d{1,3}(?:,\d{3})++|\d++(?:\.\d++)?)\s*+(張|股)", query)
     if len(units) == 1:
         count = float(units[0][0].replace(",", "")) * (1000 if units[0][1] == "張" else 1)
         if sell and math.isfinite(count) and 0 < count <= 1000000000 and count.is_integer():
             quantity = int(count)
-    amounts = re.findall(r"(?<![\d.,-])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(萬|万|千)?\s*(?:元|塊|(?<=[萬万千]))", query)
+    amounts = re.findall(r"(?<![\d.,-])(\d{1,3}(?:,\d{3})++|\d++(?:\.\d++)?)\s*+(?:(萬|万|千)\s*+(?:元|塊)?|(?:元|塊))", query)
     if len(amounts) == 1 and buy and quantity is None:
         amount = float(amounts[0][0].replace(",", "")) * {"萬": 10000, "万": 10000, "千": 1000, "": 1}[amounts[0][1]]
         if not math.isfinite(amount) or amount <= 0 or amount > 1000000000:

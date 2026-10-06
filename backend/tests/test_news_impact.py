@@ -9,7 +9,7 @@ from app.clients.llm import LlmResult
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.market import company_catalog
-from app.features.news.impact import SYSTEM_PROMPT, config_hash, hedge_reason, validate_output
+from app.features.news.impact import config_hash, validate_output
 from app.jobs.impact.runner import ImpactBatchRunner
 from app.jobs.impact.migrate import migrate_news_impact
 
@@ -179,6 +179,7 @@ def test_invalid_evidence_fails_without_leaving_impacts(db_session, settings, tm
     bad["impacts"][0]["evidence"] = [{"field": "content", "quote": "降息一碼"}]
     summary = run(db_session, settings, tmp_path, StubLlm([bad, bad]))
     assert summary["failed"] == 1 and summary["api_calls"] == 2
+    assert summary["failure_reasons"] == {"validation_failed": 1}
     assert db_session.get(NewsEventAnalysis, "invalid").status == "failed"
     assert db_session.query(NewsEventImpact).count() == 0
 
@@ -244,13 +245,25 @@ def test_recognition_alias_upgrade_invalidates_previous_analysis_config(settings
     assert config_hash(settings, CATALOG) != current
 
 
-def test_impact_reason_uses_possible_instead_of_guaranteed_outcome():
-    assert "一律用「可能」" in SYSTEM_PROMPT
-    assert hedge_reason("預計明年量產，將帶來明確的營收貢獻。") == "預計明年量產，可能帶來明確的營收貢獻。"
-    assert hedge_reason("需求擴張勢必帶動量價齊揚") == "需求擴張可能帶動量價齊揚"
-    assert hedge_reason("將會提升長期獲利能力") == "可能提升長期獲利能力"
-    assert hedge_reason("將營收目標下修，成本可能上升") == "將營收目標下修，成本可能上升"
-    article = SimpleNamespace(title="升息", content="央行宣布升息一碼")
-    payload = output()
-    payload["impacts"][0]["reason"] = "資金成本將增加"
-    assert validate_output(payload, article=article, catalog=CATALOG).impacts[0].reason == "資金成本可能增加"
+def test_mixed_prompt_upgrade_keeps_quote_validation_and_invalidates_old_analysis(settings, monkeypatch):
+    from app.features.news import impact
+    article = SimpleNamespace(title="政策影響", content="融資成本增加，但資金流入改善。")
+    positive = {"field": "content", "quote": "資金流入改善"}
+    negative = {"field": "content", "quote": "融資成本增加"}
+    payload = {"events": [{"key": "e1", "summary": "政策影響", "statement_type": "fact", "topics": [],
+                           "evidence": [positive, negative]}],
+               "impacts": [{"event_key": "e1", "target_type": "market", "target_id": "TW", "direction": "mixed",
+                            "importance": "medium", "basis": "inferred", "reason": "成本與流入影響並存",
+                            "evidence": [positive]}]}
+    with pytest.raises(ValueError, match="two distinct source quotes"):
+        validate_output(payload, article=article, catalog={})
+    payload["impacts"][0]["evidence"] = [positive, positive]
+    with pytest.raises(ValueError, match="two distinct source quotes"):
+        validate_output(payload, article=article, catalog={})
+    payload["impacts"][0]["evidence"] = [positive, negative]
+    assert validate_output(payload, article=article, catalog={}).impacts[0].direction == "mixed"
+    current = config_hash(settings, CATALOG)
+    monkeypatch.setattr(impact, "PROMPT_VERSION", "impact-v1")
+    monkeypatch.setattr(impact, "SYSTEM_PROMPT", "\n".join(line for line in impact.SYSTEM_PROMPT.splitlines()
+        if not line.startswith("direction=mixed")))
+    assert config_hash(settings, CATALOG) != current

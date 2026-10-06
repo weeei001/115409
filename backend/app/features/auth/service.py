@@ -16,14 +16,11 @@ from app.db.models.user import User
 from app.features.auth import repository
 from app.features.auth.schemas import (
     ChangePasswordRequest, GoogleAuthRequest, LoginRequest, RegisterRequest,
-    ResetPasswordRequest, TokenResponse, UserPublic,
+    TokenResponse, UserPublic,
 )
 
 
-FORGOT_OK_MESSAGE = "如果這個電子郵件已註冊，你會收到重設連結。"
-# 前端會原樣顯示 detail：用「電子郵件」並給下一步（05 2.10）
-EMAIL_TAKEN_MESSAGE = "這個電子郵件已註冊，請直接登入或使用「忘記密碼」。"
-EMAIL_LINKED_MESSAGE = "這個電子郵件已綁定其他 Google 帳號，請改用原本的方式登入。"
+FORGOT_OK_MESSAGE = "若此 email 已註冊且可重設密碼，您將收到重設連結。"
 
 
 def hash_password(plain: str) -> str:
@@ -80,7 +77,7 @@ def _commit(db: Session) -> None:
 
 def register(db: Session, body: RegisterRequest, settings: Settings) -> TokenResponse:
     if repository.by_email(db, str(body.email)):
-        raise AppError(EMAIL_TAKEN_MESSAGE, status_code=400)
+        raise AppError("此 email 已註冊", status_code=400)
     user = User(
         email=str(body.email).strip().lower(),
         password_hash=hash_password(body.password),
@@ -90,7 +87,7 @@ def register(db: Session, body: RegisterRequest, settings: Settings) -> TokenRes
     try:
         _commit(db)
     except IntegrityError:
-        raise AppError(EMAIL_TAKEN_MESSAGE, status_code=400) from None
+        raise AppError("此 email 已註冊", status_code=400) from None
     db.refresh(user)
     return token_response(user, settings)
 
@@ -120,14 +117,14 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
     user = repository.by_email(db, str(email))
     if user:
         if user.google_sub and user.google_sub != sub:
-            raise AppError(EMAIL_LINKED_MESSAGE, status_code=409)
+            raise AppError("此 email 已綁定其他 Google 帳號", status_code=409)
         _require_active(user)
         if not user.google_sub:
             user.google_sub = sub
             try:
                 _commit(db)
             except IntegrityError:
-                raise AppError(EMAIL_LINKED_MESSAGE, status_code=409) from None
+                raise AppError("此 email 已綁定其他 Google 帳號", status_code=409) from None
     else:
         name = info.get("name")
         user = User(
@@ -145,7 +142,7 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
 
 def change_password(db: Session, user: User, body: ChangePasswordRequest) -> str:
     if not user.password_hash:
-        raise AppError("只用 Google 登入的帳號沒有密碼，無法在這裡變更。", status_code=400)
+        raise AppError("此帳號尚未設定本地密碼，無法由此變更", status_code=400)
     if not verify_password(body.current_password, user.password_hash):
         raise AppError("目前密碼錯誤", status_code=400)
     if body.new_password == body.current_password:
@@ -186,14 +183,15 @@ def forgot_password(db: Session, email: str, settings: Settings) -> str:
     return FORGOT_OK_MESSAGE
 
 
-def reset_password(db: Session, body: ResetPasswordRequest) -> str:
-    token_hash = hashlib.sha256(body.token.strip().encode("utf-8")).hexdigest()
+def reset_password(db: Session, raw_token: str, new_password: str) -> str:
+    # The lookup capability is generated with 256 bits of randomness; passwords use bcrypt.
+    token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
     pair = repository.reset_token(db, token_hash, datetime.now(timezone.utc).replace(tzinfo=None))
     if pair is None:
         raise AppError("重設連結無效或已過期", status_code=400)
     user, _ = pair
     _require_active(user)
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = hash_password(new_password)
     repository.delete_reset_tokens(db, user.id)
     _commit(db)
     return "密碼已重設，請使用新密碼登入。"

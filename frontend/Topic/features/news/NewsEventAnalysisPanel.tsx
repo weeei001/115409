@@ -17,6 +17,7 @@ import { formatDateTime } from '@/lib/utils/date';
 import { Badge } from '@/components/ui/badge';
 import { textLinkClass } from '@/components/ui/button';
 import { Disclosure } from '@/components/common/Disclosure';
+import { taiwanStockHref, UNSUPPORTED_STOCK_MARKET_MESSAGE } from '@/lib/news/newsLinks';
 
 /** 對照中的項目：中性底色＋左側粗線（與內文的底色同一個 token）。粗線用 ::before 畫，不佔 box-shadow，focus 的燈色內圈才不會被蓋掉 */
 const activeItem = 'relative before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-border-strong before:opacity-0 data-[active=true]:bg-accent data-[active=true]:before:opacity-100';
@@ -199,6 +200,7 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
               <div className="pb-3">
                 <div className="border">
                   {groupImpactsByTarget(impacts).map((group) => {
+                    const stockHref = group.targetType === 'company' ? taiwanStockHref(group.targetId) : null;
                     const groupId = groupCitationId(group.key);
                     const memberIds = group.impacts.map((impact) => impactCitationId(analysis.impacts.indexOf(impact)));
                     return (
@@ -231,14 +233,14 @@ export function NewsEventAnalysisPanel({ analysis, link }: { analysis: NewsEvent
                         }
                       >
                         <div className="border-t px-3 pt-1 pb-3">
-                          {group.targetType === 'company' ? (
+                          {stockHref ? (
                             <Link
-                              href={`/stock/${group.targetId}`}
+                              href={stockHref}
                               className={cn('inline-flex min-h-11 items-center rounded-sm text-[13px] font-medium outline-none focus-lamp', textLinkClass)}
                             >
                               查看 {group.label} 個股
                             </Link>
-                          ) : null}
+                          ) : group.targetType === 'company' ? <p className="py-2 text-[13px] text-muted-foreground">{UNSUPPORTED_STOCK_MARKET_MESSAGE}</p> : null}
                           <ol className="space-y-0">
                             {group.impacts.map((impact, index) => {
                               const event = analysis.events.find((item) => item.key === impact.event_key);

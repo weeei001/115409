@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type { BenchmarkHistoryResponse } from '../api/benchmark';
 import type { MultiStockResponse } from '../types/api';
 import { buildBenchmarkComparison } from './compareBenchmark';
-import { buildCompareViewModel, recentCloses, toCompareChartSeries } from './compare';
+import { buildCompareViewModel, toCompareChartSeries } from './compare';
 
 const prices: MultiStockResponse = {
   start_date: '2026-09-01', end_date: '2026-09-04', symbols: ['A', 'B'],
@@ -51,8 +51,4 @@ assert.equal(gap.returnPct, result.returnPct);
 assert.match(gap.warning!, /斷點/);
 assert.equal(buildBenchmarkComparison(null, benchmark).returnPct, null);
 
-// A compact sparkline must not connect across gaps or draw an invalid zero price.
-assert.deepEqual(recentCloses(prices, 'B'), []);
-assert.deepEqual(recentCloses(prices, 'A'), [50, 100, 110, 120]);
-assert.deepEqual(recentCloses({ ...prices, data: [{ date: '2026-09-01', prices: { A: 0 } }] }, 'A'), []);
-console.log('Benchmark comparison checks passed: shared dates, percentage points, missing data, and sparkline gaps.');
+console.log('Benchmark comparison checks passed: shared dates, percentage points, and missing data.');

@@ -1,4 +1,7 @@
 import asyncio
+import json
+import logging
+import re
 from datetime import timedelta
 
 import pytest
@@ -114,6 +117,72 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
         ("user", "First"), ("assistant", "FindMe [S1]")]
     messages = service.get(owner, conversation_id).messages
     assert messages[3].status == "failed" and messages[3].error == "Provider unavailable"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_final_numeric_rejection_preserves_dashboard_failed_history_and_safe_diagnostics(
+        client, service, db_session, settings, monkeypatch, caplog, stream):
+    from app.features.chat import service as chat_module
+    from app.features.chat.answer_validation import NUMERIC_RECOVERY_GUIDANCE
+    from app.features.chat.knowledge import reference_source
+    from app.features.chat.service import ChatService
+    from test_chat import FakeModels, FakeRetrieval, events
+
+    owner, headers = login(db_session, settings)
+    personal = reference_source("Personal snapshot", json.dumps({
+        "favorites": [{"symbol": "2330", "name": "TSMC"}],
+        "portfolio": {"initialized": True, "available_cash": 50000, "positions": []},
+        "private_note": "PRIVATE_SOURCE_SENTINEL",
+    }), category="personal")
+    personal.stock_ids = ["2330"]
+    monkeypatch.setattr(chat_module, "read_personal_context", lambda *args, **kwargs: (["2330"], personal))
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {})
+    models = FakeModels(intent={"stocks": [], "data_needs": ["favorites", "portfolio", "market"]},
+                        answer="可用資金999999元。PRIVATE_ANSWER_SENTINEL[S1]")
+    models.metadata["private_debug"] = "PRIVATE_METADATA_SENTINEL"
+    chat = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
+                       session_factory=service.session_factory)
+    monkeypatch.setattr(chat, "_stock_options", lambda: {"2330": "TSMC"})
+    market = reference_source("Price", '{"columns":["date","close"],"rows":[["2026-10-02",100]]}',
+                              category="market_technical").model_copy(update={"stock_id": "2330"})
+    monkeypatch.setattr(chat, "_market_sources", lambda *args: [market])
+    service.chat = chat
+    conversation_id = service.create(owner).id
+    caplog.set_level(logging.WARNING, logger=chat_module.__name__)
+
+    response = client.post(f"/api/conversations/{conversation_id}/ask", headers=headers, json={
+        "query": "請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。PRIVATE_QUERY_SENTINEL",
+        "stream": stream,
+    })
+
+    if stream:
+        result = events(response)
+        assert result[-1]["type"] == "error"
+        assert not any(event["type"] in {"text", "done"} for event in result)
+        displayed = next(event["dashboard"] for event in result if event["type"] == "dashboard")
+        assert displayed["blocks"][0]["items"][0]["value"] == 100
+        error = result[-1]["message"]
+    else:
+        assert response.status_code == 503
+        error = response.json()["detail"]
+    assert error == "回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE
+    assert "指定 1 至 2 檔股票重新提問" in error
+    assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 2
+
+    saved = client.get(f"/api/conversations/{conversation_id}", headers=headers).json()["messages"][-1]
+    assert saved["status"] == "failed" and saved["error"] == error
+    assert saved["content"] == "" and saved["sources"] == []
+    assert saved["dashboard"]["blocks"][0]["items"][0]["value"] == 100
+    assert saved["actions"]
+    diagnostics = [record for record in caplog.records if record.name == chat_module.__name__]
+    assert len(diagnostics) == 1 and diagnostics[0].levelno == logging.WARNING
+    assert re.fullmatch(r"Chat answer validation failed: reason=numbers attempt=2 finish=stop sources=\d+",
+                        diagnostics[0].getMessage())
+    for sentinel in ("PRIVATE_SOURCE_SENTINEL", "PRIVATE_ANSWER_SENTINEL", "PRIVATE_METADATA_SENTINEL",
+                     "PRIVATE_QUERY_SENTINEL"):
+        assert sentinel not in caplog.text
+        assert sentinel not in response.text
+        assert sentinel not in json.dumps(saved)
 
 
 def test_disconnect_releases_lease_preserves_partial_and_closes_iterator(service, db_session, settings):

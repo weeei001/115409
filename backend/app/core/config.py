@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     # Chat intent, answers and citation repair share a separate latency budget.
     # An empty model preserves existing deployments until a chat model is selected.
     CHAT_LLM_MODEL: str = ""
-    CHAT_LLM_MAX_TOKENS: int = 2048
+    CHAT_LLM_MAX_TOKENS: int = 8192
     CHAT_LLM_TIMEOUT_SECONDS: float = 60
     CHAT_LLM_MAX_RETRIES: int = 0
     LLM_INPUT_PRICE_PER_M: float = 0.20
@@ -87,7 +87,6 @@ class Settings(BaseSettings):
     SENTIMENT_USD_TWD_RATE: float = 32.0
     ANALYSIS_TIMEOUT_SECONDS: int = 1200
     SIMULATION_CACHE_DIR: Path = Field(default_factory=lambda: state_directory() / "simulation")
-    FINMIND_API_TOKEN: str = ""
 
     RAG_API_URL: str = ""
     RAG_API_KEY: str = ""
@@ -149,6 +148,7 @@ class Settings(BaseSettings):
     APP_RELOAD: bool = False
 
     JOBS_ENABLED: bool = True
+    # Legacy settings retained for configuration compatibility; the pipeline runs daily.
     JOBS_INTERVAL_MINUTES: float = Field(30, gt=0, allow_inf_nan=False)
     JOBS_RAG_DELAY_MINUTES: float = Field(10, ge=0, allow_inf_nan=False)
     JOBS_MARKET_TIME: time = time(17)

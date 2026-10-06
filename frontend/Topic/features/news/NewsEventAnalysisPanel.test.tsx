@@ -47,4 +47,10 @@ const companyOnly = renderToStaticMarkup(<NewsEventAnalysisPanel analysis={{ ...
 assert.ok(companyOnly.includes('大盤、產業</span>：沒有判讀出相關影響'));
 assert.doesNotMatch(companyOnly, /<h3[^>]*>(大盤|產業)<span/);
 assert.match(companyOnly, /<h3[^>]*>個股<span[^>]*>2 筆影響<\/span><\/h3>/);
+const foreignHtml = renderToStaticMarkup(<NewsEventAnalysisPanel analysis={{ ...analysis, impacts: [
+  { ...impact('company', 'foreign-company'), target_id: '005930-KR', target_name: '三星電子' },
+  { ...impact('company', 'local-company'), target_id: '5007', target_name: '三星科技' },
+] }} />);
+assert.ok(foreignHtml.includes('三星電子') && foreignHtml.includes('此市場暫不支援個股分析'));
+assert.ok(!foreignHtml.includes('href="/stock/005930') && foreignHtml.includes('href="/stock/5007"'));
 console.log('News analysis categories, collapsed details, complete evidence, and status checks passed.');

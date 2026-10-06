@@ -15,6 +15,13 @@ import type {
   VolumeAnalysisResponse,
 } from '../types/api';
 
+function stockPathSegment(symbol: string): string {
+  if (typeof symbol !== 'string' || !/^[A-Za-z0-9]{1,10}$/.test(symbol)) {
+    throw new Error('Invalid stock symbol');
+  }
+  return encodeURIComponent(symbol);
+}
+
 function normalizeStockInfoList(data: unknown): StockInfo[] {
   if (!Array.isArray(data)) return [];
   return data.flatMap((item) => {
@@ -56,13 +63,13 @@ export async function fetchSymbols(): Promise<string[]> {
 
 /** openapi: GET /stocks/{symbol}/latest */
 export async function fetchLatestPrice(symbol: string, options?: { signal?: AbortSignal }) {
-  const { data } = await apiClient.get<DailyPriceResponse>(`/stocks/${symbol}/latest`, { signal: options?.signal });
+  const { data } = await apiClient.get<DailyPriceResponse>(`/stocks/${stockPathSegment(symbol)}/latest`, { signal: options?.signal });
   return data;
 }
 
 /** openapi: GET /stocks/{symbol}/date-range */
 export async function fetchDateRange(symbol: string) {
-  const { data } = await apiClient.get<DateRangeResponse>(`/stocks/${symbol}/date-range`);
+  const { data } = await apiClient.get<DateRangeResponse>(`/stocks/${stockPathSegment(symbol)}/date-range`);
   return data;
 }
 
@@ -72,13 +79,13 @@ export async function fetchHistory(
   params?: { start_date?: string; end_date?: string; skip?: number; limit?: number },
   options?: { signal?: AbortSignal },
 ) {
-  const { data } = await apiClient.get<HistoricalPriceList>(`/stocks/${symbol}/history`, { params, signal: options?.signal });
+  const { data } = await apiClient.get<HistoricalPriceList>(`/stocks/${stockPathSegment(symbol)}/history`, { params, signal: options?.signal });
   return data;
 }
 
 /** openapi: GET /stocks/{symbol}/chart/candlestick-ma */
 export async function fetchCandlestickMA(symbol: string, start_date: string, end_date: string, ma_periods?: string) {
-  const { data } = await apiClient.get<CandlestickWithMAResponse>(`/stocks/${symbol}/chart/candlestick-ma`, {
+  const { data } = await apiClient.get<CandlestickWithMAResponse>(`/stocks/${stockPathSegment(symbol)}/chart/candlestick-ma`, {
     params: { start_date, end_date, ma_periods },
   });
   return data;
@@ -86,7 +93,7 @@ export async function fetchCandlestickMA(symbol: string, start_date: string, end
 
 /** openapi: GET /stocks/{symbol}/chart/volume */
 export async function fetchVolume(symbol: string, start_date: string, end_date: string) {
-  const { data } = await apiClient.get<VolumeAnalysisResponse>(`/stocks/${symbol}/chart/volume`, {
+  const { data } = await apiClient.get<VolumeAnalysisResponse>(`/stocks/${stockPathSegment(symbol)}/chart/volume`, {
     params: { start_date, end_date },
   });
   return data;
@@ -94,7 +101,7 @@ export async function fetchVolume(symbol: string, start_date: string, end_date: 
 
 /** openapi: GET /stocks/{symbol}/chart/price-change */
 export async function fetchPriceChange(symbol: string, start_date: string, end_date: string) {
-  const { data } = await apiClient.get<PriceChangeResponse>(`/stocks/${symbol}/chart/price-change`, {
+  const { data } = await apiClient.get<PriceChangeResponse>(`/stocks/${stockPathSegment(symbol)}/chart/price-change`, {
     params: { start_date, end_date },
   });
   return data;
@@ -102,7 +109,7 @@ export async function fetchPriceChange(symbol: string, start_date: string, end_d
 
 /** openapi: GET /stocks/{symbol}/statistics */
 export async function fetchStatistics(symbol: string, start_date: string, end_date: string) {
-  const { data } = await apiClient.get<PriceStatistics>(`/stocks/${symbol}/statistics`, {
+  const { data } = await apiClient.get<PriceStatistics>(`/stocks/${stockPathSegment(symbol)}/statistics`, {
     params: { start_date, end_date },
   });
   return data;
@@ -118,7 +125,7 @@ export async function fetchMultipleStocks(symbols: string, start_date: string, e
 
 /** openapi: GET /stocks/{symbol}/institutional-trades */
 export async function fetchInstitutionalTrades(symbol: string, start_date: string, end_date: string) {
-  const { data } = await apiClient.get<InstitutionalTradeListResponse>(`/stocks/${symbol}/institutional-trades`, {
+  const { data } = await apiClient.get<InstitutionalTradeListResponse>(`/stocks/${stockPathSegment(symbol)}/institutional-trades`, {
     params: { start_date, end_date },
   });
   return data;
@@ -126,7 +133,7 @@ export async function fetchInstitutionalTrades(symbol: string, start_date: strin
 
 /** openapi: GET /stocks/{symbol}/technical-indicators */
 export async function fetchTechnicalIndicators(symbol: string, start_date: string, end_date: string) {
-  const { data } = await apiClient.get<TechnicalIndicatorListResponse>(`/stocks/${symbol}/technical-indicators`, {
+  const { data } = await apiClient.get<TechnicalIndicatorListResponse>(`/stocks/${stockPathSegment(symbol)}/technical-indicators`, {
     params: { start_date, end_date },
   });
   return data;
@@ -134,7 +141,7 @@ export async function fetchTechnicalIndicators(symbol: string, start_date: strin
 
 /** openapi: GET /stocks/{symbol}/volume-with-chips */
 export async function fetchVolumeWithChips(symbol: string, start_date: string, end_date: string) {
-  const { data } = await apiClient.get<ChipsVolumeChartResponse>(`/stocks/${symbol}/volume-with-chips`, {
+  const { data } = await apiClient.get<ChipsVolumeChartResponse>(`/stocks/${stockPathSegment(symbol)}/volume-with-chips`, {
     params: { start_date, end_date },
   });
   return data;

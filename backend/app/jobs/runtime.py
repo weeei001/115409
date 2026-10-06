@@ -1,8 +1,11 @@
 """One serial scheduler owned by the FastAPI lifespan, with durable admin controls."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import logging
+import os
+from pathlib import Path
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from threading import Event, RLock, Thread
 import time as clock
 
@@ -13,14 +16,17 @@ from app.core.config import state_directory
 from app.core.errors import AppError, Conflict, NotFound, ServiceUnavailable
 from app.db.models.admin import AdminJobControl, AdminJobRun
 from app.db.models.stock_info import StockInfo
-from app.features.admin.diagnostics import STAGES
+from app.features.admin.diagnostics import STAGES, format_failure
+from app.jobs.diagnostics import DIAGNOSTICS_ENV, failure_record, read_failure
 from app.jobs.locking import JobAlreadyRunning, worker_lock
 from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 
 
 JOBS = {
+    "pipeline": "Market to AI pipeline",
     "market": "Market data", "cnyes": "Cnyes news", "ltn": "Liberty Times news",
     "rag": "News indexing and analysis", "impact": "Event analysis", "text-brief": "Brief warmup",
+    "stock-backfill": "Stock market history",
 }
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,7 @@ class JobRuntime:
         self.stop_event = Event()
         self.thread = None
         self.child = None
+        self.worker_diagnostic = {}
         self.status = "disabled" if not settings.JOBS_ENABLED else "starting"
         self.error = None
         self.heartbeat = None
@@ -98,6 +105,11 @@ class JobRuntime:
                                         AdminJobRun.status.in_(["queued", "running"]))):
                                     run.status, run.finished_at = "interrupted", utcnow()
                                     run.error = "Service restarted before this run completed"
+                                if db.get(AdminJobControl, "pipeline") is None:
+                                    legacy_paused = db.scalar(select(AdminJobControl.job_name).where(
+                                        AdminJobControl.job_name.in_(["market", "rag", "text-brief"]),
+                                        AdminJobControl.paused.is_(True)).limit(1)) is not None
+                                    db.add(AdminJobControl(job_name="pipeline", paused=legacy_paused))
                                 db.commit()
                                 initialized = True
                             else:
@@ -120,16 +132,9 @@ class JobRuntime:
                             self.heartbeat = datetime.now(timezone.utc).isoformat()
                         self._notification_tick()
                         if queued_id is not None:
-                            if queued_name == "rag":
-                                self.scheduler.followup = None
-                            result = self._execute(queued_id)
-                            if queued_name in self.scheduler.next_news:
-                                self.scheduler.next_news[queued_name] = clock.monotonic() + self.scheduler.interval
-                            elif queued_name == "market":
+                            self._execute(queued_id)
+                            if queued_name == "pipeline":
                                 self.scheduler.next_market = next_daily(datetime.now(TAIPEI), self.scheduler.market_at)
-                            if (queued_name in {"cnyes", "ltn"} or queued_name == "market" and result == 0):
-                                if self.scheduler.followup is None:
-                                    self.scheduler.followup = clock.monotonic() + self.scheduler.delay
                         else:
                             self.scheduler.tick(datetime.now(TAIPEI), clock.monotonic())
                     except SQLAlchemyError:
@@ -204,15 +209,17 @@ class JobRuntime:
                     "stage_started_at": started, "last_activity_at": started}
             print(f"admin_run={run_id} stage={stage or 'unknown'} event=started at={started}", flush=True)
             try:
+                self.worker_diagnostic = {}
                 result = self._worker(command)
-            except Exception:
+            except Exception as exc:
+                failures.append(format_failure(command[0], 1, failure_record("dispatch", error=exc)))
                 print(f"admin_run={run_id} stage={stage or 'unknown'} event=exception at={datetime.now(timezone.utc).isoformat()}", flush=True)
                 raise
             print(f"admin_run={run_id} stage={stage or 'unknown'} event=finished exit_code={result} at={datetime.now(timezone.utc).isoformat()}", flush=True)
             with self.lock:
                 self.run_activity.pop(name, None)
             if result:
-                failures.append(f"{command[0]} exited with code {result}")
+                failures.append(format_failure(command[0], result, self.worker_diagnostic))
             return result
 
         error = None
@@ -221,29 +228,18 @@ class JobRuntime:
                 output=state_directory() / "market", run=worker,
                 impact_limit=self.settings.JOBS_IMPACT_LIMIT,
                 impact_max_cost_usd=self.settings.JOBS_IMPACT_MAX_COST_USD,
-                impact_since=self.settings.JOBS_IMPACT_SINCE)
+                impact_since=self.settings.JOBS_IMPACT_SINCE, source_enabled=self._enabled)
             status = "succeeded" if result == 0 else "failed"
             error = "; ".join(failures) or ("Job failed" if result else None)
         except Exception as exc:
-            result, status, error = 1, "failed", f"Job failed ({type(exc).__name__})"
+            result, status, error = 1, "failed", "; ".join(failures) or f"Job failed ({type(exc).__name__})"
         if self.stop_event.is_set() and result != 0:
             status, error = "interrupted", "Service stopped before this run completed"
         try:
             with self.lock, self.session_factory() as db:
                 row = db.get(AdminJobRun, run_id)
                 row.status, row.finished_at, row.exit_code, row.error = status, utcnow(), result, error
-                followup = None
-                if name == "rag" and self._enabled("text-brief"):
-                    existing = db.scalar(select(AdminJobRun.id).where(
-                        AdminJobRun.job_name == "text-brief",
-                        AdminJobRun.status.in_(["queued", "running"])).limit(1))
-                    if existing is None:
-                        followup = AdminJobRun(job_name="text-brief", status="queued", trigger="scheduled",
-                                               created_at=utcnow())
-                        db.add(followup)
                 db.commit()
-                if followup is not None:
-                    self.pending["text-brief"] = followup.id
         finally:
             with self.lock:
                 self.active.pop(name, None)
@@ -251,17 +247,27 @@ class JobRuntime:
         return result
 
     def _worker(self, command):
+        self.worker_diagnostic = {}
+        with TemporaryDirectory(prefix="app-job-diagnostics-") as directory:
+            diagnostic_path = Path(directory) / "failure.json"
+            environment = dict(os.environ, **{DIAGNOSTICS_ENV: str(diagnostic_path)})
+            return self._wait_worker(command, diagnostic_path, environment)
+
+    def _wait_worker(self, command, diagnostic_path, environment):
         with self.lock:
             if self.stop_event.is_set():
                 raise InterruptedError("Service stopping")
-            child = subprocess.Popen([sys.executable, "-m", "app.jobs", *command], cwd=ROOT)
+            child = subprocess.Popen([sys.executable, "-m", "app.jobs", *command], cwd=ROOT, env=environment)
             self.child = child
             if self.stop_event.is_set():
                 self._stop_child()
         try:
             while True:
                 try:
-                    return child.wait(timeout=1)
+                    result = child.wait(timeout=1)
+                    if result:
+                        self.worker_diagnostic = read_failure(diagnostic_path)
+                    return result
                 except subprocess.TimeoutExpired:
                     with self.lock:
                         self.heartbeat = datetime.now(timezone.utc).isoformat()
@@ -277,10 +283,15 @@ class JobRuntime:
         if action == "retry" and run_id is None or action != "retry" and run_id is not None:
             raise AppError("A run_id is required only for retry", 422)
         if symbol is not None:
-            if job_name != "text-brief" or action != "run":
-                raise AppError("A symbol is supported only for text-brief run", 422)
+            if job_name not in {"text-brief", "stock-backfill"} or action != "run":
+                raise AppError("A symbol is supported only for text-brief or stock-backfill run", 422)
             if db.get(StockInfo, symbol) is None:
                 raise NotFound("Stock not found")
+        if action in {"pause", "resume"} and job_name not in {"pipeline", "cnyes", "ltn"}:
+            raise AppError("Only the pipeline and its news sources can be paused", 422)
+        if job_name == "stock-backfill":
+            if action == "run" and symbol is None:
+                raise AppError("Stock backfill requires a symbol", 422)
         if self.status != "running" or self.stop_event.is_set():
             raise ServiceUnavailable("Scheduler is not available for job controls")
         if action in {"pause", "resume"}:
@@ -303,6 +314,8 @@ class JobRuntime:
                 raise Conflict("Only completed runs can be rerun")
             retry_of = previous.id
             symbol = previous.symbol
+            if job_name == "stock-backfill" and (not symbol or db.get(StockInfo, symbol) is None):
+                raise NotFound("Stock not found")
         row = AdminJobRun(job_name=job_name, status="queued", trigger="retry" if retry_of else "manual",
             actor_id=actor.id, retry_of=retry_of, symbol=symbol, created_at=utcnow())
         db.add(row)
@@ -320,22 +333,14 @@ class JobRuntime:
 
     def snapshot(self):
         with self.lock:
-            now, monotonic = datetime.now(timezone.utc), clock.monotonic()
             jobs = []
             for name, label in JOBS.items():
                 next_at = None
                 schedule = "Manual"
-                if name == "market":
+                if name == "pipeline":
                     next_at, schedule = self.scheduler.next_market, f"Daily {self.settings.JOBS_MARKET_TIME:%H:%M} Asia/Taipei"
-                elif name in self.scheduler.next_news:
-                    next_at = now + timedelta(seconds=self.scheduler.next_news[name] - monotonic)
-                    schedule = f"Every {self.settings.JOBS_INTERVAL_MINUTES:g} minutes"
-                elif name == "rag":
-                    if self.scheduler.followup is not None:
-                        next_at = now + timedelta(seconds=self.scheduler.followup - monotonic)
-                    schedule = f"After data jobs + {self.settings.JOBS_RAG_DELAY_MINUTES:g} minutes"
-                elif name == "text-brief":
-                    schedule = "After news indexing"
+                elif name in {"cnyes", "ltn"}:
+                    schedule = "Pipeline source"
                 jobs.append({"name": name, "label": label, "schedule": schedule,
                     "paused": name in self.paused,
                     "next_run_at": (next_at.isoformat() if next_at and self.status == "running"

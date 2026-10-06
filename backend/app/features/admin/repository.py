@@ -3,6 +3,15 @@ from sqlalchemy.orm import Session
 
 from app.db.models.admin import AdminAccount, AdminAuditLog, AdminJobRun
 from app.db.models.user import User
+from app.db.models.stock_info import StockInfo
+
+
+def supported_stocks(db: Session):
+    return list(db.scalars(select(StockInfo).order_by(StockInfo.symbol)))
+
+
+def add_stock(db: Session, symbol: str, company: dict) -> None:
+    db.add(StockInfo(symbol=symbol, name=company["name"], industry=company.get("industry_name")))
 
 
 def is_admin(db: Session, user_id: int) -> bool:

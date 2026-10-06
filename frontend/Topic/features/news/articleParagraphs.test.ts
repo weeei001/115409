@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { buildArticleParagraphs, sentenceBreaks, type ArticleSegment } from './articleParagraphs';
 import { buildCitationIndex, eventCitationId, groupCitationId, impactCitationId } from './citations';
+import { stripHtml } from '../../lib/news/newsLinks';
 
 /** 段落接回原文 */
 const joinParagraph = (segments: ArticleSegment[]) => segments.map((segment) => segment.text).join('');
@@ -11,6 +12,9 @@ const joined = (model: ReturnType<typeof buildArticleParagraphs>) => model.parag
 
 // 沒有內文
 assert.deepEqual(buildArticleParagraphs(null, ['abc']), { quotes: [], paragraphs: [] });
+assert.equal(stripHtml('<p title="a > b">Revenue &amp; growth <b>rose</b>.</p>'), 'Revenue & growth rose.');
+assert.equal(stripHtml('<SCRIPT>alert(1)</SCRIPT><STYLE>body{color:red}</STYLE><!-- hidden -->Visible'), 'Visible');
+assert.equal(stripHtml('&lt;img src=x onerror=alert(1)&gt;'), '<img src=x onerror=alert(1)>');
 
 // 原文有換行：每個換行就是一段，短段落不再切
 assert.deepEqual(flat(buildArticleParagraphs('<p>第一段。還是第一段。</p>\n\n  第二段  ', [])), ['第一段。還是第一段。', '第二段']);

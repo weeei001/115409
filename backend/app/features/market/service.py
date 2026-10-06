@@ -6,7 +6,7 @@ from app.core.errors import AppError
 from app.db.models.daily_price import DailyPrice
 from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.technical_indicator import TechnicalIndicator
-from app.db.models.finmind_extra import (
+from app.db.models.market_extra import (
     DividendResult, ForeignShareholding, HoldingShareLevel, MarginTrade,
     MonthlyRevenue, StockValuation,
 )

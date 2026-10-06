@@ -80,13 +80,6 @@ export function visibleSymbolsFromHidden(symbols: string[], hiddenSymbols: strin
   return symbols.filter((symbol) => !hidden.has(symbol));
 }
 
-/** 每檔最後一個有效收盤（快照卡 sparkline 取最近 30 點用） */
-export function recentCloses(data: MultiStockResponse | null, symbol: string, points = 30): number[] {
-  if (!data) return [];
-  const closes = data.data.slice(-points).map((row) => row.prices[symbol]);
-  return closes.every(isPrice) ? closes : [];
-}
-
 // ── 比較指標 ────────────────────────────────────────────────
 
 function mean(nums: number[]): number | null {

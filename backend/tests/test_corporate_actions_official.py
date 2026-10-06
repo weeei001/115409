@@ -4,8 +4,8 @@ from decimal import Decimal
 import httpx
 import pytest
 
-from app.db.models.finmind_extra import DividendResult
-from app.jobs.finmind.import_csv import normalized_rows, upsert_rows
+from app.db.models.market_extra import DividendResult
+from app.jobs.market.import_csv import normalized_rows, upsert_rows
 from app.jobs.market.corporate_actions import fetch_dividend_results
 
 

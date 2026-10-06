@@ -235,8 +235,8 @@ export default function OrderPage() {
                 <LedgerPanel>
                   <EmptyState className="py-6" action={<div className="mt-2 flex flex-wrap justify-center gap-2">
                     <Button asChild variant="outline"><Link href="/favorites">查看收藏</Link></Button>
-                    <Button asChild variant="outline"><Link href={{ pathname: '/ai', query: { prompt: '請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。' } }}>請 AI 協助</Link></Button>
-                  </div>}>從你收藏的股票開始，或先請 AI 幫你整理資料。</EmptyState>
+                    <Button asChild variant="outline"><Link href={{ pathname: '/ai', query: { prompt: '請從我的收藏股票與模擬持股，推薦今天值得研究的一至兩檔，依最新資料說明機會與風險。' } }}>請 AI 協助</Link></Button>
+                  </div>}>從你關注的股票開始：挑一檔收藏，或先請 AI 幫你整理想法。</EmptyState>
                 </LedgerPanel>
               ) : data.positions.map((position) => {
                 const latest = data.orders.find((order) => order.symbol === position.symbol && order.side === 'buy' && order.status === 'filled');

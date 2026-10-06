@@ -8,6 +8,10 @@ class GrantAdministratorRequest(BaseModel):
     email: EmailStr
 
 
+class AddStockRequest(BaseModel):
+    symbol: str = Field(pattern=r"^\d{4,6}$")
+
+
 class JobActionRequest(BaseModel):
     run_id: int | None = Field(None, gt=0)
     symbol: str | None = Field(None, pattern=r"^[A-Za-z0-9]{1,10}$")

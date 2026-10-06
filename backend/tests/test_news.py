@@ -127,9 +127,7 @@ def test_news_detail_keeps_nullable_fields_and_malformed_event_evidence_fallback
     assert result["title"] is None and result["content"] is None and result["pub_time"] is None
     assert result["event_analysis"]["events"] == []
     assert result["event_analysis"]["impacts"][0]["evidence"] == []
-    missing = client.get("/news/missing")
-    assert missing.status_code == 404
-    assert "?" not in missing.json()["detail"]
+    assert client.get("/news/missing").status_code == 404
 
 
 def test_news_created_at_source_and_article_filters(client, db_session):

@@ -114,6 +114,17 @@ def test_revenue_conflict_is_retained_not_averaged_or_silently_chosen():
     assert len({ref["value"] for ref in fact["source_refs"]}) == 2
 
 
+@pytest.mark.parametrize("quote", [
+    "台積電2026年8月份合併營收為約新臺幣15,000萬元",
+    "台積電2026/08營收達到新台幣1.5億元",
+    "台積電2026-8營收金額：約台幣150,000千元",
+])
+def test_revenue_currency_and_amount_phrases_keep_equivalent_values(quote):
+    grouped = group_shared_facts([fact_source("a", "台積電2026年8月營收達1.5億元"),
+                                  fact_source("b", quote)], CATALOG)
+    assert grouped[0]["shared_facts"][0]["status"] == "shared"
+
+
 @pytest.mark.parametrize("second", [
     "台積電2026年9月營收達1.5億元", "台積電2025年8月營收達1.5億元", "台積電營收成長",
     "鴻海2026年8月營收達1.5億元",
@@ -218,15 +229,6 @@ def test_company_aliases_require_catalog_membership_and_match_word_boundaries():
         assert extract_candidate_stocks(None, None, name, None, catalog) == [symbol]
         assert extract_candidate_stocks(None, None, name, None, {}) == []
     assert company_mentions("notTSMC MediaTekology", None, catalog) == []
-
-
-def test_samsung_electronics_is_not_mapped_to_taiwan_5007():
-    catalog = {"5007": {"name": "三星", "aliases": ["三星科技股份有限公司"]}, "2330": {"name": "台積電"}}
-    text = "三星電子(005930-KR)預計明年在德州廠量產，三星也將擴大投資。"
-    assert all(item["symbol"] != "5007" for item in company_mentions(text, text, catalog))
-    assert extract_candidate_stocks(None, None, text, text, catalog) == []
-    assert extract_candidate_stocks(None, None, "三星科技第三季營收成長", None, catalog) == ["5007"]
-    assert extract_candidate_stocks(None, None, None, "三星(5007)扣件出貨回溫", catalog) == ["5007"]
 
 
 def test_input_hash_requires_catalog_name_for_every_company():

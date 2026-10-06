@@ -4,6 +4,7 @@ import { parseChatSources, type ChatSource } from '../../lib/types/chat';
 import { BACKEND_CHAT_DISCLAIMERS, chatAnswerBody, chatCopyText, citationLabels, newsCitationPath, relabelCitations } from '../../lib/utils/chatCitations';
 import { AI_CHAT_DISCLAIMER } from '../../lib/disclaimers';
 import { ChatMessage } from './ChatMessage';
+import { renderedElements, renderedText } from '../../lib/testing/markup';
 
 const title = '# Literal [brackets] (parentheses)\n【Not a heading】 <img src=x onerror=alert(1)> **literal**';
 const sources: ChatSource[] = [
@@ -21,7 +22,12 @@ assert.equal((markup.match(/raw news/g) ?? []).length, 1);
 assert.equal((markup.match(/id="chat-source-/g) ?? []).length, 2);
 assert.match(markup, /\[S99\]（來源無法使用）/);
 assert.match(markup, /\[S0\]（來源無法使用）/);
-assert.doesNotMatch(markup, /forged|Injected heading|<img|<script|<h[1-6][^>]*>Not a heading/);
+assert.doesNotMatch(renderedText(markup), /forged|Injected heading/);
+assert.equal(renderedElements(markup, 'img').length, 0);
+assert.equal(renderedElements(markup, 'script').length, 0);
+for (const level of [1, 2, 3, 4, 5, 6]) {
+  assert.ok(renderedElements(markup, `h${level}`).every((heading) => !renderedText(heading).includes('Not a heading')));
+}
 assert.match(markup, /# Literal \[brackets\] \(parentheses\)\n【Not a heading】 &lt;img/);
 assert.match(markup, /\*\*literal\*\*/);
 assert.match(markup, /whitespace-pre-wrap/);

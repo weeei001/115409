@@ -4,7 +4,7 @@ import { ArrowRight, ChevronDown, ExternalLink, Quote } from 'lucide-react';
 import type { News } from '@/lib/types/api';
 import { formatTime } from '@/lib/utils/date';
 import { formatStockLabel } from '@/lib/utils/symbolNames';
-import { newsHref, parseRelatedStocks, stripHtml } from '@/lib/news/newsLinks';
+import { newsHref, parseRelatedStocks, stripHtml, taiwanStockHref, UNSUPPORTED_STOCK_MARKET_MESSAGE } from '@/lib/news/newsLinks';
 import { newsSourceName } from '@/lib/news/newsSource';
 import { IMPORTANCE_LABELS, visibleImpacts } from '@/lib/utils/newsImpact';
 import { safeHttpUrl } from '@/lib/utils/url';
@@ -35,6 +35,7 @@ function snippet(content: string | null, maxLen = 120): string {
 /** 影響對象＋一個方向標籤（同方向顯示一次；正負對立顯示中性的「正負並存」）＋事件數＋最高重要性（純文字） */
 function ImpactGroupBadge({ group, linkStock, className }: { group: ImpactGroup; linkStock: boolean; className?: string }) {
   const company = group.targetType === 'company';
+  const stockHref = company ? taiwanStockHref(group.targetId) : null;
   const name = company ? (
     <>
       <span className="font-mono tabular-nums">{group.targetId}</span>
@@ -43,12 +44,12 @@ function ImpactGroupBadge({ group, linkStock, className }: { group: ImpactGroup;
   ) : <span className="max-w-[10em] truncate">{group.label}</span>;
   return (
     <span className={cn('inline-flex shrink-0 items-center gap-x-1.5 text-xs whitespace-nowrap', className)}>
-      {company && linkStock ? (
+      {stockHref && linkStock ? (
         // 觸控目標 44px：連結本身撐滿整行高度，視覺上仍是一段小字
-        <Link href={`/stock/${group.targetId}`} className={cn('inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-subtle outline-none hover:text-foreground focus-lamp', textLinkClass)}>
+        <Link href={stockHref} className={cn('inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-subtle outline-none hover:text-foreground focus-lamp', textLinkClass)}>
           {name}
         </Link>
-      ) : <span className="inline-flex items-center gap-1 font-medium text-subtle">{name}</span>}
+      ) : <span title={company && !stockHref ? UNSUPPORTED_STOCK_MARKET_MESSAGE : undefined} className="inline-flex items-center gap-1 font-medium text-subtle">{name}{company && !stockHref ? <span className="sr-only">（{UNSUPPORTED_STOCK_MARKET_MESSAGE}）</span> : null}</span>}
       <ImpactDirectionTag direction={group.direction} />
       {group.eventCount > 1 ? <span className="text-muted-foreground"><span className="font-mono tabular-nums">{group.eventCount}</span> 項事件</span> : null}
       <span className="text-muted-foreground">{IMPORTANCE_LABELS[group.importance]}</span>
@@ -80,12 +81,12 @@ function TagLine({ groups, stocks, linkStock, noAnalysis = false }: { groups: Im
       {/* 還沒有影響分析（排隊、失敗、略過或沒有分析）：和個股頁卡片同一個「尚無分析」徽章，不留空白 */}
       {noAnalysis ? <Badge className="mr-2">尚無分析</Badge> : null}
       {stocks.length ? <span className="mr-1 text-xs text-muted-foreground">關聯個股</span> : null}
-      {stocks.map((stock) => (linkStock ? (
-        <Link key={stock} href={`/stock/${stock}`} className="group/chip inline-flex min-h-11 items-center rounded-sm px-0.5 outline-none focus-lamp" aria-label={`查看 ${formatStockLabel(stock)} 個股`}>
+      {stocks.map((stock) => (linkStock && taiwanStockHref(stock) ? (
+        <Link key={stock} href={taiwanStockHref(stock)!} className="group/chip inline-flex min-h-11 items-center rounded-sm px-0.5 outline-none focus-lamp" aria-label={`查看 ${formatStockLabel(stock)} 個股`}>
           <Badge tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums transition-colors duration-(--dur-flash) group-hover/chip:border-border-strong group-hover/chip:text-foreground">{formatStockLabel(stock)}</Badge>
         </Link>
       ) : (
-        <Badge key={stock} tone="outline" className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums">{formatStockLabel(stock)}</Badge>
+        <Badge key={stock} tone="outline" title={!taiwanStockHref(stock) ? UNSUPPORTED_STOCK_MARKET_MESSAGE : undefined} className="py-0 font-mono text-[11.5px] leading-5 font-normal tabular-nums">{formatStockLabel(stock)}{!taiwanStockHref(stock) ? <span className="sr-only">（{UNSUPPORTED_STOCK_MARKET_MESSAGE}）</span> : null}</Badge>
       )))}
     </div>
   );

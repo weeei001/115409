@@ -10,11 +10,12 @@ COMMANDS = (
     "init-schema",
     "admin-grant",
     "migrate-admin-schema",
-    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import", "finmind-fetch", "finmind-backfill", "finmind-import",
+    "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler", "legacy-scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
+    "stock-backfill",
     "news-source-versions",
 )
 
@@ -32,13 +33,23 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Worker interrupted", file=sys.stderr)
         return 130
+    except SystemExit as exc:
+        if exc.code:
+            from app.jobs.diagnostics import report_failure
+            report_failure("arguments", reason="invalid_arguments")
+        raise
     except Exception as exc:
+        from app.jobs.diagnostics import report_failure
+        report_failure("dispatch", error=exc)
         # The CLI boundary must not echo tokens, HTTP bodies or SQL parameters.
         print(f"{args.job} failed ({type(exc).__name__})", file=sys.stderr)
         return 1
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "stock-backfill":
+        from app.jobs.stock_backfill import main as backfill
+        return backfill(argv)
     if job == "paper-reconcile":
         from app.jobs.paper_portfolio import main as reconcile
         return reconcile(argv)
@@ -72,18 +83,12 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job == "market-backfill":
         from app.jobs.market_history import main as backfill
         return backfill(argv)
-    if job in {"finmind-fetch", "finmind-backfill"}:
-        from app.jobs.finmind.fetch import main as fetch
-        return fetch(argv)
     if job == "stock-info-sync":
         from app.jobs.market.stock_info import main as sync
         return sync(argv)
     if job == "market-import":
-        from app.jobs.finmind.import_csv import main as import_csv
+        from app.jobs.market.import_csv import main as import_csv
         return import_csv([*argv, "--require-manifest"] if "--help" not in argv else argv)
-    if job == "finmind-import":
-        from app.jobs.finmind.import_csv import main as import_csv
-        return import_csv(argv)
     if job == "news-impact-batch":
         from app.jobs.impact.cli import main as impact
 

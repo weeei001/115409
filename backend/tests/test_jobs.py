@@ -35,11 +35,8 @@ def test_indicators_preserve_lookback_rounding_and_upsert(db_session):
     ("crawl-cnyes", "app.jobs.crawlers", "crawler_main", ("cnyes",)),
     ("crawl-ltn", "app.jobs.crawlers", "crawler_main", ("ltn",)),
     ("market-fetch", "app.jobs.market.fetch", "main", ()),
-    ("finmind-backfill", "app.jobs.finmind.fetch", "main", ()),
-    ("finmind-fetch", "app.jobs.finmind.fetch", "main", ()),
-    ("market-import", "app.jobs.finmind.import_csv", "main", ()),
+    ("market-import", "app.jobs.market.import_csv", "main", ()),
     ("stock-info-sync", "app.jobs.market.stock_info", "main", ()),
-    ("finmind-import", "app.jobs.finmind.import_csv", "main", ()),
     ("chunk-news", "app.jobs.ingestion.cli", "main", ("chunk-news",)),
     ("vectorize-news", "app.jobs.ingestion.cli", "main", ("vectorize-news",)),
     ("news-ingest", "app.jobs.ingestion.cli", "main", ("news-ingest",)),
@@ -62,6 +59,24 @@ def test_worker_failure_is_nonzero_and_does_not_echo_private_data(monkeypatch, c
     monkeypatch.setattr("app.jobs.__main__.dispatch", fail)
     assert main(["news-ingest"]) == 1
     assert capsys.readouterr().err == "news-ingest failed (RuntimeError)\n"
+
+
+def test_worker_exception_keeps_safe_diagnostic_and_invalid_arguments_still_raise(monkeypatch, tmp_path):
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV, read_failure
+    target = tmp_path / "failure.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+    def fail(*args):
+        raise RuntimeError("private SQL password")
+    monkeypatch.setattr("app.jobs.__main__.dispatch", fail)
+    assert main(["news-ingest"]) == 1
+    assert read_failure(target) == {"phase": "dispatch", "reason": "worker_exception", "error_type": "RuntimeError"}
+    def invalid(*args):
+        raise SystemExit(2)
+    monkeypatch.setattr("app.jobs.__main__.dispatch", invalid)
+    with pytest.raises(SystemExit) as error:
+        main(["news-impact-batch"])
+    assert error.value.code == 2
+    assert read_failure(target) == {"phase": "arguments", "reason": "invalid_arguments"}
 
 
 def test_cache_warmup_uses_trading_dates_isolated_sessions_and_reports_failures(db_session, settings, monkeypatch):

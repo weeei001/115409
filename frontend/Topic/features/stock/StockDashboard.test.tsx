@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { InstitutionalDay, PriceChartData, TechnicalDay } from '../../lib/types/view';
 import { macdSignal } from '../../lib/utils/indicatorSignals';

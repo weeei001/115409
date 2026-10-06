@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ChatDashboard as ChatDashboardData, DashboardChart } from '../../lib/types/chatDashboard';
 import { buildChatChartOption, ChatDashboard, chatChartRebaseIndex, formatTableCell } from './ChatDashboard';
+import { renderedElements } from '../../lib/testing/markup';
 
 const dashboard: ChatDashboardData = {
   title: '台積電與聯發科比較',
@@ -35,9 +36,8 @@ assert.match(markup, /<td[^>]*>0 元<\/td>/);
 assert.match(markup, /<details/);
 assert.match(markup, /<caption[^>]*>收盤價走勢<\/caption>/);
 for (const source of ['S1', 'S2', 'S3', 'S4']) assert.ok(markup.includes(`[${source}]`));
-assert.equal((markup.match(/<a /g) ?? []).length, 1);
-assert.match(markup, /href="https:\/\/example.com\/news"/);
-assert.doesNotMatch(markup, /href="javascript:|<script>/);
+assert.deepEqual(renderedElements(markup, 'a').map((link) => link.attribs.href), ['https://example.com/news']);
+assert.equal(renderedElements(markup, 'script').length, 0);
 assert.match(markup, /&lt;script&gt;/);
 
 const emptyChart = renderToStaticMarkup(<ChatDashboard dashboard={{ title: '無資料', blocks: [{

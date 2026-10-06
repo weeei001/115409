@@ -9,9 +9,9 @@ from app.features.news.sentiment import extract_candidate_stocks, source_quote_s
 
 
 _MONTHLY_REVENUE = re.compile(
-    r"(?P<year>20\d{2})\s*(?:年|[-/])\s*(?P<month>1[0-2]|0?[1-9])\s*月?"
-    r"(?:份)?\s*(?:合併)?營收(?:為|達|約|來到|為約|達到|金額|新台幣|新臺幣|台幣|\s|：|:)*"
-    r"(?P<amount>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*(?P<unit>億|萬|千)?元")
+    r"(?P<year>20\d{2})\s*+(?:年|[-/])\s*+(?P<month>1[0-2]|0?[1-9])\s*+月?"
+    r"(?:份)?\s*+(?:合併)?營收(?:為約|達到|為|達|約|來到|金額|新台幣|新臺幣|台幣|[\s：:])*+"
+    r"(?P<amount>(?:\d{1,3}(?:,\d{3})++|\d++)(?:\.\d++)?)\s*+(?P<unit>億|萬|千)?元")
 _EXPLICIT_DAY = re.compile(r"20\d{2}\s*(?:年|[-/])\s*\d{1,2}\s*(?:月|[-/])\s*\d{1,2}(?:日)?")
 
 

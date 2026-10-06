@@ -1,5 +1,13 @@
 import apiClient from './client';
 
+export interface AdminStock {
+  symbol: string;
+  name: string;
+  industry: string | null;
+  market: string | null;
+  supported: boolean;
+}
+
 export interface Administrator {
   user_id: number;
   email: string;
@@ -44,7 +52,8 @@ export interface AdminRun {
   diagnostics?: {
     run_id: number;
     error_category: string | null;
-    failed_stages: Array<{ stage: string; exit_code: number }>;
+    failed_stages: Array<{ stage: string; exit_code: number; phase?: string; reason?: string;
+      error_type?: string; failure_reasons?: Record<string, number> }>;
     stage: string | null;
     stage_started_at: string | null;
     last_activity_at: string | null;
@@ -97,6 +106,8 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
     const active = jobs.find((item) => item.active_run_id != null);
     return `已排入等待 #${job.queued_run_id}；${active ? `等待工作 #${active.active_run_id} 完成` : '等待排程器依序啟動'}`;
   }
+  if (job.schedule === 'Pipeline source') return job.paused ? '已停用此新聞來源；完整流水線會略過，仍可單獨補跑' : '隨完整流水線執行，也可單獨補跑';
+  if (job.schedule === 'Manual') return '僅手動執行，沒有下次排程；補跑不會接續其他工作';
   if (job.paused) return '排程已暫停；手動執行不受影響';
   if (schedulerStatus !== 'running') return '排程器未運作；下次時間尚無法確認';
   if (job.next_run_at) {
@@ -152,12 +163,19 @@ export function adminJobAlerts(jobs: AdminJob[]): { failing: Array<{ name: strin
 }
 
 export function adminRunScope(run: Pick<AdminRun, 'job_name' | 'symbol'>): string {
-  return run.job_name === 'text-brief' ? (run.symbol ? `股票 ${run.symbol}` : '全部股票') : '';
+  return ['text-brief', 'stock-backfill'].includes(run.job_name) ? (run.symbol ? `股票 ${run.symbol}` : '全部股票') : '';
 }
 
 export function adminRunId(value: unknown): number | null {
   if (typeof value === 'string' && /^[1-9]\d{0,9}$/.test(value)) value = Number(value);
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 2147483647 ? value : null;
+}
+
+export async function fetchAdminRun(value: unknown, signal?: AbortSignal): Promise<AdminRun> {
+  const runId = adminRunId(value);
+  if (runId === null) throw new Error('Invalid run identifier');
+  const { data } = await apiClient.get<AdminRun>(`/admin/runs/${encodeURIComponent(String(runId))}`, { signal });
+  return data;
 }
 
 export function acceptedJobAudit(item: AdminAudit): boolean {

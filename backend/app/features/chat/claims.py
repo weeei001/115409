@@ -14,18 +14,20 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from app.features.market.company_catalog import company_aliases
+from .proposals import FOREIGN_CURRENCY, NUMBER, decimal_number, guarantees_outcome, parse_proposals
 from .schemas import SourceChunk
 
-NUMBER = r"[+\-−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 DATE = r"\d{4}-\d{2}-\d{2}"
 COMPARISON_METRICS = {
-    "interval_return_pct": r"(?:區間|期間|同期(?:間)?)(?:價格)?報酬率",
+    "interval_return_pct": r"(?:區間|期間|同期(?:間)?)(?:價格|股價)?(?:報酬率|漲跌幅|漲幅|跌幅|上漲|下跌)",
     "annualized_volatility_pct": r"年化波動(?:率|度)",
     "max_drawdown_pct": r"最大回撤(?:率)?",
 }
 PORTFOLIO_AMOUNTS = {
-    "available_cash": "可用資金", "cash": "現金餘額", "equity": "總資產",
-    "holdings_value": "持股市值", "total_pnl": "投資損益",
+    "available_cash": r"可用(?:資金|現金)", "cash": r"現金(?:餘額)?", "equity": "總資產",
+    "holdings_value": r"(?:整體|全部|總)?持股市值", "total_pnl": r"(?:總)?投資損益",
+    "initial_cash": r"(?:初始|模擬)本金", "net_contributions": "累計投入",
+    "total_deposits": "累計入金", "total_withdrawals": "累計取回",
 }
 PORTFOLIO_RATIOS = {
     "available_cash_allocation_pct": "可用資金",
@@ -53,23 +55,39 @@ METRICS = {
     **{field: label + r"(?:率)?" for field, label in GROWTH_LABELS.items()},
     **{field: label + r"(?:配置)?(?:比例|占比|比重|占(?:總資產)?)" for field, label in PORTFOLIO_RATIOS.items()},
     **PORTFOLIO_AMOUNTS,
+    "first_common_close": r"(?:共同)?(?:起始|期初)收盤價?",
+    "last_common_close": r"(?:共同)?期末收盤價?",
     "close": r"(?:收盤價?|股價)", "eps": r"(?:EPS|每股盈餘)",
     "revenue_monthly": r"(?:單月)?營收",
     "chg_pct": r"(?:(?:當日|單日|日)報酬率|漲跌幅|漲幅|跌幅|上漲|下跌)",
     "return_pct": r"報酬率",
     "allocation_pct": r"(?:占比|比例|比重)",
     "foreign_net": r"(?:外資買賣超|外資淨買賣超)",
+    "average_cost": r"平均(?:持股)?成本",
+    "reserved_quantity": r"(?:已)?委託賣出(?:股數)?|保留股數",
+    "available_quantity": r"可用股數|可賣(?:出)?股數",
+    "quantity": r"持有(?:股數)?|持股(?:股數|數量)?",
+    "favorites_count": r"收藏(?:清單|股票)?(?:檔數|了)?",
+    "positions_count": r"持股檔數",
+    "stop_loss_pct": r"停損(?:幅度|跌幅|比例)?",
+    "take_profit_pct": r"停利(?:幅度|漲幅|比例)?",
+    "target_return_pct": r"(?:目標|預期)報酬率",
 }
 UNITS = {field: "%" for field in (*COMPARISON_METRICS, *STRUCTURED_PERCENTAGES, *GROWTH_METRICS,
                                  *GROWTH_LABELS, *PORTFOLIO_RATIOS, *ANCHOR_PERCENTAGES,
                                  "chg_pct", "return_pct", "allocation_pct")}
-UNITS.update({field: "TWD" for field in (*PORTFOLIO_AMOUNTS, "close", "eps", "revenue_monthly")})
-UNITS["foreign_net"] = "shares"
+UNITS.update({field: "TWD" for field in (*PORTFOLIO_AMOUNTS, "close", "first_common_close", "last_common_close", "eps", "revenue_monthly")})
+UNITS.update({field: "shares" for field in ("foreign_net", "quantity", "reserved_quantity", "available_quantity")})
+UNITS.update({"average_cost": "TWD", "favorites_count": "count", "positions_count": "count"})
+UNITS.update({field: "%" for field in ("stop_loss_pct", "take_profit_pct", "target_return_pct")})
 LABELS = "|".join(f"(?P<{field}>{label})" for field, label in METRICS.items())
+QUALIFIER = r"(?:(?:目前|現在|大約|約|為|是|達|有|共有|總共|共|剩餘|剩下|剩|尚有|仍有|合計|[:=])\s*)*"
 CLAIM = re.compile(
-    rf"(?:{LABELS})\s*(?P<alias>\([^()\d]{{1,40}}\))?\s*(?:為|是|達|約|[:=])?\s*[(]?\s*"
-    rf"(?P<number>{NUMBER})\s*(?P<unit>美元|美金|USD|港元|港幣|HKD|億元|萬元|元|股|張|倍|%)?", re.I)
+    rf"(?:{LABELS})\s*(?P<alias>\([^()\d]{{1,40}}\))?\s*{QUALIFIER}[(]?\s*"
+    rf"(?P<currency_prefix>{FOREIGN_CURRENCY}|NT\$|TWD|NTD|[$€￥])?\s*"
+    rf"(?P<number>{NUMBER})\s*(?P<unit>{FOREIGN_CURRENCY}|新台幣|台幣|TWD|NTD|億元|萬元|千元|元|億|萬|千|股|張|檔|支|倍|%)?", re.I)
 PERCENT = re.compile(rf"(?P<number>{NUMBER})\s*%")
+INLINE_QUANTITY = re.compile(rf"(?:持有|持股)\s*(?P<symbol>\d{{4,6}})\s*(?:共|的|有)\s*(?P<number>{NUMBER})\s*(?P<unit>股|張)")
 
 
 @dataclass(frozen=True)
@@ -95,16 +113,10 @@ class Claim:
     start: int
     end: int
     period: str | None = None
-    lots: Decimal | None = None  # value as written in 張 (1,000 shares), possibly rounded
 
 
 def _number(raw) -> Decimal:
-    if isinstance(raw, bool):
-        raise ValueError("Boolean is not a numeric observation")
-    value = Decimal(str(raw).replace(",", "").replace("−", "-"))
-    if not value.is_finite():
-        raise ValueError("Nonfinite numeric observation")
-    return value
+    return decimal_number(raw)
 
 
 def _normalize(text: str) -> str:
@@ -116,6 +128,8 @@ def _normalize(text: str) -> str:
                       lambda m: m["label"], text, flags=re.I)
     text = re.sub(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
                   lambda m: f"{m[1]}-{int(m[2]):02}-{int(m[3]):02}", text)
+    text = re.sub(r"(\d{4})-(\d{2}-\d{2})(\s*(?:至|到|[~～])\s*)(\d{1,2})\s*月\s*(\d{1,2})\s*日",
+                  lambda m: f"{m[1]}-{m[2]}{m[3]}{m[1]}-{int(m[4]):02}-{int(m[5]):02}", text)
     text = re.sub(r"(\d{4})\s*年?\s*第?\s*([一二三四1-4])\s*季",
                   lambda m: f"{m[1]}Q{m[2] if m[2].isdigit() else '一二三四'.index(m[2]) + 1}", text)
     text = re.sub(r"(\d{4})\s*年\s*(\d{1,2})\s*月",
@@ -136,7 +150,12 @@ def _context(text: str, position: int, aliases: dict[str, str]):
     without_dates = re.sub(r"\d{4}\s*(?:Q[1-4]|年(?:\d{1,2}月|第?[一二三四1-4]季)?)",
                            lambda m: " " * len(m[0]), without_dates, flags=re.I)
     # Previous numeric observations are not stock identifiers.
-    without_dates = CLAIM.sub(lambda m: " " * len(m[0]), without_dates)
+    def mask_observation(match):
+        if match["favorites_count"] and not match["unit"] and "檔數" not in match["favorites_count"]:
+            return (" " * (match.start("number") - match.start()) + match["number"]
+                    + " " * (match.end() - match.end("number")))
+        return " " * len(match[0])
+    without_dates = CLAIM.sub(mask_observation, without_dates)
     subjects = [(m.start(), len(m[1]), m[1]) for m in re.finditer(
         r"(?<![\d.])(\d{4,6})(?![\d.]|\s*(?:元|萬|張|股(?!價)|%))", without_dates)]
     for alias, symbol in aliases.items():
@@ -170,29 +189,66 @@ def _claims(text: str, aliases: dict[str, str]):
             # is handled below using the preceding monetary observation.
             continue
         value = _number(match["number"])
-        unit = match["unit"]
-        lots = value if unit == "張" else None
+        unit = match["unit"] or match["currency_prefix"]
+        if unit and unit.isascii():
+            unit = unit.upper()
+        if metric == "favorites_count" and not unit and "檔數" not in label:
+            # Bare numbers in favorite lists identify stocks, not a count.
+            continue
+        if metric == "quantity" and unit in {"檔", "支"}:
+            metric = "positions_count"
+        if metric == "quantity" and not unit and re.match(r"\s*(?:共|的|有)", text[match.end():]):
+            continue
         # Explicit units must agree; an absent share unit is ambiguous.
         normalized_unit = {"元": "TWD", "萬元": "TWD", "億元": "TWD",
-                           "股": "shares", "張": "shares", "%": "%"}.get(unit, unit)
+                           "千元": "TWD", "萬": "TWD", "億": "TWD", "千": "TWD",
+                           "台幣": "TWD", "新台幣": "TWD", "TWD": "TWD", "NTD": "TWD", "NT$": "TWD",
+                           "股": "shares", "張": "shares", "檔": "count", "支": "count", "%": "%"}.get(unit, unit)
+        if match["currency_prefix"] and match["currency_prefix"].upper() not in {"TWD", "NTD", "NT$"}:
+            normalized_unit = match["currency_prefix"]
         if match["alias"] and not re.fullmatch(METRICS[metric], match["alias"][1:-1].strip(), re.I):
             normalized_unit = "invalid metric alias"
-        if unit == "萬元":
+        if unit in {"萬元", "萬"}:
             value *= 10000
-        elif unit == "億元":
+        elif unit in {"億元", "億"}:
             value *= 100000000
+        elif unit in {"千元", "千"}:
+            value *= 1000
         elif unit == "張":
             value *= 1000
-        if (label in {"下跌", "跌幅"} or (metric == "vol_vs_ma5_pct" and label.endswith("減少"))) and value > 0:
+        decline = label.endswith("下跌") or (label.endswith("跌幅") and not label.endswith("漲跌幅"))
+        if (decline or (metric == "vol_vs_ma5_pct" and label.endswith("減少"))) and value > 0:
             value = -value
-        elif label == "上漲" and value < 0:
+        elif label.endswith("上漲") and value < 0:
             normalized_unit = "invalid direction"
         symbol, dates = _context(text, match.start(), aliases)
+        if metric == "chg_pct" and len(dates) >= 2:
+            prefix = re.split(r"[。!?;\n]", text[:match.start()])[-1]
+            ranges = re.findall(rf"({DATE})\s*(?:至|到|[~～])\s*({DATE})", prefix)
+            explicitly_daily = label.startswith(("當日", "單日", "日報酬")) or re.search(r"(?:當日|單日|每日|每天)", prefix)
+            if ranges and ranges[-1] == dates[-2:] and not explicitly_daily:
+                metric = "interval_return_pct"
+        account_metric = (metric in {*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS, "favorites_count", "positions_count"}
+                          and metric not in {"holdings_value", "holdings_allocation_pct"})
+        account_metric = account_metric or (metric in {"holdings_value", "holdings_allocation_pct"}
+                                            and label.startswith(("整體", "全部", "總")))
+        if account_metric:
+            symbol = None
+            # A date attached to an earlier stock observation does not date
+            # subsequent account totals. Explicit account dates still apply.
+            prior = [item for item in CLAIM.finditer(text[:match.start()]) if any(
+                item[field] is not None for field in ("close", "first_common_close", "last_common_close", "average_cost", "quantity", "foreign_net"))]
+            if prior:
+                dates = tuple(re.findall(DATE, text[prior[-1].end():match.start()]))
         occupied.append(match.span())
         if metric in PORTFOLIO_AMOUNTS:
             amounts.append((match.end(), metric))
         yield Claim(metric, value, normalized_unit or ("" if metric == "foreign_net" else UNITS[metric]),
-                    symbol, dates, *match.span(), period_at(match.start()), lots)
+                    symbol, dates, *match.span(), period_at(match.start()))
+    for match in INLINE_QUANTITY.finditer(text):
+        value = _number(match["number"]) * (1000 if match["unit"] == "張" else 1)
+        occupied.append(match.span())
+        yield Claim("quantity", value, "shares", match["symbol"], (), *match.span())
     for match in PERCENT.finditer(text):
         if any(start <= match.start() < end for start, end in occupied):
             continue
@@ -240,7 +296,9 @@ def _evidence(sources, aliases):
             literals.update(_literal_numbers(payload))
         if source.category == "news":
             for claim in _claims(_normalize(source.content), aliases):
-                if claim.metric and claim.unit == UNITS[claim.metric]:
+                personal_metrics = {*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS, "allocation_pct", "average_cost",
+                                    "quantity", "available_quantity", "reserved_quantity", "favorites_count", "positions_count"}
+                if claim.metric and claim.metric not in personal_metrics and claim.unit == UNITS[claim.metric]:
                     facts.append(Fact(claim.metric, claim.value, claim.unit,
                                       claim.symbol or source.stock_id,
                                       claim.dates[-1] if claim.dates else None,
@@ -269,16 +327,29 @@ def _evidence(sources, aliases):
             for stock in payload.get("stocks", []):
                 for metric in COMPARISON_METRICS:
                     add(metric, stock.get(metric), stock.get("symbol", ""), periods=periods, rounded=True)
+                for metric, endpoint in (("first_common_close", "common_start_date"),
+                                         ("last_common_close", "common_end_date")):
+                    add(metric, stock.get(metric), stock.get("symbol", ""), payload.get(endpoint), periods=periods)
         elif source.category == "personal":
             portfolio = payload.get("portfolio", {})
             snapshot_day = datetime.fromisoformat(portfolio["as_of"]).date().isoformat() if portfolio.get("as_of") else None
             if portfolio.get("initialized") is True:
                 for metric in (*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS):
                     add(metric, portfolio.get(metric), day=snapshot_day)
+                add("positions_count", len(portfolio.get("positions", [])), day=snapshot_day)
+            if "favorites" in payload:
+                add("favorites_count", len(payload["favorites"]), day=snapshot_day)
             for position in portfolio.get("positions", []):
                 if position.get("market_date"):
                     add("close", position.get("market_price"), position["symbol"], position["market_date"])
                 add("holdings_allocation_pct", position.get("allocation_pct"), position["symbol"], snapshot_day)
+                add("holdings_value", position.get("market_value"), position["symbol"], snapshot_day)
+                add("average_cost", position.get("average_cost"), position["symbol"], snapshot_day)
+                for metric in ("quantity", "reserved_quantity"):
+                    add(metric, position.get(metric), position["symbol"], snapshot_day)
+                if position.get("quantity") is not None:
+                    add("available_quantity", _number(position["quantity"]) - _number(position.get("reserved_quantity", 0)),
+                        position["symbol"], snapshot_day)
             for review in portfolio.get("reviews", []):
                 add("close", review.get("closing_price"), review["symbol"], review.get("due_date"))
                 add("chg_pct", review.get("price_return_pct"), review["symbol"], review.get("due_date"))
@@ -290,11 +361,16 @@ def _matches(claim: Claim, fact: Fact) -> bool:
         allowed_metrics = {"return_pct", "interval_return_pct", "chg_pct"}
     elif claim.metric == "allocation_pct":
         allowed_metrics = set(PORTFOLIO_RATIOS)
+    elif claim.metric == "close":
+        allowed_metrics = {"close", "first_common_close", "last_common_close"}
+        if fact.metric in {"first_common_close", "last_common_close"}:
+            if not claim.dates or claim.dates[-1] != fact.day:
+                return False
     else:
         allowed_metrics = {claim.metric}
     if claim.metric is not None and fact.metric not in allowed_metrics:
         return False
-    if claim.metric == "holdings_allocation_pct" and not claim.symbol and fact.symbol:
+    if claim.metric in {"holdings_allocation_pct", "holdings_value"} and not claim.symbol and fact.symbol:
         return False
     if claim.unit != fact.unit or (claim.symbol and claim.symbol != fact.symbol):
         return False
@@ -302,20 +378,16 @@ def _matches(claim: Claim, fact: Fact) -> bool:
         return False
     if claim.dates:
         if fact.periods:
-            if not any((claim.dates[-2:] == period if len(claim.dates) >= 2 else claim.dates[-1] == period[1])
-                       for period in fact.periods):
+            if len(claim.dates) == 1 and fact.day:
+                if fact.day != claim.dates[-1]:
+                    return False
+            elif not any((claim.dates[-2:] == period if len(claim.dates) >= 2 else claim.dates[-1] == period[1])
+                         for period in fact.periods):
                 return False
         elif fact.day != claim.dates[-1]:
             return False
     if claim.value == fact.value:
         return True
-    if claim.lots is not None:
-        # Share sources are converted to 張 for display and rounded at the precision written.
-        lot_precision = max(0, -claim.lots.as_tuple().exponent)
-        try:
-            return (fact.value / 1000).quantize(Decimal(1).scaleb(-lot_precision), rounding=ROUND_HALF_UP) == claim.lots
-        except InvalidOperation:
-            return False
     precision = max(0, -claim.value.as_tuple().exponent)
     if fact.rounded and precision >= 2:
         try:
@@ -325,48 +397,31 @@ def _matches(claim: Claim, fact: Fact) -> bool:
     return False
 
 
-def _allocation_proposal(text: str, claim: Claim) -> bool:
-    """Only exempt a local, explicitly proposed allocation percentage.
-
-    A recommendation elsewhere in the paragraph cannot exempt an observation.
-    This checks the proposal's syntax/range, not suitability or total budgets.
-    """
-    if claim.unit != "%" or claim.metric not in {None, *PORTFOLIO_RATIOS} or not 0 <= claim.value <= 100:
-        return False
-    prefix = re.split(r"[。!?;,，\n]", text[:claim.end])[-1]
-    return bool(re.fullmatch(
-        rf"\s*(?:[-•]\s*)?(?:建議|可考慮|可以考慮|假設)"
-        rf"(?:先)?(?:將(?:可用資金|現金|持股)(?:占比|比例|比重)(?:調整|提高|降低)至|"
-        rf"(?:投入|保留)(?:可用資金|現金)(?:的)?)\s*{NUMBER}\s*%", prefix))
-
-
-def _cites_paper_portfolio(sources: list[SourceChunk]) -> bool:
-    """Allocation proposals are a paper-trading feature; they need the cited paper-portfolio snapshot."""
-    for source in sources:
-        if source.category != "personal":
-            continue
-        try:
-            if isinstance(json.loads(source.content).get("portfolio"), dict):
-                return True
-        except (ValueError, AttributeError):
-            continue
-    return False
-
-
-def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "") -> bool:
+def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "",
+                             continuation: str = "") -> bool:
     """Reject recognized contradictions; unknown prose remains unverified."""
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}
     try:
         prefix = _normalize(context)
         text = prefix + _normalize(paragraph)
+        full_text = text + _normalize(continuation)
+        proposals = parse_proposals(full_text, aliases)
         facts, literals = _evidence(sources, aliases)
-        paper_portfolio = _cites_paper_portfolio(sources)
         for claim in _claims(text, aliases):
             if claim.end <= len(prefix):
                 continue
-            if paper_portfolio and _allocation_proposal(text, claim):
+            sentence = (re.split(r"[。!?;\n]", full_text[:claim.end])[-1]
+                        + re.split(r"[。!?;\n]", full_text[claim.end:])[0])
+            if claim.unit == "%" and guarantees_outcome(sentence):
+                return False
+            if not claim.unit.startswith("invalid") and any(
+                    proposal.start < claim.end <= proposal.end for proposal in proposals):
                 continue
+            local = re.split(r"[。!?;\n,，]", text[:claim.end])[-1]
+            if claim.unit == "%" and re.search(
+                    r"保證|一定|必定|必然|預期|預測|未來|下(?:個月|週|周|月)|明(?:天|日|年)", local):
+                return False
             if any(_matches(claim, fact) for fact in facts):
                 continue
             if claim.metric is None and claim.value in literals:

@@ -8,7 +8,7 @@ import { signedText } from '@/components/common/LightEntry';
 import { valueToneText } from '@/lib/utils/tone';
 import { CollapsibleTableSection, TableScrollHint } from '@/components/common/CollapsibleSection';
 import { Ledger } from '@/components/common/Ledger';
-import { EmptyState } from '@/components/common/Notice';
+import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Pagination } from '@/components/common/Pagination';
 import { cn } from '@/lib/cn';
 
@@ -131,23 +131,27 @@ export function StatisticsPanel({ stats }: { stats: PriceStats }) {
 }
 
 interface HistoryProps {
-  data: HistoryPage;
+  data: HistoryPage | null;
+  loading?: boolean;
+  error?: string | null;
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
 }
 
 /** 歷史股價（全部歷史，依頁數往回翻；決議 c23 移到價量抽屜） */
-export function HistoryTable({ data, page, pageSize, onPageChange }: HistoryProps) {
-  const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
+export function HistoryTable({ data, loading = false, error, page, pageSize, onPageChange }: HistoryProps) {
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
   return (
     <CollapsibleTableSection
-      title={`歷史股價（共 ${data.total} 筆）`}
-      expandLabel={`顯示歷史股價表（第 ${page}/${totalPages} 頁）`}
+      title={data ? `歷史股價（共 ${data.total} 筆）` : '歷史股價'}
+      expandLabel={data ? `顯示歷史股價表（第 ${page}/${totalPages} 頁）` : '顯示歷史股價表'}
       collapseLabel="收合歷史股價表"
     >
-      <Pagination label="歷史股價分頁" page={page} totalPages={totalPages} onPageChange={onPageChange} />
-      <TableFrame minWidth="min-w-[640px]">
+      {data ? <Pagination label="歷史股價分頁" page={page} totalPages={totalPages} onPageChange={onPageChange} disabled={loading} /> : null}
+      {loading ? <LoadingRows label="讀取歷史股價中…" className="h-[132px] border-y" />
+        : error ? <Notice tone="danger">{error}</Notice>
+        : data ? <TableFrame minWidth="min-w-[640px]">
         <thead>
           <tr className={headRow}>
             <th scope="col" className="h-11 px-4 py-3 text-left font-medium">日期</th>
@@ -182,7 +186,7 @@ export function HistoryTable({ data, page, pageSize, onPageChange }: HistoryProp
             </tr>
           ) : null}
         </tbody>
-      </TableFrame>
+      </TableFrame> : <EmptyState className="py-8">無歷史資料</EmptyState>}
     </CollapsibleTableSection>
   );
 }

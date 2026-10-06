@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.daily_price import DailyPrice
-from app.db.models.finmind_extra import FinancialStatementRow
+from app.db.models.market_extra import FinancialStatementRow
 from app.db.models.stock_info import StockInfo
 
 

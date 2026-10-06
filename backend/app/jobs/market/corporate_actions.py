@@ -5,7 +5,18 @@ from datetime import date
 
 import httpx
 
-from app.jobs.finmind.transforms import DIVIDEND_RESULT_COLUMNS
+DIVIDEND_RESULT_COLUMNS = [
+    "date",
+    "symbol",
+    "before_price",
+    "after_price",
+    "stock_and_cash_dividend",
+    "stock_or_cash_dividend",
+    "max_price",
+    "min_price",
+    "open_price",
+    "reference_price",
+]
 
 
 FIELDS = {"dividend_result": DIVIDEND_RESULT_COLUMNS}

@@ -47,6 +47,22 @@ def test_personal_reader_uses_trusted_owner(monkeypatch):
     assert json.loads(source.content)["favorites"] == [{"symbol": "2330", "name": "TSMC"}]
 
 
+def test_personal_reader_samples_favorites_before_remaining_positions_without_duplicates(monkeypatch):
+    from app.features.favorites import repository
+    from app.features.paper_portfolio import service
+
+    favorites = [SimpleNamespace(symbol=str(1100 + index), name=f"Company {index}") for index in range(8)]
+    monkeypatch.setattr(repository, "favorites", lambda db, owner: favorites)
+    monkeypatch.setattr(service, "snapshot", lambda db, owner: {"positions": [
+        {"symbol": "1100"}, {"symbol": "2330"}, {"symbol": "2330"}, {"symbol": "2317"},
+    ]})
+    symbols, source = read_personal_context(lambda: nullcontext(object()), 7, {"favorites", "portfolio"})
+    assert symbols == [row.symbol for row in favorites[:6]]
+    assert source.stock_ids == [row.symbol for row in favorites] + ["2330", "2317"]
+    assert len(json.loads(source.content)["favorites"]) == 8
+    assert len(json.loads(source.content)["portfolio"]["positions"]) == 4
+
+
 def test_favorites_resolve_before_news_retrieval(monkeypatch, chat_session_factory):
     from app.features.chat.knowledge import reference_source
     seen = []
@@ -61,6 +77,82 @@ def test_favorites_resolve_before_news_retrieval(monkeypatch, chat_session_facto
     assert seen == [(7, {"favorites"})]
     assert retrieval.calls[0]["symbols"] == ["2330"]
     assert response.detected_stocks == ["2330"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("retry", [False, True])
+@pytest.mark.parametrize("favorites_count", [6, 40])
+def test_order_ai_help_resolves_personal_symbols_and_validates_cash_proposals(monkeypatch, stream, retry, favorites_count):
+    from app.clients.llm import LlmResult
+    from app.features.favorites import repository
+    from app.features.paper_portfolio import service as portfolio_service
+    from app.features.chat.knowledge import reference_source
+
+    favorites = [SimpleNamespace(symbol=str(1100 + index), name=f"Company {index}") for index in range(favorites_count)]
+    monkeypatch.setattr(repository, "favorites", lambda db, owner: favorites)
+    monkeypatch.setattr(portfolio_service, "snapshot", lambda db, owner: {
+        "initialized": True, "available_cash": 50000, "cash": 50000, "equity": 50000,
+        "cash_allocation_pct": 100, "holdings_allocation_pct": 0, "positions": [],
+    })
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {})
+    answer = (f"可用資金50000元，持股占比0%，收藏清單有{favorites_count}檔。[S1]\n\n"
+              "建議先投入可用資金20%至30%，建議保留50%現金。[S1]")
+    invalid_answer = "可用資金999999元。[S1]"
+    models = FakeModels(intent={"stocks": [], "data_needs": ["favorites", "portfolio", "market", "news"]},
+                        answer=invalid_answer if retry else answer)
+    original_text = models.text
+
+    async def recovering_text(**kwargs):
+        if retry and (stream or any(kind == "text" for kind, _ in models.calls)):
+            models.calls.append(("text", kwargs))
+            return LlmResult({}, answer, models.metadata)
+        return await original_text(**kwargs)
+
+    models.text = recovering_text
+    retrieval = FakeRetrieval()
+    service = ChatService(http=None, settings=None, llm=models, retrieval=retrieval,
+                          session_factory=lambda: nullcontext(object()))
+    monkeypatch.setattr(service, "_stock_options", lambda: {row.symbol: row.name for row in favorites})
+    market_calls = []
+
+    def market_sources(symbols, as_of, start_date):
+        market_calls.append(symbols)
+        return [reference_source("Market", json.dumps({"columns": ["date", "close"],
+            "rows": [["2026-10-02", 100]]}), category="market_technical").model_copy(update={"stock_id": symbol})
+            for symbol in symbols]
+
+    monkeypatch.setattr(service, "_market_sources", market_sources)
+    request = trusted("請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。")
+
+    async def run():
+        if not stream:
+            return (await service.ask(request)).model_dump()
+        results = [event async for event in service.stream_events(request)]
+        assert results[-1]["type"] == "done"
+        assert any("重新" in event.get("content", "") for event in results if event["type"] == "status") == retry
+        assert invalid_answer not in json.dumps(results, ensure_ascii=False)
+        return results[-1]
+
+    result = asyncio.run(run())
+    assert result["answer"].startswith(answer)
+    assert market_calls == [[row.symbol for row in favorites[:6]]]
+    assert retrieval.calls[0]["symbols"] == [row.symbol for row in favorites[:6]]
+    assert len(json.loads(result["sources"][0]["content"])["favorites"]) == favorites_count
+    assert result["sources"][0]["stock_ids"] == [row.symbol for row in favorites]
+    expected_calls = ["intent", "stream" if stream else "text"] + (["text"] if retry else [])
+    assert [kind for kind, _ in models.calls] == expected_calls
+    if favorites_count > 6:
+        for content in (result["answer"], result["dashboard"]["blocks"][0]["description"]):
+            assert "合計 40 檔" in content and "僅取前 6 檔" in content
+            assert "1100、1101、1102、1103、1104、1105" in content
+            assert "其餘股票尚未比較" in content
+    else:
+        assert "僅取前" not in result["answer"]
+        assert "僅取前" not in result["dashboard"]["blocks"][0]["description"]
+    if retry:
+        initial_prompt = next(kwargs["prompt"] for kind, kwargs in models.calls if kind in {"text", "stream"})
+        assert models.calls[-1][1]["prompt"] == initial_prompt
+        assert "未通過數值核對" in models.calls[-1][1]["system_prompt"]
 
 
 @pytest.mark.parametrize("query,needs,expected", [
@@ -114,7 +206,11 @@ def test_fund_context_keeps_full_totals_with_bounded_history(monkeypatch):
     ("模擬買進 2330，投入 10 萬元", None, 100000),
     ("模擬買進 2330，投入 10萬", None, 100000),
     ("模擬買進 2330，投入 10,000 元", None, 10000),
+    ("模擬買進 2330，投入 1.5 萬 塊", None, 15000),
+    ("模擬買進 2330，投入 10萬 ", None, 100000),
     ("模擬賣出 2330 100 股", 100, None),
+    ("模擬賣出 2330 1,000 股", 1000, None),
+    ("模擬賣出 2330 1.5 張", 1500, None),
     ("模擬買進 2330", None, None),
 ])
 def test_drafts_keep_explicit_units_and_persist_identity(query, quantity, budget):
@@ -173,21 +269,12 @@ def test_malformed_or_extreme_draft_inputs_are_safe():
     assert paper_draft(request.query, ["INVALID"], request) is None
 
 
-@pytest.mark.parametrize("scopes,paper", [({"portfolio"}, True), ({"favorites"}, False)])
-def test_simulated_allocation_guidance_only_for_paper_portfolio_turns(monkeypatch, chat_session_factory, scopes, paper):
-    from app.features.chat.knowledge import reference_source
-    from app.features.chat.prompts import PAPER_PORTFOLIO_GUIDANCE
-    payload = {"portfolio": {"initialized": True, "available_cash": 20000}} if paper else {"favorites": []}
-    monkeypatch.setattr(chat_module, "read_personal_context", lambda factory, owner, scopes, query="": (
-        [], reference_source("Owned data", json.dumps(payload), category="personal")))
-    monkeypatch.setattr(chat_module, "personal_scopes", lambda query, needs: set(scopes))
-    models = FakeModels(intent={"stocks": [], "data_needs": sorted(scopes)})
-    service = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
-                          session_factory=chat_session_factory)
-    try:
-        asyncio.run(service.ask(trusted("我的模擬帳戶資金該怎麼分配？")))
-    except Exception:
-        pass  # Only the prompt sent to the answer model matters here.
-    prompts = [call["system_prompt"] for kind, call in models.calls if kind == "text"]
-    assert prompts
-    assert all((PAPER_PORTFOLIO_GUIDANCE in prompt) is paper for prompt in prompts)
+@pytest.mark.parametrize("query", [
+    "模擬買進 2330，投入 -100 元",
+    "模擬買進 2330，投入 10,00 元",
+    "模擬賣出 2330 10,00 股",
+    "模擬賣出 2330 1.1 股",
+])
+def test_drafts_do_not_extract_partial_or_fractional_quantities(query):
+    draft = paper_draft(query, ["2330"], trusted(query))
+    assert draft.budget is None and draft.quantity is None

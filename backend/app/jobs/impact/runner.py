@@ -81,6 +81,7 @@ class ImpactBatchRunner:
                        "reused": 0, "api_calls": 0}
         self.stopped_reason = None
         self.consecutive_failures = 0
+        self.failure_reasons = {}
 
     def pending(self, since: datetime):
         now = datetime.now(TAIPEI_TZ).replace(tzinfo=None)
@@ -228,6 +229,8 @@ class ImpactBatchRunner:
             payload["validation_feedback"] = feedback or "Return only valid targets and exact quotes from title/content."
         self._save(article, input_hash, "failed", error_code=last_error, usage=last_usage)
         self.counts["failed"] += 1
+        if last_error:
+            self.failure_reasons[last_error] = self.failure_reasons.get(last_error, 0) + 1
         self.consecutive_failures += 1
         if last_error in {"auth_error_401", "model_not_found", "client_uninitialized"}:
             self.stopped_reason = last_error
@@ -244,4 +247,5 @@ class ImpactBatchRunner:
         return {"run_id": self.run_id, "mode": "execute" if self.execute else "preview",
                 "model": self.settings.LLM_MODEL, "config_hash": self.config_hash,
                 **self.counts, "estimated_cost_usd": round(float(self.known_cost), 6),
+                "failure_reasons": self.failure_reasons,
                 "budget_spent_usd": round(float(self.spent), 6), "stopped_reason": self.stopped_reason}

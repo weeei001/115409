@@ -4,7 +4,10 @@ from urllib.parse import quote, urlsplit
 
 from app.core.errors import ServiceUnavailable
 
-from .claims import numeric_claims_supported
+from app.features.market.company_catalog import company_aliases
+
+from .claims import _normalize, numeric_claims_supported
+from .proposals import plan_supported
 from .prompts import INSUFFICIENT_EVIDENCE_ANSWER
 from .schemas import SourceChunk
 
@@ -32,6 +35,9 @@ class EmptyAnswerError(AnswerValidationError):
 
 class TruncatedAnswerError(AnswerValidationError):
     reason = "length"
+
+
+NUMERIC_RECOVERY_GUIDANCE = "請先查看本輪資料面板，再指定 1 至 2 檔股票重新提問。"
 
 
 def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "",
@@ -80,11 +86,18 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
                 and not re.search(citation_pattern, paragraph)):
             raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
 
-    for paragraph in paragraphs:
+    for index, paragraph in enumerate(paragraphs):
+        prior_context = "\n\n".join(paragraphs[:index]) + "\n\n" if index else ""
         for text, citations, context in _citation_units(paragraph):
             if not numeric_claims_supported(text, [available[citation] for citation in citations],
-                                            company_catalog=company_catalog, context=context):
-                raise NumericValidationError("回答的數值與所引用資料無法核對，請稍後重試。")
+                                            company_catalog=company_catalog, context=prior_context + context,
+                                            continuation=paragraph[len(context) + len(text):]):
+                raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE)
+
+    aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
+               for alias in company_aliases(symbol, company)}
+    if not plan_supported(_normalize(prose), [available[citation] for citation in cited], aliases):
+        raise NumericValidationError("回答的資金配置或賣出股數超出可用範圍。" + NUMERIC_RECOVERY_GUIDANCE)
 
     references = []
     for citation in cited:
