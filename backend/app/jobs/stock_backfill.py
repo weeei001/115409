@@ -1,13 +1,12 @@
-"""Backfill one supported stock through the existing FinMind workers."""
+"""Backfill one supported stock from official TWSE/TPEx sources."""
 import argparse
-import csv
 from datetime import date, datetime
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
 
-from app.core.config import get_settings, state_directory
-from app.jobs.finmind.fetch import stock_info_symbols
+from app.core.config import state_directory
+from app.jobs.market.fetch import stock_info_symbols
 from app.jobs.scheduler import TAIPEI
 
 
@@ -20,20 +19,18 @@ def history_start(end: date) -> date:
 
 def backfill(symbol: str, *, end: date, output: Path, run) -> int:
     output.mkdir(parents=True, exist_ok=True)
-    # Every run exports fresh files; retries cannot import stale or partial exports.
+    # Fresh official snapshots also refresh the company catalog for history routing.
     with TemporaryDirectory(prefix=f"{symbol}-", dir=output) as directory:
-        result = run("finmind-fetch", ["--stock", symbol, "--start", history_start(end).isoformat(),
-            "--end", end.isoformat(), "--out", directory, "--request-interval", "0.5"])
+        result = run("market-fetch", ["--stock", symbol, "--start", history_start(end).isoformat(),
+            "--end", end.isoformat(), "--out", directory])
         if result:
             return result
-        for dataset in ("price_volume", "institutional"):
-            with (Path(directory) / f"{symbol}_{dataset}.csv").open(encoding="utf-8-sig", newline="") as source:
-                rows = csv.DictReader(source)
-                if not any(row.get("symbol") == symbol and
-                           history_start(end).isoformat() <= row.get("date", "") <= end.isoformat()
-                           for row in rows):
-                    raise ValueError(f"No {dataset} history was returned for the selected stock")
-        return run("finmind-import", ["--input-dir", directory, "--symbols", symbol])
+        result = run("market-import", ["--input-dir", directory, "--symbols", symbol])
+        if result:
+            return result
+    return run("market-backfill", ["--stocks", symbol, "--start", history_start(end).isoformat(),
+        "--end", end.isoformat(), "--include-institutional", "--skip-benchmark",
+        "--out", str(output / f"{symbol}_history.json")])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not re.fullmatch(r"\d{4,6}", args.symbol):
         parser.error("Stock id must contain 4 to 6 digits")
-    if args.symbol not in stock_info_symbols(get_settings()):
+    if args.symbol not in stock_info_symbols():
         raise ValueError("Stock is not enabled in stock_info")
     from app.jobs.__main__ import dispatch
     return backfill(args.symbol, end=datetime.now(TAIPEI).date(),

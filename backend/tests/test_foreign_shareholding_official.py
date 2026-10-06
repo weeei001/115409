@@ -4,8 +4,8 @@ from decimal import Decimal
 import httpx
 import pytest
 
-from app.db.models.finmind_extra import ForeignShareholding
-from app.jobs.finmind.import_csv import normalized_rows, upsert_rows
+from app.db.models.market_extra import ForeignShareholding
+from app.jobs.market.import_csv import normalized_rows, upsert_rows
 from app.jobs.market.foreign_shareholding import TWSE_FIELDS, fetch_tpex, fetch_twse
 
 

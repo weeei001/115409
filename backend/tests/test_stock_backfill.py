@@ -11,43 +11,38 @@ from app.jobs import stock_backfill
 from app.jobs.runtime import JobRuntime
 
 
-def test_backfill_uses_fresh_selected_stock_exports_and_stops_on_fetch_failure(tmp_path):
+def test_backfill_uses_official_snapshots_and_selected_stock_history(tmp_path):
     calls = []
 
     def run(job, args):
         calls.append((job, args))
-        if job == "finmind-fetch":
+        if job == "market-fetch":
             directory = Path(args[args.index("--out") + 1])
-            for dataset in ("price_volume", "institutional"):
-                (directory / f"1101_{dataset}.csv").write_text("date,symbol\n2026-10-02,1101\n")
+            assert directory.is_dir()
         return 0
 
     assert stock_backfill.backfill("1101", end=date(2026, 10, 4), output=tmp_path, run=run) == 0
-    fetch, importer = calls
+    fetch, importer, history = calls
     assert fetch[1][:6] == ["--stock", "1101", "--start", "2024-10-04", "--end", "2026-10-04"]
     assert importer[1] == ["--input-dir", fetch[1][7], "--symbols", "1101"]
+    assert [call[0] for call in calls] == ["market-fetch", "market-import", "market-backfill"]
+    assert history[1] == ["--stocks", "1101", "--start", "2024-10-04", "--end", "2026-10-04",
+                          "--include-institutional", "--skip-benchmark", "--out", str(tmp_path / "1101_history.json")]
     assert not Path(fetch[1][7]).exists()
-    calls.clear()
-    assert stock_backfill.backfill("1101", end=date(2026, 10, 4), output=tmp_path,
-        run=lambda job, args: calls.append(job) or 7) == 7
-    assert calls == ["finmind-fetch"]
 
 
-@pytest.mark.parametrize("empty", ["price_volume", "institutional"])
-def test_backfill_rejects_empty_required_history(tmp_path, empty):
+@pytest.mark.parametrize("failed_job", ["market-fetch", "market-import", "market-backfill"])
+def test_backfill_stops_after_failed_official_stage(tmp_path, failed_job):
     calls = []
 
     def run(job, args):
         calls.append(job)
-        directory = Path(args[args.index("--out") + 1])
-        for dataset in ("price_volume", "institutional"):
-            (directory / f"1101_{dataset}.csv").write_text(
-                "date,symbol\n" + ("2026-10-02,1101\n" if dataset != empty else ""))
-        return 0
+        return 7 if job == failed_job else 0
 
-    with pytest.raises(ValueError, match="No .* history"):
-        stock_backfill.backfill("1101", end=date(2026, 10, 4), output=tmp_path, run=run)
-    assert calls == ["finmind-fetch"]
+    assert stock_backfill.backfill("1101", end=date(2026, 10, 4), output=tmp_path, run=run) == 7
+    stages = ["market-fetch", "market-import", "market-backfill"]
+    assert calls == stages[:stages.index(failed_job) + 1]
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_backfill_requires_supported_symbol_and_preserves_retry(db_session, settings, monkeypatch):
@@ -74,7 +69,7 @@ def test_backfill_requires_supported_symbol_and_preserves_retry(db_session, sett
 
 
 def test_cli_rejects_unsupported_symbol_without_running_workers(monkeypatch):
-    monkeypatch.setattr(stock_backfill, "stock_info_symbols", lambda settings: [])
+    monkeypatch.setattr(stock_backfill, "stock_info_symbols", lambda: [])
     with pytest.raises(ValueError, match="not enabled"):
         stock_backfill.main(["--symbol", "1101"])
     assert stock_backfill.history_start(date(2024, 2, 29)) == date(2022, 2, 28)

@@ -1,10 +1,8 @@
 """Environment selection and resource isolation without external services."""
 import argparse
 import builtins
-from contextlib import nullcontext
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +12,6 @@ from app.core import config
 from app.db import engine
 from app.features.market import company_catalog
 from app.jobs import locking, market_history, scheduler
-from app.jobs.finmind import fetch
 from app.jobs.impact import cli as impact
 
 
@@ -143,15 +140,3 @@ def test_catalog_locks_simulation_and_worker_defaults_are_isolated(tmp_path, mon
     historical = selected if environment == "development" else Path(".state")
     assert defaults == [(selected / "market", None), (None, selected),
                         (historical / "market" / "history_2y.json", None)]
-
-    legacy_usage = tmp_path / "app" / ".state" / "finmind_api_usage.json"
-    monkeypatch.setattr(fetch, "API_USAGE_PATH", legacy_usage)
-    monkeypatch.setattr(fetch, "get_settings", lambda: SimpleNamespace(FINMIND_API_TOKEN=""))
-    monkeypatch.setattr(fetch, "parse_args", lambda argv: SimpleNamespace(
-        from_stock_info=False, symbols=[], token="", timeout=1, retries=0, request_interval=0))
-    monkeypatch.setattr(fetch.httpx, "Client", lambda: nullcontext(None))
-    client_options = {}
-    monkeypatch.setattr(fetch, "FinMindClient", lambda *args, **kwargs: client_options.update(kwargs))
-    assert fetch.main([]) == 0
-    assert client_options["usage_path"] == (
-        selected / legacy_usage.name if environment == "development" else legacy_usage)

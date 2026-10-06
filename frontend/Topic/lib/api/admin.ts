@@ -106,6 +106,8 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
     const active = jobs.find((item) => item.active_run_id != null);
     return `已排入等待 #${job.queued_run_id}；${active ? `等待工作 #${active.active_run_id} 完成` : '等待排程器依序啟動'}`;
   }
+  if (job.schedule === 'Pipeline source') return job.paused ? '已停用此新聞來源；完整流水線會略過，仍可單獨補跑' : '隨完整流水線執行，也可單獨補跑';
+  if (job.schedule === 'Manual') return '僅手動執行，沒有下次排程；補跑不會接續其他工作';
   if (job.paused) return '排程已暫停；手動執行不受影響';
   if (schedulerStatus !== 'running') return '排程器未運作；下次時間尚無法確認';
   if (job.next_run_at) {

@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 import app.db.models
 from app.db.session import Base
 from app.db.models.daily_price import DailyPrice
-from app.db.models.finmind_extra import MonthlyRevenue, StockValuation
+from app.db.models.market_extra import MonthlyRevenue, StockValuation
 from app.features.market import company_catalog
-from app.jobs.finmind import import_csv
+from app.jobs.market import import_csv
 from app.jobs.market import fetch
 from app.jobs.market import corporate_actions, foreign_shareholding, institutional, margin, mops_financial, tdcc_shareholding
 
