@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from app.clients.llm import LlmClient
 from app.features.chat.schemas import AskRequest, AskResponse, SourceChunk
 from app.features.chat.service import ChatService, _tokens
+from test_chat import FakeRetrieval, MODEL_ANSWER
 from test_llm_chat import completion, configured, stream_frame
 
 
@@ -63,3 +65,49 @@ def test_provider_reasoning_usage_reaches_chat_response(settings, stream, repair
             assert len(calls) == attempts
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("repair", [False, True])
+def test_whole_turn_counts_intent_initial_answer_and_repair(settings, chat_session_factory, stream, repair):
+    calls = []
+
+    def provider(request):
+        body = json.loads(request.content)
+        if "response_format" in body:
+            stage, text, usage = "intent", '{"is_finance":true,"stocks":["2330"]}', (11, 3, 2)
+        elif "answer" not in calls:
+            stage, text, usage = "answer", "Rejected.[S99]" if repair else MODEL_ANSWER, (50, 12, 5)
+        else:
+            stage, text, usage = "repair", MODEL_ANSWER, (70, 20, 7)
+        calls.append(stage)
+        result = completion(text)
+        result["usage"] = {"prompt_tokens": usage[0], "completion_tokens": usage[1],
+                           "total_tokens": usage[0] + usage[1],
+                           "completion_tokens_details": {"reasoning_tokens": usage[2]}}
+        if body.get("stream"):
+            first = stream_frame(text).replace(b'"delta": {', b'"delta": {"role": "assistant", ')
+            return httpx.Response(200, content=first + stream_frame(finish="stop")
+                                  + stream_frame(usage=result["usage"]) + b"data: [DONE]\n\n",
+                                  headers={"Content-Type": "text/event-stream"})
+        return httpx.Response(200, json=result)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as http:
+            service = ChatService(http=http, settings=configured(settings), retrieval=FakeRetrieval(),
+                                  session_factory=chat_session_factory)
+            request = AskRequest(query="台積電營收", stream=stream)
+            if stream:
+                events = [event async for event in service.stream_events(request)]
+                assert events[-1]["type"] == "done", events
+                tokens = events[-1]["tokens"]
+                assert "Rejected" not in json.dumps(events)
+            else:
+                response = await service.ask(request)
+                tokens = response.tokens
+                assert response.answer.startswith(MODEL_ANSWER)
+            assert tokens == ({"input": 131, "output": 35, "thinking": 14} if repair
+                              else {"input": 61, "output": 15, "thinking": 7})
+
+    asyncio.run(run())
+    assert calls == (["intent", "answer", "repair"] if repair else ["intent", "answer"])

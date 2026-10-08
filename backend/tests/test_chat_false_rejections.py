@@ -14,7 +14,7 @@ from app.features.chat.schemas import SourceChunk
 COLUMNS = ["date", "close", "chg_pct", "vol_vs_ma5_pct", "kd_k9", "kd_d9"]
 CATALOG = {"2330": {"name": "台積電"}, "2317": {"name": "鴻海"}}
 NEWS = ("台積電法說會預期第四季營收將季增 10%，AI 相關營收占比約 60%。台積電外資持股比例 72.3%，"
-        "股東權益報酬率（ROE）30%。報導指出台積電今年以來股價上漲 35%。")
+        "股東權益報酬率（ROE）30%。截至2026-10-06，報導指出台積電今年以來股價上漲 35%。")
 
 
 def source(citation_id, category, content, stock_id="2330"):
@@ -72,7 +72,7 @@ def check(answer):
     "台積電股東權益報酬率（ROE）30%[S5]。",
     "截至 2026-10-06，報導指出台積電今年以來股價上漲 35%[S5]。",
     # 「一定程度」 is extent, not a guarantee.
-    "一定程度反映 AI 需求，台積電當日上漲 3.33%[S1]。",
+    "台積電當日上漲3.33%，短線仍有一定程度的風險需評估[S1]。",
 ])
 def test_supported_answers_pass_without_repair(answer):
     assert "\n\n【引用來源】\n- [S" in check(answer)
