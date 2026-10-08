@@ -4,6 +4,7 @@ from app.clients.llm import LlmResult
 from app.core.errors import ServiceUnavailable
 from app.features.chat.schemas import SourceChunk
 from app.features.chat.service import _checked_answer
+from app.features.chat.verified_fallback import VERIFIED_FALLBACK_NOTICE
 from test_chat import MODEL_ANSWER, chat, events, withheld_answer
 
 
@@ -142,9 +143,11 @@ def test_failed_outlook_does_not_invent_direction_or_misattribute_prices(chat, n
         category="market_technical", content='{"columns":["date","close"],"rows":[["2026-09-11",50]]}')]
     llm.answer = "保證上漲。[S99]"
     answer = client.post("/api/ask", json={"query": "台積電跟鴻海明天會漲嗎"}).json()["answer"]
-    assert answer.startswith("目前提供的資料不足")
+    assert answer.startswith(VERIFIED_FALLBACK_NOTICE)
     assert "2330" in answer and "缺少" in answer
-    assert not any(word in answer for word in ["偏多", "50", "下週", "最新一日"])
+    assert "2026-09-11 股票 2317 收盤價 50 元。[S3]" in answer
+    assert "2330 收盤價" not in answer
+    assert not any(word in answer for word in ["偏多", "下週", "最新一日"])
 
 
 def test_mixed_supported_stocks_disclose_partial_market_coverage(chat, monkeypatch):

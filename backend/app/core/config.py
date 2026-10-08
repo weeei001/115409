@@ -76,12 +76,15 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 2
     LLM_STREAMING: bool = True
     LLM_STREAM_CHUNK_TIMEOUT_SECONDS: float = 0
-    # Chat intent, answers and citation repair share a separate latency budget.
+    # 單次模型逾時與整輪上限分開；意圖、檢索、初答及唯一一次修復共用整輪時間。
     # An empty model preserves existing deployments until a chat model is selected.
     CHAT_LLM_MODEL: str = ""
     CHAT_LLM_MAX_TOKENS: int = 8192
     CHAT_LLM_TIMEOUT_SECONDS: float = 60
     CHAT_LLM_MAX_RETRIES: int = 0
+    CHAT_REQUEST_TIMEOUT_SECONDS: float = Field(60, gt=0, allow_inf_nan=False)
+    # 修復只處理已找到的資料，以實際輸出上限避免再次產生同樣長的回答。
+    CHAT_REPAIR_MAX_TOKENS: int = Field(2048, gt=0)
     LLM_INPUT_PRICE_PER_M: float = 0.20
     LLM_OUTPUT_PRICE_PER_M: float = 1.20
     ANALYSIS_TIMEOUT_SECONDS: int = 1200

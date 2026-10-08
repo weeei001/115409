@@ -104,6 +104,11 @@ def _threshold(before, after, aliases):
     introduction = INTRO.match(before)
     prefix = before[introduction.end():] if introduction else before
     prefix = _without_subject(re.sub(r"^\s*(?:[-•·]|\d+[.)])\s*", "", prefix), aliases).strip()
+    # 「目前」也可能修飾當下的建議；只有完整的可設定句型才豁免，不能把現況字詞直接刪掉。
+    if re.fullmatch(rf"(?:目前|現在){MODIFIER}{RISK}{MODIFIER}"
+                    rf"(?:可(?:以)?|建議|宜|不妨)(?:設定?|抓|訂|定|控制|放)"
+                    rf"(?:在|為|於|至|到)?{MODIFIER}", prefix):
+        return "risk", ""
     if re.search(r"\d", prefix) or re.search(OBSERVED, prefix):
         return None
     if re.fullmatch(rf"{MODIFIER}(?:設定)?{RISK}{MODIFIER}{SETTER}{MODIFIER}", prefix):
@@ -127,8 +132,13 @@ def _role(before, after, aliases, *, continued=False, allow_target=False):
             action = "price" if subject.startswith(("股價", "收盤")) else "rate" if subject.startswith("報酬率") else "change"
             return "condition", action
     threshold = _threshold(before, after, aliases)
-    if threshold or condition:
+    if threshold:
         return threshold
+    if condition:
+        # 假設的買賣仍占用方案的資金或庫存；只沿用局部操作句型，不授權假設帳戶現況。
+        before = before[condition.end():]
+        continued = True
+        allow_target = False
     introduction = INTRO.match(before)
     if not introduction and not continued:
         return None
@@ -173,7 +183,8 @@ def parse_proposals(text, aliases=None):
     previous_boundary = ""
     parent = None
     for offset, clause, boundary in _clauses(text):
-        if not clause.strip():
+        content = re.sub(r"\[S[1-9][0-9]*\]", "", clause).strip()
+        if not content:
             previous_boundary = boundary or previous_boundary
             continue
         if re.fullmatch(r"\s*(?:建議|我的建議)(?:以下)?(?:配置|安排)?\s*[:：]\s*", clause):
@@ -181,6 +192,14 @@ def parse_proposals(text, aliases=None):
             carry = True
             previous_boundary = boundary
             continue
+        listed = bool(re.match(r"\s*(?:[-•·]|\d+[.)])", clause))
+        # 建議標題只授權連續清單；新標題、非清單段落或明示現況都必須結束作用域，
+        # 否則後面的實際持股占比會被誤當配置目標，跳過來源核對。
+        if header and (content.endswith(("：", ":"))
+                       or (previous_boundary == "\n" and not listed)
+                       or re.match(r"\s*(?:(?:[-•·]|\d+[.)])\s*)?"
+                                   r"(?:目前|現在|實際|現況|截至|已經)", clause)):
+            header = False
         linked = bool(re.match(r"\s*(?:[-•·]|\d+[.)]|另外|另|再|然後|接著|其中|並)", clause))
         if re.match(r"\s*其中", clause):
             parent = next((index for index in reversed(range(len(proposals)))
@@ -190,7 +209,7 @@ def parse_proposals(text, aliases=None):
         values = [match for match in VALUE.finditer(clause)
                   if match["low_unit"] or match["high_unit"] or match["currency_prefix"]]
         previous_end = 0
-        listed_target = header and bool(re.match(r"\s*(?:[-•·]|\d+[.)])", clause))
+        listed_target = header and listed
         continuing = listed_target or (carry and (previous_boundary in {",", "，"} or linked))
         for index, match in enumerate(values):
             before = clause[previous_end:match.start()]
@@ -199,6 +218,9 @@ def parse_proposals(text, aliases=None):
                 before = before.rsplit("、", 1)[-1]
             role = _role(before, after, aliases, continued=continuing, allow_target=listed_target)
             if not role:
+                if re.search(r"目前|現在|實際|現況|截至|已經", before):
+                    header = False
+                    listed_target = False
                 continuing = False
                 previous_end = match.end()
                 continue
@@ -251,7 +273,7 @@ def parse_proposals(text, aliases=None):
     return proposals
 
 
-def plan_supported(text, sources, aliases=None):
+def plan_supported(text, sources, aliases=None, *, require_portfolio=False):
     """Check a complete plan once, including allocations across citation units."""
     try:
         proposals = parse_proposals(text, aliases)
@@ -267,8 +289,11 @@ def plan_supported(text, sources, aliases=None):
                 payload = json.loads(source.content)
                 if "portfolio" in payload:
                     portfolios.append(payload["portfolio"])
-        if not actionable or not portfolios:
+        if not actionable:
             return True
+        if not portfolios:
+            # 帳戶模式由可信任的請求決定；回答改稱「假設」或省略個人引用不能取消資金與庫存檢查。
+            return not require_portfolio
         if any(portfolio.get("initialized") is not True for portfolio in portfolios):
             return False
         budget = min(decimal_number(portfolio["available_cash"]) for portfolio in portfolios)

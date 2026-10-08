@@ -163,10 +163,16 @@ def test_volume_change_percentage_uses_its_observation_field():
     assert not numeric_claims_supported("成交量較5日均量增加100%。", [evidence])
 
 
-@pytest.mark.parametrize("period", ["2026Q2", "2026年第二季", "2026年", "2026年6月"])
-def test_period_labels_are_not_ticker_symbols(period):
-    evidence = source({"items": [{"field": "eps", "value": 27.25, "date": "2026-06-30"}]}, "fundamental")
+@pytest.mark.parametrize("period,source_period", [
+    ("2026Q2", "2026Q2"), ("2026年第二季", "2026Q2"),
+    ("2026年", "2026"), ("2026年6月", "2026-06"),
+])
+def test_period_labels_are_not_ticker_symbols(period, source_period):
+    evidence = source({"items": [{"field": "eps", "value": 27.25, "date": "2026-06-30",
+                                  "period": source_period}]}, "fundamental")
     assert numeric_claims_supported(f"{period} EPS27.25元。", [evidence])
+    missing_period = source({"items": [{"field": "eps", "value": 27.25, "date": "2026-06-30"}]}, "fundamental")
+    assert not numeric_claims_supported(f"{period} EPS27.25元。", [missing_period])
 
 
 def test_chinese_observation_dates_are_checked():
@@ -295,7 +301,8 @@ def test_natural_anchor_description_uses_a_typed_percentage_fact():
 def test_unknown_percentage_wording_requires_percentage_provenance():
     evidence = source({"columns": ["date", "close", "volume_shares", "chg_pct"],
         "rows": [["2026-10-02", 100, 500, 2]], "maximum_observations": 30})
-    assert numeric_claims_supported("變動2%。", [evidence])
+    assert numeric_claims_supported("漲跌幅2%。", [evidence])
+    assert not numeric_claims_supported("變動2%。", [evidence])
     for claim in ("變動100%。", "變動500%。", "變動30%。", "2317變動2%。", "2026-10-01變動2%。"):
         assert not numeric_claims_supported(claim, [evidence])
     assert not numeric_claims_supported("占比2%。", [evidence])
