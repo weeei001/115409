@@ -76,6 +76,9 @@ TEXT_BRIEF_COMPLIANCE_TEXT_KEYS = frozenset(
     }
 )
 PERCENT_IN_TEXT_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%")
+NEGATIVE_COMPARISON_RE = re.compile(r"低於|下降|降低|減少|下滑|下跌|落後|跌破|萎縮|衰退")
+CONDITIONAL_RE = re.compile(r"若|如果|倘若|假如|一旦|萬一|假設")
+TEXT_BRIEF_MISSING_TRIGGER = "本次未提供可核對的觸發條件。"
 
 
 def _price_mentions(text: str, *, condition: bool = False):
@@ -100,8 +103,10 @@ def _is_price_scenario(text: str, match: re.Match) -> bool:
     start = max(text.rfind(char, 0, match.start()) for char in "。；;，,\n") + 1
     prefix = text[start:match.start()]
     markers = list(re.finditer(r"情境假設|假設門檻", prefix))
+    # 「若收盤跌破」 conditions on a future close; only an observed close is a historical claim.
     return bool(markers) and not re.search(
-        r"已(?:收盤|成交|突破|站上|跌破)|實際(?:收盤|成交)|收盤|歷史(?:高點|低點)",
+        r"已(?:收盤|成交|突破|站上|跌破)|實際(?:收盤|成交)|歷史(?:高點|低點)"
+        r"|收盤(?!價?\s*(?:跌破|站上|站回|突破|低於|高於|守住|失守|回到|跌回|回落|回升))",
         prefix[markers[-1].end():] if markers else prefix)
 
 
@@ -342,11 +347,25 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                             candidates.append(row.get(metric))
                     elif metric and row.get("field") == metric:
                         candidates.append(row.get("value"))
-            if not any(isinstance(value, (int, float)) and abs(number - value) <= 0.1 for value in candidates):
+            numbers = [number]
+            # 「低於季線 4.1%」 gives the magnitude of a negative deviation.
+            clause = re.split(r"[。；;，,\n]", text[:match.start()])[-1]
+            if number > 0 and not match.group(1).startswith("+") and NEGATIVE_COMPARISON_RE.search(clause):
+                numbers.append(-number)
+            # Rounded to the written precision (「漲 3%」 for 3.33%), as chat answers are.
+            # An undated whole percent could match any one of several days, so it keeps 0.1.
+            decimals = len(match.group(1).partition(".")[2])
+            usable = [value for value in candidates if isinstance(value, (int, float))]
+            tolerance = max(0.1, 0.5 * 10 ** -decimals) if len(set(usable)) == 1 else 0.1
+            if not any(abs(candidate - value) <= tolerance for value in usable for candidate in numbers):
                 quoted = any(any(abs(float(found.group(1)) - float(match.group(1))) <= TEXT_BRIEF_NUMBER_TOLERANCE_PP
                                  for found in PERCENT_IN_TEXT_RE.finditer(str(row.get("value", "")))) for row in news)
+                sentence = re.split(r"[。；;\n]", text[:match.start()])[-1]
                 if quoted:
                     issues.append(f"未核實新聞百分比語義：{match.group(0)}")
+                elif key in FORWARD_CONDITION_KEYS and CONDITIONAL_RE.search(sentence):
+                    # A trigger threshold is an analysis assumption, not an observed value.
+                    issues.append(f"未核實情境百分比：{match.group(0)}；門檻為分析假設，非已發生事實")
                 else:
                     label = "未核實百分比指標" if metric is None else "百分比未獲同項證據支持"
                     issues.append(f"{label}：{match.group(0)}")
@@ -413,8 +432,11 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                                      if re.search(r"MACD|柱狀體", clause, re.I)]
                 if any(re.search(pattern, clause) for clause in indicator_clauses) and not supported:
                     issues.append("MACD 趨勢未獲同項日期序列支持")
-        for match in re.finditer(r"([+-]?\d[\d,]*(?:\.\d+)?)\s*張", text):
-            number = float(match.group(1).replace(",", ""))
+        # 「1.2 萬張」 is checked like 「12,000 張」, within its written precision.
+        for match in re.finditer(r"([+-]?\d[\d,]*(?:\.\d+)?)\s*(萬)?\s*張", text):
+            scale = 10000 if match.group(2) else 1
+            number = float(match.group(1).replace(",", "")) * scale
+            lot_tolerance = max(0.5, 0.5 * 10 ** -len(match.group(1).partition(".")[2]) * scale)
             start = max(text.rfind(char, 0, match.start()) for char in "。；;，\n") + 1
             prefix = text[start:match.start()]
             subjects = list(re.finditer(r"成交量|交易量|量能|外資|投信|自營商|法人", prefix))
@@ -443,7 +465,7 @@ def _grounding_issues(item: dict, bundle: EvidenceBundle) -> list[str]:
                 if any(isinstance(value, (int, float)) for value in context):
                     issues.append("未核實情境張數；門檻為分析假設，非已發生事實")
                     continue
-            supported = any(isinstance(value, (int, float)) and abs(number - value) <= 0.5
+            supported = any(isinstance(value, (int, float)) and abs(number - value) <= lot_tolerance
                             for value in candidates)
             if conditional and not supported:
                 issues.append("條件張數須明示為情境假設並引用對應資料脈絡")
@@ -668,6 +690,7 @@ def _scan_text_brief_compliance(value: Any, *, prices: dict[str, Decimal] | None
             hits.extend(_scan_text_brief_compliance(item, prices=prices))
     elif isinstance(value, dict):
         cited_prices = {(prices or {})[ref] for ref in value.get("evidence_ids", []) if ref in (prices or {})}
+        cites_news = any(str(ref).startswith("nw_") for ref in value.get("evidence_ids") or [])
         for key, text in value.items():
             if key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS and isinstance(text, str):
                 condition = key in FORWARD_CONDITION_KEYS
@@ -684,7 +707,7 @@ def _scan_text_brief_compliance(value: Any, *, prices: dict[str, Decimal] | None
                     for match, scenario in zip(matches, scenarios))
                 if any(scenarios) and valid_amounts and not grounded:
                     hits.append(ComplianceHit("情境價位-soft", "soft", text))
-                hits.extend(scan_compliance_hits(text, grounded_condition=supported))
+                hits.extend(scan_compliance_hits(text, grounded_condition=supported, cites_news=cites_news))
                 if condition and amounts and not supported:
                     hits.append(ComplianceHit("前瞻價位-hard", "hard", text))
             elif key == "limitations" and isinstance(text, list):
@@ -719,7 +742,14 @@ def _apply_text_brief_compliance_gate(
         kept = []
         for item in brief_payload[section]:
             if record(check(item)):
-                removed_ids.append(item["id"])
+                # Like a forward view's invalidation, an invalid trigger does not invalidate the risk itself.
+                rest = {key: value for key, value in item.items() if key != "trigger"}
+                if section == "risks" and not any(hit.severity == "hard" for hit in check(rest)):
+                    item["trigger"] = TEXT_BRIEF_MISSING_TRIGGER
+                    removed_ids.append(f"{item['id']}.trigger")
+                    kept.append(item)
+                else:
+                    removed_ids.append(item["id"])
             else:
                 kept.append(item)
         brief_payload[section] = kept

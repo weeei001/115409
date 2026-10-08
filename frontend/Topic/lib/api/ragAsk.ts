@@ -129,8 +129,6 @@ export async function ragAskStream(
     answer_detail: params.answer_detail ?? 'plain',
     history: (params.history ?? []).slice(-8).map(cleanHistoryMessage).filter((message) => message.content),
     stream: true,
-    // openapi 沒有這個欄位，後端會忽略；決議 D1 維持舊版行為照送
-    user_token: typeof window !== 'undefined' ? getToken() : null,
   });
 
   try {
@@ -206,7 +204,7 @@ export async function ragAskStream(
     }
     if (carry.trim() && processLine(carry)) return { hadStreamText, completed };
 
-    // 非串流的 AskResponse（整份 JSON，可能跨多行）：只讀 answer、actions、dashboard（決議 D2）
+    // 非串流的 AskResponse（整份 JSON，可能跨多行）：只讀 answer、actions、dashboard、sources（決議 D2）
     if (!hadStreamText && fullRaw.trim()) {
       try {
         const obj = JSON.parse(fullRaw.trim()) as StreamEvent;

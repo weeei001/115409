@@ -24,6 +24,11 @@ class AnswerValidationError(ServiceUnavailable):
 class CitationValidationError(AnswerValidationError):
     reason = "citations"
 
+    def __init__(self, detail, *, hint: str = ""):
+        super().__init__(detail)
+        # Recovery prompt only: which paragraph or token failed, never serialized to HTTP.
+        self.hint = hint
+
 
 class NumericValidationError(CitationValidationError):
     reason = "numbers"
@@ -32,6 +37,11 @@ class NumericValidationError(CitationValidationError):
         super().__init__(detail)
         # Recovery prompt only; HTTP handlers serialize detail, never the rejected prose.
         self.claim = claim
+
+
+class ComplianceValidationError(CitationValidationError):
+    """A promised outcome or an unsourced price target; recommendations themselves are allowed."""
+    reason = "compliance"
 
 
 class EmptyAnswerError(AnswerValidationError):
@@ -43,6 +53,93 @@ class TruncatedAnswerError(AnswerValidationError):
 
 
 NUMERIC_RECOVERY_GUIDANCE = "請先查看本輪資料面板，再指定 1 至 2 檔股票重新提問。"
+CITATION_ERROR = "回答的引用資料不足或格式無法核對，請稍後重試。"
+COMPLIANCE_ERROR = "回答含有保證結果或無法核對的目標價，請稍後重試。"
+# Real markup only: comparisons such as "K<D" or "收盤<MA20" are not tags.
+HTML_NAMES = (r"(?:a|b|br|i|u|p|em|strong|small|span|div|font|h[1-6]|hr|img|iframe|script|style|svg|"
+              r"object|embed|form|input|button|link|meta|code|pre|table|thead|tbody|tr|td|th|ul|ol|li|"
+              r"details|summary|section|article|blockquote|sub|sup)(?=[\s/>])")
+HTML_TAG = re.compile(r"<!--|<\s*/?\s*" + HTML_NAMES, re.IGNORECASE)
+HTML_MARKUP = re.compile(r"<\s*/?\s*" + HTML_NAMES + r"[^<>]*>", re.IGNORECASE)
+# A short uncited label such as "**技術面**", "### 結論" or "結論：" carries no claim.
+HEADING = re.compile(r"(?:#{1,6}\s*)?(?:\*\*|__)?\s*[【\[]?(?P<label>[^\d\n。！？!?；;，,:：]{1,16}?)[】\]]?\s*[:：]?\s*(?:\*\*|__)?")
+HTML_ELEMENT = re.compile(r"<\s*(script|style)\b[^>]*>.*?<\s*/\s*\1\s*>|<!--.*?-->", re.IGNORECASE | re.DOTALL)
+LINK_START = r"(?:[a-z][a-z0-9+.-]*:)?//|www\."
+URL = re.compile(r"(?:" + LINK_START + r")[^\s\[\]［］【】（）()<>「」，。、；;]+", re.IGNORECASE)
+# Generic closing reminders; they state no fact, so they need no citation.
+DISCLAIMER = re.compile(r"(?:僅供參考|不構成(?:任何)?投資建議|非投資建議|投資有賺有賠|請(?:自行)?審慎評估|請自行判斷)")
+# An uncited closing line may only summarize or admit uncertainty; it adds no fact or direction.
+SUMMARY = re.compile(r"綜合(?:來看|而言|以上)|整體(?:來看|而言)|總結|總的來說|簡單來說|換句話說"
+                     r"|資料不足|無法(?:判斷|判定|確認)|尚無法|不明確|有待(?:觀察|確認)|仍需觀察|需要更多")
+DIRECTION = r"買|賣|加碼|減碼|布局|佈局|看多|看空|偏多|偏空|看好|看壞|偏強|偏弱|走強|走弱|漲|跌|建議|推薦|預期|將會"
+# Unsourced price targets and promised outcomes; buy/sell views remain allowed by the answer prompt.
+PRICE_TARGET = re.compile(r"(?:目標價(?:位)?|合理價(?:位)?|上看|下看)[^。，,；;\n\d]{0,8}([\d,]+(?:\.\d+)?)\s*(?:元|塊)")
+TARGET_ATTRIBUTION = re.compile(r"分析師|法人|券商|投顧|外資|報導|媒體|研究|機構|研調|指出|表示|預估|給予|喊出|調升|調降|維持")
+PROMISE = re.compile(r"穩賺|穩賠|零風險|必漲|必跌"
+                     r"|(?:保證|一定|必定|必然|絕對)(?:會|能)?(?:上漲|下跌|漲|跌|賺|獲利|回本|不賠|報酬)")
+PROMISE_NEGATION = re.compile(r"(?:不|未|無法|不能|並非|不是|沒有)(?:會|能)?$")
+
+
+def _repaired(answer: str) -> str:
+    """Remove formatting that can be dropped without changing a claim, instead of rejecting the answer."""
+    header = re.search(r"(?:^|\n)[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?【引用來源】", answer)
+    if header:
+        answer = answer[:header.start()].rstrip()  # The server appends the verified list.
+    answer = re.sub(r"\[([^\[\]\n]{1,40})\]\(\s*(?:" + LINK_START + r")[^)\s]*\s*\)", r"\1", answer,
+                    flags=re.IGNORECASE)
+    answer = HTML_ELEMENT.sub("", answer)
+    answer = re.sub(r"<\s*br\s*/?\s*>", "\n", answer, flags=re.IGNORECASE)
+    answer = HTML_MARKUP.sub("", answer)
+    return URL.sub("", answer)
+
+
+def _relabelled(answer: str) -> str:
+    """Runs after citation normalization, so only non-citation brackets remain."""
+    def label(match):
+        text = match.group(1).strip()
+        # A bracketed number or source name poses as a citation; drop it so the paragraph check sees no support.
+        if re.fullmatch(r"\d+|.*(?:來源|資料|片段|參考|出處|引用|ref|source|[sS]\s*\d).*", text, re.IGNORECASE):
+            return ""
+        return f"【{text}】"
+    return re.sub(r"[\[［](?!S[1-9][0-9]*\])([^\[\]［］\n]{1,20})[\]］]", label, answer)
+
+
+def _is_summary(paragraph: str) -> bool:
+    if len(paragraph) > 80 or re.search(r"\d", paragraph) or not SUMMARY.search(paragraph):
+        return False
+    return not re.search(DIRECTION, paragraph.replace("漲跌", ""))
+
+
+def _citation_group(match) -> str:
+    """Normalize "[S1, S2]", "【S1】", "[片段1]" and "[S1-S3]" to "[S1][S2]..."."""
+    text = match.group()
+    numbers = []
+    for start, end in re.findall(r"(\d+)\s*(?:[-–~～至到]\s*(?:[sS]|片段)?\s*(\d+))?", text):
+        low, high = int(start), int(end or start)
+        if not 0 <= high - low <= 10:
+            return text  # Left unnormalized, so it is dropped as a fake citation and its paragraph is uncited.
+        numbers.extend(range(low, high + 1))
+    return "".join(f"[S{number}]" for number in numbers)
+
+
+def _is_disclaimer(paragraph: str) -> bool:
+    """A short reminder with no number, stock view or trading direction."""
+    if len(paragraph) > 60 or not DISCLAIMER.search(paragraph):
+        return False
+    rest = DISCLAIMER.sub("", paragraph)
+    return not re.search(r"\d|買|賣|加碼|減碼|布局|佈局|看多|看空|偏多|偏空|漲|跌|建議|推薦|預期|將會", rest)
+
+
+def _is_heading(paragraph: str, next_paragraph: str, codes=frozenset()) -> bool:
+    lines = [line for line in paragraph.splitlines() if line.strip()]
+    if len(lines) != 1 or not next_paragraph:
+        return False
+    # A stock code in a heading such as "**台積電（2330）**" or "### 台積電 2330" names the subject, not a value.
+    line = re.sub(r"[(（]\s*\d{4,6}\s*[)）]", "", lines[0].strip())
+    line = re.sub(r"(?<![\d,.])\d{4,6}(?![\d,.%])", lambda match: "" if match.group() in codes else match.group(), line)
+    marked = line.startswith("#") or line.startswith(("**", "__", "【")) or line.endswith((":", "：", ":**", "：**"))
+    return (marked and bool(HEADING.fullmatch(line))
+            and not re.search(r"買進|買入|賣出|加碼|減碼|看多|看空|偏多|偏空|上漲|下跌|會漲|會跌", line))
 
 
 def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "",
@@ -52,28 +149,35 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
         raise TruncatedAnswerError("模型回答未完整生成，請稍後重試。")
     if metadata.get("truncated") or metadata.get("finish_reason") != "stop":
         raise ServiceUnavailable("模型回答未完整生成，請稍後重試。")
-    answer = raw_text.strip()
+    answer = _repaired(raw_text.strip()).strip()
     if not answer:
         raise EmptyAnswerError("模型服務未回傳有效內容，請稍後重試")
     if _is_insufficient_only(answer):
         return INSUFFICIENT_EVIDENCE_ANSWER + warning
 
     # Normalize citation typography only; every resulting ID is still checked below.
+    # The prompt labels evidence "[片段N] [SN]", so both numberings name the same source.
+    token = r"(?:[sS]|片段)\s*\d+"
     answer = re.sub(
-        r"\[\s*[sS]\d+(?:\s*[,，、]\s*[sS]\d+)*\s*\]|［\s*[sS]\d+(?:\s*[,，、]\s*[sS]\d+)*\s*］|【\s*[sS]\d+(?:\s*[,，、]\s*[sS]\d+)*\s*】",
-        lambda match: "".join(f"[{token.upper()}]" for token in re.findall(r"[sS]\d+", match.group())),
-        answer,
+        rf"[\[［【(（]\s*{token}(?:\s*(?:[,，、]|[-–~～至到])\s*{token}|\s*[-–~～至到]\s*\d+)*\s*[\]］】)）]",
+        _citation_group, answer,
     )
+    answer = _relabelled(answer)
     # ponytail: structural checks cannot prove entailment; add semantic evaluation when needed.
     citation_pattern = r"\[S[1-9][0-9]*\]"
     cited = list(dict.fromkeys(re.findall(citation_pattern, answer)))
     available = {f"[{source.citation_id}]": source for source in sources if source.content.strip()}
     remainder = re.sub(citation_pattern, "", answer)
-    if (not cited or any(citation not in available for citation in cited)
-            or re.search(r"[\[\]［］]|【\s*[sS]\d|[a-z][a-z0-9+.-]*://|www\.|<\s*/?[a-z]",
-                         remainder, re.IGNORECASE)
-            or "【引用來源】" in answer):
-        raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
+    if not cited:
+        raise CitationValidationError(CITATION_ERROR, hint="整份回答沒有任何 [S1] 格式的引用編號。")
+    unknown = [citation for citation in cited if citation not in available]
+    if unknown:
+        raise CitationValidationError(CITATION_ERROR, hint="使用了本輪不存在的引用編號：" + "".join(unknown))
+    invalid = (re.search(r"[\[\]［］]|【\s*[sS]\d|[a-z][a-z0-9+.-]*://|www\.|(?<![:\w])//\w", remainder, re.IGNORECASE)
+               or HTML_TAG.search(remainder))
+    if invalid:
+        excerpt = remainder[max(0, invalid.start() - 12):invalid.end() + 12]
+        raise CitationValidationError(CITATION_ERROR, hint="含有無法核對的引用格式、連結或 HTML：" + excerpt)
 
     headings = {"【綜合摘要】", "【市場情緒】", "【關鍵事件】", "【投資提示】",
                 "【重點】", "【技術解讀】", "【資料限制】"}
@@ -88,8 +192,24 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
         is_structural_list_intro = (compact.endswith(("：", ":")) and bool(list_marker.match(next_paragraph)))
         if (stripped and stripped not in {INSUFFICIENT_EVIDENCE_ANSWER, "非投資建議。"}
                 and not is_structural_list_intro
+                and not _is_heading(stripped, next_paragraph, frozenset(company_catalog or ()))
+                and not _is_disclaimer(compact)
+                and not _is_summary(compact)
                 and not re.search(citation_pattern, paragraph)):
-            raise CitationValidationError("回答的引用資料不足或格式無法核對，請稍後重試。")
+            raise CitationValidationError(CITATION_ERROR, hint="這個段落沒有以引用編號結尾：" + compact[:80])
+
+    for match in PROMISE.finditer(prose):
+        if not PROMISE_NEGATION.search(prose[max(0, match.start() - 4):match.start()]):
+            raise ComplianceValidationError(COMPLIANCE_ERROR, hint="含有保證結果的說法：" + match.group())
+    for paragraph in paragraphs:
+        for text, citations, _ in _citation_units(paragraph):
+            for match in PRICE_TARGET.finditer(text):
+                number = match.group(1).replace(",", "")
+                sentence = re.split(r"[。!?！？;；\n]", text[:match.start()])[-1] + match.group()
+                sourced = any(re.search(rf"(?<![\d.]){re.escape(number)}(?![\d])",
+                                        available[citation].content.replace(",", "")) for citation in citations)
+                if not (sourced and TARGET_ATTRIBUTION.search(sentence)):
+                    raise ComplianceValidationError(COMPLIANCE_ERROR, hint="目標價須是引用來源中標明出處的數字：" + match.group())
 
     for index, paragraph in enumerate(paragraphs):
         prior_context = "\n\n".join(paragraphs[:index]) + "\n\n" if index else ""

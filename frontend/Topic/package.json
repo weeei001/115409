@@ -18,7 +18,7 @@
     "test:brief": "tsx lib/brief/textBriefEvidence.test.ts && tsx lib/brief/textBriefFacets.test.ts && tsx features/brief/AIBriefSummaryCard.test.tsx",
     "test:favorites": "tsx features/favorites/favorites.test.ts && tsx lib/api/closeSeries.test.ts",
     "test:home": "tsx features/home/journey/journeyMode.test.ts && tsx lib/navigation/scrollRestoration.test.ts && tsx components/layout/SiteHeader.test.tsx && tsx lib/navigation/drawerHistory.test.ts && tsx components/layout/navChrome.test.tsx && tsx features/home/terminal/terminalCopy.test.ts",
-    "test:all": "npm run test:chat && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && npm run test:brief && npm run test:volume && tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx lib/utils/markdown.test.tsx && npm run test:home && npm run test:favorites",
+    "test:all": "npm run test:chat && npm run test:volume && npm run test:order && npm run test:news && npm run test:compare && npm run test:admin && npm run test:brief && npm run test:favorites && npm run test:home && npm run test:notifications",
     "sync:openapi": "node scripts/sync-openapi.mjs"
   },
   "dependencies": {
@@ -27,7 +27,6 @@
     "@capacitor/push-notifications": "^8.1.2",
     "@react-three/fiber": "^9.7.0",
     "@tailwindcss/postcss": "^4.3.3",
-    "@vercel/analytics": "^2.0.1",
     "axios": "^1.20.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

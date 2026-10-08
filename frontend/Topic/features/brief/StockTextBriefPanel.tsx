@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
-import { CONF, CONF_HINT, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
+import { briefStatusNote, CONF, CONF_HINT, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { taipeiDateTime } from '@/lib/utils/date';
 import { Button } from '@/components/ui/button';
@@ -160,6 +160,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
 
   const stanceTone: BriefTone = STANCE_TONE[b.overall_stance ?? ''] ?? 'plain';
   const stale = Boolean(latestTradeDate && data.as_of_date && data.as_of_date < latestTradeDate);
+  const statusNote = briefStatusNote(data.status);
 
   const onTabKeyDown = (event: React.KeyboardEvent, index: number) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -176,6 +177,11 @@ export const StockTextBriefPanel: React.FC<Props> = ({
           <Notice tone="warning">
             這份分析的基準日是 {data.as_of_date}，比最新交易日 {latestTradeDate} 早，內容可能已經過期；排程更新後會自動換成最新的一份。
           </Notice>
+        ) : null}
+        {statusNote && data.limitations?.length ? (
+          <Notice>{statusNote}；原因列在「分析限制」。</Notice>
+        ) : statusNote ? (
+          <Notice>{statusNote}。</Notice>
         ) : null}
 
         <p className="text-xs text-muted-foreground">

@@ -5,6 +5,14 @@ import type { ClaimType, ForwardView, ForwardViewKey } from '../types/textBrief'
  * 摘要卡與完整分析共用，避免同一組列舉在兩邊各翻一次。
  */
 
+/**
+ * 後端自動檢查結果（status）的說明。只有 limited 需要提示：verified 照常顯示，
+ * unavailable 時沒有 brief，由各元件的空狀態處理。原因列在「分析限制」（limitations）。
+ */
+export function briefStatusNote(status: string | undefined): string | null {
+  return status === 'limited' ? '部分內容沒有通過系統檢查或缺少資料，已移除或留空' : null;
+}
+
 export const STANCE: Record<string, string> = {
   bullish: '偏多',
   mildly_bullish: '溫和偏多',

@@ -21,16 +21,18 @@ from app.features.news.sentiment import extract_candidate_stocks
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
-from .answer_validation import AnswerValidationError, CitationValidationError, TruncatedAnswerError, _checked_answer
+from .answer_validation import (NUMERIC_RECOVERY_GUIDANCE, AnswerValidationError, CitationValidationError,
+                                NumericValidationError, TruncatedAnswerError, _checked_answer)
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
 from .personal_context import personal_scopes, read_personal_context, paper_draft
 
-from .prompts import (ANSWER_PROMPT, answer_system_prompt, failed_claim_guidance, recovery_system_prompt,
+from .prompts import (ANSWER_PROMPT, answer_system_prompt, failed_citation_guidance, failed_claim_guidance,
+                      failed_compliance_guidance, recovery_system_prompt,
                       INTENT_SYSTEM_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
-                      NO_NEWS_MESSAGE)
+                      NO_NEWS_MESSAGE, VALIDATION_FALLBACK_ANSWER)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
 
 
@@ -444,9 +446,11 @@ class ChatService:
                    else "回答未通過核對，正在依據來源重新產生…")
             logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
                                              exc.reason, metadata.get("finish_reason"), len(response.sources))
+            guidance = (failed_claim_guidance(getattr(exc, "claim", "")) if exc.reason == "numbers"
+                        else failed_compliance_guidance(exc.hint) if exc.reason == "compliance"
+                        else failed_citation_guidance(getattr(exc, "hint", "")))
             result = await self.llm.text(
-                system_prompt=(recovery_system_prompt(request.answer_detail, exc.reason)
-                               + failed_claim_guidance(getattr(exc, "claim", ""))),
+                system_prompt=recovery_system_prompt(request.answer_detail, exc.reason) + guidance,
                 prompt=prompt,
             )
             yield "正在重新核對回答的引用與數值…"
@@ -460,9 +464,12 @@ class ChatService:
                 logging.getLogger(__name__).warning(
                     "Chat answer validation failed: reason=%s attempt=2 finish=%s sources=%d",
                     retry_exc.reason, finish, len(response.sources))
-                if not isinstance(retry_exc, CitationValidationError) or not _is_forward_outlook(request.query):
-                    raise
-                response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
+                # The rejected prose is withheld, but the turn's dashboard and sources still reach the user.
+                if isinstance(retry_exc, CitationValidationError) and _is_forward_outlook(request.query):
+                    response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
+                else:
+                    response.answer = VALIDATION_FALLBACK_ANSWER + (
+                        NUMERIC_RECOVERY_GUIDANCE if isinstance(retry_exc, NumericValidationError) else "") + warning
             first_usage, retry_usage = _token_usage(metadata), _token_usage(result.metadata)
             metadata = {key: (first_usage[key] or 0) + (retry_usage[key] or 0)
                         if first_usage[key] is not None or retry_usage[key] is not None else None

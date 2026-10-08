@@ -353,31 +353,57 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
     asyncio.run(cancel())
 
 
+def withheld_answer(response, stream):
+    """A twice-rejected answer is replaced by the fixed notice; only that notice is ever sent as text."""
+    if stream:
+        result = events(response)
+        texts = [event["content"] for event in result if event["type"] == "text"]
+        assert texts and all(text.startswith(chat_module.VALIDATION_FALLBACK_ANSWER) for text in texts)
+        answer = result[-1]["answer"]
+    else:
+        assert response.status_code == 200
+        answer = response.json()["answer"]
+    assert answer.startswith(chat_module.VALIDATION_FALLBACK_ANSWER) and "【引用來源】" not in answer
+    return answer
+
+
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("answer", [
     "", "台積電營收增加。", "台積電營收增加。[S99]", "台積電營收增加。[S2]",
-    "台積電營收增加。[S1, S2]", "台積電營收增加。[S1] [S0]",
+    "台積電營收增加。[S1, S2]",
     "台積電營收增加。[S1] 【S99】", "台積電營收增加。[S1] ［S99］",
     "台積電營收增加。[S1]\n\n明年一定上漲。",
+    "台積電營收增加，明年一定上漲。[S1]",
     "【關鍵事件】\n- 營收增加。[S1]\n- 明年一定上漲。",
     "【綜合摘要】\n營收增加。[S1]\n【市場情緒】\n明年一定上漲。",
     "【重點】\n營收增加。[S1]\n\n【技術解讀】\n\nKD 已經黃金交叉。",
+])
+def test_unverifiable_answers_are_withheld_before_any_text_is_sent(chat, stream, answer):
+    client, _, llm, _ = chat
+    llm.answer = answer
+    response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
+    withheld_answer(response, stream)
+    assert "一定上漲" not in response.text and "黃金交叉" not in response.text
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("answer", [
+    "台積電營收增加。[S1] [S0]",
     "台積電營收增加。[S1] https://made-up.test/report",
     "台積電營收增加。[S1] https://news.test/report",
     "台積電營收增加。[S1] [source](//made-up.test/report)",
     "台積電營收增加。[S1] <a href='//made-up.test/report'>來源</a>",
     "台積電營收增加。[S1]\n\n【引用來源】\n- 捏造標題：https://made-up.test/report",
 ])
-def test_unverifiable_answers_fail_before_any_text_is_sent(chat, stream, answer):
+def test_removable_formatting_is_repaired_instead_of_rejected(chat, stream, answer):
     client, _, llm, _ = chat
     llm.answer = answer
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "error" and llm.closed
-        assert not any(event["type"] in {"text", "done"} for event in result)
-    else:
-        assert response.status_code == 503
+    data = events(response)[-1] if stream else response.json()
+    assert data["answer"].startswith("台積電營收增加。[S1]")
+    assert "made-up" not in response.text and "[S0]" not in response.text
+    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -392,7 +418,10 @@ def test_incomplete_answers_fail_with_same_json_and_sse_message(chat, stream, me
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == expected_attempts
     message = "模型回答未完整生成，請稍後重試。"
-    if stream:
+    if expected_attempts == 2:
+        # A length overrun is retried once, then withheld like any other rejected answer.
+        withheld_answer(response, stream)
+    elif stream:
         result = events(response)
         assert result[-1] == {"type": "error", "message": message}
         assert not any(event["type"] in {"text", "done"} for event in result)

@@ -2,7 +2,8 @@
 
 - 前端重寫（2026-09-22～24）時確認過的決議。程式註解裡的「決議 Dx／cxx」都指向這裡的「決議紀錄」與附錄 (c)；「決議 F1」指向最後的「收藏股」一節。
 - 附錄 (a)、(c) 描述的是舊前端（`frontend/topictest`，已刪除）當時的狀況；目前的做法以「決議紀錄」為準。
-- API 契約以根目錄的 `openapi.json` 為準。
+- API 契約以根目錄的 `openapi.json` 為準。這個檔案被 `.gitignore` 排除、不在版控，用之前先跑 `npm run sync:openapi` 從後端下載最新版。
+- 「2026-10-08 核對」的補充來自逐條核對，那次的決定見最後的「逐條核對（H1）」。
 
 ---
 
@@ -29,7 +30,7 @@
 
 | # | 端點 | 回傳內容 | 注意事項 |
 |---|---|---|---|
-| b1 | GET /stocks/{symbol}/chart/chips-volume | 每日收盤、成交量、三大法人買賣超（ChipsVolumeData） | 後端跟舊前端有用的 `/volume-with-chips` 呼叫同一個函式，是重複端點 |
+| b1 | GET /stocks/{symbol}/chart/chips-volume | 每日收盤、成交量、三大法人買賣超（ChipsVolumeData） | 後端跟舊前端有用的 `/volume-with-chips` 呼叫同一個函式，是重複端點。〔2026-10-06 後端已刪除這支端點〕 |
 | b2 | GET /stocks/{symbol}/fundamentals/financial-statements | 財報科目列（statement = income／balance／cashflow，item_type、origin_name、value） | 基本面，舊版完全沒有這類畫面 |
 | b3 | GET /stocks/{symbol}/fundamentals/monthly-revenues | 月營收（revenue、revenue_year、revenue_month） | 同上；AI 分析的證據目錄內部有用到月營收，但前端沒有直接抓 |
 | b4 | GET /stocks/{symbol}/fundamentals/valuations | 每日本益比 per、股價淨值比 pbr、殖利率 dividend_yield | 同上 |
@@ -216,43 +217,43 @@
 
 | 決議 | 範圍 | 使用者回覆 | 解讀與做法 |
 |---|---|---|---|
-| D1 | a1、c44 `user_token` | 不管 | 維持舊版行為：照送 `user_token`，`ragAsk.test.ts` 的斷言不動 |
-| D2 | a2 SSE 事件 | 照建議 | 只解析後端實際會送的 status／text／dashboard／done／error 與 content、message、answer、actions、dashboard；JSON fallback 只讀 `answer`；拿掉 `delta`、`raw_answer`、`response` 等 |
+| D1 | a1、c44 `user_token` | 不管 | 維持舊版行為：照送 `user_token`，`ragAsk.test.ts` 的斷言不動。〔已由 H1 取代：2026-10-08 拿掉 `user_token`，測試斷言一併改〕 |
+| D2 | a2 SSE 事件 | 照建議 | 只解析後端實際會送的 status／text／dashboard／done／error 與 content、message、answer、actions、dashboard；JSON fallback 只讀 `answer`；拿掉 `delta`、`raw_answer`、`response` 等。〔2026-10-08 核對：done 事件另外讀 `sources`；JSON fallback 實際讀 answer、actions、dashboard、sources（`lib/api/ragAsk.ts`）〕 |
 | D3 | a3、c55 整合圖表 | 照建議 | 個股頁改用 `/institutional-trades`、`/technical-indicators`、`/volume-with-chips` 三支有型別端點，不再呼叫 `/integrated-chart`（連帶解決 c21） |
 | D4 | a4、a7、a9 | 照建議 | 拿掉替代欄位名、`source_type`、`/stocks/symbols` 的物件容錯 |
-| D5 | a5、a6、a8 | 照建議並且保留 | 沿用 `moving_averages` 的 MA 鍵、`evidence_catalog` 的額外欄位與 field 值、情緒 label 的 5 個值；型別註明「openapi 未列、依後端實作」。〔2026-09-30 後端移除新聞情緒分析（68fc1b9），情緒 label 一項已不適用〕〔2026-10-06 新增，使用者回覆「P1-01 同意用 /news/industries，補進 D5」：新聞篩選的產業下拉選單使用 `GET /news/industries`。openapi 的回應 schema 是空的，形狀依後端 `news/service.py` 的 `industries()` 寫成 `{ items: [{ id, name }] }`（`lib/types/api.ts` 的 `NewsIndustriesResponse`；`lib/api/news.ts` 的 `fetchNewsIndustries` 略過形狀不對的項目）。後端替這支端點加上 `response_model` 後重跑 `sync:openapi`，改成照 schema 抄，並拿掉這一項例外〕 |
+| D5 | a5、a6、a8 | 照建議並且保留 | 沿用 `moving_averages` 的 MA 鍵、`evidence_catalog` 的額外欄位與 field 值、情緒 label 的 5 個值；型別註明「openapi 未列、依後端實作」。〔2026-09-30 後端移除新聞情緒分析（68fc1b9），情緒 label 一項已不適用〕〔2026-10-06 新增，使用者回覆「P1-01 同意用 /news/industries，補進 D5」：新聞篩選的產業下拉選單使用 `GET /news/industries`。openapi 的回應 schema 是空的，形狀依後端 `news/service.py` 的 `industries()` 寫成 `{ items: [{ id, name }] }`（`lib/types/api.ts` 的 `NewsIndustriesResponse`；`lib/api/news.ts` 的 `fetchNewsIndustries` 略過形狀不對的項目）。後端替這支端點加上 `response_model` 後重跑 `sync:openapi`，改成照 schema 抄，並拿掉這一項例外〕〔2026-10-08 新增，使用者要求處理驗證規則盤點的遺留項：AI 分析 `forward_views.*.validation_status`（只有 `"rejected"` 或 null）。後端 `analysis/schemas.py` 的 `TextBriefForwardView` 用 `SkipJsonSchema` 隱藏，因為 `StockBehaviorTextBrief` 同時是給模型的輸出 schema，放進 schema 會讓模型自己填；只有伺服器檢查該期間展望不通過時才設成 rejected。前端型別在 `lib/types/textBrief.ts` 的 `ForwardView`，標籤在 `lib/brief/textBriefLabels.ts` 的 `forwardViewLabel`（顯示「內容未通過檢查」）。後端把回應與模型輸出拆成兩個 schema 後，改成照 openapi 抄，並拿掉這一項例外〕 |
 | D6 | a10 | 照建議 | API 層型別照 openapi 寫成 string，在 mapper 轉成 number |
-| D7 | (b) 17 個端點 | 需要更多解釋 → 看完補充後回覆「D7 確認，繼續」 | 已補在附錄 (b) 的「回傳內容」與「注意事項」；確認不實作。〔2026-09-25 起多股比較使用 b2–b4（`lib/api/compareFundamentals.ts`）；b5 已從後端移除〕 |
-| D8 | c1–c9 顏色 | 照建議 | 新聞情緒徽章改用 token（正面 up、負面 down，其餘中性）；錯誤／成功／警告另立 token，不再借用漲跌色；寫死的 Tailwind 色（red、amber、emerald、rose、slate、zinc）全部換成 token；顏色依數值正負而不是依欄位，0 顯示中性；MA60、MA120 換成非紅綠色；RSI ≥ 70 統一稱「超買」、≤ 30 稱「超賣」，不用漲跌色表示好壞；熱力圖圖例與色階一致。實際色值在 Phase 1 提案（原始提案未留存於 docs/，以 `styles/main.css` 與 `lib/charts/theme.ts` 為準） |
-| D9 | c10–c27 bug | 全部修正 | c10 補上 MA 週期選擇器；c11 策略標記不移植；c16 結果一律用上次比較的清單；c19 註冊姓名改選填、註冊後依 returnUrl 導向；c20 AI 分析基準日固定用 max_date；c23 歷史股價表移到價量抽屜；其餘 c12–c15、c17、c18、c21、c22、c24–c27 直接修正。〔最終稽核 2026-09-24〕c22 當時漏改，D13 補上〔2026-10-06 AI 分析請求不再帶 as_of_date，改跟著後端最新的資料（`lib/hooks/useStockTextBrief.ts`）；c20 固定基準日一項已不適用〕 |
+| D7 | (b) 17 個端點 | 需要更多解釋 → 看完補充後回覆「D7 確認，繼續」 | 已補在附錄 (b) 的「回傳內容」與「注意事項」；確認不實作。〔2026-09-25 起多股比較使用 b2–b4（`lib/api/compareFundamentals.ts`）；b5 已從後端移除〕〔2026-10-08 核對：b1 與 `/simulated-orders` 也已在 2026-10-06 從後端刪除，openapi.json 已同步移除〕 |
+| D8 | c1–c9 顏色 | 照建議 | 新聞情緒徽章改用 token（正面 up、負面 down，其餘中性）；錯誤／成功／警告另立 token，不再借用漲跌色；寫死的 Tailwind 色（red、amber、emerald、rose、slate、zinc）全部換成 token；顏色依數值正負而不是依欄位，0 顯示中性；MA60、MA120 換成非紅綠色；RSI ≥ 70 統一稱「超買」、≤ 30 稱「超賣」，不用漲跌色表示好壞；熱力圖圖例與色階一致。實際色值在 Phase 1 提案（原始提案未留存於 docs/，以 `styles/main.css` 與 `lib/charts/theme.ts` 為準）〔2026-10-08 核對：新聞情緒徽章已隨情緒分析移除；同一套正負上色規則現在用在新聞影響方向（`lib/utils/newsImpact.ts`）〕 |
+| D9 | c10–c27 bug | 全部修正 | c10 補上 MA 週期選擇器；c11 策略標記不移植；c16 結果一律用上次比較的清單；c19 註冊姓名改選填、註冊後依 returnUrl 導向；c20 AI 分析基準日固定用 max_date；c23 歷史股價表移到價量抽屜；其餘 c12–c15、c17、c18、c21、c22、c24–c27 直接修正。〔最終稽核 2026-09-24〕c22 當時漏改，D13 補上〔2026-10-06 AI 分析請求不再帶 as_of_date，改跟著後端最新的資料（`lib/hooks/useStockTextBrief.ts`）；c20 固定基準日一項已不適用〕〔2026-10-08 核對：c13 的標題與數值是依 G1 一起換算成「張」；c17 隨舊模擬下單刪除，已不適用〕 |
 | D10 | c28–c36 死碼 | 全部修正 | 不移植。〔最終稽核 2026-09-24〕c35 的 safeUrl 類函式還剩兩份（`safeHttpUrl`、`safeDashboardUrl`），D13 合併成 `safeHttpUrl`；c34 新加入的 shadcn 元件（checkbox、collapsible、popover、sheet、toggle-group）自帶 `'use client'`，屬於 shadcn 原始碼，保留不改 |
 | D11 | c37–c43 文案 | 全部修正 | 新文案見下方「文案修正」 |
-| D12 | c45、c46 | 不管 | 維持舊版現狀：登入後仍用 email 當模擬下單 user_id；JWT 仍存 localStorage。〔2026-10-04 `/order` 改成登入制的模擬投資（`/paper-portfolio`，依 token 辨識帳戶），舊模擬下單程式（`useSimulatedIdentity` 等）已刪除，email 當 user_id 一項已不適用〕 |
+| D12 | c45、c46 | 不管 | 維持舊版現狀：登入後仍用 email 當模擬下單 user_id；JWT 仍存 localStorage。〔2026-10-08 H1 維持 localStorage，這是專題範圍內接受的取捨：被 XSS 偷到 token 就能操作模擬投資、收藏與通知〕〔2026-10-04 `/order` 改成登入制的模擬投資（`/paper-portfolio`，依 token 辨識帳戶），舊模擬下單程式（`useSimulatedIdentity` 等）已刪除，email 當 user_id 一項已不適用〕 |
 | c47 | 寫死中文名 | 幫我判斷 | 保留。API 沒有名稱欄位；b8 雖有 `stock_name`，但要多打一支 API，而且屬於新用法。寫死表只影響顯示，查不到就顯示代號，不會顯示錯誤資料。〔已被取代：名稱改由 `/stocks/info` 提供（`lib/utils/symbolNames.ts`）〕 |
-| c48 | AI 摘要面向分級 | 幫我判斷 | 保留。每一格只拿一個標準指標（EPS 年增率、本益比近一年百分位、相對季線、外資近 10 日淨買賣、AI 列出的風險數）套固定門檻，門檻與原始數字都顯示在畫面上，缺資料就寫「資料不足」；不是合成的 0–100 分數，符合「不自創綜合分數」規則 |
-| c49 | 關鍵字判斷情緒徽章 | 幫我判斷 | 保留。判斷的是 AI 在「市場情緒」段落自己寫的字（看漲、看跌…），等於把 AI 原話做成徽章，不是前端推論行情；拿掉會少一個舊功能 |
+| c48 | AI 摘要面向分級 | 幫我判斷 | 保留。每一格只拿一個標準指標（EPS 年增率、本益比近一年百分位、相對季線、外資近 10 日淨買賣、AI 列出的風險數）套固定門檻，門檻與原始數字都顯示在畫面上，缺資料就寫「資料不足」；不是合成的 0–100 分數，符合「不自創綜合分數」規則。〔2026-10-08 H1 使用者確認維持現狀。現況：原始數字直接顯示，門檻收在「分級規則（點開看門檻）」裡；情境風險沒有項目時寫「未列出」；沒有 EPS 時改看單月營收年增，沒有本益比時改看股價淨值比；門檻在 `lib/brief/textBriefFacets.ts` 的 `FACET_RULES`〕 |
+| c49 | 關鍵字判斷情緒徽章 | 幫我判斷 | 保留。判斷的是 AI 在「市場情緒」段落自己寫的字（看漲、看跌…），等於把 AI 原話做成徽章，不是前端推論行情；拿掉會少一個舊功能。〔已被取代：徽章已拿掉（0189325），「市場情緒」段落直接顯示原文，不做關鍵字判斷（`features/ai/RagStructuredReply.tsx`）〕 |
 | c50 | 內部欄位改名 | 幫我判斷 | 改成直接用 openapi 原名（foreign_net、dealer_net、total_institutional_net）。只影響程式內部，畫面不變；少一層對照，也跟 D3 一致 |
 | c51 | hex id 轉新聞頁 | 幫我判斷 | 保留。成本很低、維持舊連結相容；新聞 id 與 4～6 位數股票代號不會衝突 |
 | c52 | 首頁頁首的主題切換 | 幫我判斷 | 首頁頁首也放 ThemeToggle，跟子頁一致。主題切換是既有功能，這只是版面調整，不算新功能 |
-| c53 | 表格預設收合 | 都可以 | 維持舊版：預設收合 |
-| c54 | 綁實作細節的測試 | 先確定還用不用得到，用不到就先移除 | 檢查結果：舊的整合圖表轉換測試依 D3 已不存在，不移植；其餘 7 支舊測試仍適用，其中 `ragAsk.test.ts` 的 `user_token: null` 依 D1 保留、`markdown.test.tsx` 的 class 是 Tailwind v4 原生 utility、`ChatDashboard.test.tsx` 的 `role="img"` 是無障礙語意，新版照樣沿用，斷言都不必改。`npm run test` 改跑新的 mapper 測試，和三支有型別端點的 mapper 一起寫。〔現況：這支 mapper 測試不在版本庫；`npm test` 改成等同 `npm run test:all`，見根目錄 `README.md` 的「測試與建置」〕 |
+| c53 | 表格預設收合 | 都可以 | 維持舊版：預設收合。〔2026-10-08 核對：法人歷史明細已改成直接顯示（04-S6）；量能、漲跌、歷史股價三張表仍預設收合〕 |
+| c54 | 綁實作細節的測試 | 先確定還用不用得到，用不到就先移除 | 檢查結果：舊的整合圖表轉換測試依 D3 已不存在，不移植；其餘 7 支舊測試仍適用，其中 `ragAsk.test.ts` 的 `user_token: null` 依 D1 保留、`markdown.test.tsx` 的 class 是 Tailwind v4 原生 utility、`ChatDashboard.test.tsx` 的 `role="img"` 是無障礙語意，新版照樣沿用，斷言都不必改。`npm run test` 改跑新的 mapper 測試，和三支有型別端點的 mapper 一起寫。〔現況：這支 mapper 測試不在版本庫；`npm test` 改成等同 `npm run test:all`，見根目錄 `README.md` 的「測試與建置」〕〔2026-10-08 核對：測試已有數十支；`ChatDashboard.test.tsx` 的 `role="img"` 只剩一處反向斷言；`user_token` 斷言已依 H1 拿掉〕 |
 | c56 | og 標籤重複 | 全部都按照你的建議（2026-09-23） | `_app` 與各頁的 og:title、og:description、og:type 加相同 `key`，頁面自己的值蓋掉預設 |
 | c57 | 504 錯字 | 同上 | 「請請後端管理者」改成「請後端管理者」。〔現況：錯誤訊息已依 D13 的 B1 改成通用文案，這句不再出現（`lib/api/userFacingError.ts`、`lib/api/errorDetail.ts`）〕 |
 | c58 | 「更新中」「更新失敗」提示 | 同上 | 照 D10 視為死碼移除：hook 拿掉 `refreshing`，摘要卡與完整分析拿掉兩種提示，重試鈕不再需要自己的載入狀態〔2026-10-06 請求不再帶 as_of_date（見 D9），同一檔仍只打一次，結論不變〕 |
 | c59 | KD 文字 | 同上 | 維持「K 在 D 之上／K 在 D 之下／K、D 黏合」；Phase 4 多股比較頁用同一組文字。〔最終稽核 2026-09-24〕多股比較的黏合當時仍是「KD 黏合」，D13 統一成「K、D 黏合」 |
-| c60 | 歷史股價表只有 1 頁 | 同上 | 維持舊行為（不帶日期），不改成帶圖表區間 |
-| c61 | 區間流向重複圖例 | 同上 | 拿掉上方靜態圖例，只留 ECharts 可點圖例。`components/charts/ChartLegend.tsx` 因此沒人使用，使用者同意後已刪除（2026-09-23） |
-| c62 | 「法人合計（股）」單位不符 | 同上 | KPI 標題改成「法人合計」 |
-| c63 | 均線結構缺值 | 同上 | 維持新版：MA20 或 MA60 沒有值時顯示「無資料」，不再落到「盤整」 |
-| c64 | 股價重試與空清單 | c64、c65 都照建議，繼續（2026-09-23） | 「重試載入」改成直接重抓股價，不經過有 30 秒快取的股票清單；清單為空時顯示「目前沒有可顯示的股票」。〔現況：這個做法所在的 `features/home/useFeaturedQuotes.ts` 已隨首頁改版刪除；首頁觀測台的每個區塊各自重試（`features/home/terminal/useTerminalData.ts` 的 `useLoadable`）〕 |
+| c60 | 歷史股價表只有 1 頁 | 同上 | 維持舊行為（不帶日期），不改成帶圖表區間。〔已被取代：2026-10-01（#78）起歷史股價改帶圖表的日期區間並分頁（`lib/hooks/useStockDashboard.ts`）〕 |
+| c61 | 區間流向重複圖例 | 同上 | 拿掉上方靜態圖例，只留 ECharts 可點圖例。`components/charts/ChartLegend.tsx` 因此沒人使用，使用者同意後已刪除（2026-09-23）〔2026-10-08 核對：「區間流向」這個圖已改名為「三大法人每日買賣超（張）」〕 |
+| c62 | 「法人合計（股）」單位不符 | 同上 | KPI 標題改成「法人合計」。〔2026-10-08 核對：標題現在是「三大法人合計」，單位依 G1 改成張，單位不符的問題已不存在〕 |
+| c63 | 均線結構缺值 | 同上 | 維持新版：MA20 或 MA60 沒有值時顯示「無資料」，不再落到「盤整」。〔已被取代：回傳「無資料」的 `getMaStructureLabel` 沒有畫面使用，2026-10-08 依 H1 刪除；畫面上的均線結構與目前趨勢在 `components/charts/PriceChart.tsx`，缺值時顯示「資料不足」〕 |
+| c64 | 股價重試與空清單 | c64、c65 都照建議，繼續（2026-09-23） | 「重試載入」改成直接重抓股價，不經過有 30 秒快取的股票清單；清單為空時顯示「目前沒有可顯示的股票」。〔現況：這個做法所在的 `features/home/useFeaturedQuotes.ts` 已隨首頁改版刪除；首頁觀測台的每個區塊各自重試（`features/home/terminal/useTerminalData.ts` 的 `useLoadable`），空清單的文字是「目前沒有股票資料，請稍後再來看。」〕 |
 | c65 | 首次載入的進場動畫 | 同上 | 上次只列了兩個選項、沒寫明建議；採用「首次載入也有進場動畫」：拿掉 `AppShell` 的 `AnimatePresence initial={false}`，只影響動畫 |
 | c66 | 新聞頁錯誤時的副標 | c66～c68 都照建議，繼續（2026-09-23） | 讀取失敗時副標顯示「無法讀取新聞」 |
-| c67 | 新聞頁只看得到指定股票的情緒 | 同上 | 抓新聞時不帶 stock，拿到全部情緒後，若 query 的股票有分析就預先選它，否則選第一筆 |
-| c68 | 原文依據引句的標點 | 同上 | 新聞卡與新聞頁的引句都改用「…」 |
+| c67 | 新聞頁只看得到指定股票的情緒 | 同上 | 抓新聞時不帶 stock，拿到全部情緒後，若 query 的股票有分析就預先選它，否則選第一筆。〔已被取代：新聞情緒分析已移除；現在抓新聞時會帶 stock，依事件分析的 company impacts 選股（`pages/news/[id].tsx`）〕 |
+| c68 | 原文依據引句的標點 | 同上 | 新聞卡與新聞頁的引句都改用「…」。〔2026-10-08 核對：新聞頁改用 blockquote，不加引號；只有新聞卡用「…」〕 |
 | c69 | `/ai` 的回到頂部按鈕 | c69 照建議，繼續（2026-09-23） | `/ai` 不顯示回到頂部按鈕，其他頁照常（已驗證）。〔現況：首頁 `/` 也不顯示（`components/layout/AppShell.tsx`）〕 |
 | c70 | 確認委託對話框送出中的 X | c70 照建議，繼續（2026-09-23） | 送出中右上角 X 也 disabled，跟取消、Esc、點背景一致；送出成功後對話框照常關閉（已驗證）。〔現況：確認委託對話框已隨舊模擬下單畫面刪除，見 F2〕 |
 | c71 | 第一天漲跌幅的延伸 | c71～c76 都照建議，繼續（2026-09-23） | 相關係數、有效樣本、共同交易日也不算區間第一天（3 個月區間的共同交易日從 66 變 65） |
-| c72 | 法人失敗警告的卡片名稱 | 同上 | 改成「法人對比與「法人合計買超最高」會顯示 —。」 |
+| c72 | 法人失敗警告的卡片名稱 | 同上 | 改成「法人對比與「法人合計買超最高」會顯示 --。」 |
 | c73 | 平均量與平均金額 | 同上 | 只看成交資料；漲跌資料失敗時照樣顯示 |
 | c74 | 全部隱藏時的提示 | 同上 | 改成「請用下方圖例重新開啟或按「全顯示」。」 |
 | c75 | 比較中按清空全部 | 同上 | 清空全部時取消進行中的比較，結果不再回來，載入狀態一併重設 |
@@ -262,18 +263,18 @@
 | c79 | 個人中心密碼欄的顯示切換鈕 | c79～c82 都照建議，PARITY.md 保留（2026-09-24） | 可以用 Tab 操作；名稱分別為「顯示／隱藏目前密碼」「顯示／隱藏新密碼」「顯示／隱藏確認新密碼」 |
 | c80 | 個人中心重新整理時登入過期 | 同上 | 清除登入並 replace 到 /login?returnUrl=/me，跟一進頁面就 401 一致 |
 | c81 | AI 分析抽屜走不到的三個狀態 | 同上 | 保留，不改 |
-| c82 | openapi.json 與後端不同步 | 同上 | 已執行 `npm run sync:openapi` 更新；只有 5 個 TextBrief schema 的 evidence_ids 多了限制，前端型別不用改 |
+| c82 | openapi.json 與後端不同步 | 同上 | 已執行 `npm run sync:openapi` 更新；只有 5 個 TextBrief schema 的 evidence_ids 多了限制，前端型別不用改。〔2026-10-08 核對：openapi.json 不在版控，同步只存在本機；H1 又同步了一次〕 |
 | — | PARITY.md 是否保留 | 同上 | 保留在 `docs/`，作為功能對照與決議紀錄 |
-| D13 | 上線前稽核（2026-09-24）的修繕範圍 | 勾選表：必修 A1 open redirect、A2 手機 AI 免責（免責位置：輸入框下方固定一行）；上線後可補 B1 錯誤訊息改使用者文案（全部改成通用文案）、B4 Vercel Analytics（部署平台：自架 next start，移除 Analytics）、B6、B7、B8、B11、B12；修繕範圍：只修前端；功能缺漏 C1 PARITY 文件同步、C2（c35）、C3（c7）、C4（c59，黏合用語：K、D 黏合）；AI06 做法：只修正 PARITY 描述。追問：後端中文訊息「保留中文訊息」；套件「只刪程式碼」；中性卡片「改成一般文字色」；首頁精選股「2317，2330，2454，2881，2408，2615」 | 見下方「上線前稽核修繕（D13）」。沒勾的不動：B2 模擬下單驗證（c45，需後端）、B3 API 網址缺值時 build 失敗、B5 自訂 404（維持 Next.js 預設 404）、B9 開發環境改測試後端、B13 後端串流端點驗證、c34 的 shadcn `'use client'` |
+| D13 | 上線前稽核（2026-09-24）的修繕範圍 | 勾選表：必修 A1 open redirect、A2 手機 AI 免責（免責位置：輸入框下方固定一行）；上線後可補 B1 錯誤訊息改使用者文案（全部改成通用文案）、B4 Vercel Analytics（部署平台：自架 next start，移除 Analytics）、B6、B7、B8、B11、B12；修繕範圍：只修前端；功能缺漏 C1 PARITY 文件同步、C2（c35）、C3（c7）、C4（c59，黏合用語：K、D 黏合）；AI06 做法：只修正 PARITY 描述。追問：後端中文訊息「保留中文訊息」；套件「只刪程式碼」；中性卡片「改成一般文字色」；首頁精選股「2317，2330，2454，2881，2408，2615」 | 見下方「上線前稽核修繕（D13）」。沒勾的不動：B2 模擬下單驗證（c45，需後端）、B3 API 網址缺值時 build 失敗、B5 自訂 404（維持 Next.js 預設 404）、B9 開發環境改測試後端、B13 後端串流端點驗證、c34 的 shadcn `'use client'`。〔2026-10-08 核對：B2 已不適用（後端 `/simulated-orders` 已刪）；B5 已有自訂 404（`pages/404.tsx`）；首頁精選股已不存在（見 B10）；套件一項改成移除 `@vercel/analytics`；B3、B9 經 H1 確認維持不動〕 |
 
 ### 文案修正（D11）
 
 | # | 位置 | 舊文案 | 新文案 |
 |---|---|---|---|
-| c37 | 多股比較 meta description | 同時比較多支台股的走勢、法人、技術指標與多維分數雷達，協助快速比對相對強弱與分散程度。 | 同時比較多支台股的走勢、報酬與風險、法人籌碼、技術指標與相關性，協助快速比對相對強弱與分散程度。 |
-| c38 | 頁尾免責 | 本網站為展示與學習用途，不構成投資建議；模擬下單相關資料僅存於您的瀏覽器，不蒐集可識別個人資料。 | 本網站為展示與學習用途，不構成投資建議。模擬下單紀錄會儲存在本站伺服器：未登入時以瀏覽器產生的匿名 ID 識別，登入後以帳號 Email 識別。〔現況：模擬下單已由模擬投資取代（F2），頁尾改為「模擬投資使用虛擬資金，交易與決策紀錄儲存於登入帳戶。」〕 |
+| c37 | 多股比較 meta description | 同時比較多支台股的走勢、法人、技術指標與多維分數雷達，協助快速比對相對強弱與分散程度。 | 同時比較多支台股的走勢、報酬與風險、法人籌碼、技術指標與相關性，協助快速比對相對強弱與分散程度。〔現況（`pages/compare.tsx`）：結合產業背景，以共同期間比較多檔台股的價格漲跌、波動、回撤、法人買賣超與相關性。〕 |
+| c38 | 頁尾免責 | 本網站為展示與學習用途，不構成投資建議；模擬下單相關資料僅存於您的瀏覽器，不蒐集可識別個人資料。 | 本網站為展示與學習用途，不構成投資建議。模擬下單紀錄會儲存在本站伺服器：未登入時以瀏覽器產生的匿名 ID 識別，登入後以帳號 Email 識別。〔現況：模擬下單已由模擬投資取代（F2），頁尾改為「模擬投資使用虛擬資金，交易與決策紀錄存在你的帳號裡。」〕 |
 | c39 | 模擬下單「委託下單」標題 | （連線後端） | 拿掉。〔現況：「委託下單」標題已隨舊模擬下單畫面刪除，見 F2〕 |
-| c40 | 價量走勢說明 | 資料截至前一交易日；展示用途，非投資建議。 | 資料截至 {最後一根 K 線的日期}；展示用途，非投資建議。 |
+| c40 | 價量走勢說明 | 資料截至前一交易日；展示用途，非投資建議。 | 資料截至 {最後一根 K 線的日期}；展示用途，非投資建議。〔現況：這句已不存在；個股頁頁首寫「收盤 {日期} · 非即時 · 非投資建議」，K 線區塊標出實際畫出的期間〕 |
 | c41 | K 線圖「目前趨勢」 | 收盤 > MA20 > MA60：持平偏多；收盤 < MA20 < MA60：持平偏空 | 收盤 > MA20 > MA60：偏多（多頭排列）；收盤 < MA20 < MA60：偏空（空頭排列）；其他維持「區間整理」 |
 | c42 | AI 分析結論方向 mixed | 偏中性 | 多空交雜（與立場標籤一致） |
 | c43 | 忘記密碼頁 title | 股海明燈｜重設密碼 | 股海明燈｜忘記密碼 |
@@ -284,33 +285,50 @@
 |---|---|---|---|
 | A1 | `safeReturnUrl` 只擋 `//` 與 `://`；headless Chrome 實測 `router.push('/\t/evil.example/phish')` 導到 `http://evil.example/phish`（換行同樣成功，反斜線被 Next 正規化擋下） | 拒絕控制字元與 `\`，用 URL 解析確認同源，只回傳 pathname+search+hash；新增 `returnUrl.test.ts` | lib/utils/returnUrl.ts |
 | A2 | 375 寬時 `/ai` 副標被截成「個股、多股比較、技術指標與…」，頁尾在手機隱藏，看不到免責 | 輸入框下方固定一行「AI 回覆僅供研究參考，不是投資建議。」（taiwan-stock-ux 的 AI 免責文案） | features/ai/ChatInput.tsx |
-| B1 | 後端斷線時各頁顯示「網路錯誤（常見為 CORS…）請確認 API 網址為根路徑（不含 /docs）…」；AI 分析錯誤附後端網址與 HTTP 代碼 | 前端自己寫的訊息全部改成通用文案；後端的中文 detail 保留，英文依狀態碼換成通用文案；13 處畫面直接顯示 `err.message` 的地方改用 `userFacingMessage` | lib/api/client.ts, errorDetail.ts, userFacingError.ts, ragAsk.ts, features/ai/useChat.ts 與各頁 |
-| B4 | 自架時 `/_vercel/insights/script.js` 會 404（建置產物有引用） | 拿掉 `<Analytics />` 與 import（`@vercel/analytics` 仍留在 package.json） | pages/_app.tsx |
+| B1 | 後端斷線時各頁顯示「網路錯誤（常見為 CORS…）請確認 API 網址為根路徑（不含 /docs）…」；AI 分析錯誤附後端網址與 HTTP 代碼 | 前端自己寫的訊息全部改成通用文案；後端的中文 detail 保留，英文依狀態碼換成通用文案；13 處畫面直接顯示 `err.message` 的地方改用 `userFacingMessage`〔2026-10-08 核對：畫面已沒有直接顯示 `err.message` 的地方〕 | lib/api/client.ts, errorDetail.ts, userFacingError.ts, ragAsk.ts, features/ai/useChat.ts 與各頁 |
+| B4 | 自架時 `/_vercel/insights/script.js` 會 404（建置產物有引用） | 拿掉 `<Analytics />` 與 import（`@vercel/analytics` 仍留在 package.json）〔2026-10-08 依 H1 從依賴移除〕 | pages/_app.tsx |
 | B6 | c22 沒修 | 改用 `toYmdLocal`。〔現況：首頁股價卡已刪除，這個檔案沒有呼叫端，已一併刪除〕 | lib/utils/sparklineHistory.ts（已刪除） |
 | B7 | 類別冠軍數值一律品牌橘，負報酬也是橘色 | `CategoryLeader` 加 `tone`；有方向的三格依正負 up／down，其餘一般文字色 | lib/types/compare.ts, lib/utils/compare.ts, features/compare/CategoryLeaders.tsx |
 | B8 | AI 輸入沒有長度上限，超過 6000 字後端回 422 | maxLength 6000，剩 500 字內顯示字數 | features/ai/ChatInput.tsx |
 | B10 | 首頁精選是清單最前面 6 檔（1101～1109） | 固定 2317、2330、2454、2881、2408、2615；「更多股票」改取不在精選裡的前 12 檔。〔2026-09-24〕使用者要求移除「更多股票」區塊；精選 6 檔改排在搜尋下拉最前面。〔現況：`features/home/useFeaturedQuotes.ts` 已刪除，首頁改成旅程加觀測台（`features/home/journey/`、`features/home/terminal/`），程式裡已沒有固定的精選清單〕 | features/home/useFeaturedQuotes.ts（已刪除）, pages/index.tsx |
-| B11 | `/stock/9999` 標題「股海明燈｜9999 9999」（19 檔以外的股票都會重複） | `formatStockLabel`／`getStockName`：查不到中文名只顯示代號。〔現況：程式裡已沒有 `getStockName`，只剩 `formatStockLabel`〕 | lib/utils/symbolNames.ts 與 7 個使用處 |
-| B12 | 11 支測試只有 2 支有 npm script | 新增 `test:all`，CLAUDE.md 指令表同步 | package.json, CLAUDE.md |
+| B11 | `/stock/9999` 標題「股海明燈｜9999 9999」（19 檔以外的股票都會重複） | `formatStockLabel`／`getStockName`：查不到中文名只顯示代號。〔現況：程式裡已沒有 `getStockName`，只剩 `formatStockLabel`；中文名由 `useStockDisplayName`（`/stocks/info`）提供〕 | lib/utils/symbolNames.ts 與 7 個使用處 |
+| B12 | 11 支測試只有 2 支有 npm script | 新增 `test:all`，CLAUDE.md 指令表同步。〔2026-10-08 依 H1：`test:all` 改成依序跑所有 `test:*`，CI 補上 `test:favorites`；CLAUDE.md 已沒有指令表，只留一段說明〕 | package.json, CLAUDE.md, .github/workflows/ci-cd.yml |
 | C2 | c35 還剩兩份 safeUrl 函式 | 刪掉 `safeDashboardUrl`，改用 `safeHttpUrl` | lib/types/chatDashboard.ts, lib/utils/markdown.tsx, features/ai/ChatDashboard.tsx |
 | C3 | c7：模擬下單損益為 0 仍顯示「+」 | 0 不加「+」；收益率先取到兩位小數再判斷。〔2026-10-04 舊模擬下單畫面已刪除，見 F2〕 | features/order/OrderTables.tsx（已刪除） |
-| C4 | c59：多股比較仍是「KD 黏合」 | 統一成「K、D 黏合」 | lib/utils/compareSignals.ts, lib/utils/compare.test.ts |
+| C4 | c59：多股比較仍是「KD 黏合」 | 統一成「K、D 黏合」 | lib/utils/indicatorSignals.ts（`compareSignals.ts` 只是 re-export）, lib/utils/compare.test.ts |
 | C1 | PARITY 前後矛盾與過時描述 | 本次各列加註〔決議 D13〕或〔最終稽核〕 | docs/PARITY.md |
 
 ### 收藏股：openapi.json 手寫段落（F1，2026-10-02）
 
 | # | 內容 | 後續 |
 |---|---|---|
-| F1 | 收藏股端點還沒部署，無法跑 `npm run sync:openapi`。`openapi.json` 裡的 `/favorites/`（GET）、`/favorites/{symbol}`（PUT、DELETE）與 `FavoriteStockResponse`、`FavoriteStockListResponse` 是依 `backend/app/features/favorites/router.py`、`schemas.py` 手寫的，格式照 FastAPI 0.115 的輸出（含 `HTTPBearer` security、未帶 token 的 403） | 後端部署後跑 `npm run sync:openapi`，再用 `git diff openapi.json` 比對這一段；有差異以下載結果為準，並同步 `lib/types/api.ts` 與 `lib/api/favorites.ts`，確認後把這一列標成已同步。〔2026-10-02 已同步：從 production 下載，favorites 的路徑與 schema 與手寫版本完全相同〕 |
+| F1 | 收藏股端點還沒部署，無法跑 `npm run sync:openapi`。`openapi.json` 裡的 `/favorites/`（GET）、`/favorites/{symbol}`（PUT、DELETE）與 `FavoriteStockResponse`、`FavoriteStockListResponse` 是依 `backend/app/features/favorites/router.py`、`schemas.py` 手寫的，格式照 FastAPI 0.115 的輸出（含 `HTTPBearer` security、未帶 token 的 403） | 後端部署後跑 `npm run sync:openapi`，再用 `git diff openapi.json` 比對這一段；有差異以下載結果為準，並同步 `lib/types/api.ts` 與 `lib/api/favorites.ts`，確認後把這一列標成已同步。〔openapi.json 不在版控，`git diff` 比對不到；要比對得先備份舊檔〕〔2026-10-02 已同步：從 production 下載，favorites 的路徑與 schema 與手寫版本完全相同〕 |
 
 ### 模擬投資與通知：openapi 同步與舊下單程式（F2，2026-10-04）
 
 | # | 內容 | 後續 |
 |---|---|---|
-| F2 | 從 production 跑 `npm run sync:openapi`，`openapi.json` 補上 `/paper-portfolio`（5 支）、`/notifications`（3 支）、`/api/conversations`（3 支）共 11 支端點；`AskResponse.actions` 多了 `PaperOrderDraft`，`JobActionRequest` 多了 `symbol`。前端的通知、對話型別與 schema 一致。`/paper-portfolio` 的路由沒有 `response_model`，openapi 的回應 schema 是空的，`lib/api/paperPortfolio.ts` 的回應型別依 `backend/app/features/paper_portfolio/service.py` 的 `snapshot`／`_order`（同 D5 的例外，型別上註明）。舊模擬下單程式（`OrderTables`、`ConfirmOrderDialog`、`OrderEstimate`、`estimate.ts`、`useSimulatedIdentity`、`lib/api/simulatedOrder.ts`、`SimulatedOrder*` 型別）已沒有頁面使用，一併刪除；後端 `/simulated-orders` 端點原本不動〔2026-10-06 刪除：該端點不需登入、可用任意 user_id 讀寫，且前端已不使用；`simulated_orders` 資料表與 `SimulatedOrder` 模型保留，舊資料不動。`openapi.json` 下次 `sync:openapi` 時會移除這 4 支〕 | 後端替 `/paper-portfolio` 加上 `response_model` 後重跑 `sync:openapi`，把回應型別改成照 schema 抄，並拿掉這一項例外 |
+| F2 | 從 production 跑 `npm run sync:openapi`，`openapi.json` 補上 `/paper-portfolio`（5 支）、`/notifications`（3 支）、`/api/conversations`（3 支）共 11 個路徑（15 個 operation）；`AskResponse.actions` 多了 `PaperOrderDraft`，`JobActionRequest` 多了 `symbol`。前端的通知、對話型別與 schema 一致。`/paper-portfolio` 的路由沒有 `response_model`，openapi 的回應 schema 是空的，`lib/api/paperPortfolio.ts` 的回應型別依 `backend/app/features/paper_portfolio/service.py` 的 `snapshot`／`_order`（同 D5 的例外，型別上註明）。舊模擬下單程式（`OrderTables`、`ConfirmOrderDialog`、`OrderEstimate`、`estimate.ts`、`useSimulatedIdentity`、`lib/api/simulatedOrder.ts`、`SimulatedOrder*` 型別）已沒有頁面使用，一併刪除；後端 `/simulated-orders` 端點原本不動〔2026-10-06 刪除：該端點不需登入、可用任意 user_id 讀寫，且前端已不使用；`simulated_orders` 資料表與 `SimulatedOrder` 模型保留，舊資料不動。`openapi.json` 下次 `sync:openapi` 時會移除這 4 支〕 | 後端替 `/paper-portfolio` 加上 `response_model` 後重跑 `sync:openapi`，把回應型別改成照 schema 抄，並拿掉這一項例外。〔2026-10-08 依 H1 重跑 sync，`/simulated-orders` 已從 openapi.json 移除〕 |
 
 ### 股數單位：改用「張」（G1，2026-10-06）
 
 | # | 內容 | 後續 |
 |---|---|---|
-| G1 | 審查 00 的 P1-21 決定股數改用「張」（04-U2、05 用語表）：成交量、法人買賣超在個股頁、首頁觀測台、多股比較、圖表與 AI 資料面板的法人表都顯示整數張，同一欄不再切換股／萬股／億股。使用者決定不滿 1 張的非零值寫「不到 1 張」、不帶號、不上漲跌色。API 單位仍是股，換算在 `lib/utils/format.ts`、`lib/charts/adapters.ts` 與後端 `chat/dashboard.py` 的 `_lots`。模擬投資的持股、委託數量維持股 | 已存進資料庫的舊 AI 對話面板仍是股，不回填 |
+| G1 | 審查 00 的 P1-21 決定股數改用「張」（04-U2、05 用語表）：成交量、法人買賣超在個股頁、首頁觀測台、多股比較、圖表與 AI 資料面板的法人表都顯示整數張，同一欄不再切換股／萬股／億股。使用者決定不滿 1 張的非零值寫「不到 1 張」、不帶號、不上漲跌色。API 單位仍是股，換算在 `lib/utils/format.ts`、`lib/charts/adapters.ts` 與後端 `chat/dashboard.py` 的 `_lots`。模擬投資的持股、委託數量維持股 | 已存進資料庫的舊 AI 對話面板仍是股，不回填。〔圖表 tooltip 寫「不到 1」不帶「張」，因為表頭已有單位（`lib/charts/adapters.ts`）〕 |
+
+### 逐條核對（H1，2026-10-08）
+
+使用者要求逐條核對本文件與程式，看看有沒有過時或有問題的決議。文件和程式不一致的地方，都已在上面各列補上「2026-10-08 核對」。需要重新決策的項目，使用者的選擇如下（「照建議」是使用者回覆「全部都照建議」）。
+
+| # | 範圍 | 使用者選擇 | 做法 |
+|---|---|---|---|
+| H1-1 | D1 `user_token` | 拿掉 | `lib/api/ragAsk.ts` 不再送 `user_token`，`ragAsk.test.ts` 的斷言一併改 |
+| H1-2 | D12、c46 JWT 存 localStorage | 維持並寫明取捨 | 不改程式；取捨寫在 D12 |
+| H1-3 | c48 面向分級門檻 | 維持現狀 | 門檻照舊收在「分級規則」裡；現況寫在 c48 |
+| H1-4 | openapi.json 是否進版控 | 維持排除 | 照舊靠 `npm run sync:openapi`；本次已重跑：移除 `/stocks/{symbol}/chart/chips-volume`、`/simulated-orders` 的 4 個 operation 與 6 個 SimulatedOrder schema，補上 `GET`／`POST /admin/stocks` 與 `AddStockRequest`，其他端點與 schema 沒有變動 |
+| H1-5 | D13 B3 API 網址缺值 | 維持現狀 | 正式 build 沒設 `NEXT_PUBLIC_API_URL` 時仍改用 `127.0.0.1:8003`（`lib/apiBase.ts`），不讓 build 失敗 |
+| H1-6 | D13 B9 開發環境的後端 | 維持打正式後端 | `.env.development` 照舊指向正式後端；本機測試的模擬投資、收藏、通知會寫進正式資料庫 |
+| H1-7 | 測試涵蓋 | 照建議（兩項都做） | CI 補上 `test:favorites`；`test:all`（即 `npm test`）改成依序跑所有 `test:*` |
+| H1-8 | D13 B4 `@vercel/analytics` | 照建議 | 從依賴移除 |
+| H1-9 | c63 `getMaStructureLabel` | 照建議 | 結果沒有被使用，刪掉 `lib/utils/technicalSignals.ts` 與 `buildFacets` 的 `maStructureLabel` 參數，畫面不變 |
+| H1-10 | `/admin` 回應型別 | 照建議（S1） | `/admin` 的 GET 都沒有 `response_model`，openapi 的回應 schema 是空的；`lib/api/admin.ts` 的型別依 `backend/app/features/admin/service.py`，同 D5 的例外，檔案開頭有註明。後端加上 `response_model` 後重跑 `sync:openapi`，改成照 schema 抄，並拿掉這一項例外 |

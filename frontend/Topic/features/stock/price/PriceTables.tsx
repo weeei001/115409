@@ -138,7 +138,7 @@ interface HistoryProps {
   onPageChange: (page: number) => void;
 }
 
-/** 歷史股價（全部歷史，依頁數往回翻；決議 c23 移到價量抽屜） */
+/** 歷史股價（圖表日期區間內，依頁數往回翻；決議 c23 移到價量抽屜） */
 export function HistoryTable({ data, loading = false, error, page, pageSize, onPageChange }: HistoryProps) {
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize));
   return (

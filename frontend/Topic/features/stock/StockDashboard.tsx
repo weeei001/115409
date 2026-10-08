@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { parseStockNewsView, stockNewsViewHref, STOCK_NEWS_VIEW_PARAM } from '@/lib/news/stockNewsView';
 import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
-import { getMaStructureLabel, summarizePricePosition } from '@/lib/utils/technicalSignals';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, NextStep, type LightState } from '@/components/common/Ledger';
 import { AIBriefSummaryCard } from '@/features/brief/AIBriefSummaryCard';
@@ -38,7 +37,6 @@ export function StockDashboard({ dashboard, stockName }: Props) {
   const indicatorsState: LightState = chipsLoading ? 'loading' : dashboard.indicatorsError ? 'error' : 'ready';
   // The latest analysis cutoff is independent of the last trading day.
   const textBrief = useStockTextBrief({ symbol });
-  const maStructureLabel = useMemo(() => getMaStructureLabel(summarizePricePosition(priceChart)), [priceChart]);
 
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   const newsView = parseStockNewsView(router.query[STOCK_NEWS_VIEW_PARAM], symbol);
@@ -110,7 +108,6 @@ export function StockDashboard({ dashboard, stockName }: Props) {
           brief={textBrief}
           endDate={baseDate}
           latestTradeDate={latest.date}
-          maStructureLabel={maStructureLabel}
           onOpenDetail={openAI}
         />
       </AnimatedSection>

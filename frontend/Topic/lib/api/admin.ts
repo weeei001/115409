@@ -1,5 +1,7 @@
 import apiClient from './client';
 
+// /admin 的 GET 沒有 response_model，openapi 的回應 schema 是空的；回應型別依 backend/app/features/admin/service.py（同決議 D5 的例外）
+
 export interface AdminStock {
   symbol: string;
   name: string;

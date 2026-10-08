@@ -44,7 +44,12 @@ def decimal_number(raw):
     return value
 
 
+# 「一定程度」「一定比例」 describe extent, not a guarantee.
+EXTENT_IDIOM = r"一定(?:程度|比例|幅度|範圍|水準|期間|時間|的)"
+
+
 def guarantees_outcome(text):
+    text = re.sub(EXTENT_IDIOM, "", text)
     text = re.sub(r"(?:不|未|無法|不能|並非)(?:會|能)?(?:保證|一定|必定|必然)(?:一定|必定|必然)?", "", text)
     return bool(re.search(r"保證|一定|必定|必然", text))
 

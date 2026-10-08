@@ -146,4 +146,20 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
   assert.ok(low.includes('text-[13px]') && /class="[^"]*text-sm[^"]*"[^>]*>(?:<svg[\s\S]*?<\/svg>)?溫和偏多/.test(high));
 }
 
+/* ── 後端 status：limited 要提示內容有刪減並指向「分析限制」；verified 不提示 ── */
+{
+  const note = '部分內容沒有通過系統檢查或缺少資料，已移除或留空';
+  const limits = ['下列段落沒有通過檢查的依據，已留空：風險。'];
+  const card = (status: string) => text(renderToStaticMarkup(React.createElement(AIBriefSummaryCard, {
+    symbol: '2330', brief: briefResult({ brief: BRIEF, status, limitations: limits }), onOpenDetail: () => {},
+  })));
+  const panel = (status: string, limitations = limits) => text(renderToStaticMarkup(React.createElement(
+    StockTextBriefPanel, { symbol: '2330', brief: briefResult({ brief: BRIEF, status, limitations }) })));
+
+  assert.ok(card('limited').includes(`${note}，原因見完整分析的「分析限制」。`));
+  assert.ok(panel('limited').includes(`${note}；原因列在「分析限制」。`));
+  assert.ok(panel('limited', []).includes(`${note}。`) && !panel('limited', []).includes('原因列在'));
+  for (const plain of [card('verified'), panel('verified')]) assert.ok(!plain.includes(note), plain);
+}
+
 console.log('AI brief summary card / panel copy tests passed');

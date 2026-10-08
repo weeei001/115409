@@ -15,7 +15,8 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from app.features.market.company_catalog import company_aliases
-from .proposals import BOUNDARY, FOREIGN_CURRENCY, NUMBER, decimal_number, guarantees_outcome, parse_proposals
+from .proposals import (BOUNDARY, EXTENT_IDIOM, FOREIGN_CURRENCY, NUMBER, decimal_number, guarantees_outcome,
+                        parse_proposals)
 from .schemas import SourceChunk
 
 DATE = r"\d{4}-\d{2}-\d{2}"
@@ -88,6 +89,18 @@ CLAIM = re.compile(
     rf"(?P<currency_prefix>{FOREIGN_CURRENCY}|NT\$|TWD|NTD|[$€￥])?\s*"
     rf"(?P<number>{NUMBER})\s*(?P<unit>{FOREIGN_CURRENCY}|新台幣|台幣|TWD|NTD|億元|萬元|千元|元|億|萬|千|股|張|檔|支|倍|%)?", re.I)
 PERCENT = re.compile(rf"(?P<number>{NUMBER})\s*%")
+# A move over several sessions is an interval return, never one day's change.
+COUNT = r"(?:\d+|[一二兩三四五六七八九十半]+)"
+MULTI_DAY = (rf"近\s*{COUNT}\s*(?:個)?(?:交易)?(?:日|天|週|周|月|季|年)|過去\s*{COUNT}|"
+             r"今年以來|年初(?:至今|以來)|本(?:月|週|周|季)以來|累計|累積|區間|期間|這段期間|一段時間")
+# Account values and ratios must quote the backend's exact numbers.
+ACCOUNT_METRICS = {*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS, "allocation_pct", "average_cost", "quantity",
+                   "available_quantity", "reserved_quantity", "favorites_count", "positions_count",
+                   "stop_loss_pct", "take_profit_pct", "target_return_pct"}
+FORECAST = r"預期|預估|預測|未來|下(?:個月|週|周|月|季)|明(?:天|日|年)"
+# Who said a forecast; required before a cited news forecast may carry a percentage.
+ATTRIBUTION = (r"法說會?|公司|管理層|經營層|董事長|總經理|執行長|財務長|法人|外資|投信|券商|分析師|研究機構|"
+               r"機構|報導|新聞|媒體|市場|官方|政府|央行|聯準會|指出|表示|認為|根據|依據|據")
 INLINE_QUANTITY = re.compile(rf"(?:持有|持股)\s*(?P<symbol>\d{{4,6}})\s*(?:共|的|有)\s*(?P<number>{NUMBER})\s*(?P<unit>股|張)")
 
 
@@ -114,6 +127,10 @@ class Claim:
     start: int
     end: int
     period: str | None = None
+    # Smallest step the written number can express ("2,518.7 億" -> 1e7); None means exact only.
+    quantum: Decimal | None = None
+    # The number as written before unit scaling ("2,000 億" -> 2000), for news text lookups.
+    written: Decimal | None = None
 
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -238,16 +255,14 @@ def _listed_claims(text: str, aliases: dict[str, str]):
                            "股": "shares", "張": "shares", "檔": "count", "支": "count", "%": "%"}.get(unit, unit)
         if match["currency_prefix"] and match["currency_prefix"].upper() not in {"TWD", "NTD", "NT$"}:
             normalized_unit = match["currency_prefix"]
-        if match["alias"] and not re.fullmatch(METRICS[metric], match["alias"][1:-1].strip(), re.I):
+        alias = match["alias"][1:-1].strip() if match["alias"] else ""
+        # An English abbreviation such as "股東權益報酬率（ROE）" restates the label.
+        if alias and not re.fullmatch(METRICS[metric], alias, re.I) and not re.fullmatch(r"[A-Za-z]{2,6}", alias):
             normalized_unit = "invalid metric alias"
-        if unit in {"萬元", "萬"}:
-            value *= 10000
-        elif unit in {"億元", "億"}:
-            value *= 100000000
-        elif unit in {"千元", "千"}:
-            value *= 1000
-        elif unit == "張":
-            value *= 1000
+        scale = {"萬元": 10000, "萬": 10000, "億元": 100000000, "億": 100000000,
+                 "千元": 1000, "千": 1000, "張": 1000}.get(unit, 1)
+        value *= scale
+        quantum = Decimal(1).scaleb(min(0, _number(match["number"]).as_tuple().exponent)) * scale
         decline = label.endswith("下跌") or (label.endswith("跌幅") and not label.endswith("漲跌幅"))
         if (decline or (metric == "vol_vs_ma5_pct" and label.endswith(("減少", "萎縮")))) and value > 0:
             value = -value
@@ -259,6 +274,15 @@ def _listed_claims(text: str, aliases: dict[str, str]):
             ranges = re.findall(rf"({DATE})\s*(?:至|到|[~～])\s*({DATE})", prefix)
             explicitly_daily = label.startswith(("當日", "單日", "日報酬")) or re.search(r"(?:當日|單日|每日|每天)", prefix)
             if ranges and ranges[-1] == dates[-2:] and not explicitly_daily:
+                metric = "interval_return_pct"
+            elif not explicitly_daily:
+                # "10-06 收盤…，較 10-03 的…上漲 3.33%": the compared date is the base, not the observation.
+                baselines = re.findall(rf"(?:較|比|相較於?|相比於?)\s*({DATE})", prefix)
+                if baselines and dates[-1] == baselines[-1]:
+                    dates = tuple(day for day in dates if day not in baselines) or dates
+        if metric == "chg_pct" and not label.startswith(("當日", "單日", "日報酬")):
+            clause = re.split(r"[。!?;\n,，]", text[:match.start()])[-1]
+            if re.search(MULTI_DAY, clause) and not re.search(r"當日|單日|每日|每天|今日|昨日", clause):
                 metric = "interval_return_pct"
         account_metric = (metric in {*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS, "favorites_count", "positions_count"}
                           and metric not in {"holdings_value", "holdings_allocation_pct"})
@@ -276,7 +300,7 @@ def _listed_claims(text: str, aliases: dict[str, str]):
         if metric in PORTFOLIO_AMOUNTS:
             amounts.append((match.end(), metric))
         yield Claim(metric, value, normalized_unit or ("" if metric == "foreign_net" else UNITS[metric]),
-                    symbol, dates, *match.span(), period_at(match.start()))
+                    symbol, dates, *match.span(), period_at(match.start()), quantum, _number(match["number"]))
     for match in INLINE_QUANTITY.finditer(text):
         value = _number(match["number"]) * (1000 if match["unit"] == "張" else 1)
         occupied.append(match.span())
@@ -421,12 +445,34 @@ def _matches(claim: Claim, fact: Fact) -> bool:
     if claim.value == fact.value:
         return True
     precision = max(0, -claim.value.as_tuple().exponent)
-    if fact.rounded and precision >= 2:
+    if fact.rounded:
+        if precision < 2:
+            return False
         try:
             return fact.value.quantize(Decimal(1).scaleb(-precision), rounding=ROUND_HALF_UP) == claim.value
         except InvalidOperation:
             return False
-    return False
+    # Market and financial observations may be rounded to the precision written
+    # ("約 2,518.7 億元", "5,235 張", "毛利率 59%"); account values stay exact.
+    if claim.quantum is None or claim.metric is None or ACCOUNT_METRICS & {claim.metric, fact.metric}:
+        return False
+    if claim.unit == "TWD" and abs(claim.value - fact.value) > abs(fact.value) / 100:
+        return False
+    # An undated whole percent could match one of many daily observations.
+    if fact.metric in {"chg_pct", "vol_vs_ma5_pct"} and not claim.dates and claim.quantum > Decimal("0.1"):
+        return False
+    try:
+        steps = (fact.value / claim.quantum).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return False
+    return steps * claim.quantum == claim.value
+
+
+def _mentions(source: SourceChunk, content: str, symbol: str | None, aliases: dict[str, str]) -> bool:
+    """Whether a news source is about the claim's stock; claims without a stock need no match."""
+    if not symbol or symbol in {source.stock_id, *source.stock_ids}:
+        return True
+    return symbol in content or any(alias in content for alias, owner in aliases.items() if owner == symbol)
 
 
 def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "",
@@ -447,6 +493,10 @@ def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], compan
         full_text = text + _normalize(continuation)
         proposals = parse_proposals(full_text, aliases)
         facts, literals = _evidence(sources, aliases)
+        news = [(source, unicodedata.normalize("NFKC", source.content)) for source in sources
+                if source.category == "news"]
+        news_numbers = [(source, content, set(_literal_numbers(content))) for source, content in news]
+        personal_cited = any(source.category == "personal" for source in sources)
         for claim in _claims(text, aliases):
             if claim.end <= len(prefix):
                 continue
@@ -457,13 +507,28 @@ def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], compan
             if not claim.unit.startswith("invalid") and any(
                     proposal.start < claim.end <= proposal.end for proposal in proposals):
                 continue
-            local = re.split(r"[。!?;\n,，]", text[:claim.end])[-1]
-            if claim.unit == "%" and re.search(
-                    r"保證|一定|必定|必然|預期|預測|未來|下(?:個月|週|周|月)|明(?:天|日|年)", local):
+            local = re.sub(EXTENT_IDIOM, "", re.split(r"[。!?;\n,，]", text[:claim.end])[-1])
+            # The number appears in cited news text; its meaning there is not verified.
+            written = {claim.value, -claim.value}
+            if claim.written is not None:
+                written |= {claim.written, -claim.written}
+            # News wording such as "AI 營收占比 60%" or "外資持股比例 72.3%" shares labels with
+            # account ratios; without cited account data it can only be a news quote.
+            news_backed = (not claim.unit.startswith("invalid") and not personal_cited
+                           and claim.metric not in ACCOUNT_METRICS - {"allocation_pct", "holdings_allocation_pct"}
+                           and any(written & numbers and _mentions(source, content, claim.symbol, aliases)
+                                   for source, content, numbers in news_numbers))
+            if claim.unit == "%" and re.search(r"保證|一定|必定|必然", local):
+                return sentence.strip()
+            # A forecast percentage is allowed only as an attributed quote of cited news.
+            if claim.unit == "%" and re.search(FORECAST, local) and not (
+                    news_backed and re.search(ATTRIBUTION, sentence)):
                 return sentence.strip()
             if any(_matches(claim, fact) for fact in facts):
                 continue
             if claim.metric is None and claim.value in literals:
+                continue
+            if news_backed and claim.metric is not None:
                 continue
             return sentence.strip()
         return None

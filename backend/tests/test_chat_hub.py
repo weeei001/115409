@@ -10,7 +10,7 @@ from app.db.models.daily_price import DailyPrice
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.chat.router import get_service
 from app.features.chat.schemas import AskRequest
-from test_chat import NOW, chat, events
+from test_chat import NOW, chat, events, withheld_answer
 from app.features.chat.prompts import INVESTMENT_DISCLAIMER
 from app.features.chat.service import _is_recommendation
 
@@ -42,11 +42,8 @@ def test_recommendation_disclaimer_does_not_bypass_citations(hub, stream):
     client, _, llm, _ = hub
     llm.answer = "Buy TSMC. [S99]"
     response = client.post("/api/ask", json={"query": "哪個最推薦買", "stream": stream})
-    if stream:
-        assert events(response)[-1]["type"] == "error"
-        assert not any(event["type"] in {"text", "done"} for event in events(response))
-    else:
-        assert response.status_code == 503
+    withheld_answer(response, stream)
+    assert "Buy TSMC" not in response.text
 
 
 @pytest.mark.parametrize("query", ["如何在模擬下單頁買進股票？", "外資買賣超多少？", "What does buy mean?"])
