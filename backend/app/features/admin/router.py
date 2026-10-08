@@ -1,13 +1,16 @@
 import asyncio
 from typing import Annotated
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Body, Depends, Path, Query, Request
+from fastapi import APIRouter, Body, Depends, Path, Query, Request, Response
 
 from app.core.config import application_environment, require_development_names
 from app.db.models.user import User
 from app.features.admin import service
+from app.features.admin import chat_review
+from app.features.admin.chat_review_schemas import ChatReviewDetail, ChatReviewFilter, ChatReviewList
 from app.features.admin.schemas import ActionResponse, AddStockRequest, GrantAdministratorRequest, JobActionRequest
 from app.features.auth.router import CurrentUser, Database
 
@@ -80,6 +83,23 @@ def run(request: Request, user: Administrator, db: Database, run_id: int = Path(
 @router.get("/audit")
 def audit(user: Administrator, db: Database, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
     return service.list_audit(db, limit, offset)
+
+
+@router.get("/ai-conversations", response_model=ChatReviewList)
+def ai_conversations(user: Administrator, db: Database, response: Response,
+                     days: int = Query(14, ge=1, le=14),
+                     outcome: ChatReviewFilter | None = Query(None),
+                     reason: str = Query("", max_length=64), q: str = Query("", max_length=120),
+                     limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
+    response.headers["Cache-Control"] = "no-store"
+    return chat_review.list_reviews(db, days=days, outcome=outcome, reason=reason, query=q,
+                                    limit=limit, offset=offset)
+
+
+@router.get("/ai-conversations/{review_id}", response_model=ChatReviewDetail)
+def ai_conversation(review_id: UUID, user: Administrator, db: Database, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return chat_review.get_review(db, str(review_id))
 
 
 @router.get("/administrators")

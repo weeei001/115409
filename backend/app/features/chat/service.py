@@ -23,6 +23,7 @@ from app.features.retrieval.service import RetrievalService
 
 from .answer_validation import (NUMERIC_RECOVERY_GUIDANCE, AnswerValidationError, CitationValidationError,
                                 NumericValidationError, TruncatedAnswerError, _checked_answer)
+from .audit import ChatAudit
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
@@ -475,21 +476,25 @@ class ChatService:
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
         yield response, prompt, warning
 
-    async def _validate_response(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None):
+    async def _validate_response(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None, audit=None):
         async with aclosing(self._validation_steps(
-            raw_text, metadata, response, request, prompt, warning, deadline=deadline,
+            raw_text, metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
         )) as steps:
             async for _ in steps:
                 pass
 
-    async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None):
+    async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None, audit=None):
         _add_usage(response, metadata)
+        if audit:
+            audit.update_usage(response)
         yield "正在核對回答的引用與數值…"
         try:
             response.answer = _checked_answer(raw_text, metadata, response.sources, warning,
                                               company_catalog=response._company_catalog,
                                               require_portfolio=response._requires_portfolio)
         except AnswerValidationError as exc:
+            if audit:
+                audit.rejected(exc)
             # Retry once from the same evidence; never publish or attach citations to rejected prose.
             truncated = isinstance(exc, TruncatedAnswerError)
             yield ("回答超過長度限制，正在精簡後重新產生…" if truncated
@@ -499,17 +504,27 @@ class ChatService:
             guidance = (failed_claim_guidance(getattr(exc, "claim", "")) if exc.reason == "numbers"
                         else failed_compliance_guidance(exc.hint) if exc.reason in {"compliance", "grounding"}
                         else failed_citation_guidance(getattr(exc, "hint", "")))
-            result = await self._repair_client(deadline).text(
+            repair_client = self._repair_client(deadline)
+            if audit:
+                audit.start_attempt("repair", repair_client)
+            result = await repair_client.text(
                 system_prompt=recovery_system_prompt(request.answer_detail, exc.reason) + guidance,
                 prompt=prompt,
             )
+            if audit:
+                audit.complete_attempt(result.raw_text, result.metadata)
             _add_usage(response, result.metadata)
+            if audit:
+                audit.update_usage(response)
             yield "正在重新核對回答的引用與數值…"
             try:
                 response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning,
                                                   company_catalog=response._company_catalog,
                                                   require_portfolio=response._requires_portfolio)
             except AnswerValidationError as retry_exc:
+                if audit:
+                    audit.rejected(retry_exc)
+                    audit.outcome = "fallback"
                 # Keep final rejection observable without logging private prose or evidence.
                 finish = result.metadata.get("finish_reason")
                 finish = finish if finish in ("stop", "length", "content_filter", None) else "unknown"
@@ -527,31 +542,53 @@ class ChatService:
                 else:
                     response.answer = VALIDATION_FALLBACK_ANSWER + (
                         NUMERIC_RECOVERY_GUIDANCE if isinstance(retry_exc, NumericValidationError) else "") + warning
+            else:
+                if audit:
+                    audit.passed()
+        else:
+            if audit:
+                audit.passed()
         if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
             response.answer += "\n\n" + INVESTMENT_DISCLAIMER
 
     async def ask(self, request: AskRequest) -> AskResponse:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        self.require_enabled()
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
+                          repair_max_tokens=self.repair_max_tokens)
         try:
+            self.require_enabled()
             async with asyncio.timeout_at(deadline):
                 response, prompt, warning = await self._prepare(request)
+                audit.prepared(response)
                 if prompt:
                     _remaining_seconds(deadline)
+                    audit.start_attempt("initial", self.llm)
                     result = await self.llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
+                    audit.complete_attempt(result.raw_text, result.metadata)
                     await self._validate_response(
-                        result.raw_text, result.metadata, response, request, prompt, warning, deadline=deadline,
+                        result.raw_text, result.metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
                     )
+                else:
+                    audit.outcome = "direct"
                 _remaining_seconds(deadline)
+            response.duration_ms = int((perf_counter() - started) * 1000)
+            audit.publish(response, completed=True)
+            return response
         except TimeoutError as exc:
+            audit.failed(exc)
             raise UpstreamTimeout(REQUEST_TIMEOUT_MESSAGE) from exc
-        response.duration_ms = int((perf_counter() - started) * 1000)
-        return response
+        except Exception as exc:
+            audit.failed(exc)
+            raise
+        finally:
+            await audit.persist(self.session_factory)
 
     async def stream_events(self, request: AskRequest):
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
+                          repair_max_tokens=self.repair_max_tokens)
         try:
             async with aclosing(self._prepare_steps(request)) as steps:
                 while True:
@@ -563,6 +600,7 @@ class ChatService:
                         yield {"type": "status", "content": step}
                     else:
                         response, prompt, warning = step
+                        audit.prepared(response)
             if response.dashboard:
                 yield {"type": "dashboard", "dashboard": response.dashboard.model_dump(mode="json"),
                        "actions": [action.model_dump(mode="json") for action in response.actions]}
@@ -570,6 +608,7 @@ class ChatService:
                 yield {"type": "status", "content": "正在依據資料產生回答…"}
                 metadata = {}
                 parts = []
+                audit.start_attempt("initial", self.llm)
                 async with aclosing(self.llm.stream_text(
                     system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt,
                 )) as stream:
@@ -577,10 +616,13 @@ class ChatService:
                     async with asyncio.timeout_at(deadline):
                         async for chunk in stream:
                             metadata.update(chunk.metadata)
+                            audit.metadata(chunk.metadata)
                             if chunk.text:
                                 parts.append(chunk.text)
+                                audit.append_text(chunk.text)
+                audit.complete_attempt("", metadata)
                 async with aclosing(self._validation_steps(
-                    "".join(parts), metadata, response, request, prompt, warning, deadline=deadline,
+                    "".join(parts), metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
                 )) as steps:
                     while True:
                         try:
@@ -588,17 +630,26 @@ class ChatService:
                         except StopAsyncIteration:
                             break
                         yield {"type": "status", "content": status}
+            else:
+                audit.outcome = "direct"
             _remaining_seconds(deadline)
             response.duration_ms = int((perf_counter() - started) * 1000)
             # Buffer until validation so rejected or truncated text never reaches the consumer.
+            audit.publish(response)
             yield {"type": "text", "content": response.answer}
+            audit.data["publication_completed"] = True
             yield {"type": "done", **response.model_dump(mode="json")}
-        except TimeoutError:
+        except TimeoutError as exc:
+            audit.failed(exc)
             yield {"type": "error", "message": REQUEST_TIMEOUT_MESSAGE}
         except AppError as exc:
+            audit.failed(exc)
             detail = exc.detail
             message = detail.get("message", "服務暫時無法回應，請稍後重試") if isinstance(detail, dict) else str(detail)
             yield {"type": "error", "message": message}
         except Exception as exc:
+            audit.failed(exc)
             logging.getLogger(__name__).error("Chat stream failed: %s", type(exc).__name__)
             yield {"type": "error", "message": "服務暫時無法回應，請稍後重試"}
+        finally:
+            await audit.persist(self.session_factory)
