@@ -9,6 +9,7 @@ import { buildFacets, type Facet, type FacetTone } from '@/lib/brief/textBriefFa
 import { AI_RESEARCH_ONLY } from '@/lib/disclaimers';
 import {
   CONF,
+  briefStatusNote,
   CONF_HINT,
   FORWARD_VIEWS,
   forwardViewLabel,
@@ -31,8 +32,6 @@ interface Props {
   endDate?: string | null;
   /** 最新交易日；分析基準日比它早就是過期 */
   latestTradeDate?: string | null;
-  /** 證據目錄沒有均線數字時，技術動能面向的備援（本站價量計算） */
-  maStructureLabel?: string;
   /** 開啟完整分析；帶 evidenceId 時先亮那一筆證據 */
   onOpenDetail: (evidenceId?: string, claimKey?: string) => void;
 }
@@ -121,7 +120,6 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   brief,
   endDate,
   latestTradeDate,
-  maStructureLabel,
   onOpenDetail,
 }) => {
   const { loading, error, data, seconds, run } = brief;
@@ -136,9 +134,8 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
       buildFacets(data?.evidence_catalog, {
         brief: b,
         asOfDate: data?.as_of_date,
-        maStructureLabel,
       }),
-    [data, b, maStructureLabel]
+    [data, b]
   );
 
   // data 為 null 只有「還沒發動」與「發動失敗」兩種情況；前者當載入中，避免閃一下空狀態
@@ -199,6 +196,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
   ];
   const shortView = b.forward_views?.short_1_5;
   const stale = Boolean(latestTradeDate && data.as_of_date && data.as_of_date < latestTradeDate);
+  const statusNote = briefStatusNote(data.status);
 
   const factorBlock = (
     title: string,
@@ -245,6 +243,11 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
         {stale ? (
           <p role="status" className="mb-3 text-[13px] leading-relaxed text-muted-foreground">
             最新交易日已到 {latestTradeDate}，這份分析的基準日較早，內容可能已經過期。
+          </p>
+        ) : null}
+        {statusNote ? (
+          <p role="status" className="mb-3 text-[13px] leading-relaxed text-muted-foreground">
+            {statusNote}{data.limitations?.length ? '，原因見完整分析的「分析限制」。' : '。'}
           </p>
         ) : null}
 

@@ -116,7 +116,9 @@ PAIR_CATALOG = {"2330": {"name": "台積電"}, "2454": {"name": "聯發科"}}
     ("台積電 2026-10-05 成交量較5日均量減少15.62%", True),
     ("台積電 2026-10-05 量能較 5 日均量萎縮 15.62%", True),
     ("台積電 2026-10-05 成交量較 5 日均量增加 15.62%", False),
-    ("台積電 2026-10-05 成交量較 5 日均量減少 15.6%", False),
+    # Rounded to the written precision is still the observation; a different value is not.
+    ("台積電 2026-10-05 成交量較 5 日均量減少 15.6%", True),
+    ("台積電 2026-10-05 成交量較 5 日均量減少 15.7%", False),
 ])
 def test_volume_against_five_day_average_tolerates_spacing_and_keeps_direction(claim, supported):
     assert numeric_claims_supported(claim, PAIR, PAIR_CATALOG) is supported

@@ -6,7 +6,7 @@ from app.clients.llm import LlmResult
 from app.features.chat import service as chat_module
 from app.features.chat.answer_validation import NumericValidationError, _checked_answer
 from app.features.chat.schemas import SourceChunk
-from test_chat import MODEL_ANSWER, chat, events
+from test_chat import MODEL_ANSWER, chat, events, withheld_answer
 
 
 def price_source(citation_id, price):
@@ -103,6 +103,8 @@ def test_recovery_uses_failure_category_and_publishes_only_valid_replacement(cha
     assert reasons == [reason]
     assert len(attempts) == (1 if stream else 2)
     assert ("「股價 200 元」" in attempts[-1]["system_prompt"]) is (reason == "numbers")
+    # A citation retry names what failed instead of only saying the check failed.
+    assert ("[S99]" in attempts[-1]["system_prompt"]) is (reason == "citations")
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -111,9 +113,4 @@ def test_empty_recovery_has_same_bounded_attempt_budget(chat, stream):
     llm.answer = ""
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     assert sum(kind in {"text", "stream"} for kind, _ in llm.calls) == 2
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "error"
-        assert not any(event["type"] in {"text", "done"} for event in result)
-    else:
-        assert response.status_code == 503
+    withheld_answer(response, stream)

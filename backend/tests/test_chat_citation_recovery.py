@@ -4,7 +4,7 @@ from app.clients.llm import LlmResult
 from app.core.errors import ServiceUnavailable
 from app.features.chat.schemas import SourceChunk
 from app.features.chat.service import _checked_answer
-from test_chat import MODEL_ANSWER, chat, events
+from test_chat import MODEL_ANSWER, chat, events, withheld_answer
 
 
 @pytest.mark.parametrize("citation", ["[s1]", "［S1］", "【S1】", "[ S1 ]", "[S1, S2]"])
@@ -117,12 +117,7 @@ def test_citation_and_truncation_failures_share_one_retry_budget(chat, stream, f
     response = client.post("/api/ask", json={"query": "台積電最近營收", "stream": stream})
     assert len(attempts) == (1 if stream else 2)
     assert "Rejected draft" not in response.text
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "error" and llm.closed
-        assert not any(event["type"] in {"text", "done"} for event in result)
-    else:
-        assert response.status_code == 503
+    withheld_answer(response, stream)
 
 
 @pytest.mark.parametrize("claim", ["收盤價 999 元", "漲跌幅 +2.03%", "EPS 999 元", "2026-09-10 收盤價 100 元", "股票2317收盤價100元"])

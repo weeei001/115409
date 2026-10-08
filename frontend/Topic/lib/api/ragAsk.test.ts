@@ -43,7 +43,7 @@ async function check() {
     assert.equal(options?.method, 'POST');
     assert.deepEqual(JSON.parse(String(options?.body)), {
       query: expectedQuery, stock_id: null, answer_detail: expectedDetail,
-      history: expectedHistory, stream: true, user_token: null,
+      history: expectedHistory, stream: true,
     });
     return new Response(responseBody, {
       headers: { 'content-type': 'text/event-stream' },

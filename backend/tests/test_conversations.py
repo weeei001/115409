@@ -120,7 +120,7 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_final_numeric_rejection_preserves_dashboard_failed_history_and_safe_diagnostics(
+def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagnostics(
         client, service, db_session, settings, monkeypatch, caplog, stream):
     from app.features.chat import service as chat_module
     from app.features.chat.answer_validation import NUMERIC_RECOVERY_GUIDANCE
@@ -155,23 +155,23 @@ def test_final_numeric_rejection_preserves_dashboard_failed_history_and_safe_dia
         "stream": stream,
     })
 
+    # The rejected prose is withheld; a fixed notice with the numeric guidance replaces it.
+    notice = chat_module.VALIDATION_FALLBACK_ANSWER + NUMERIC_RECOVERY_GUIDANCE
     if stream:
         result = events(response)
-        assert result[-1]["type"] == "error"
-        assert not any(event["type"] in {"text", "done"} for event in result)
+        assert [event["content"] for event in result if event["type"] == "text"] == [result[-1]["answer"]]
         displayed = next(event["dashboard"] for event in result if event["type"] == "dashboard")
         assert displayed["blocks"][0]["items"][0]["value"] == 100
-        error = result[-1]["message"]
+        answer = result[-1]["answer"]
     else:
-        assert response.status_code == 503
-        error = response.json()["detail"]
-    assert error == "回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE
-    assert "指定 1 至 2 檔股票重新提問" in error
+        assert response.status_code == 200
+        answer = response.json()["answer"]
+    assert answer.startswith(notice) and "指定 1 至 2 檔股票重新提問" in answer
     assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 2
 
     saved = client.get(f"/api/conversations/{conversation_id}", headers=headers).json()["messages"][-1]
-    assert saved["status"] == "failed" and saved["error"] == error
-    assert saved["content"] == "" and saved["sources"] == []
+    assert saved["status"] == "completed" and saved["content"] == answer
+    assert "999999" not in json.dumps(saved)
     assert saved["dashboard"]["blocks"][0]["items"][0]["value"] == 100
     assert saved["actions"]
     diagnostics = [record for record in caplog.records if record.name == chat_module.__name__]
@@ -181,6 +181,8 @@ def test_final_numeric_rejection_preserves_dashboard_failed_history_and_safe_dia
     for sentinel in ("PRIVATE_SOURCE_SENTINEL", "PRIVATE_ANSWER_SENTINEL", "PRIVATE_METADATA_SENTINEL",
                      "PRIVATE_QUERY_SENTINEL"):
         assert sentinel not in caplog.text
+    # The owner's own snapshot is returned with the sources, as in any answered turn; rejected prose is not.
+    for sentinel in ("PRIVATE_ANSWER_SENTINEL", "PRIVATE_METADATA_SENTINEL", "PRIVATE_QUERY_SENTINEL"):
         assert sentinel not in response.text
         assert sentinel not in json.dumps(saved)
 

@@ -195,12 +195,11 @@ function riskFacet(brief: Brief | null | undefined): Facet {
 }
 
 /**
- * 產生五個面向。`asOfDate` 用來排除日期晚於基準日的證據，
- * `maStructureLabel` 是技術動能在證據不足時的備援（本站價量計算，非 AI）。
+ * 產生五個面向。`asOfDate` 用來排除日期晚於基準日的證據。
  */
 export function buildFacets(
   catalog: EvidenceItem[] | null | undefined,
-  options: { brief?: Brief | null; asOfDate?: string | null; maStructureLabel?: string } = {}
+  options: { brief?: Brief | null; asOfDate?: string | null } = {}
 ): Facet[] {
   const { brief, asOfDate } = options;
   const items = (catalog ?? []).filter((item) => !(asOfDate && item.date && item.date > asOfDate));

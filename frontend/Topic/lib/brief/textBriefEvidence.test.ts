@@ -222,8 +222,8 @@ const AS_OF = '2026-09-03';
     '缺少近一年百分位，無法分級'
   );
 
-  // Chart selection must not supply evidence for a separately dated snapshot.
-  const fallback = buildFacets([], { maStructureLabel: '偏多' });
+  // 沒有均線證據時，技術動能不另找來源
+  const fallback = buildFacets([]);
   const momentum = fallback.find((facet) => facet.key === 'momentum')!;
   assert.equal(momentum.levelLabel, '資料不足');
   assert.equal(momentum.evidenceIds.length, 0);

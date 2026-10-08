@@ -356,6 +356,8 @@ class AnalysisService:
             limitations.append("部分期間展望重試後仍未通過內容檢查，已標示為無法判讀；其餘分析保留。")
         if brief is not None and any(item.endswith(".invalidation") for item in verification.removed_item_ids):
             limitations.append("部分失效條件未通過檢查，已移除；保留有依據的方向與理由。")
+        if brief is not None and any(item.endswith(".trigger") for item in verification.removed_item_ids):
+            limitations.append("部分風險的觸發條件未通過檢查，已移除；保留有依據的風險說明。")
         if brief is not None and any(item in {"headline", "confidence_reason"} or item.startswith("limitations[")
                 for item in verification.removed_item_ids):
             limitations.append("摘要或限制中的未核實內容已移除，分析僅保留通過檢查的依據。")

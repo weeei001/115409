@@ -88,6 +88,10 @@ export interface WatchPoint {
 
 export interface ForwardView {
   stance: Stance | string;
+  /**
+   * openapi 未列、依後端實作（決議 D5）：後端 `TextBriefForwardView` 用 SkipJsonSchema 隱藏，
+   * 因為同一個 schema 也是給模型的輸出格式，不能讓模型自己填；只有伺服器檢查不通過時會設成 rejected。
+   */
   validation_status?: 'rejected' | null;
   reason: string;
   invalidation: string;
