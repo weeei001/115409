@@ -17,6 +17,8 @@ VALUE = re.compile(
 )
 BOUNDARY = re.compile(r"[。!?;\n]|(?<!\d)[,，]|[,，](?!\d)")
 INTRO = re.compile(r"\s*(?:(?:[-•·]|\d+[.)])\s*)?"
+                   # A short section label does not change the following local action.
+                   r"(?:[\u4e00-\u9fff]{0,12}方案(?:[一二三四五六七八九十A-C1-9])?\s*[:：]\s*)?"
                    r"(?:我的建議是|建議(?:你)?|你可以(?:考慮)?|可以(?:考慮)?|可考慮|可(?!用)|不妨"
                    r"|每次|每批|首批|第[一二三1-3]批|分批)\s*")
 CONDITION = re.compile(r"\s*(?:若|如果|假設|假如)\s*")

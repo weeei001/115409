@@ -359,7 +359,10 @@ def test_slow_audit_writes_have_bounded_wait_and_queue_without_failing_chat(db_s
             chat, _ = service(factory)
             started = perf_counter()
             assert (await chat.ask(AskRequest(query="first"))).answer.startswith(VALID)
-            assert perf_counter() - started < 0.5 and entered.is_set()
+            assert perf_counter() - started < 0.5
+            # The bounded response may return before Windows starts the writer.
+            # Synchronize its entry before checking the single-writer queue.
+            assert await asyncio.to_thread(entered.wait, 1)
             second, _ = service(factory)
             assert (await second.ask(AskRequest(query="second"))).answer.startswith(VALID)
         finally:

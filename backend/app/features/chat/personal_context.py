@@ -2,6 +2,8 @@
 import json
 import math
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .knowledge import reference_source
 from .schemas import PaperOrderDraft
@@ -59,10 +61,17 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
             payload["portfolio"] = portfolio
     symbols = [row["symbol"] for row in payload.get("favorites", [])]
     portfolio = payload.get("portfolio", {})
+    if portfolio.get("as_of"):
+        moment = datetime.fromisoformat(portfolio["as_of"])
+        if moment.tzinfo is not None:
+            # Preserve the original instant and expose its local display time;
+            # the UTC date can differ from the user's account snapshot date.
+            portfolio["as_of_taipei"] = moment.astimezone(ZoneInfo("Asia/Taipei")).isoformat()
     symbols.extend(row["symbol"] for row in portfolio.get("positions", []) if row.get("symbol"))
     symbols = list(dict.fromkeys(symbols))
     payload["analysis_limit"] = "Market/news analysis covers at most the first 6 personal symbols per question, in favorites order followed by remaining portfolio positions."
     source = reference_source("本次登入使用者的收藏與模擬投資資料", json.dumps(payload, ensure_ascii=False, default=str), category="personal")
+    source.pub_time = portfolio.get("as_of_taipei", "")
     source.stock_ids = symbols
     return symbols[:6], source
 

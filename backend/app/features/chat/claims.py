@@ -93,7 +93,7 @@ UNITS.update({"average_cost": "TWD", "favorites_count": "count", "positions_coun
 UNITS.update({"per": "multiple", "pbr": "multiple"})
 UNITS.update({field: "%" for field in ("stop_loss_pct", "take_profit_pct", "target_return_pct")})
 LABELS = "|".join(f"(?P<{field}>{label})" for field, label in METRICS.items())
-QUALIFIER = r"(?:(?:目前|現在|大約|約|為|是|達|有|共有|總共|共|剩餘|剩下|剩|尚有|仍有|合計|[:=])\s*)*"
+QUALIFIER = r"(?:(?:目前|現在|大約|約|為|是|高達|僅|達|有|共有|總共|共|剩餘|剩下|剩|尚有|仍有|合計|[:=])\s*)*"
 CLAIM = re.compile(
     rf"(?:{LABELS})\s*(?P<alias>\([^()\d]{{1,40}}\))?\s*{QUALIFIER}[(]?\s*"
     rf"(?P<currency_prefix>{FOREIGN_CURRENCY}|NT\$|TWD|NTD|[$€￥])?\s*"
@@ -161,6 +161,11 @@ def _number(raw) -> Decimal:
 def _normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     text = re.sub(r"\[S\d+\]", "", text, flags=re.I)
+    for field in {*PORTFOLIO_AMOUNTS, *PORTFOLIO_RATIOS}:
+        # A model may repeat the exact JSON field beside its Chinese label.
+        # Only an identical metric alias is formatting, never a different field.
+        text = re.sub(rf"(?P<label>{METRICS[field]})\s+`?{field}`?\b",
+                      lambda match: match["label"], text)
     text = re.sub(r"[*_`]", "", text)
     for label in METRICS.values():
         text = re.sub(rf"(?P<label>{label})\s*\(\s*(?:{label})\s*\)",
@@ -182,7 +187,26 @@ def _normalize(text: str) -> str:
 def _context(text: str, position: int, aliases: dict[str, str]):
     prefix = re.split(r"[。!?;\n]", text[:position])[-1]
     dates = tuple(re.findall(DATE, prefix))
-    return (max(_subjects(prefix, aliases), default=(0, 0, None), key=lambda item: item[:2])[2], dates)
+    symbol = max(_subjects(prefix, aliases), default=(0, 0, None), key=lambda item: item[:2])[2]
+    if symbol is None and re.match(r"\s*(?:且|並且|並|同時)", prefix):
+        # A conjunction after a semicolon continues the preceding subject,
+        # but not its observation dates or periods.
+        sentence = re.split(r"[。!?\n]", text[:position])[-1]
+        if ";" in sentence:
+            symbol = max(_subjects(sentence.rsplit(";", 1)[0], aliases),
+                         default=(0, 0, None), key=lambda item: item[:2])[2]
+    return symbol, dates
+
+
+def _postposed_subject(text: str, position: int, aliases: dict[str, str]):
+    """Bind a metric to its explicit adjacent subject in '88.53% 的友達'."""
+    suffix = text[position:]
+    connector = re.match(r"\s*的\s*", suffix)
+    if not connector:
+        return None
+    subjects = _subjects(suffix[connector.end():], aliases)
+    adjacent = [(length, symbol) for start, length, symbol in subjects if start == 0]
+    return max(adjacent, default=(0, None))[1]
 
 
 def _subjects(prefix: str, aliases: dict[str, str]):
@@ -221,8 +245,13 @@ def _claims(text: str, aliases: dict[str, str]):
         if len(listed) >= 2 and len(indexes) == len(listed):
             metrics = {claims[index].metric for index in indexes if claims[index].metric is not None}
             if not metrics:
-                metrics = {field for field, label in METRICS.items()
-                           if re.search(rf"(?:{label})\s*$", text[sentence_start:marker.start()], re.I)}
+                labels = [(field, match.end() - match.start()) for field, label in METRICS.items()
+                          if (match := re.search(rf"(?:{label})\s*(?:則)?\s*$",
+                                                text[sentence_start:marker.start()], re.I))]
+                longest = max((length for _, length in labels), default=0)
+                # Prefer the explicit interval label over its generic return
+                # suffix; equal-length ambiguities still receive no exemption.
+                metrics = {field for field, length in labels if length == longest}
             shared_metric = next(iter(metrics)) if len(metrics) == 1 else None
             for index, symbol in zip(indexes, listed):
                 # 「A 與 B 分別漲 x%、y%」已明示共用指標，第二個數字不是任意百分比。
@@ -301,6 +330,7 @@ def _listed_claims(text: str, aliases: dict[str, str]):
         elif label.endswith("上漲") and value < 0:
             normalized_unit = "invalid direction"
         symbol, dates = _context(text, match.start(), aliases)
+        symbol = _postposed_subject(text, match.end(), aliases) or symbol
         trailing_date = re.match(rf"\s*\(\s*({DATE})\s*\)", text[match.end():])
         if trailing_date:
             dates += (trailing_date[1],)

@@ -7,6 +7,7 @@ from app.core.errors import ServiceUnavailable
 from app.features.market.company_catalog import company_aliases
 
 from .claims import _normalize, unsupported_numeric_claim
+from .comparison_validation import unsupported_comparison
 from .grounding import unsupported_market_cause, target_quote_supported
 from .proposals import plan_supported
 from .prompts import INSUFFICIENT_EVIDENCE_ANSWER
@@ -153,6 +154,7 @@ def _is_heading(paragraph: str, next_paragraph: str, catalog=None) -> bool:
     if not marked:
         return False
     label = line.strip("#*_【】[]：: \t")
+    label = re.sub(r"^(?:\d+[.)、]|[一二三四五六七八九十]+、)\s*", "", label)
     for symbol, company in catalog.items():
         for alias in sorted(company_aliases(symbol, company), key=len, reverse=True):
             label = label.replace(alias, "")
@@ -162,7 +164,31 @@ def _is_heading(paragraph: str, next_paragraph: str, catalog=None) -> bool:
 def _is_structural_label(label: str) -> bool:
     label = re.sub(r"^以下(?:是|為)?(?:詳細|簡要)?", "", label)
     label = re.sub(r"(?:整理|如下)$", "", label)
-    return label in STRUCTURAL_LABELS
+    if label in STRUCTURAL_LABELS:
+        return True
+    # Only neutral topic labels compose headings. A recommendation or factual
+    # assertion remains a claim even when it ends in a colon.
+    topic = (r"(?:帳戶概況|帳戶現況|配置問題|分析範圍|資料日期|採用條件|下一步方案|"
+             r"重大風險|風險|調整建議條件|調整條件|建議|支持來源|評選標準|資料限制|觀察重點)")
+    return bool(re.fullmatch(rf"{topic}(?:[與及、]{topic})*", label))
+
+
+def _validation_paragraphs(answer: str) -> list[str]:
+    paragraphs = re.split(r"\n\s*\n|\n(?=\s*(?:[-*•·]|\d+[.)])\s)", answer)
+    grouped = []
+    for paragraph in paragraphs:
+        # A colon introduces the immediately following list item. Its citation
+        # can support that complete unit, including every claim in the lead-in.
+        # Do not borrow a later item's citations or exempt the lead-in's facts.
+        if (grouped and re.match(r"\s*以下(?:依據|根據|在)", grouped[-1])
+                and "\n" not in grouped[-1].strip()
+                and grouped[-1].rstrip().endswith(("：", ":"))
+                and not re.search(r"\[S[1-9][0-9]*\]", grouped[-1])
+                and re.match(r"\s*(?:[-*•·]|\d+[.)])\s", paragraph)):
+            grouped[-1] += "\n" + paragraph
+        else:
+            grouped.append(paragraph)
+    return grouped
 
 
 def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "",
@@ -204,7 +230,7 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
 
     # 保留標題作為建議／現況的作用域邊界；顯示豁免不應抹除驗證上下文。
     prose = answer
-    paragraphs = re.split(r"\n\s*\n|\n(?=\s*(?:[-*•·]|\d+[.)])\s)", prose)
+    paragraphs = _validation_paragraphs(prose)
     list_marker = re.compile(r"\s*(?:[-*•·]|\d+[.)])\s")
     for index, paragraph in enumerate(paragraphs):
         stripped = paragraph.strip()
@@ -251,6 +277,10 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
             if failed is not None:
                 raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE,
                                              claim=failed or _normalize(text).strip())
+            comparison_issue = unsupported_comparison(
+                text, [available[citation] for citation in citations], company_catalog)
+            if comparison_issue:
+                raise NumericValidationError("回答的比較排名與所引用資料無法核對。", claim=comparison_issue)
 
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}

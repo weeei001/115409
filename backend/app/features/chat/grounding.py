@@ -27,6 +27,12 @@ UNCONFIRMED = re.compile(
     r"(?:不足以|無法|不能|尚無法|未能)(?:判斷|確認|證實|說明)"
     r"(?:本次|這次|今日)?(?:股價)?(?:上漲|下跌|漲跌|回檔)?(?:的)?(?:原因|主因)"
 )
+RISK_METRIC_REASON = re.compile(
+    r"(?:因為|由於|因)(?:其|該股(?:的)?)?(?:年化波動(?:度|率)|最大回撤(?:幅度)?)"
+    r"(?:為|達|高達|僅)?(?:-?\d+(?:\.\d+)?%|高於其餘\d+檔)"
+)
+ENTRY_CONDITION = re.compile(r"(?:若|如果|並確認|確認|等待).{0,40}(?:才|再)(?:進場|買進|加碼)$")
+RISK_ACTION = re.compile(r"(?:必須|應|需要|建議|宜)(?:嚴格)?(?:設定|設置)(?:停損(?:條件|點)?|部位上限)")
 
 
 def _clean(text):
@@ -96,6 +102,15 @@ def _has_subject(text, sources, catalog):
 def _market_cause(sentence, sources, catalog):
     # 資料不足的明確說明可以保留；同句其他原因敘述仍須各自核對，不能靠一句提醒放行。
     clauses = [part for part in re.split(r"[,;；]", sentence) if not UNCONFIRMED.fullmatch(part)]
+    for index in range(1, len(clauses) - 1):
+        if (ENTRY_CONDITION.search(clauses[index - 1])
+                and RISK_METRIC_REASON.fullmatch(clauses[index])
+                and RISK_ACTION.fullmatch(clauses[index + 1])):
+            # This local reason explains the required risk control after a
+            # conditional entry, not why a market move occurred. Keep the
+            # metric text and all other causes; numeric/ranking checks still
+            # validate the original answer independently.
+            clauses[index] = re.sub(r"^(?:因為|由於|因)", "", clauses[index])
     text = ",".join(clauses)
     # 「可考慮部分獲利了結」是操作建議，不是宣稱已發生獲利了結賣壓。
     text = re.sub(r"(?:可(?:以)?(?:考慮)?|建議|不妨|考慮)(?:先|部分|分批)?獲利了結", "", text)
