@@ -164,10 +164,10 @@ async function check() {
   }));
   const earlierTurn = messageMarkup('first', 'First answer[S2]\n【引用來源】\n- [S2] Same article: /news/one');
   const laterTurn = messageMarkup('second', 'Second answer[S1]');
-  assert.match(earlierTurn, /Passage 2/);
+  assert.doesNotMatch(earlierTurn, /Passage 2/);
   assert.match(earlierTurn, /href="\/news\/trusted%2Ftwo"/);
   assert.doesNotMatch(earlierTurn, /href="\/news\/one"/);
-  assert.match(laterTurn, /Passage 1/);
+  assert.doesNotMatch(laterTurn, /Passage 1/);
   // 畫面上的引用依正文出現順序重新編號：正文先引用 S2，就顯示成 [1]（P2-033）
   assert.match(earlierTurn, /aria-label="引用 1：Same article，查看本站新聞"[^>]*>\[1\]<\/a>/);
   assert.doesNotMatch(earlierTurn, /\[S2\]/);

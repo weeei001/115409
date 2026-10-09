@@ -24,7 +24,9 @@ export function isStructuredRagReply(text: string): boolean {
 }
 
 export function parseRagStructuredReply(text: string): RagStructuredReply | null {
-  const trimmed = text.trim();
+  const trimmed = normalizeMarkdownEscapes(text)
+    .replace(/^ {0,3}#{1,6}[\t ]+(【[^】]+】)(?:[\t ]+#+)?[\t ]*$/gm, '$1')
+    .trim();
   if (!trimmed.includes('【')) return null;
 
   const headers = [...trimmed.matchAll(SECTION_HEADER_RE)];

@@ -11,6 +11,7 @@ for (const messages of [[], [message('empty', '')], [message('short', 'Short ans
   assert.doesNotMatch(render(messages), /aria-label="回答區塊導覽"/);
 }
 const long = render([message('long', 'Long answer '.repeat(80))]);
+assert.doesNotMatch(render([message('uncited', 'Short answer', { sources: [source] })]), /aria-label="回答區塊導覽"|raw evidence/);
 assert.match(long, /aria-label="回答區塊導覽"/);
 assert.equal((long.match(/aria-controls=/g) ?? []).length, 1);
 // 區塊導覽是錨點：目前所在區塊（預設回答）以 aria-current 標示，只有一個
