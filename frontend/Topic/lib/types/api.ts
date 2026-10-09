@@ -310,3 +310,65 @@ export interface FavoriteStockResponse {
 export interface FavoriteStockListResponse {
   items: FavoriteStockResponse[];
 }
+
+// ── AI 成效（AI 摘要命中率、對話回饋） ──
+
+export type TrackRecordHorizonKey = 'short_1_5' | 'swing_6_20' | 'medium_21_40';
+
+export interface TrackRecordOutcome {
+  horizon: TrackRecordHorizonKey;
+  stance?: string | null;
+  call: 'up' | 'down' | 'none';
+  /** 基準日收盤到區間終點收盤的漲跌幅（%）；未到期為 null */
+  return_pct?: number | null;
+  result: 'hit' | 'miss' | 'no_call' | 'pending';
+}
+
+export interface TrackRecordItem {
+  symbol: string;
+  as_of_date: string;
+  overall_stance?: string | null;
+  outcomes: TrackRecordOutcome[];
+}
+
+export interface TrackRecordHorizon {
+  horizon: TrackRecordHorizonKey;
+  trading_days: number;
+  directional_calls: number;
+  hits: number;
+  /** 0–1；沒有樣本為 null */
+  hit_rate?: number | null;
+  /** 同一批樣本中實際上漲的比例（每次都猜漲的命中率），0–1 */
+  up_baseline_rate?: number | null;
+  no_call: number;
+  pending: number;
+}
+
+/** openapi: GET /analyze/stock-behavior/track-record → AITrackRecordResponse */
+export interface AITrackRecordResponse {
+  symbol?: string | null;
+  days: number;
+  window_start: string;
+  snapshot_count: number;
+  horizons: TrackRecordHorizon[];
+  recent: TrackRecordItem[];
+  method_note: string;
+}
+
+/** openapi: PUT/DELETE /api/conversations/{conversation_id}/messages/{message_id}/feedback → MessageFeedback */
+export interface MessageFeedback {
+  message_id: string;
+  rating: 'up' | 'down' | null;
+}
+
+/** openapi: GET /admin/ai-feedback → AIFeedbackSummary */
+export interface AIFeedbackSummary {
+  days: number;
+  ready: boolean;
+  completed_answers: number;
+  rated: number;
+  helpful: number;
+  unhelpful: number;
+  helpful_rate?: number | null;
+  recent_unhelpful: Array<{ message_id: string; conversation_id: string; rated_at: string; answer_excerpt: string }>;
+}

@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import Link from 'next/link';
 import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { inputClass } from '@/components/ui/input';
 import { cn } from '@/lib/cn';
+import { AI_CHAT_NOTICE, DISCLAIMER_PATH } from '@/lib/disclaimers';
 
 /** openapi: AskRequest.query maxLength */
 const MAX_QUERY_LENGTH = 6000;
@@ -76,6 +78,11 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
         </p>
       ) : null}
       {stopNotice ? <p role="status" className="mt-1 text-xs leading-relaxed text-muted-foreground">已停止顯示這則回覆。</p> : null}
+      {/* 手機版 /ai 隱藏頁尾，免責改在輸入框下方固定一行（D13 A2） */}
+      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+        {AI_CHAT_NOTICE}
+        <Link href={DISCLAIMER_PATH} className="ml-1 underline underline-offset-4 hover:text-foreground">免責聲明</Link>
+      </p>
     </div>
   );
 }

@@ -115,3 +115,17 @@ console.log('Chat citation SSR passed: trusted mappings, repeated citations, uni
 
 assert.doesNotMatch(markup, /本輪引用原始資料|<details|<pre/);
 assert.doesNotMatch(render('Answer without citations'), /引用來源|raw market data|raw news/);
+
+// 回饋鈕：只有已儲存（有 serverId）且完成的回覆才出現；按下的那顆標 aria-pressed
+const rateable = (message: Partial<Parameters<typeof ChatMessage>[0]['message']>, streamActive = false) => renderToStaticMarkup(<ChatMessage
+  message={{ id: 'local', role: 'assistant', content: '回覆', timestamp: '', status: 'completed', serverId: 'saved-1', ...message }}
+  reducedMotion streamActive={streamActive} followUpDisabled={false} onRate={() => undefined} />);
+assert.match(rateable({}), /aria-label="回饋這則回覆"/);
+assert.match(rateable({}), /這則回覆有幫助嗎？/);
+assert.match(rateable({ feedback: 'up' }), /aria-label="有幫助" aria-pressed="true"/);
+assert.match(rateable({ feedback: 'up' }), /aria-label="沒有幫助" aria-pressed="false"/);
+assert.doesNotMatch(rateable({ serverId: undefined }), /回饋這則回覆/, 'unsaved (guest or not yet reloaded) answers cannot be rated');
+assert.doesNotMatch(rateable({ status: 'failed' }), /回饋這則回覆/);
+assert.doesNotMatch(rateable({}, true), /回饋這則回覆/);
+assert.doesNotMatch(rateable({ role: 'user' }), /回饋這則回覆/);
+console.log('Chat feedback SSR passed: saved completed answers only, pressed state.');

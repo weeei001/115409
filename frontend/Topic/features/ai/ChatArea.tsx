@@ -26,6 +26,8 @@ interface Props {
   /** 日誌開頭的燈質列：只寫程式確定的事實（登入會保存、訪客不保存） */
   signedIn?: boolean;
   onSend: (text: string) => void;
+  /** 回饋這則回覆（有幫助／沒幫助，null 取消）；不傳就不顯示回饋鈕 */
+  onRate?: (messageId: string, rating: 'up' | 'down' | null) => void;
 }
 
 /** 往上找第一個會捲動的容器（桌機是對話欄，手機是整頁） */
@@ -68,7 +70,7 @@ type Section = 'answer' | 'citations' | 'data';
  * 從歷史開啟對話時（不是正在串流）桌機把最新一輪的提問放在訊息欄頂端，資料欄回到頂端。
  * 有資料面板時 1440 以上分兩欄，右欄顯示最近一則有面板的訊息；lg～1439 收進「資料」開關；手機放在對話下方。
  */
-export function ChatArea({ messages, loading, streamingMessageId, exampleQuestions, signedIn = false, onSend }: Props) {
+export function ChatArea({ messages, loading, streamingMessageId, exampleQuestions, signedIn = false, onSend, onRate }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
   const navigationRef = useRef<HTMLElement>(null);
   const asideRef = useRef<HTMLElement>(null);
@@ -317,6 +319,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
             message={msg}
             reducedMotion={reduce}
             onFollowUp={onSend}
+            onRate={onRate}
             followUpDisabled={loading}
             streamActive={msg.role === 'assistant' && msg.id === streamingMessageId}
             answerTargetId={msg.id === latestAnswer?.id ? answerId : undefined}

@@ -284,7 +284,7 @@
 | # | 問題（稽核證據） | 改法 | 位置 |
 |---|---|---|---|
 | A1 | `safeReturnUrl` 只擋 `//` 與 `://`；headless Chrome 實測 `router.push('/\t/evil.example/phish')` 導到 `http://evil.example/phish`（換行同樣成功，反斜線被 Next 正規化擋下） | 拒絕控制字元與 `\`，用 URL 解析確認同源，只回傳 pathname+search+hash；新增 `returnUrl.test.ts` | lib/utils/returnUrl.ts |
-| A2 | 375 寬時 `/ai` 副標被截成「個股、多股比較、技術指標與…」，頁尾在手機隱藏，看不到免責 | 輸入框下方固定一行「AI 回覆僅供研究參考，不是投資建議。」（taiwan-stock-ux 的 AI 免責文案） | features/ai/ChatInput.tsx |
+| A2 | 375 寬時 `/ai` 副標被截成「個股、多股比較、技術指標與…」，頁尾在手機隱藏，看不到免責 | 輸入框下方固定一行「AI 回覆僅供研究參考，不是投資建議。」（taiwan-stock-ux 的 AI 免責文案）〔commit bdd8d3a 曾移除這一行；2026-10-10 依評審意見恢復，見 J1〕 | features/ai/ChatInput.tsx |
 | B1 | 後端斷線時各頁顯示「網路錯誤（常見為 CORS…）請確認 API 網址為根路徑（不含 /docs）…」；AI 分析錯誤附後端網址與 HTTP 代碼 | 前端自己寫的訊息全部改成通用文案；後端的中文 detail 保留，英文依狀態碼換成通用文案；13 處畫面直接顯示 `err.message` 的地方改用 `userFacingMessage`〔2026-10-08 核對：畫面已沒有直接顯示 `err.message` 的地方〕 | lib/api/client.ts, errorDetail.ts, userFacingError.ts, ragAsk.ts, features/ai/useChat.ts 與各頁 |
 | B4 | 自架時 `/_vercel/insights/script.js` 會 404（建置產物有引用） | 拿掉 `<Analytics />` 與 import（`@vercel/analytics` 仍留在 package.json）〔2026-10-08 依 H1 從依賴移除〕 | pages/_app.tsx |
 | B6 | c22 沒修 | 改用 `toYmdLocal`。〔現況：首頁股價卡已刪除，這個檔案沒有呼叫端，已一併刪除〕 | lib/utils/sparklineHistory.ts（已刪除） |
@@ -332,3 +332,16 @@
 | H1-8 | D13 B4 `@vercel/analytics` | 照建議 | 從依賴移除 |
 | H1-9 | c63 `getMaStructureLabel` | 照建議 | 結果沒有被使用，刪掉 `lib/utils/technicalSignals.ts` 與 `buildFacets` 的 `maStructureLabel` 參數，畫面不變 |
 | H1-10 | `/admin` 回應型別 | 照建議（S1） | `/admin` 的 GET 都沒有 `response_model`，openapi 的回應 schema 是空的；`lib/api/admin.ts` 的型別依 `backend/app/features/admin/service.py`，同 D5 的例外，檔案開頭有註明。後端加上 `response_model` 後重跑 `sync:openapi`，改成照 schema 抄，並拿掉這一項例外 |
+
+### 評審意見：免責聲明與 AI 成效（J1，2026-10-10）
+
+評審要求「平台顯著位置加註投資免責聲明、風險提示」，以及「建立評估機制，評估 AI 給的建議有沒有成效」。使用者選擇：免責聲明加上首次造訪提示；AI 成效做命中率加上使用者回饋。
+
+| # | 內容 | 位置 |
+|---|---|---|
+| J1-1 | 新增「投資免責聲明」頁（服務性質、資料來源、AI 限制、模擬投資、系統性風險、責任歸屬），頁尾導覽加連結；頁尾的風險提示改用一般文字色 | pages/disclaimer.tsx, lib/nav.ts（`FOOTER_NAV`）, components/layout/SiteFooter.tsx |
+| J1-2 | 首次造訪提示：固定在畫面底部，按「我已了解」後記在 localStorage（`tei:risk-notice-ack:v1`），聲明有實質修改時改版本號；儲存空間不可用時照樣顯示。不是對話框，不鎖焦點 | components/layout/RiskNoticeBanner.tsx, lib/riskNotice.ts |
+| J1-3 | 恢復 D13 A2：AI 對話輸入框下方固定一行免責並連到免責頁；模擬投資頁頂端加虛擬資金與「過去不代表未來」的提示。所有文案集中在 `lib/disclaimers.ts` | features/ai/ChatInput.tsx, pages/order.tsx |
+| J1-4 | AI 判斷回顧：後端 `GET /analyze/stock-behavior/track-record` 拿已存的 AI 摘要（`llm_responses`）三個區間的立場，對照基準日後第 5、20、40 個交易日收盤算命中率，附「每次都猜漲」基準。只計入基準日後 4 天內產生的摘要（排除事後重跑），中性、分歧、不確定不列入命中率；少於 10 次方向判斷時讀數改淡色、不和基準比較。個股頁在 AI 摘要下方顯示；後台顯示全站 | backend app/features/analysis/track_record.py, features/brief/AITrackRecordCard.tsx, lib/brief/trackRecord.ts |
+| J1-5 | AI 對話回饋：新資料表 `chat_message_feedback`（每則完成的回覆一筆），`PUT`／`DELETE /api/conversations/{id}/messages/{message_id}/feedback`，`SavedMessage` 多 `feedback`。串流的 done 事件不帶訊息 id，前端在回合結束後重讀對話補上 `serverId`，有 id 才顯示回饋鈕；訪客不顯示。後台 `GET /admin/ai-feedback` 顯示有幫助比例、回饋率與最近的「沒有幫助」回覆 | backend app/db/models/chat_feedback.py, app/features/conversations/, app/features/admin/ai_feedback.py, features/ai/ChatMessage.tsx, features/ai/useChat.ts, features/admin/AIEffectivenessPanel.tsx |
+| J1-6 | `openapi.json` 這次不是從正式後端 `sync:openapi`（新端點還沒部署），是用本機後端 `create_app().openapi()` 產生後合併，`ValidationError` 維持原檔版本（本機 FastAPI 版本不同） | 後端部署並執行 `init-schema` 建立 `chat_message_feedback` 後，重跑 `npm run sync:openapi` 比對 |

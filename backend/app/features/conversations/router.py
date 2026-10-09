@@ -13,7 +13,7 @@ from app.features.auth.router import Configuration, Database
 from app.features.chat.router import get_service as get_chat_service
 from app.features.chat.schemas import AskRequest, AskResponse
 
-from .schemas import ConversationDetail, ConversationList
+from .schemas import ConversationDetail, ConversationList, MessageFeedback, MessageFeedbackRequest
 from .service import ConversationService
 
 
@@ -55,6 +55,17 @@ def get_conversation(conversation_id: UUID, user: CurrentUser, service: Service)
 @router.delete("/{conversation_id}", status_code=204)
 def delete_conversation(conversation_id: UUID, user: CurrentUser, service: Service):
     service.delete(user.id, str(conversation_id))
+
+
+@router.put("/{conversation_id}/messages/{message_id}/feedback", response_model=MessageFeedback)
+def rate_message(conversation_id: UUID, message_id: UUID, body: MessageFeedbackRequest,
+                 user: CurrentUser, service: Service):
+    return service.rate(user.id, str(conversation_id), str(message_id), body.rating)
+
+
+@router.delete("/{conversation_id}/messages/{message_id}/feedback", response_model=MessageFeedback)
+def clear_message_rating(conversation_id: UUID, message_id: UUID, user: CurrentUser, service: Service):
+    return service.rate(user.id, str(conversation_id), str(message_id), None)
 
 
 @router.post("/{conversation_id}/ask", response_model=AskResponse)

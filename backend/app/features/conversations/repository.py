@@ -1,5 +1,6 @@
-from sqlalchemy import delete, exists, func, or_, select, update
+from sqlalchemy import delete, exists, func, inspect, or_, select, update
 
+from app.db.models.chat_feedback import ChatMessageFeedback
 from app.db.models.conversation import Conversation, ConversationMessage
 from app.features.chat.audit_repository import delete_conversation_records
 
@@ -73,5 +74,38 @@ def delete_conversation(db, user_id, conversation_id):
     # Explicit deletion also works with SQLite connections that do not enable FK cascades.
     owned = select(Conversation.id).where(Conversation.id == conversation_id, Conversation.user_id == user_id)
     delete_conversation_records(db, user_id, conversation_id)
+    if feedback_ready(db):
+        db.execute(delete(ChatMessageFeedback).where(ChatMessageFeedback.conversation_id.in_(owned)))
     db.execute(delete(ConversationMessage).where(ConversationMessage.conversation_id.in_(owned)))
     db.execute(delete(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user_id))
+
+
+def feedback_ready(db):
+    # Conversations keep working during a rollout before init-schema has created the table.
+    return inspect(db.connection()).has_table(ChatMessageFeedback.__tablename__)
+
+
+def feedback_ratings(db, conversation_id):
+    if not feedback_ready(db):
+        return {}
+    return dict(db.execute(select(ChatMessageFeedback.message_id, ChatMessageFeedback.rating)
+                           .where(ChatMessageFeedback.conversation_id == conversation_id)).all())
+
+
+def rateable_message(db, conversation_id, message_id):
+    return db.scalar(select(ConversationMessage).where(
+        ConversationMessage.id == message_id, ConversationMessage.conversation_id == conversation_id,
+        ConversationMessage.role == "assistant", ConversationMessage.status == "completed"))
+
+
+def set_feedback(db, *, user_id, conversation_id, message_id, rating, now):
+    row = db.get(ChatMessageFeedback, message_id)
+    if row is None:
+        db.add(ChatMessageFeedback(message_id=message_id, conversation_id=conversation_id, user_id=user_id,
+                                   rating=rating, created_at=now, updated_at=now))
+    else:
+        row.rating, row.updated_at = rating, now
+
+
+def clear_feedback(db, message_id):
+    db.execute(delete(ChatMessageFeedback).where(ChatMessageFeedback.message_id == message_id))

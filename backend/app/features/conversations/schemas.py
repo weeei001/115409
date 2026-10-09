@@ -22,6 +22,17 @@ class SavedMessage(BaseModel):
     actions: list[ChatAction | ChatFollowUp | PaperOrderDraft] = Field(default_factory=list)
     dashboard: ChatDashboard | None = None
     sources: list[SourceChunk] = Field(default_factory=list)
+    feedback: Literal["up", "down"] | None = Field(
+        default=None, description="Owner's helpful (up) or unhelpful (down) rating of this assistant message.")
+
+
+class MessageFeedbackRequest(BaseModel):
+    rating: Literal["up", "down"]
+
+
+class MessageFeedback(BaseModel):
+    message_id: str
+    rating: Literal["up", "down"] | None
 
 
 class ConversationDetail(ConversationSummary):
