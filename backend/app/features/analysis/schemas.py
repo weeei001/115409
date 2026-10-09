@@ -198,7 +198,6 @@ class TextBriefVerification(BaseModel):
     future_dated_items: list[str] = Field(default_factory=list)
     removed_item_ids: list[str] = Field(default_factory=list)
     soft_compliance_hits: list[str] = Field(default_factory=list)
-    unverified_numbers: list[str] = Field(default_factory=list)
     undercount_sections: list[str] = Field(default_factory=list)
     truncated_sections: list[str] = Field(default_factory=list)
     jargon_hits: list[str] = Field(default_factory=list)
@@ -291,3 +290,43 @@ class RawStockBehaviorTextBrief(BaseModel):
     confidence: Any = None
     confidence_reason: Any = None
     limitations: Any = Field(default_factory=list)
+
+
+TrackRecordHorizonKey = Literal["short_1_5", "swing_6_20", "medium_21_40"]
+
+
+class TrackRecordOutcome(BaseModel):
+    horizon: TrackRecordHorizonKey
+    stance: Optional[str] = Field(default=None, description="該區間的 AI 立場（StanceLevel）；舊快照可能缺。")
+    call: Literal["up", "down", "none"] = Field(description="看多／偏多為 up，看空／偏空為 down，其餘為 none。")
+    return_pct: Optional[float] = Field(default=None, description="基準日收盤到區間終點收盤的漲跌幅（%）；未到期為 null。")
+    result: Literal["hit", "miss", "no_call", "pending"]
+
+
+class TrackRecordItem(BaseModel):
+    symbol: str
+    as_of_date: str
+    overall_stance: Optional[str] = None
+    outcomes: list[TrackRecordOutcome]
+
+
+class TrackRecordHorizon(BaseModel):
+    horizon: TrackRecordHorizonKey
+    trading_days: int = Field(description="區間終點：基準日後第幾個交易日。")
+    directional_calls: int = Field(description="已到期且有方向判斷（看多或看空）的樣本數。")
+    hits: int
+    hit_rate: Optional[float] = Field(default=None, description="hits / directional_calls，0–1；沒有樣本為 null。")
+    up_baseline_rate: Optional[float] = Field(
+        default=None, description="同一批樣本中實際上漲的比例，即「每次都猜漲」的命中率，0–1。")
+    no_call: int = Field(description="已到期但立場為中性、分歧或不確定的樣本數。")
+    pending: int = Field(description="尚未走完區間、還不能評分的樣本數。")
+
+
+class AITrackRecordResponse(BaseModel):
+    symbol: Optional[str] = Field(default=None, description="查詢的股票代號；全站統計為 null。")
+    days: int
+    window_start: str = Field(description="納入評估的最早分析基準日（含）。")
+    snapshot_count: int = Field(description="納入評估的 AI 摘要數（每檔每個基準日取最新一份）。")
+    horizons: list[TrackRecordHorizon]
+    recent: list[TrackRecordItem] = Field(description="最近的摘要與各區間結果，新到舊，最多 10 筆。")
+    method_note: str

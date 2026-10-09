@@ -83,8 +83,6 @@ class Settings(BaseSettings):
     CHAT_LLM_TIMEOUT_SECONDS: float = 60
     CHAT_LLM_MAX_RETRIES: int = 0
     CHAT_REQUEST_TIMEOUT_SECONDS: float = Field(60, gt=0, allow_inf_nan=False)
-    # 修復只處理已找到的資料，以實際輸出上限避免再次產生同樣長的回答。
-    CHAT_REPAIR_MAX_TOKENS: int = Field(2048, gt=0)
     LLM_INPUT_PRICE_PER_M: float = 0.20
     LLM_OUTPUT_PRICE_PER_M: float = 1.20
     ANALYSIS_TIMEOUT_SECONDS: int = 1200

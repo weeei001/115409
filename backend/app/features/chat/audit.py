@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import re
 from datetime import datetime, timedelta, timezone
 from threading import BoundedSemaphore
 from time import perf_counter
@@ -28,7 +27,6 @@ MAX_SOURCE_SNAPSHOT_CHARS = 160000
 SAVE_TIMEOUT_SECONDS = 0.5
 _SAVE_SLOTS = BoundedSemaphore(4)
 _LOG = logging.getLogger(__name__)
-_SAFE_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 _FINISH_REASONS = {"stop", "length", "content_filter", "tool_calls", "function_call"}
 
 
@@ -41,19 +39,9 @@ def _number(value):
                      and 0 <= value <= 10**15 and math.isfinite(value)) else None
 
 
-def _code(value):
-    return value if isinstance(value, str) and _SAFE_CODE.fullmatch(value) else None
-
-
 def _clip(value, limit):
     value = value if isinstance(value, str) else ""
     return value[:limit], len(value) > limit, len(value)
-
-
-def _debug_text(value, limit):
-    text, clipped, _ = _clip(value, limit)
-    marker = "\n[除錯紀錄已截短]"
-    return text[:limit - len(marker)] + marker if clipped else text
 
 
 def _tokens(metadata):
@@ -244,40 +232,10 @@ class ChatAudit:
             self.data["attempts"][-1]["duration_ms"] = int((perf_counter() - self._attempt_started) * 1000)
             self._attempt_started = None
 
-    def rejected(self, exc):
-        self._finish_attempt_time()
-        attempt = self.data["attempts"][-1]
-        reason = _code(exc.reason) or "invalid_answer"
-        attempt.update({"validation": "rejected", "reason": reason,
-                        "issue": _code(getattr(exc, "issue", None)) or (
-                            "truncated" if reason == "length" else
-                            "conclusion_unsupported" if reason == "grounding" else reason),
-                        "hint": _debug_text(getattr(exc, "hint", ""), 3000),
-                        "claim": _debug_text(getattr(exc, "claim", ""), 3000),
-                        "detail": _debug_text(getattr(exc, "detail", ""), 1000),
-                        "diagnostics_truncated": any(_clip(getattr(exc, key, ""), limit)[1]
-                            for key, limit in (("hint", 3000), ("claim", 3000), ("detail", 1000)))})
-        self.reason = reason
-        if reason not in self.data["reasons"]:
-            self.data["reasons"].append(reason)
-
-    def passed(self):
-        self._finish_attempt_time()
-        self.data["attempts"][-1]["validation"] = "passed"
-        self.outcome = "repaired" if len(self.data["attempts"]) > 1 else "passed"
-
     def bypassed(self):
         """記錄直接回覆，不標示為檢核通過。"""
         self._finish_attempt_time()
         self.outcome = "direct"
-
-    def recovered(self, diagnostics, *, draft_stage):
-        """Record local pruning separately from the rejected model attempts."""
-        self.outcome = "repaired"
-        self.data["recovery"] = {
-            "method": "validated_partial", "draft_stage": draft_stage,
-            "validation": "passed", "removed": diagnostics if len(diagnostics) <= 64 else diagnostics[:63] + diagnostics[-1:],
-        }
 
     def publish(self, response, *, completed=False):
         answer, clipped, original_chars = _clip(response.answer, MAX_ANSWER_CHARS)

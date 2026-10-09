@@ -1,5 +1,5 @@
 /** JWT 存於 localStorage；若網站遭 XSS 可能外洩，正式環境宜評估 httpOnly cookie。 */
-import type { UserPublic } from '../types';
+import type { UserPublic } from '../types/api';
 import { detachPushSession } from '../notifications/session';
 
 const TOKEN_KEY = 'topictest_access_token';

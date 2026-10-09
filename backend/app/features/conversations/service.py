@@ -9,7 +9,7 @@ from app.db.models.conversation import Conversation, ConversationMessage
 from app.features.chat.schemas import AskResponse, ChatTurn
 
 from . import repository
-from .schemas import ConversationDetail, ConversationList, ConversationSummary, SavedMessage
+from .schemas import ConversationDetail, ConversationList, ConversationSummary, MessageFeedback, SavedMessage
 
 
 LEASE_SECONDS = 120
@@ -49,13 +49,29 @@ class ConversationService:
         with self.session_factory() as db:
             row = self._owned(db, user_id, conversation_id)
             stale = row.lease_until is None or row.lease_until <= utcnow()
+            ratings = repository.feedback_ratings(db, conversation_id)
             messages = [SavedMessage(
                 id=message.id, role=message.role, content=message.content,
                 timestamp=message.timestamp.replace(tzinfo=timezone.utc),
                 status="interrupted" if stale and message.status == "streaming" else message.status,
-                **message.extra,
+                **message.extra, feedback=ratings.get(message.id),
             ) for message in repository.messages(db, conversation_id)]
             return ConversationDetail(**summary(row).model_dump(), messages=messages)
+
+    def rate(self, user_id, conversation_id, message_id, rating):
+        """Record or clear (rating=None) the owner's rating of a completed assistant answer."""
+        with self.session_factory() as db, db.begin():
+            self._owned(db, user_id, conversation_id)
+            if not repository.feedback_ready(db):
+                raise ServiceUnavailable("回饋功能尚未啟用，請稍後再試")
+            if repository.rateable_message(db, conversation_id, message_id) is None:
+                raise NotFound("找不到可以回饋的回覆")
+            if rating is None:
+                repository.clear_feedback(db, message_id)
+            else:
+                repository.set_feedback(db, user_id=user_id, conversation_id=conversation_id,
+                                        message_id=message_id, rating=rating, now=utcnow())
+            return MessageFeedback(message_id=message_id, rating=rating)
 
     def delete(self, user_id, conversation_id):
         with self.session_factory() as db, db.begin():

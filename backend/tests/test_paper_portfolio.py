@@ -188,7 +188,6 @@ def test_allocation_uses_total_equity_and_preserves_pending_cash(db_session, own
     import json
     from contextlib import nullcontext
     from app.features.chat.personal_context import read_personal_context
-    from app.features.chat.answer_validation import _checked_answer
 
     fund(db_session, owner, 'initial', 30000)
     buy(db_session, owner, budget=10000)
@@ -212,9 +211,6 @@ def test_allocation_uses_total_equity_and_preserves_pending_cash(db_session, own
     portfolio = json.loads(evidence.content)['portfolio']
     assert portfolio['available_cash_allocation_pct'] == 50.31
     assert portfolio['positions'][0]['allocation_pct'] == 33.02
-    evidence.citation_id = 'S1'
-    answer = '可用資金為 15,085.89 元，占總資產 50.31%；持股市值為 9,900 元，占 33.02%；保留資金占 16.67%。[S1]'
-    assert _checked_answer(answer, {'finish_reason': 'stop'}, [evidence]).startswith(answer)
 
 
 def test_allocation_for_cash_only_uninitialized_and_empty_accounts(db_session, owner):

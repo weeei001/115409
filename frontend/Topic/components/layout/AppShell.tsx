@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'motion/react';
 import { SiteFooter } from './SiteFooter';
+import { RiskNoticeBanner } from './RiskNoticeBanner';
 import { ScrollToTop } from './ScrollToTop';
 import { FrozenRouter } from './FrozenRouter';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
@@ -46,6 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </div>
       <SiteFooter className={router.pathname === '/ai' ? 'hidden sm:block' : undefined} />
+      <RiskNoticeBanner />
       {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕（決議 c69）；首頁旅程有自己的進度列與「回到海面」 */}
       {router.pathname === '/ai' || router.pathname === '/' ? null : <ScrollToTop />}
     </div>

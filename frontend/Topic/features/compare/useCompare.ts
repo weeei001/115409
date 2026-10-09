@@ -120,7 +120,6 @@ function summarizeSymbols(symbols: string[], limit = 4): string {
   return `${symbols.slice(0, limit).join('、')} 等 ${symbols.length} 檔`;
 }
 
-const errorMessage = (err: unknown, fallback: string) => userFacingMessage(err, fallback);
 
 export function useCompare() {
   const [defaults] = useState(() => getDefaultDateRange());
@@ -158,7 +157,7 @@ export function useCompare() {
         setSymbolsLoaded(true);
         setError(null);
       })
-      .catch((err) => { if (active) setError(errorMessage(err, '無法載入股票清單')); });
+      .catch((err) => { if (active) setError(userFacingMessage(err, '無法載入股票清單')); });
     return () => { active = false; };
   }, [symbolsAttempt]);
 
@@ -244,7 +243,7 @@ export function useCompare() {
         setResult((prev) => (prev ? { ...prev, chart } : prev));
       } catch (err) {
         if (!isCurrent()) return;
-        const msg = withDateRangeHint(errorMessage(err, '載入比較資料失敗'));
+        const msg = withDateRangeHint(userFacingMessage(err, '載入比較資料失敗'));
         setError(msg);
         toast.error(msg);
       } finally {
@@ -271,7 +270,7 @@ export function useCompare() {
       if (metrics.warnings.length > 0) toast.warning('部分資料缺失，已在頁面中標示影響欄位。');
     } catch (err) {
       if (!isCurrent()) return;
-      const msg = withDateRangeHint(errorMessage(err, '載入比較指標失敗'));
+      const msg = withDateRangeHint(userFacingMessage(err, '載入比較指標失敗'));
       setMetricsError(msg);
       toast.error(msg);
     } finally {

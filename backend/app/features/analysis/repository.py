@@ -250,3 +250,49 @@ def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
             if config["input_fingerprint"] == fingerprints[key]:
                 return response
     return None
+
+
+_STANCE_PATHS = {
+    "overall": "$.brief.overall_stance",
+    "short_1_5": "$.brief.forward_views.short_1_5.stance",
+    "swing_6_20": "$.brief.forward_views.swing_6_20.stance",
+    "medium_21_40": "$.brief.forward_views.medium_21_40.stance",
+}
+
+
+def _json_text(value: Any) -> str | None:
+    # MySQL JSON_EXTRACT returns a quoted JSON string; SQLite returns the bare value.
+    if value is None:
+        return None
+    text_value = str(value)
+    return text_value[1:-1] if len(text_value) >= 2 and text_value[0] == text_value[-1] == '"' else text_value
+
+
+def track_record_snapshots(db: Session, *, symbol: str | None, since: date) -> list[dict[str, Any]]:
+    """Every production text-brief stance in id order (oldest first), without loading whole payloads."""
+    stances = [func.json_extract(LlmResponse.response_json, path).label(key) for key, path in _STANCE_PATHS.items()]
+    statement = select(
+        LlmResponse.id, LlmResponse.symbol, LlmResponse.as_of_date, LlmResponse.created_at,
+        func.json_extract(LlmResponse.response_json, "$.status").label("status"),
+        func.json_extract(LlmResponse.config_json, "$.purpose").label("purpose"), *stances,
+    ).where(LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse.is_fallback.is_(False),
+            LlmResponse.as_of_date >= since)
+    if symbol:
+        statement = statement.where(LlmResponse.symbol == symbol)
+    return [{
+        "symbol": row["symbol"], "as_of_date": row["as_of_date"], "created_at": row["created_at"],
+        **{key: _json_text(row[key]) for key in _STANCE_PATHS},
+    } for row in db.execute(statement.order_by(LlmResponse.id)).mappings()
+        if _json_text(row["purpose"]) == "production" and _json_text(row["status"]) in {"verified", "limited"}]
+
+
+def close_series(db: Session, symbols: set[str], since: date) -> dict[str, list[tuple[date, float]]]:
+    series: dict[str, list[tuple[date, float]]] = {symbol: [] for symbol in symbols}
+    if not symbols:
+        return series
+    rows = db.execute(select(DailyPrice.symbol, DailyPrice.date, DailyPrice.close).where(
+        DailyPrice.symbol.in_(symbols), DailyPrice.date >= since, DailyPrice.close.is_not(None),
+    ).order_by(DailyPrice.symbol, DailyPrice.date))
+    for row in rows:
+        series[row.symbol].append((row.date, float(row.close)))
+    return series

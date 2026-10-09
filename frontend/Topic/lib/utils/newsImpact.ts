@@ -1,4 +1,4 @@
-import type { News, NewsImpact, NewsImpactDirection, NewsImpactScope } from '../types';
+import type { News, NewsImpact, NewsImpactDirection, NewsImpactScope } from '../types/api';
 import type { BadgeTone } from './tone';
 
 export const DIRECTION_LABELS: Record<NewsImpactDirection, string> = {

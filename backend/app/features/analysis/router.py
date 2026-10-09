@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 from app.core.errors import UpstreamTimeout
 from app.core.streaming import encode_sse
 from app.db.session import get_db
-from .schemas import (StockBehaviorRagRequest, StockBehaviorRagResponse,
+from .schemas import (AITrackRecordResponse, StockBehaviorRagRequest, StockBehaviorRagResponse,
                       StockBehaviorTextBriefRequest, StockBehaviorTextBriefResponse)
+from .track_record import track_record as build_track_record
 from .prediction import AnalysisDigestResponse, TrendPredictionResponse
 from .service import AnalysisService
 
@@ -47,6 +48,15 @@ async def text_brief(req: StockBehaviorTextBriefRequest, request: Request,
             return await service.generate_text_brief(req)
     except TimeoutError as exc:
         raise UpstreamTimeout("分析逾時，請稍後重試") from exc
+
+
+@router.get("/track-record", response_model=AITrackRecordResponse)
+def track_record(symbol: str | None = Query(None, pattern=r"^[0-9]{4,6}[A-Z]?$",
+                                            description="股票代號；省略時統計全站。"),
+                 days: int = Query(180, ge=30, le=730, description="納入最近幾天內的分析基準日。"),
+                 db: Session = Depends(get_db)):
+    """AI 摘要各區間多空立場與後續實際漲跌的命中率，附「每次都猜漲」基準。"""
+    return build_track_record(db, symbol=symbol, days=days)
 
 
 @prediction_router.get("/api/trend_predict", response_model=TrendPredictionResponse,

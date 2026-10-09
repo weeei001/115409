@@ -18,6 +18,7 @@ import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
 import { StockManagement } from '@/features/admin/StockManagement';
 import { AIConversationReview } from '@/features/admin/AIConversationReview';
+import { AIEffectivenessPanel } from '@/features/admin/AIEffectivenessPanel';
 import { adminStageLabel, AdminRunDiagnostics } from '@/features/admin/RunDiagnostics';
 import { formatTaipei } from '@/lib/utils/date';
 import { Badge } from '@/components/ui/badge';
@@ -51,7 +52,7 @@ const ACTION_LABELS: Record<string, string> = {
   'administrator.bootstrap': '設定初始管理員', 'access.denied': '後台存取遭拒',
 };
 const TRIGGER_LABELS: Record<string, string> = { scheduled: '排程', schedule: '排程', manual: '手動', retry: '重跑' };
-const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-conversations', label: 'AI 對話檢核' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
+const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-conversations', label: 'AI 成效與檢核' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
 /** 帳頁表格：表頭淺底加粗線，列高至少 44px */
 const cellClass = 'px-4 py-3 align-top first:pl-4 sm:first:pl-5';
 const headCellClass = 'h-11 px-4 align-middle text-[12px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground first:pl-4 sm:first:pl-5';
@@ -561,7 +562,7 @@ export default function AdminPage() {
     </> : null}
       <div className="space-y-6">
         <nav aria-label="後台功能" className={cn(tabListClass, 'overflow-x-auto')}>{TABS.map((item) => <button type="button" key={item.id} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)} className={cn(tabTriggerClass, 'px-4 focus-lamp-inset', tab === item.id && tabTriggerActiveClass)}>{item.label}</button>)}</nav>
-        {tab === 'ai-conversations' ? <AIConversationReview onAccessError={handleAccessError} /> : null}
+        {tab === 'ai-conversations' ? <div className="space-y-10 lg:space-y-16"><AIEffectivenessPanel onAccessError={handleAccessError} /><AIConversationReview onAccessError={handleAccessError} /></div> : null}
         {overview ? <>
         {tab === 'jobs' ? <div className="space-y-10">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <LedgerPanel framed className="space-y-3"><LedgerHeading title={<>執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</>} headingProps={{ ref: runDetailHeading, tabIndex: -1 }} />{runDetailLoading && !selectedRun ? <LoadingRows label="載入執行紀錄中…" className="h-[88px]" /> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="flex flex-wrap items-center gap-x-2 text-sm">{jobLabel(selectedRun.job_name)} {adminRunScope(selectedRun)} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 <span className="font-mono tabular-nums">{timeText(selectedRun.started_at)}</span> · 結束 <span className="font-mono tabular-nums">{timeText(selectedRun.finished_at)}</span>{selectedRun.duration_seconds != null ? ` · ${adminDuration(selectedRun.duration_seconds)}` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</LedgerPanel> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} actionError={actionError} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} state={dataState} /><Ledger aria-labelledby="runs-heading" title={<span id="runs-heading">執行紀錄</span>} stamp={<StateStamp state={dataState}>台灣時間</StateStamp>}><div className="min-w-0 bg-card"><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><OffsetPagination label="執行紀錄分頁" offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></div></Ledger></div> : null}
         {tab === 'stocks' ? <StockManagement checkedAt={overview.checked_at} disabled={disabled} schedulerRunning={overview.scheduler.status === 'running'} backfillJob={overview.jobs.find((job) => job.name === 'stock-backfill')} onAccessError={handleAccessError} onViewRuns={() => setTab('jobs')} onAdd={(stock) => { void mutate((signal) => apiClient.post('/admin/stocks', { symbol: stock.symbol }, { signal }), `已加入 ${stock.symbol} ${stock.name}，可接著回補市場資料。`); }} onBackfill={(stock) => { const job = overview.jobs.find((item) => item.name === 'stock-backfill'); if (job) jobAction(job, 'run', stock.symbol); }} /> : null}

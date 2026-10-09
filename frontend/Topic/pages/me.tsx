@@ -17,7 +17,6 @@ import type { UserPublic } from '@/lib/types/api';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
 const LOGIN_FOR_ME = { pathname: '/login', query: { returnUrl: '/me' } };
-const errorText = (err: unknown, fallback: string) => userFacingMessage(err, fallback);
 
 export default function MePage() {
   const router = useRouter();
@@ -113,7 +112,7 @@ export default function MePage() {
         void router.replace(LOGIN_FOR_ME);
         return;
       }
-      const msg = errorText(err, '無法重新整理資料');
+      const msg = userFacingMessage(err, '無法重新整理資料');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -180,7 +179,7 @@ export default function MePage() {
       setNewPassword('');
       setConfirmNewPassword('');
     } catch (err) {
-      setPasswordError(errorText(err, '變更密碼失敗'));
+      setPasswordError(userFacingMessage(err, '變更密碼失敗'));
     } finally {
       setPasswordLoading(false);
     }

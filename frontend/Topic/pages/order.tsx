@@ -6,7 +6,7 @@ import { RefreshCw, X } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Expandable, FoldSection } from '@/components/common/CollapsibleSection';
-import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { figureClass, Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { signedText } from '@/components/common/LightEntry';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
@@ -22,9 +22,9 @@ import { withSign } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
+import { DISCLAIMER_PATH, PAPER_TRADING_NOTICE } from '@/lib/disclaimers';
 
 const pageClass = 'mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10';
-const figure = 'font-mono text-[clamp(24px,2.4vw,32px)] leading-tight font-semibold tabular-nums';
 /** 定義表的一列：左項目、右等寬數字，列與列之間是 1px 線（父層 gap-px bg-border） */
 const defRow = 'flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5';
 
@@ -206,15 +206,15 @@ export default function OrderPage() {
             </div>}
           >
             <LedgerPanel title="可用資金" unit="元">
-              <p className={figure}>{paperMoney(data.available_cash)}</p>
+              <p className={figureClass}>{paperMoney(data.available_cash)}</p>
               <p className="mt-2 text-[13px] text-muted-foreground">{data.reserved_cash > 0 ? <>另有 <span className="font-mono tabular-nums">{paperMoney(data.reserved_cash)}</span> 元保留給待成交買單</> : '沒有保留給待成交買單的資金'}</p>
             </LedgerPanel>
             <LedgerPanel title="總資產" unit="元">
-              <p className={figure}>{paperMoney(data.equity)}</p>
+              <p className={figureClass}>{paperMoney(data.equity)}</p>
               <p className="mt-2 text-[13px] text-muted-foreground">累計投入 <span className="font-mono tabular-nums">{paperMoney(data.net_contributions)}</span> 元</p>
             </LedgerPanel>
             <LedgerPanel title="投資損益" unit="元">
-              <p className={figure}><Pnl value={data.total_pnl} /></p>
+              <p className={figureClass}><Pnl value={data.total_pnl} /></p>
               <p className="mt-2 text-[13px] text-muted-foreground">已實現 <Pnl value={data.realized_pnl} /> · 未實現 <Pnl value={data.unrealized_pnl} /></p>
             </LedgerPanel>
           </Ledger>
@@ -299,6 +299,12 @@ export default function OrderPage() {
   return <>
     <Head><title>股海明燈｜模擬投資</title><meta name="description" content="用自己的投資預算，與 AI 一起練習投資。" /></Head>
     <SiteHeader title="模擬投資" subtitle="從你的預算開始，練習每一次投資決定" />
-    <main className={pageClass} aria-label="模擬投資">{content}</main>
+    <main className={pageClass} aria-label="模擬投資">
+      <Notice tone="warning" className="mb-6 lg:mb-10">
+        {PAPER_TRADING_NOTICE}
+        <Link href={DISCLAIMER_PATH} className="ml-1 underline underline-offset-4">投資免責聲明</Link>
+      </Notice>
+      {content}
+    </main>
   </>;
 }

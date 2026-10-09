@@ -176,31 +176,16 @@ def test_simulation_snapshot_is_skipped_and_generation_excludes_simulated_source
 
 
 @pytest.mark.parametrize("text", ["EPS 999", "股價為 999 元", "股價上漲 +2.03%"])
-def test_unsupported_numeric_claim_is_not_published(db_session, settings, text):
+def test_numeric_claims_are_not_checked_against_evidence(db_session, settings, text):
     seed_prices(db_session)
     payload = brief_payload()
     payload["current_status"][0]["text"] = text
     llm = FakeLlm(payload)
     response = run_service(db_session, settings, llm)
     assert llm.calls == 1
-    assert response.status == "limited" and response.brief.current_status == []
-    assert text not in response.model_dump_json()
-
-
-def test_empty_citation_direction_rejected_and_confidence_capped(db_session, settings):
-    seed_prices(db_session)
-    payload = brief_payload()
-    payload["confidence"] = "high"
-    for view in payload["forward_views"].values():
-        view.update(stance="bullish", evidence_ids=[])
-    result = run_service(db_session, settings, FakeLlm(payload))
-    assert result.status == "limited" and result.brief.confidence == "low"
-    assert all(view.stance == "uncertain" and view.validation_status == "rejected"
-               for view in (result.brief.forward_views.short_1_5, result.brief.forward_views.swing_6_20,
-                            result.brief.forward_views.medium_21_40))
-    assert "缺少" in " ".join(result.limitations)
+    assert [item.text for item in response.brief.current_status] == [text]
     # The complete catalog is independent of which rows the model cited.
-    assert {item.id for item in result.evidence_catalog} >= {"d_01", "d_02", "d_03", "d_04"}
+    assert {item.id for item in response.evidence_catalog} >= {"d_01", "d_02", "d_03", "d_04"}
 
 
 def test_same_body_canonical_selection_and_rollback_invalidate_cached_brief(db_session, settings, monkeypatch):
@@ -301,29 +286,6 @@ def test_shared_fact_source_refs_are_included_in_snapshot_dependencies():
     catalog = [{"article_id": "representative", "shared_facts": [{"source_refs": [
         {"article_id": "second-source"}, {"article_id": "representative"}]}]}]
     assert repository.news_article_ids(catalog) == {"representative", "second-source"}
-
-
-def test_grounding_rejects_wrong_period_sign_and_after_close_causality():
-    from app.features.analysis.evidence import EvidenceBundle
-    bundle = EvidenceBundle(symbol="2330", as_of_date=AS_OF,
-        daily_timeline=[{"id": "d_01", "date": AS_OF.isoformat(), "chg_pct": -2.03, "foreign_net_lots": 100}],
-        chip_summary=[{"id": "ch_01", "field": "foreign_net_10d_lots", "value": 5000}],
-        news=[{"id": "nw_01", "field": "news", "published_at": "2026-07-13T16:33:00+08:00"}])
-    for text, refs in [("上漲 +2.03%", ["d_01"]), ("外資單日買超 5000 張", ["ch_01"])]:
-        assert gate._grounding_issues({"text": text, "evidence_ids": refs}, bundle)
-    assert not gate._grounding_issues({"text": "下跌 2.03%", "evidence_ids": ["d_01"]}, bundle)
-    assert not gate._grounding_issues({"text": "外資近十日買超 5000 張", "evidence_ids": ["ch_01"]}, bundle)
-    assert gate._grounding_issues({"date": AS_OF.isoformat(), "what": "營收帶動股價上漲",
-                                   "evidence_ids": ["nw_01", "d_01"]}, bundle)
-    assert gate._grounding_issues({"stance": "uncertain", "reason": "EPS 999", "evidence_ids": []}, bundle)
-    assert gate._grounding_issues({"text": "成交量增加 -2.03%", "evidence_ids": ["d_01"]}, bundle)
-    bundle.news[0]["value"] = "營收增加 10%"
-    issues = gate._grounding_issues({"text": "營收增加 10%", "evidence_ids": ["nw_01"]}, bundle)
-    assert issues and all(issue.startswith("未核實") for issue in issues)
-    bundle.fundamental = [{"id": "fd_01", "field": "revenue_monthly", "yoy_pct": -10}]
-    assert not gate._grounding_issues({"text": "營收年減10%", "evidence_ids": ["fd_01"]}, bundle)
-    bundle.fundamental[0]["yoy_pct"] = 10
-    assert gate._grounding_issues({"text": "營收年減10%", "evidence_ids": ["fd_01"]}, bundle)
 
 
 def test_body_only_company_news_correction_preserves_saved_read_but_invalidates_generation_cache(db_session, settings):
@@ -630,7 +592,7 @@ def test_blocked_answer_is_regenerated_once_with_same_evidence(db_session, setti
             output = await super().generate(**kwargs)
             if self.calls == 1:
                 self.first_packet = deepcopy(kwargs["payload"])
-                output.payload["forward_views"]["short_1_5"]["reason"] = "股價為 2400 元"
+                output.payload["forward_views"]["short_1_5"]["reason"] = "目標價 2400 元"
             else:
                 assert kwargs["payload"] == self.first_packet
                 assert "上次輸出未通過檢查" in kwargs["system_prompt"]
@@ -659,7 +621,7 @@ def test_empty_filtered_section_preserves_facts_without_direction(db_session, se
     seed_prices(db_session)
     payload = brief_payload()
     payload.update(overall_stance="mildly_bullish", confidence="medium")
-    payload["positive_factors"][0]["text"] = "EPS 99 元"
+    payload["positive_factors"][0]["text"] = "建議逢低買進。"
     result = run_service(db_session, settings, FakeLlm(payload))
     assert result.status == "limited" and result.brief.current_status
     assert result.brief.positive_factors == []
@@ -672,7 +634,7 @@ def test_no_surviving_factual_sections_is_unavailable(db_session, settings):
     payload = brief_payload()
     for section in gate.TEXT_BRIEF_ITEM_SECTIONS:
         payload[section] = []
-    payload["current_status"] = [{"id": "cs_01", "claim_type": "observation", "text": "EPS 99 元",
+    payload["current_status"] = [{"id": "cs_01", "claim_type": "observation", "text": "建議逢低買進。",
                                   "direction": "positive", "importance": "high", "evidence_ids": ["d_04"]}]
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
@@ -689,7 +651,7 @@ def test_supported_direction_survives_unrelated_analysis_gaps(db_session, settin
     if gap == "empty_section":
         payload["negative_factors"] = []
     else:
-        payload["forward_views"]["short_1_5"]["reason"] = "股價為 2400 元。"
+        payload["forward_views"]["short_1_5"]["reason"] = "目標價 2400 元。"
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
     assert result.status == "limited"
@@ -723,7 +685,6 @@ def test_forward_news_inference_uses_cited_sources_without_exhaustive_excerpts(d
     assert result.brief.forward_views.medium_21_40.validation_status is None
     assert result.brief.forward_views.medium_21_40.reason == view["reason"]
     assert result.brief.forward_views.medium_21_40.evidence_ids == view["evidence_ids"]
-    assert result.verification["soft_compliance_hits"] > 0
 
 
 def test_invalid_invalidation_is_removed_without_retry_or_losing_direction(db_session, settings):
@@ -758,7 +719,7 @@ def test_invalid_forward_reason_is_rejected_after_retry_without_losing_history(d
     seed_prices(db_session)
     payload = brief_payload()
     payload.update(overall_stance="mildly_bullish", confidence="medium")
-    payload["forward_views"]["short_1_5"].update(stance="mildly_bullish", reason="股價為 2400 元。")
+    payload["forward_views"]["short_1_5"].update(stance="mildly_bullish", reason="目標價 2400 元。")
     llm = FakeLlm(payload)
     result = run_service(db_session, settings, llm)
     assert result.status == "limited" and llm.calls == 2
@@ -882,7 +843,7 @@ def test_grounded_price_passes_service_without_retry_and_status_is_server_owned(
 def test_saved_snapshot_backfills_rejection_from_metadata_only(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
-    payload["forward_views"]["short_1_5"]["reason"] = "股價為 2400 元。"
+    payload["forward_views"]["short_1_5"]["reason"] = "目標價 2400 元。"
     result = run_service(db_session, settings, FakeLlm(payload))
     row = db_session.get(LlmResponse, result.snapshot_id)
     saved = json.loads(row.response_json)

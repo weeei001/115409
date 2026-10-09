@@ -1,7 +1,6 @@
 """確認模型回答不經內容檢核，也不會觸發重新生成。"""
 import pytest
 
-from app.features.chat import answer_validation, partial_recovery, verified_fallback
 from test_chat import chat, events
 
 
@@ -15,15 +14,8 @@ from test_chat import chat, events
     ("", {"finish_reason": "stop"}),
     ("  原始格式 <b>文字</b> https://example.test [S999]\n", {"finish_reason": "stop"}),
 ])
-def test_all_answer_gates_are_disconnected(chat, monkeypatch, stream, answer, metadata):
+def test_answers_are_published_unchanged(chat, stream, answer, metadata):
     client, _, llm, _ = chat
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Answer validation and recovery must not run")
-
-    monkeypatch.setattr(answer_validation, "_checked_answer", forbidden)
-    monkeypatch.setattr(partial_recovery, "recover_partial_answer", forbidden)
-    monkeypatch.setattr(verified_fallback, "verified_facts_fallback", forbidden)
     llm.answer = answer
     llm.metadata.update(metadata)
     response = client.post("/api/ask", json={"query": "台積電最近新聞", "stream": stream})

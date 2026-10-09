@@ -14,6 +14,13 @@ let last: number | null = null;
 /** 變化小於這個值就不寫（每一格都可能呼叫，但只有真的變了才碰 DOM） */
 const STEP = 0.005;
 
+/**
+ * h 到這裡三塊畫面已經對齊觀測台三欄：<html> 加上 data-handed-off，旅程舞台溶掉、露出底下的觀測台（styles/main.css）。
+ * 寫入 --handoff 時一起更新，拿掉時一起拿掉
+ */
+const HANDED_OFF = 0.95;
+const HANDED_ATTR = 'data-handed-off';
+
 /** 目前生效的值（沒有寫就是 1） */
 export function currentHandoff(): number {
   return last ?? 1;
@@ -31,7 +38,9 @@ export function writeHandoff(v: number): void {
   if (last !== null && q === last) return;
   if (last !== null && Math.abs(q - last) < STEP && q !== 0 && q !== 1) return;
   last = q;
-  document.documentElement.style.setProperty(NAME, q === 1 ? '1' : q === 0 ? '0' : q.toFixed(3));
+  const root = document.documentElement;
+  root.style.setProperty(NAME, q === 1 ? '1' : q === 0 ? '0' : q.toFixed(3));
+  root.toggleAttribute(HANDED_ATTR, q >= HANDED_OFF);
 }
 
 /** 拿掉 --handoff（觀測台回到平常的樣子） */
@@ -39,4 +48,18 @@ export function clearHandoff(): void {
   last = null;
   if (typeof document === 'undefined') return;
   document.documentElement.style.removeProperty(NAME);
+  document.documentElement.removeAttribute(HANDED_ATTR);
+}
+
+/**
+ * 把觀測台（#terminalId）往上移 px（0 是放開），讓它在旅程最後一段跟黏住的舞台對齊（BeaconJourney 捲動時寫）。
+ * 直接寫在元素的 style 上（ObservationTerminal 不設 style，React 不會蓋掉）。
+ * 釘住時量到的位置是舞台上緣：要捲到觀測台的地方（「進入觀測台」、頁首的跳到觀測台連結）先放開再量。
+ */
+export function pinTerminal(terminalId: string, px: number): void {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById(terminalId);
+  if (!el) return;
+  const v = px > 0 ? `0 ${(-px).toFixed(1)}px` : '';
+  if (el.style.translate !== v) el.style.translate = v;
 }

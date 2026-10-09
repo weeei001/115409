@@ -14,7 +14,6 @@ import {
   CAPTION_HIDE_BELOW,
   CHAPTERS,
   RAIL,
-  WATCH_ROOM_PROGRESS,
   captionOpacity,
   chapterIndex,
   handoffCaption,
@@ -26,7 +25,7 @@ import {
   scrollYForProgress,
   type MeasuredTerminal,
 } from './journeyMath';
-import { clearHandoff } from './handoffVar';
+import { clearHandoff, pinTerminal } from './handoffVar';
 import { decideJourneyMode, probeWebGL2, readJourneyEnv, type JourneyMode, type PosterReason } from './journeyMode';
 import type { SparkLine, WatchItem } from './scene/screens';
 import { DAWN_CAPTION_TINT } from './scene/theme';
@@ -393,80 +392,53 @@ function Poster({ index, show, eager, isDark }: { index: number; show: boolean; 
   );
 }
 
-/* ---------- 文案（3D 版面與海報圖版共用；夜班、晨班各有自己的說法，跟畫面裡的時刻一致） ---------- */
+/* ---------- 文案（3D 版面與海報圖版共用；夜班、晨班同一份） ---------- */
 
-/** 燈塔：夜班已經入夜；晨班是日出前、燈還亮著最後一圈 */
 function TowerHeading() {
   return (
     <>
-      <span className="hidden dark:inline">
-        每十秒，
-        <wbr />
-        一道光
-        <wbr />
-        掃過海面。
-      </span>
-      <span className="dark:hidden">
-        天亮前，
-        <wbr />
-        最後一圈光。
-      </span>
+      收盤之後，
+      <wbr />
+      再看一次盤面。
     </>
   );
 }
 function TowerBody() {
-  return (
-    <>
-      <span className="hidden dark:inline">燈塔不預測浪，它只讓你看清楚浪。先看清楚，再決定方向。</span>
-      <span className="dark:hidden">
-        燈快熄了，海面看得更清楚。先看清楚，
-        <wbr />
-        再決定方向。
-      </span>
-    </>
-  );
+  return <>不是即時報價；每一區都標著資料日期，看得出是哪一天的數字。</>;
 }
-/** 窗：夜班窗裡亮著燈；晨班的窗迎著剛出海面的太陽 */
 function WindowHeading() {
   return (
     <>
-      <span className="hidden dark:inline">
-        還亮著燈的
-        <wbr />
-        那扇窗，
-        <wbr />
-        就是觀測台。
-      </span>
-      <span className="dark:hidden">
-        迎著晨光的
-        <wbr />
-        那扇窗，
-        <wbr />
-        就是觀測台。
-      </span>
+      燈塔上
+      <wbr />
+      那扇窗，
+      <wbr />
+      看得見整片股海。
     </>
   );
 }
+const WINDOW_BODY = '收盤價、K 線、三大法人和財經新聞，都在窗裡。';
 function DeskHeading() {
+  // 頓號也是斷行點：前半句包起來，手機才不會斷成「清單、個股、／大盤，…」
   return (
     <>
-      守燈人的桌上，
+      <span className="whitespace-nowrap">清單、個股、大盤，</span>
       <wbr />
-      換成了
-      <wbr />
-      整個市場。
+      放在同一張桌上。
     </>
   );
 }
-/** 交接：夜班是燈亮了；晨班走到這裡太陽已經出來了 */
+const DESK_BODY = '清單依產業分組，點一檔就看它的報價與 K 線。';
 function HandoffHeading() {
   return (
     <>
-      <span className="hidden dark:inline">燈亮了，紀錄就位。</span>
-      <span className="dark:hidden">天亮了，紀錄就位。</span>
+      接下來，
+      <wbr />
+      就是觀測台。
     </>
   );
 }
+const HANDOFF_BODY = '想看哪一檔，直接搜尋代號或公司名稱。';
 
 /* ---------- 海報圖版的看板：觀測台同一組三欄（左觀測清單、中報價、右加權指數），每欄只有一行真實資料 ---------- */
 
@@ -890,11 +862,21 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
 
   useEffect(() => {
     if (!sceneLayout) return;
+    const stage = stageRef.current;
     // 每次捲動都重新量軌道的位置（頁首或上方內容在載入後改了高度，軌道的位置就跟著變；只讀不寫，不會觸發重排）
     const update = () => {
       measure();
       const m = metrics.current;
       progress.set(journeyProgress(window.scrollY, m.top, m.height, m.viewport));
+      // 離終點還有多遠。到了（容許 2px：頁首的跳到觀測台連結用 scroll-margin，可能差一條邊框）：舞台跟疊在底下的觀測台剛好對齊，藏起舞台露出真的觀測台
+      const gap = scrollYForProgress(1, m.top, m.height, m.viewport) - window.scrollY;
+      stage?.toggleAttribute('data-past', gap <= 2);
+      // 最後一個舞台高的捲動：觀測台已經在舞台底下，把它釘在舞台上緣（不然會在舞台底下往上滑），
+      // 交接尾聲舞台溶掉時（styles/main.css 的 [data-journey-stage]），透出來的就是對齊好的三欄
+      const pinned = gap > 2 && gap < m.viewport;
+      pinTerminal(terminalId, pinned ? gap : 0);
+      // 舞台底下有對齊的觀測台時才准溶掉（從觀測台一下跳回很前面時，場景平滑後的 h 還沒退，不能露出空白）
+      stage?.toggleAttribute('data-pinned', pinned);
     };
     const onResize = () => {
       measure();
@@ -909,8 +891,11 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
       window.removeEventListener('scroll', update);
       window.removeEventListener('resize', onResize);
       ro.disconnect();
+      stage?.removeAttribute('data-past');
+      stage?.removeAttribute('data-pinned');
+      pinTerminal(terminalId, 0);
     };
-  }, [sceneLayout, measure, progress]);
+  }, [sceneLayout, measure, progress, terminalId]);
 
   const setChapterIndex = useCallback((i: number) => {
     if (chapterRef.current === i) return;
@@ -1050,6 +1035,8 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
   const goToTerminal = useCallback(() => {
     const el = document.getElementById(terminalId);
     if (!el) return;
+    // 釘住時量到的是舞台上緣，先放開再量（捲動時會重新釘）
+    pinTerminal(terminalId, 0);
     el.focus({ preventScroll: true });
     const top = el.getBoundingClientRect().top + window.scrollY - headerOffset();
     window.scrollTo({ top: Math.max(0, top), behavior: scrollBehavior() });
@@ -1092,8 +1079,8 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
   ) : CLOSE_DATA_NOTE;
   const counts =
     stockCount != null && industryCount != null
-      ? `${stockCount.toLocaleString('zh-TW')} 檔股票、${industryCount.toLocaleString('zh-TW')} 個產業，每一筆都標著資料日期。`
-      : '每一筆收盤紀錄，都標著資料日期。';
+      ? `目前收錄 ${stockCount.toLocaleString('zh-TW')} 檔股票，依 ${industryCount.toLocaleString('zh-TW')} 個產業分組。`
+      : DESK_BODY;
 
   const posterCell = (i: number) =>
     cn(
@@ -1106,12 +1093,20 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
   const posterShown = (i: number) => mode === 'scene' && !postersHidden && i <= reachedPoster;
 
   return (
-    <section data-mode={mode} aria-label="從海面登上燈塔" className="relative">
+    // 3D 版面：底下的觀測台往上疊一個舞台高（負的下邊距），終點那一格舞台正好蓋在觀測台開頭上（三塊螢幕對齊觀測台三欄）；
+    // 交接尾聲（data-handed-off）或走到終點（data-past）就溶掉舞台，露出真的觀測台，捲回來時舞台在同一個位置接回去，不會一上一下出現兩份。
+    // 這時整個區塊不接受指標（疊在觀測台上方的透明部分不能擋住點擊），只有舞台接受
+    <section
+      data-mode={mode}
+      aria-label="從海面登上燈塔"
+      className={cn('relative z-10', sceneLayout && 'pointer-events-none motion-safe:mb-[calc(var(--app-header-height)-100dvh)]')}
+    >
       <div ref={trackRef} className="relative h-[440vh] max-lg:h-[260svh] motion-reduce:h-auto! in-data-[mode=poster]:h-auto!">
         <div
           ref={stageRef}
+          data-journey-stage
           className={cn(
-            'sticky top-[var(--app-header-height)] isolate grid h-[calc(100dvh-var(--app-header-height))] grid-cols-1 grid-rows-1 overflow-clip bg-background',
+            'pointer-events-auto sticky top-[var(--app-header-height)] isolate grid h-[calc(100dvh-var(--app-header-height))] grid-cols-1 grid-rows-1 overflow-clip bg-background',
             'motion-reduce:static motion-reduce:h-[calc(100svh-var(--app-header-height))]',
             'in-data-[mode=poster]:static in-data-[mode=poster]:h-[calc(100svh-var(--app-header-height))]',
           )}
@@ -1138,17 +1133,15 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
             <DawnScrim tint="hero" className="max-lg:inset-x-[-42%] max-lg:inset-y-[-58%]" />
             <p className="characteristic text-foreground!">{characteristic}</p>
             <h1 className="mt-2 font-serif text-[clamp(32px,10.2vw,46px)] leading-[1.14] font-black tracking-[0.03em] text-foreground [word-break:keep-all] lg:mt-3 lg:text-[clamp(44px,min(6.2vw,9svh),86px)] lg:leading-[1.12]">
-              在行情的浪裡，
-              <br />
-              替你守一盞燈。
+              股海明燈
             </h1>
-            <p className={cn(BODY, 'max-lg:hidden')}>
-              往下就是觀測台：最近一個交易日的收盤價、K 線、三大法人與財經新聞。非即時資料，供學習與專題使用。
+            <p lang="en" className="mt-1 text-[11px] tracking-[0.25em] text-foreground uppercase lg:text-xs">
+              Stock Lighthouse
             </p>
-            <p className={cn(BODY, 'mt-2 lg:hidden')}>最近一個交易日的收盤價、K 線、法人與新聞。非即時資料，供學習與專題使用。</p>
+            <p className={cn(BODY, 'max-lg:mt-2')}>收盤後的台股，一次看清楚。</p>
             <div className="mt-4 flex flex-wrap gap-3 lg:mt-5">
-              <Button type="button" onClick={() => goToProgress(WATCH_ROOM_PROGRESS, 3)}>
-                往下看介紹
+              <Button type="button" onClick={() => goToStop(1)}>
+                從頭看起
                 <ArrowDown aria-hidden />
               </Button>
               <Button type="button" variant="outline" onClick={goToTerminal}>
@@ -1176,7 +1169,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
             <h2 className={HEADING_CHAPTER}>
               <WindowHeading />
             </h2>
-            <p className={BODY}>站得高，才看得遠。</p>
+            <p className={BODY}>{WINDOW_BODY}</p>
           </div>
 
           {/* 第四段：守燈人的桌前。夜班在左邊牆裙上方的牆面；晨班在右邊曬到太陽的牆面（同一段文案，各班一份，只顯示目前那一班的） */}
@@ -1204,7 +1197,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
                 <HandoffHeading />
               </h2>
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                <p className="text-[15px] leading-[1.75] text-foreground lg:text-[17px]">往下，就是觀測台。</p>
+                <p className="text-[15px] leading-[1.75] text-foreground lg:text-[17px]">{HANDOFF_BODY}</p>
                 <Button type="button" onClick={goToTerminal}>
                   進入觀測台
                   <ArrowDown aria-hidden />
@@ -1264,7 +1257,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
               <h2 className={HEADING_PLATE}>
                 <WindowHeading />
               </h2>
-              <p className={BODY}>站得高，才看得遠。燈籠下方這一層，是守燈人記帳的地方。</p>
+              <p className={BODY}>{WINDOW_BODY}</p>
             </Plate>
             {/* 最後一張：章名與標題 → 裁在三台螢幕上的圖 → 一行一欄的看板（真實資料） → 「進入觀測台」，往下就是觀測台 */}
             <article ref={(el) => void (plateRefs.current[2] = el)} className="grid grid-cols-1 gap-y-5 lg:gap-y-6">
@@ -1275,7 +1268,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
                 <h2 className={HEADING_PLATE}>
                   <DeskHeading />
                 </h2>
-                <p className={BODY}>每一筆收盤紀錄，都標著資料日期。</p>
+                <p className={BODY}>{DESK_BODY}</p>
               </div>
               <figure className="relative aspect-[1240/420] overflow-hidden border border-border-strong bg-secondary max-lg:portrait:aspect-[4/5]">
                 <picture key={isDark ? 'night' : 'dawn'}>
@@ -1287,7 +1280,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
               <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
                 <p className="text-[15px] leading-[1.75] text-foreground lg:text-[17px]">
                   <HandoffHeading />
-                  往下，就是觀測台。
+                  {HANDOFF_BODY}
                 </p>
                 <Button type="button" onClick={goToTerminal}>
                   進入觀測台

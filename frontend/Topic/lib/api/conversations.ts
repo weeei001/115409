@@ -30,8 +30,9 @@ export function parseSavedMessages(value: unknown): ChatMessage[] {
     if (!item || typeof item !== 'object') return [];
     const message = item as Record<string, unknown>;
     if ((message.role !== 'user' && message.role !== 'assistant') || typeof message.content !== 'string') return [];
+    const serverId = typeof message.id === 'string' && message.id ? message.id : undefined;
     return [{
-      id: typeof message.id === 'string' && message.id ? message.id : `saved-${index}`,
+      id: serverId ?? `saved-${index}`,
       role: message.role,
       content: message.content,
       timestamp: optionalText(message.timestamp) ?? '',
@@ -40,6 +41,8 @@ export function parseSavedMessages(value: unknown): ChatMessage[] {
       actions: Array.isArray(message.actions) ? message.actions.filter(isChatAction) : [],
       dashboard: parseChatDashboard(message.dashboard) ?? null,
       sources: parseChatSources(message.sources),
+      ...(serverId ? { serverId } : {}),
+      feedback: message.feedback === 'up' || message.feedback === 'down' ? message.feedback : null,
     }];
   });
 }

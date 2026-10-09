@@ -171,6 +171,7 @@ export default function AiPage() {
               exampleQuestions={EXAMPLE_QUESTIONS}
               signedIn={chat.signedIn}
               onSend={chat.send}
+              onRate={chat.rate}
             />
             {/* 輸入列固定在手機畫面或桌面對話面板的底部。 */}
             <div className="sticky bottom-0 z-20 mt-auto shrink-0">

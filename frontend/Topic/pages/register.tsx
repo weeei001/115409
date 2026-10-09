@@ -25,7 +25,6 @@ import { setAuth } from '@/lib/auth/storage';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
-const errorText = (err: unknown, fallback: string) => userFacingMessage(err, fallback);
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -67,7 +66,7 @@ export default function RegisterPage() {
         setAuth(data.access_token, data.user);
         await redirectAfterAuth();
       } catch (err) {
-        setError(errorText(err, 'Google 登入失敗'));
+        setError(userFacingMessage(err, 'Google 登入失敗'));
       } finally {
         setLoading(false);
       }
@@ -91,7 +90,7 @@ export default function RegisterPage() {
       setAuth(data.access_token, data.user);
       await redirectAfterAuth();
     } catch (err) {
-      setError(errorText(err, '註冊失敗'));
+      setError(userFacingMessage(err, '註冊失敗'));
     } finally {
       setLoading(false);
     }

@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
-import { ArrowRight, Check, Copy } from 'lucide-react';
+import { ArrowRight, Check, Copy, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
 import { parseChatSources } from '@/lib/types/chat';
@@ -22,6 +22,8 @@ interface Props {
   /** 正在接收串流：顯示游標，建議追問與（沒有資料面板時的）相關功能先不出現 */
   streamActive: boolean;
   onFollowUp?: (query: string) => void;
+  /** 回饋這則回覆；只有已儲存（有 serverId）且完成的回覆會顯示 */
+  onRate?: (messageId: string, rating: 'up' | 'down' | null) => void;
   followUpDisabled: boolean;
   answerTargetId?: string;
   citationsTargetId?: string;
@@ -38,7 +40,7 @@ const followUpClass = cn('inline-flex min-h-11 max-w-full items-center text-left
 const navLinkClass = 'group inline-flex min-h-11 max-w-full items-center gap-1.5 text-left text-sm text-foreground transition-colors duration-(--dur-flash) focus-visible:outline-2 focus-visible:outline-offset-2';
 const rowArrow = <ArrowRight size={14} className="shrink-0 text-muted-foreground transition-transform duration-(--dur-flash) group-hover:translate-x-0.5" aria-hidden />;
 
-export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, followUpDisabled, answerTargetId, citationsTargetId }: Props) {
+export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, onRate, followUpDisabled, answerTargetId, citationsTargetId }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const sourceScope = useId();
@@ -210,6 +212,32 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
             ))}
           </div>
         </nav>
+      ) : null}
+
+      {!isUser && onRate && message.serverId && message.status === 'completed' && !streamActive ? (
+        // 回饋用中性色：讚／倒讚不是漲跌方向。按下的那顆加粗框，再按一次取消
+        <div className="mt-4 flex flex-wrap items-center gap-x-1 border-t pt-2" role="group" aria-label="回饋這則回覆">
+          <p className="mr-1 text-[13px] text-muted-foreground" aria-live="polite">
+            {message.feedback ? '謝謝你的回饋，會用來改善 AI 回覆。' : '這則回覆有幫助嗎？'}
+          </p>
+          {([['up', '有幫助', ThumbsUp], ['down', '沒有幫助', ThumbsDown]] as const).map(([rating, label, Icon]) => {
+            const pressed = message.feedback === rating;
+            return (
+              <Button
+                key={rating}
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={label}
+                aria-pressed={pressed}
+                onClick={() => onRate(message.id, pressed ? null : rating)}
+                className={cn('border', pressed ? 'border-border-strong text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+              >
+                <Icon size={16} aria-hidden />
+              </Button>
+            );
+          })}
+        </div>
       ) : null}
     </motion.div>
   );

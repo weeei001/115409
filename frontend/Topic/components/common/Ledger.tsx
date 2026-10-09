@@ -76,6 +76,9 @@ interface LedgerPanelProps extends Omit<React.HTMLAttributes<HTMLElement>, 'titl
 /** 面板的底與內距；單獨放的面板（例如 <form>、<p>）不能用 LedgerPanel 時，加 border 直接套這組 class */
 export const panelClass = 'min-w-0 bg-card p-4 sm:p-5';
 
+/** 面板裡的主讀數（金額、比例）：等寬數字，隨視窗寬度在 24–32px 間縮放 */
+export const figureClass = 'font-mono text-[clamp(24px,2.4vw,32px)] leading-tight font-semibold tabular-nums';
+
 /** 帳頁裡的一格面板。固定順序：標題與單位 → 讀數 → 圖或刻度 → 日期戳記 */
 export function LedgerPanel({ title, unit, padded = true, framed = false, as: Element = 'div', className, children, ...rest }: LedgerPanelProps) {
   return (

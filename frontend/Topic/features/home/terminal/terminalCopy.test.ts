@@ -48,7 +48,7 @@ assert.ok(source.includes('回到頂端'));
 const journey = readFileSync(join(__dirname, '../journey/BeaconJourney.tsx'), 'utf8');
 const header = readFileSync(join(__dirname, '../HomeHeader.tsx'), 'utf8');
 for (const phrase of ['登上燈塔\n', '直接看觀測台', '觀測室。', '資料庫最近儲存', 'stop="觀測室"']) assert.ok(!journey.includes(phrase), `BeaconJourney still contains「${phrase.trim()}」`);
-assert.ok(journey.includes('往下看介紹') && journey.includes('直接看行情'));
+assert.ok(journey.includes('從頭看起') && journey.includes('直接看行情'));
 assert.ok(header.includes('直接看行情') && !header.includes('跳到觀測台\n'));
 
 console.log('Home terminal copy and keyboard tests passed.');

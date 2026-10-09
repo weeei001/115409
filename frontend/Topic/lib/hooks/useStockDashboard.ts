@@ -13,6 +13,7 @@ import {
   fetchVolumeWithChips,
 } from '../api/stock';
 import { ApiRequestError } from '../api/client';
+import { userFacingMessage } from '../api/errorDetail';
 import {
   candlestickMaToPriceChart,
   lastItem,
@@ -36,7 +37,6 @@ import { buildVolumeInsight, type VolumeInsight } from '../charts/volumeInsight'
 export const HISTORY_PAGE_SIZE = 30;
 export const DEFAULT_MA_PERIODS = '5,10,20,60';
 
-const errorMessage = (reason: unknown, fallback: string) => (reason instanceof Error ? reason.message : fallback);
 
 /**
  * 報價載入失敗的種類（P1-17）：後端 404 是「沒有儲存這個代號的價格資料」，重試沒有用，改給搜尋；
@@ -195,7 +195,7 @@ export function useStockDashboard(symbol: string) {
         setRangeReady(true);
       } catch (err) {
         if (alive()) {
-          setError(errorMessage(err, '載入失敗'));
+          setError(userFacingMessage(err, '載入失敗'));
           setErrorKind(stockLoadErrorKind(err));
         }
       } finally {
@@ -240,7 +240,7 @@ export function useStockDashboard(symbol: string) {
       const results = [kma, vol, stats, volumeHistory, change].filter(Boolean) as PromiseSettledResult<unknown>[];
       const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       if (rejected.length === results.length) {
-        const msg = errorMessage(rejected[0]?.reason, '圖表資料載入失敗');
+        const msg = userFacingMessage(rejected[0]?.reason, '圖表資料載入失敗');
         setChartError(msg);
         toast.error(msg);
       }
@@ -266,9 +266,9 @@ export function useStockDashboard(symbol: string) {
       setInstitutional(inst.status === 'fulfilled' ? mapInstitutionalTrades(inst.value) : null);
       setIndicators(tech.status === 'fulfilled' ? mapTechnicalIndicators(tech.value) : null);
       setChipsVolume(chips.status === 'fulfilled' ? chips.value.data ?? [] : null);
-      setInstitutionalError(inst.status === 'rejected' ? errorMessage(inst.reason, '法人資料載入失敗') : null);
-      setIndicatorsError(tech.status === 'rejected' ? errorMessage(tech.reason, '技術指標載入失敗') : null);
-      setChipsVolumeError(chips.status === 'rejected' ? errorMessage(chips.reason, '價量籌碼資料載入失敗') : null);
+      setInstitutionalError(inst.status === 'rejected' ? userFacingMessage(inst.reason, '法人資料載入失敗') : null);
+      setIndicatorsError(tech.status === 'rejected' ? userFacingMessage(tech.reason, '技術指標載入失敗') : null);
+      setChipsVolumeError(chips.status === 'rejected' ? userFacingMessage(chips.reason, '價量籌碼資料載入失敗') : null);
     } finally {
       if (id === chipsReq.current) setChipsLoading(false);
     }
@@ -284,7 +284,7 @@ export function useStockDashboard(symbol: string) {
       setHistory({ total: res.total, rows: (res.data ?? []).map(toDailyQuote) });
     } catch (err) {
       if (id !== historyReq.current) return;
-      const msg = errorMessage(err, '無法載入歷史資料');
+      const msg = userFacingMessage(err, '無法載入歷史資料');
       setHistoryError(msg);
       toast.error(msg);
       setHistory((previous) => previous ? { total: previous.total, rows: [] } : null);

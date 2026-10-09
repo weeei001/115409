@@ -4,6 +4,7 @@ import { BrandMark } from '@/components/common/BrandMark';
 import { FOOTER_NAV, isNavPathActive } from '@/lib/nav';
 import { useLatestCloseDate } from '@/lib/hooks/useLatestCloseDate';
 import { cn } from '@/lib/cn';
+import { DISCLAIMER_PATH, INVESTMENT_RISK_NOTICE } from '@/lib/disclaimers';
 
 /** 頁尾＝海圖的圖名欄：品牌、資料說明、導覽、免責，用線分格 */
 export function SiteFooter({ className }: { className?: string }) {
@@ -21,6 +22,11 @@ export function SiteFooter({ className }: { className?: string }) {
           <p lang="en" className="mt-1 pl-[2.375rem] text-[11px] tracking-[0.25em] text-muted-foreground uppercase">Stock Lighthouse</p>
           <p className="mt-3 max-w-[34em] text-[13px] leading-relaxed text-muted-foreground">
             本網站為展示與學習用途，不構成投資建議。模擬投資使用虛擬資金，交易與決策紀錄存在你的帳號裡。
+          </p>
+          {/* 風險提示用一般文字色，不和其他說明一樣是淡灰：評審要求放在顯著位置 */}
+          <p className="mt-2 max-w-[34em] text-[13px] leading-relaxed text-foreground">
+            {INVESTMENT_RISK_NOTICE}
+            <Link href={DISCLAIMER_PATH} className="ml-1 underline underline-offset-4">閱讀投資免責聲明</Link>
           </p>
         </div>
         <nav aria-label="頁尾導覽" className="bg-card px-4 py-4 sm:px-6 md:py-6">

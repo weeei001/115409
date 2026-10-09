@@ -7,7 +7,10 @@ assert.match(waiting, /停止回覆<\/button>/);
 assert.match(waiting, /<textarea[^>]* disabled=""/);
 assert.match(waiting, /placeholder="輸入你的問題…"/);
 assert.doesNotMatch(waiting, /停止接收|您/);
-assert.doesNotMatch(waiting, /僅供研究參考|不是投資建議|aria-describedby/);
+assert.doesNotMatch(waiting, /aria-describedby/);
+// 固定的免責一行：手機版頁尾隱藏時仍看得到，並連到免責聲明頁
+assert.match(waiting, /AI 回覆僅供研究參考，不是投資建議。/);
+assert.match(waiting, /href="\/disclaimer"/);
 const longInput = renderToStaticMarkup(<ChatInput onSend={noop} disabled={false} initialValue={'a'.repeat(5500)} />);
 assert.match(longInput, /aria-describedby="chat-input-note"/);
 assert.match(longInput, /5500.*6000/);
@@ -16,4 +19,4 @@ assert.match(stopped, /role="status"[^>]*>已停止顯示這則回覆。</);
 // 停止後不再出現開發用語
 assert.doesNotMatch(stopped, /後端|<textarea[^>]* disabled=""|停止回覆<\/button>/);
 assert.doesNotMatch(renderToStaticMarkup(<ChatInput onSend={noop} disabled={false} />), /已停止顯示|停止回覆<\/button>/);
-console.log('Chat stop UI passed: stop-reply control, enabled input after stop, plain stop notice, no fixed disclaimer.');
+console.log('Chat stop UI passed: stop-reply control, enabled input after stop, plain stop notice, fixed disclaimer line.');

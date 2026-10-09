@@ -8,6 +8,7 @@ import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, NextStep, type LightState } from '@/components/common/Ledger';
 import { AIBriefSummaryCard } from '@/features/brief/AIBriefSummaryCard';
 import { StockTextBriefPanel } from '@/features/brief/StockTextBriefPanel';
+import { AITrackRecordCard } from '@/features/brief/AITrackRecordCard';
 import { StockHero } from './StockHero';
 import { StockKpiStrip } from './StockKpiStrip';
 import { DetailDrawer } from './DetailDrawer';
@@ -110,6 +111,10 @@ export function StockDashboard({ dashboard, stockName }: Props) {
           latestTradeDate={latest.date}
           onOpenDetail={openAI}
         />
+      </AnimatedSection>
+
+      <AnimatedSection delay={0.06}>
+        <AITrackRecordCard symbol={symbol} />
       </AnimatedSection>
 
       <AnimatedSection delay={0.05}>

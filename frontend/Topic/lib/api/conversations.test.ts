@@ -74,7 +74,12 @@ async function main() {
   assert.match(page, /\+3\.73/);
   assert.deepEqual(parseSavedMessages({ not: 'an array' }), []);
   assert.deepEqual(parseSavedMessages([{ role: 'assistant', content: 'no id', dashboard: 'bad', sources: 'bad', actions: 'bad' }]),
-    [{ id: 'saved-0', role: 'assistant', content: 'no id', timestamp: '', status: null, error: null, actions: [], dashboard: null, sources: [] }]);
+    [{ id: 'saved-0', role: 'assistant', content: 'no id', timestamp: '', status: null, error: null, actions: [], dashboard: null, sources: [], feedback: null }]);
+  // 後端 id 才是回饋用的 serverId；補出來的 saved-N 不算。評價只收 up／down
+  const [rated] = parseSavedMessages([{ id: 'srv-1', role: 'assistant', content: 'ok', feedback: 'down' }]);
+  assert.equal(rated.serverId, 'srv-1');
+  assert.equal(rated.feedback, 'down');
+  assert.equal(parseSavedMessages([{ id: 'srv-2', role: 'assistant', content: 'ok', feedback: 'meh' }])[0].feedback, null);
   mode = 'stored';
   const stored = await getConversation('one');
   assert.deepEqual(stored.messages.map((message) => message.id), ['q', 'a']);

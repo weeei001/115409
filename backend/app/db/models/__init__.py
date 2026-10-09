@@ -21,6 +21,7 @@ from .favorite_stock import FavoriteStock
 from .notification import NotificationPreference, PushDevice, Notification, NotificationDelivery
 from .conversation import Conversation, ConversationMessage
 from .chat_audit import ChatValidationRun
+from .chat_feedback import ChatMessageFeedback
 from .llm_response import LlmResponse
 from .news_sentiment import NewsSentiment
 from .news_impact import NewsEventAnalysis, NewsEventImpact
@@ -57,6 +58,7 @@ __all__ = [
     "Conversation",
     "ConversationMessage",
     "ChatValidationRun",
+    "ChatMessageFeedback",
     "LlmResponse",
     "AdminAccount",
     "AdminJobControl",

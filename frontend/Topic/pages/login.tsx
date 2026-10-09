@@ -30,7 +30,6 @@ import { ROUTE_PAGE_LABELS } from '@/lib/nav';
 import { cn } from '@/lib/cn';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 
-const errorText = (err: unknown, fallback: string) => userFacingMessage(err, fallback);
 
 /** 登入後要回到的頁面名稱：用導覽的頁名，沒有對應時直接寫路徑 */
 function returnPageName(url: string): string {
@@ -73,7 +72,7 @@ export default function LoginPage() {
         setAuth(data.access_token, data.user);
         await redirectAfterLogin();
       } catch (err) {
-        setError(errorText(err, 'Google 登入失敗'));
+        setError(userFacingMessage(err, 'Google 登入失敗'));
       } finally {
         setLoading(false);
       }
@@ -97,7 +96,7 @@ export default function LoginPage() {
       setAuth(data.access_token, data.user);
       await redirectAfterLogin();
     } catch (err) {
-      setError(errorText(err, '登入失敗'));
+      setError(userFacingMessage(err, '登入失敗'));
     } finally {
       setLoading(false);
     }
