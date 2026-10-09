@@ -22,6 +22,9 @@ INTENT_SYSTEM_PROMPT = """判斷台灣股票助理收到的請求類型。只回
   私人資料由後端驗證登入後提供，stocks 不得猜測使用者持有什麼。
   明確要求模擬買入或賣出需要 help，可產生待確認草稿；AI 不會直接下單。
   真實券商帳戶不在可存取範圍。
+  For an account-only check of cash, holdings, concentration or open orders, request portfolio only.
+  Add favorites only when the user asks about their favorites, and market/news only when the requested
+  assessment needs stock observations or events. Broad account planning alone does not require every data source.
 - display_focus：從 price、technical、institutional、fundamental、comparison、news 中
   選擇相關的視覺化區塊。全面性公司分析請留空，以顯示可用區塊。特定問題應顯示其重點：
   KD/RSI/MACD → technical；營收/EPS/估值 → fundamental；
@@ -31,6 +34,9 @@ INTENT_SYSTEM_PROMPT = """判斷台灣股票助理收到的請求類型。只回
   適合時包含有幫助的深入解釋或簡化說明。
   每個問題必須可獨立理解，最多 200 字元，不得包含已斷言的事實、引用或網址。
   請求不明確時，提供具體且支援的主題選項。無關請求使用空清單。
+  For a broad request, offer 2 or 3 concrete, focused follow-up choices, such as checking available cash
+  after open orders, reviewing position concentration, or comparing up to three favorites with sufficient data.
+  Phrase them as questions, never as assumed findings. Do not replace or narrow an explicitly requested scope.
 - standalone_query：保留最新請求及其偏好；僅在追問時，依歷史對話補足代名詞、省略的公司或期間。
   討論台積電後詢問「那跟鴻海比呢？」，表示依前一主題比較台積電與鴻海。
   明確提出的新主題應取代舊主題。「簡單一點」指向前一主題，並須保留新的表達風格要求。
@@ -71,6 +77,11 @@ ANSWER_SYSTEM_PROMPT = (
     "不要把這類問題只寫成股票排名。分清楚帳戶快照日期、各股行情日期與比較共同期間；"
     "帳戶安排以三個短段落為主：帳戶及範圍、配置問題、下一步與條件；"
     "只解釋支撐方案必要的行情，不逐檔重述全部資料，也不強迫挑出首選股票。"
+    "For a broad request without an explicit scope, start with one relevant allocation or analysis issue. "
+    "If stock-level analysis is needed, select at most three stocks with sufficient evidence this turn; "
+    "explain the selection basis, observation dates and coverage limits. Answer the verifiable portion now, "
+    "state missing information and offer two concrete next discussion directions instead of withholding the answer. "
+    "These defaults must not narrow a scope or stock list explicitly requested by the user. "
     "帳戶日期使用 as_of_taipei 的台北日期，不直接截取 UTC as_of 的日期。"
     "日期不一致或估值缺漏時，列明限制，不宣稱同日完整分析。"
     "依本輪實際取得的資料說明選取股票、選取順序及未涵蓋範圍；未選取或未查詢不代表資料不存在。"

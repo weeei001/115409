@@ -69,7 +69,7 @@ def test_personal_reader_samples_favorites_before_remaining_positions_without_du
         {"symbol": "1100"}, {"symbol": "2330"}, {"symbol": "2330"}, {"symbol": "2317"},
     ]})
     symbols, source = read_personal_context(lambda: nullcontext(object()), 7, {"favorites", "portfolio"})
-    assert symbols == [row.symbol for row in favorites[:6]]
+    assert symbols == [row.symbol for row in favorites[:3]]
     assert source.stock_ids == [row.symbol for row in favorites] + ["2330", "2317"]
     assert len(json.loads(source.content)["favorites"]) == 8
     assert len(json.loads(source.content)["portfolio"]["positions"]) == 4
@@ -93,7 +93,7 @@ def test_favorites_resolve_before_news_retrieval(monkeypatch, chat_session_facto
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("retry", [False, True])
-@pytest.mark.parametrize("favorites_count", [6, 40])
+@pytest.mark.parametrize("favorites_count", [3, 40])
 @pytest.mark.parametrize("query", [
     "請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。",
     "請參考我的模擬投資可用資金、持股與收藏股票，協助我討論下一步投資安排",
@@ -151,16 +151,19 @@ def test_order_ai_help_resolves_personal_symbols_and_validates_cash_proposals(mo
 
     result = asyncio.run(run())
     assert result["answer"].startswith(answer)
-    assert market_calls == [[row.symbol for row in favorites[:6]]]
-    assert retrieval.calls[0]["symbols"] == [row.symbol for row in favorites[:6]]
+    followups = [action for action in result["actions"] if action.get("type") == "follow_up"]
+    assert len(followups) == 3
+    assert all(action["query"] == action["label"] for action in followups)
+    assert market_calls == [[row.symbol for row in favorites[:3]]]
+    assert retrieval.calls[0]["symbols"] == [row.symbol for row in favorites[:3]]
     assert len(json.loads(result["sources"][0]["content"])["favorites"]) == favorites_count
     assert result["sources"][0]["stock_ids"] == [row.symbol for row in favorites]
     expected_calls = ["intent", "stream" if stream else "text"] + (["text"] if retry else [])
     assert [kind for kind, _ in models.calls] == expected_calls
-    if favorites_count > 6:
+    if favorites_count > 3:
         for content in (result["answer"], result["dashboard"]["blocks"][0]["description"]):
-            assert "合計 40 檔" in content and "僅取前 6 檔" in content
-            assert "1100、1101、1102、1103、1104、1105" in content
+            assert "合計 40 檔" in content and "僅取前 3 檔" in content
+            assert "1100、1101、1102" in content
             assert "其餘股票尚未比較" in content
     else:
         assert "僅取前" not in result["answer"]

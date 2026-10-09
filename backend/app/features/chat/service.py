@@ -333,8 +333,14 @@ class ChatService:
         if "help" in needs:
             response.actions.extend([ChatAction(label="股票總覽", path="/"),
                                      ChatAction(label="模擬下單", path="/order")])
-        response.actions.extend(ChatFollowUp(label=question.strip(), query=question.strip())
-                                for question in dict.fromkeys(intent.suggested_questions) if question.strip())
+        questions = [question.strip() for question in dict.fromkeys(intent.suggested_questions) if question.strip()]
+        if scopes and not questions:
+            if "portfolio" in scopes:
+                questions.append("請先檢查我的模擬投資可用資金與未成交委託，說明一項需要注意的資金配置問題。")
+                questions.append("請檢查我的模擬持股是否過度集中，先討論一項調整方向及採用條件。")
+            if "favorites" in scopes:
+                questions.append("請從我的收藏股票中選出本輪資料足夠的最多三檔比較，說明選取依據與待確認事項。")
+        response.actions.extend(ChatFollowUp(label=question, query=question) for question in questions)
         draft = paper_draft(request.query, symbols, request)
         if draft:
             response.actions.append(draft)
