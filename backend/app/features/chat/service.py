@@ -21,8 +21,8 @@ from app.features.news.sentiment import extract_candidate_stocks
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
-from .answer_validation import (NUMERIC_RECOVERY_GUIDANCE, AnswerValidationError, CitationValidationError,
-                                NumericValidationError, TruncatedAnswerError, _checked_answer)
+from .answer_validation import (AnswerValidationError, CitationValidationError,
+                                TruncatedAnswerError, _checked_answer)
 from .audit import ChatAudit
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
@@ -36,6 +36,7 @@ from .prompts import (ANSWER_PROMPT, answer_system_prompt, failed_citation_guida
                       NO_NEWS_MESSAGE, VALIDATION_FALLBACK_ANSWER)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
 from .verified_fallback import verified_facts_fallback
+from .partial_recovery import recover_partial_answer
 
 
 def _is_recommendation(query: str) -> bool:
@@ -537,23 +538,41 @@ class ChatService:
                 logging.getLogger(__name__).warning(
                     "Chat answer validation failed: reason=%s attempt=2 finish=%s sources=%d",
                     retry_exc.reason, finish, len(response.sources))
-                # 從本輪結構化資料重建摘要，不剪接失敗草稿，避免留下依賴錯誤的結論。
-                facts = verified_facts_fallback(response.sources, warning,
+                # No additional model calls: recheck independent content after removing
+                # unsupported claims and advice that could depend on them.
+                recovered = None
+                for draft, draft_metadata, stage in (
+                    (result.raw_text, result.metadata, "repair"), (raw_text, metadata, "initial"),
+                ):
+                    recovered, diagnostics = recover_partial_answer(
+                        draft, draft_metadata, response.sources, warning,
+                        company_catalog=response._company_catalog,
+                        require_portfolio=response._requires_portfolio)
+                    if recovered:
+                        if audit:
+                            audit.recovered(diagnostics, draft_stage=stage)
+                        break
+                facts = None if recovered else verified_facts_fallback(response.sources, warning,
                                                company_catalog=response._company_catalog,
                                                require_portfolio=response._requires_portfolio)
-                if facts:
+                if recovered:
+                    response.answer = recovered
+                elif facts:
                     response.answer = facts
                 elif isinstance(retry_exc, CitationValidationError) and _is_forward_outlook(request.query):
                     response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
                 else:
-                    response.answer = VALIDATION_FALLBACK_ANSWER + (
-                        NUMERIC_RECOVERY_GUIDANCE if isinstance(retry_exc, NumericValidationError) else "") + warning
+                    response.answer = VALIDATION_FALLBACK_ANSWER + warning
             else:
                 if audit:
                     audit.passed()
+                    if response.answer == INSUFFICIENT_EVIDENCE_ANSWER + warning:
+                        audit.outcome = "fallback"
         else:
             if audit:
                 audit.passed()
+                if response.answer == INSUFFICIENT_EVIDENCE_ANSWER + warning:
+                    audit.outcome = "fallback"
         if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
             response.answer += "\n\n" + INVESTMENT_DISCLAIMER
 

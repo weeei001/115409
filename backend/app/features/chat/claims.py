@@ -95,7 +95,7 @@ UNITS.update({field: "%" for field in ("stop_loss_pct", "take_profit_pct", "targ
 LABELS = "|".join(f"(?P<{field}>{label})" for field, label in METRICS.items())
 QUALIFIER = r"(?:(?:目前|現在|大約|約|為|是|高達|低至|達到|僅|達|有|共有|總共|共|剩餘|剩下|剩|尚有|仍有|合計|[:=])\s*)*"
 CLAIM = re.compile(
-    rf"(?:{LABELS})\s*(?P<alias>\([^()\d]{{1,40}}\))?\s*{QUALIFIER}[(]?\s*"
+    rf"(?:{LABELS})\s*(?P<alias>\([^()\d]+\))?\s*{QUALIFIER}[(]?\s*"
     rf"(?P<currency_prefix>{FOREIGN_CURRENCY}|NT\$|TWD|NTD|[$€￥])?\s*"
     rf"(?P<number>{NUMBER})\s*(?P<unit>{FOREIGN_CURRENCY}|新台幣|台幣|TWD|NTD|億元|萬元|千元|元|億|萬|千|股|張|檔|支|倍|%)?", re.I)
 PERCENT = re.compile(rf"(?P<number>{NUMBER})\s*%")
@@ -323,9 +323,21 @@ def _listed_claims(text: str, aliases: dict[str, str]):
         if unit in {"千", "萬", "億"} and re.match(rf"\s*(?:{FOREIGN_CURRENCY})", text[match.end():], re.I):
             normalized_unit = "invalid currency"
         alias = match["alias"][1:-1].strip() if match["alias"] else ""
-        # An English abbreviation such as "股東權益報酬率（ROE）" restates the label.
+        # Parenthetical prose can explain a metric without renaming it. Do not
+        # erase a conflicting label, negation or condition: those need repair,
+        # not a claim that the following number is contradicted by evidence.
         if alias and not re.fullmatch(METRICS[metric], alias, re.I) and not re.fullmatch(r"[A-Za-z]{2,6}", alias):
-            normalized_unit = "invalid metric alias"
+            # A prose redefinition still renames the observation ("actually
+            # the opening price"). Inspect its named label, not every metric
+            # substring: "measures share-price fluctuations" is explanation.
+            named_alias = re.split(r"(?:實際(?:上)?(?:是|為)?|亦即|也就是|即|稱(?:為|作)?|代表|指(?:的是)?|等於)", alias)[-1].strip()
+            conflicting_alias = any(re.fullmatch(pattern, named_alias, re.I)
+                                    for field, pattern in METRICS.items() if field != metric)
+            conflicting_alias = conflicting_alias or bool(re.fullmatch(
+                r"(?:開盤|最高|最低|成交均)價|成交量|成交金額", named_alias))
+            semantic_scope = re.search(r"不|無|未|非|否|若|假設|假如|如果|除非|僅限|只有|才|可能|預期", alias)
+            if conflicting_alias or semantic_scope:
+                normalized_unit = "invalid metric alias"
         scale = {"萬元": 10000, "萬": 10000, "億元": 100000000, "億": 100000000,
                  "千元": 1000, "千": 1000, "張": 1000}.get(unit, 1)
         value *= scale
@@ -630,7 +642,7 @@ def numeric_claim_issue(paragraph: str, sources: list[SourceChunk], company_cata
                 continue
             if _quoted_example(claim, text, examples):
                 continue
-            reason = "unparsed" if claim.metric is None else "unsupported"
+            reason = "unparsed" if claim.metric is None or claim.unit == "invalid metric alias" else "unsupported"
             if claim.metric is not None and any(
                     _matches(replace(claim, value=fact.value), fact) for fact in facts):
                 reason = "contradicted"

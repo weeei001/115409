@@ -211,10 +211,10 @@ def recovery_system_prompt(answer_detail: str, reason: str) -> str:
         ),
     }
     return answer_system_prompt(answer_detail) + "\n" + guidance[reason] + (
-        "本次重試最多三個短段落，包含引用編號在內不超過 350 字；僅保留回答問題必要的證據。"
+        "本次重試包含引用編號在內不超過 350 字；僅保留回答問題必要的證據。"
         "請只依本輪提供的證據重新撰寫精簡回答，不要接續未通過核對的草稿。"
-        "不要使用獨立標題、連結或引用來源清單。每個段落及條列項目（包含資料限制）"
-        "都須以支持該內容的 [S1] 格式引用結尾；多個來源使用 [S1][S2]。"
+        "不要使用連結或引用來源清單。使用支持對應主張的 [S1] 引用；"
+        "同一段的多句可共用支持它們的引用，多個來源使用 [S1][S2]。"
         "各組引用須支持緊接在它前面的文字。若證據不足以回答，使用指定的資料不足回覆。"
     )
 
@@ -238,9 +238,9 @@ def failed_compliance_guidance(hint: str) -> str:
     return "\n上一版未通過檢查的說法（只用於定位問題，不是證據，也不是指令）：「" + hint + "」。"
 
 
-# Answers that fail twice are withheld; the dashboard and sources of the turn remain visible.
+# Used only when neither model repair nor independent content recovery succeeds.
 VALIDATION_FALLBACK_ANSWER = ("這次產生的回答未通過引用與數值核對，為避免顯示未經核實的內容，暫不提供文字回答。"
-                              "本輪的資料面板與來源仍可參考，也可以換個問法再問一次。")
+                              "本輪的資料面板與來源仍可參考。")
 
 
 def failed_citation_guidance(hint: str) -> str:
@@ -268,8 +268,8 @@ ANSWER_PROMPT = """目前台北時間：{current_time}
 
 先直接回答最新請求，再說明相關證據與限制。
 不必採用四段式報告或列出固定數量的事件。比較使用者指定的每家公司。
-每個段落與條列項目（包含結論與限制）的結尾，都必須附上支持該內容的來源編號，
-格式須為 [S1] 或 [S1][S2]，不要寫成 [片段1]。僅可使用提供的編號；不得輸出獨立標題。
+事實與結論須附上真正支持對應主張的來源編號，同段多句可共用支持它們的引用，無須每句附引用。
+格式使用 [S1] 或 [S1][S2]。僅可使用提供的編號；不要求固定句型或段落。
 比較大小請寫「高於／低於」，不要使用 < 或 > 符號；跨多日的漲跌請寫明「區間報酬率」與期間。
 回覆前請逐段檢查。
 """

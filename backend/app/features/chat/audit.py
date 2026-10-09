@@ -206,7 +206,7 @@ class ChatAudit:
             "number": len(self.data["attempts"]) + 1, "stage": stage,
             "text": "", "text_truncated": False, "original_chars": 0,
             "finish_reason": None, "truncated": False, "validation": "not_checked",
-            "reason": None, "hint": "", "claim": "", "detail": "", "duration_ms": 0,
+            "reason": None, "issue": None, "hint": "", "claim": "", "detail": "", "duration_ms": 0,
             "diagnostics_truncated": False,
             "tokens": {"input": None, "output": None, "thinking": None},
             "max_tokens": _number(getattr(getattr(client, "settings", None), "LLM_MAX_TOKENS", None)),
@@ -249,6 +249,9 @@ class ChatAudit:
         attempt = self.data["attempts"][-1]
         reason = _code(exc.reason) or "invalid_answer"
         attempt.update({"validation": "rejected", "reason": reason,
+                        "issue": _code(getattr(exc, "issue", None)) or (
+                            "truncated" if reason == "length" else
+                            "conclusion_unsupported" if reason == "grounding" else reason),
                         "hint": _debug_text(getattr(exc, "hint", ""), 3000),
                         "claim": _debug_text(getattr(exc, "claim", ""), 3000),
                         "detail": _debug_text(getattr(exc, "detail", ""), 1000),
@@ -262,6 +265,14 @@ class ChatAudit:
         self._finish_attempt_time()
         self.data["attempts"][-1]["validation"] = "passed"
         self.outcome = "repaired" if len(self.data["attempts"]) > 1 else "passed"
+
+    def recovered(self, diagnostics, *, draft_stage):
+        """Record local pruning separately from the rejected model attempts."""
+        self.outcome = "repaired"
+        self.data["recovery"] = {
+            "method": "validated_partial", "draft_stage": draft_stage,
+            "validation": "passed", "removed": diagnostics if len(diagnostics) <= 64 else diagnostics[:63] + diagnostics[-1:],
+        }
 
     def publish(self, response, *, completed=False):
         answer, clipped, original_chars = _clip(response.answer, MAX_ANSWER_CHARS)

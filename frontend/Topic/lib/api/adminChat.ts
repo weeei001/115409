@@ -48,6 +48,7 @@ export interface AdminChatAttempt {
   validation: 'passed' | 'rejected' | 'not_checked';
   reason: string | null;
   hint: string | null;
+  issue?: string | null;
   claim: string | null;
   detail: string | null;
   diagnostics_truncated: boolean;
@@ -88,6 +89,12 @@ export interface AdminChatDetail extends AdminChatSummary {
   requires_portfolio: boolean;
   answer_detail: string;
   error_type: string | null;
+  recovery?: {
+    method: 'validated_partial';
+    draft_stage: 'initial' | 'repair';
+    validation: 'passed';
+    removed: Array<{ paragraph?: number | null; reason: string; result: string; units?: number | null }>;
+  } | null;
 }
 
 export const ADMIN_CHAT_PAGE_SIZE = 20;
@@ -116,6 +123,20 @@ export const ADMIN_CHAT_REASON_LABELS: Record<string, string> = {
 
 export function adminChatReasonLabel(reason: string): string {
   return ADMIN_CHAT_REASON_LABELS[reason] ?? '其他檢核原因';
+}
+
+export function adminChatIssueLabel(issue: string): string {
+  const labels: Record<string, string> = {
+    unparsed: '句型解析失敗（尚未確認對錯）', unsupported: '來源缺漏或未支持主張',
+    contradicted: '數值與來源矛盾', invalid_evidence: '來源格式無法讀取',
+    conclusion_unsupported: '結論缺乏依據', unsupported_conclusion: '結論缺乏依據',
+    account_limit: '超出資金或可賣庫存', truncated: '回答截斷', length: '回答不完整',
+    dependent_or_non_substantive: '相依結論或非實質內容', dependent_period: '依賴未保留的日期',
+    dependent_subject: '依賴未保留的公司主詞',
+    partial_recovery: '保留內容重新核對通過', insufficient_remaining_content: '剩餘內容不足',
+    recovery_limit: '超過局部修復上限',
+  };
+  return labels[issue] ?? '其他檢核細節';
 }
 
 /** Keep filters in query parameters; an identifier can never change the request route. */

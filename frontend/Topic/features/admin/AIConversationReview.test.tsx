@@ -62,6 +62,21 @@ assert.match(detailText, /檢核訊息已裁切/);
 assert.match(detailText, /已回報 Token 合計/);
 assert.match(detailText, /引用編號存在，不代表来源|引用編號存在，不代表來源/);
 
+const recovered = renderToStaticMarkup(<AIConversationDetail record={{
+  ...record, outcome: 'repaired',
+  attempts: record.attempts.map((attempt) => ({ ...attempt, issue: attempt.number === 1 ? 'unparsed' : 'conclusion_unsupported' })),
+  recovery: { method: 'validated_partial', draft_stage: 'initial', validation: 'passed', removed: [
+    { paragraph: 0, reason: 'unsupported_conclusion', result: 'narrowed' },
+    { reason: 'partial_recovery', result: 'retained', units: 2 },
+  ] },
+}} />);
+assert.match(renderedText(recovered), /句型解析失敗（尚未確認對錯）/);
+assert.match(renderedText(recovered), /2 輪稿件未通過完整檢核/);
+assert.match(renderedText(recovered), /保留內容經本機重新核對通過/);
+assert.match(renderedText(recovered), /結論缺乏依據 · 已收斂/);
+assert.match(renderedText(recovered), /已保留（2 個內容單位）/);
+assert.doesNotMatch(detailText, /保留內容經本機重新核對通過/);
+
 const loading = renderToStaticMarkup(<AIConversationList data={listData} loading error={null} selectedId={null} onSelect={noop} onRetry={noop} onShowAll={noop} />);
 assert.match(loading, /aria-busy="true"/);
 assert.ok(!renderedText(loading).includes(summary.query_preview), 'Old rows are hidden while a new filter or page loads.');
