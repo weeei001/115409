@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseChatSources, type ChatSource } from '../../lib/types/chat';
 import { BACKEND_CHAT_DISCLAIMERS, chatAnswerBody, chatCopyText, citationLabels, newsCitationPath, relabelCitations } from '../../lib/utils/chatCitations';
-import { AI_CHAT_DISCLAIMER } from '../../lib/disclaimers';
+const AI_CHAT_DISCLAIMER = 'AI 回覆僅供研究參考，不是投資建議。';
 import { ChatMessage } from './ChatMessage';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
 
@@ -58,7 +58,7 @@ for (const [status, label] of [['completed', '已完成'], ['failed', '回覆失
   if (status === 'failed') assert.ok(terminal.includes('safe failure'));
 }
 
-// P0-7：後端附加的免責句（自稱「投資建議」）不顯示；每則 AI 回覆底部固定顯示前端的免責
+// 隱藏已知的舊版固定文案，不補上其他制式說明。
 const backendDisclaimer = BACKEND_CHAT_DISCLAIMERS[0];
 // 有【引用來源】：後端把它接在引用尾段後面
 assert.equal(chatAnswerBody(`answer [S1]\n\n【引用來源】\n- [S1] title\n\n${backendDisclaimer}`), 'answer [S1]');
@@ -69,9 +69,10 @@ assert.equal(chatAnswerBody(backendDisclaimer), '');
 assert.equal(chatAnswerBody('投資建議僅供參考這句話不會被剝掉'), '投資建議僅供參考這句話不會被剝掉');
 const withDisclaimer = render(`回覆內容 [S1]\n\n${backendDisclaimer}`);
 assert.doesNotMatch(withDisclaimer, /投資建議僅供參考|不保證獲利/);
-assert.ok(withDisclaimer.includes(AI_CHAT_DISCLAIMER));
-assert.ok(withDisclaimer.lastIndexOf(AI_CHAT_DISCLAIMER) > withDisclaimer.indexOf('回覆內容'));
-for (const text of ['沒有引用的回覆', '【綜合摘要】\n結構化回覆']) assert.ok(render(text, []).includes(AI_CHAT_DISCLAIMER), text);
+assert.ok(!withDisclaimer.includes(AI_CHAT_DISCLAIMER));
+assert.ok(withDisclaimer.includes('回覆內容'));
+for (const text of ['沒有引用的回覆', '【綜合摘要】\n結構化回覆']) assert.ok(!render(text, []).includes(AI_CHAT_DISCLAIMER), text);
+assert.equal(chatAnswerBody('本回答引用的價格截至 2026-09-11；未涵蓋長榮。'), '本回答引用的價格截至 2026-09-11；未涵蓋長榮。');
 // 後端改字後的版本：放在【資料限制】之後、【引用來源】之前，也要剝掉；舊版仍照樣剝
 const revisedDisclaimer = BACKEND_CHAT_DISCLAIMERS[1];
 assert.equal(
@@ -106,8 +107,8 @@ assert.doesNotMatch(gappedMarkup, /\[S[1-5]\]/);
 // 錨點仍用原始 id
 assert.match(gappedMarkup, /id="chat-source-[^"]*-S5"/);
 
-// 複製：畫面上的正文＋引用來源＋固定免責，不含後端尾段與後端免責句
-const copied = chatCopyText(`${gappedBody}\n\n【引用來源】\n- [S5] 偽造標題\n\n${backendDisclaimer}`, gapped, AI_CHAT_DISCLAIMER);
-assert.equal(copied, `先看 [1]，再看 [2] 與 [3]，又提到 [1]。\n\n引用來源\n[1] 來源 5\n[2] 來源 1\n[3] 來源 2\n\n${AI_CHAT_DISCLAIMER}`);
-assert.equal(chatCopyText('沒有引用', [], AI_CHAT_DISCLAIMER), `沒有引用\n\n${AI_CHAT_DISCLAIMER}`);
-console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, per-message targets, fixed disclaimer, backend disclaimer stripped, sequential citation labels, and copy text.');
+// 複製畫面上的正文與來源標題，不附加制式說明。
+const copied = chatCopyText(`${gappedBody}\n\n【引用來源】\n- [S5] 偽造標題\n\n${backendDisclaimer}`, gapped);
+assert.equal(copied, `先看 [1]，再看 [2] 與 [3]，又提到 [1]。\n\n引用來源\n[1] 來源 5\n[2] 來源 1\n[3] 來源 2`);
+assert.equal(chatCopyText('沒有引用', []), '沒有引用');
+console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, per-message targets, no fixed disclaimer, backend disclaimer stripped, sequential citation labels, and copy text.');

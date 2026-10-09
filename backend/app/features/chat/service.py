@@ -21,8 +21,6 @@ from app.features.news.sentiment import extract_candidate_stocks
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
-from .answer_validation import (AnswerValidationError, CitationValidationError,
-                                TruncatedAnswerError, _checked_answer)
 from .audit import ChatAudit
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
@@ -30,13 +28,9 @@ from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
 from .personal_context import personal_scopes, read_personal_context, paper_draft
 
-from .prompts import (ANSWER_PROMPT, answer_system_prompt, failed_citation_guidance, failed_claim_guidance,
-                      failed_compliance_guidance, recovery_system_prompt,
-                      INTENT_SYSTEM_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
-                      NO_NEWS_MESSAGE, VALIDATION_FALLBACK_ANSWER)
+from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
+                      INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER, NO_NEWS_MESSAGE)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
-from .verified_fallback import verified_facts_fallback
-from .partial_recovery import recover_partial_answer
 
 
 def _is_recommendation(query: str) -> bool:
@@ -177,7 +171,6 @@ class ChatService:
     def __init__(self, *, http, settings, retrieval=None, intent_llm=None, llm=None, session_factory=None):
         configuration = settings if settings is not None else getattr(llm, "settings", None)
         self.request_timeout_seconds = getattr(configuration, "CHAT_REQUEST_TIMEOUT_SECONDS", 60)
-        self.repair_max_tokens = getattr(configuration, "CHAT_REPAIR_MAX_TOKENS", 2048)
         self.retrieval = retrieval if retrieval is not None else RetrievalService(
             http, settings, session_factory=session_factory)
         if llm is not None:
@@ -193,17 +186,6 @@ class ChatService:
             }), http)
         self.intent_llm = intent_llm if intent_llm is not None else self.llm
         self.session_factory = session_factory
-
-    def _repair_client(self, deadline: float | None):
-        remaining = _remaining_seconds(deadline) if deadline is not None else self.request_timeout_seconds
-        if not isinstance(self.llm, LlmClient):
-            return self.llm
-        # 複製設定避免並行對話互相改動；修復沿用模型與來源，但不能取得新的整段時間。
-        settings = self.llm.settings.model_copy(update={
-            "LLM_MAX_TOKENS": min(self.llm.settings.LLM_MAX_TOKENS, self.repair_max_tokens),
-            "LLM_TIMEOUT_SECONDS": min(self.llm.settings.LLM_TIMEOUT_SECONDS, remaining),
-        })
-        return LlmClient(settings, self.llm.http)
 
     def require_enabled(self) -> None:
         # News configuration is checked only when news is actually requested.
@@ -483,104 +465,18 @@ class ChatService:
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
         yield response, prompt, warning
 
-    async def _validate_response(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None, audit=None):
-        async with aclosing(self._validation_steps(
-            raw_text, metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
-        )) as steps:
-            async for _ in steps:
-                pass
-
-    async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None, audit=None):
+    def _publish_answer(self, raw_text, metadata, response, *, audit):
+        """直接回傳模型文字，不檢核內容或重新生成。"""
         _add_usage(response, metadata)
-        if audit:
-            audit.update_usage(response)
-        yield "正在核對回答的引用與數值…"
-        try:
-            response.answer = _checked_answer(raw_text, metadata, response.sources, warning,
-                                              company_catalog=response._company_catalog,
-                                              require_portfolio=response._requires_portfolio)
-        except AnswerValidationError as exc:
-            if audit:
-                audit.rejected(exc)
-            # Retry once from the same evidence; never publish or attach citations to rejected prose.
-            truncated = isinstance(exc, TruncatedAnswerError)
-            yield ("回答超過長度限制，正在精簡後重新產生…" if truncated
-                   else "回答未通過核對，正在依據來源重新產生…")
-            logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
-                                             exc.reason, metadata.get("finish_reason"), len(response.sources))
-            guidance = (failed_claim_guidance(getattr(exc, "claim", "")) + "\n" + exc.hint if exc.reason == "numbers"
-                        else failed_compliance_guidance(exc.hint) if exc.reason in {"compliance", "grounding"}
-                        else failed_citation_guidance(getattr(exc, "hint", "")))
-            repair_client = self._repair_client(deadline)
-            if audit:
-                audit.start_attempt("repair", repair_client)
-            result = await repair_client.text(
-                system_prompt=recovery_system_prompt(request.answer_detail, exc.reason) + guidance,
-                prompt=prompt,
-            )
-            if audit:
-                audit.complete_attempt(result.raw_text, result.metadata)
-            _add_usage(response, result.metadata)
-            if audit:
-                audit.update_usage(response)
-            yield "正在重新核對回答的引用與數值…"
-            try:
-                response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning,
-                                                  company_catalog=response._company_catalog,
-                                                  require_portfolio=response._requires_portfolio)
-            except AnswerValidationError as retry_exc:
-                if audit:
-                    audit.rejected(retry_exc)
-                    audit.outcome = "fallback"
-                # Keep final rejection observable without logging private prose or evidence.
-                finish = result.metadata.get("finish_reason")
-                finish = finish if finish in ("stop", "length", "content_filter", None) else "unknown"
-                logging.getLogger(__name__).warning(
-                    "Chat answer validation failed: reason=%s attempt=2 finish=%s sources=%d",
-                    retry_exc.reason, finish, len(response.sources))
-                # No additional model calls: recheck independent content after removing
-                # unsupported claims and advice that could depend on them.
-                recovered = None
-                for draft, draft_metadata, stage in (
-                    (result.raw_text, result.metadata, "repair"), (raw_text, metadata, "initial"),
-                ):
-                    recovered, diagnostics = recover_partial_answer(
-                        draft, draft_metadata, response.sources, warning,
-                        company_catalog=response._company_catalog,
-                        require_portfolio=response._requires_portfolio)
-                    if recovered:
-                        if audit:
-                            audit.recovered(diagnostics, draft_stage=stage)
-                        break
-                facts = None if recovered else verified_facts_fallback(response.sources, warning,
-                                               company_catalog=response._company_catalog,
-                                               require_portfolio=response._requires_portfolio)
-                if recovered:
-                    response.answer = recovered
-                elif facts:
-                    response.answer = facts
-                elif isinstance(retry_exc, CitationValidationError) and _is_forward_outlook(request.query):
-                    response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
-                else:
-                    response.answer = VALIDATION_FALLBACK_ANSWER + warning
-            else:
-                if audit:
-                    audit.passed()
-                    if response.answer == INSUFFICIENT_EVIDENCE_ANSWER + warning:
-                        audit.outcome = "fallback"
-        else:
-            if audit:
-                audit.passed()
-                if response.answer == INSUFFICIENT_EVIDENCE_ANSWER + warning:
-                    audit.outcome = "fallback"
-        if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
-            response.answer += "\n\n" + INVESTMENT_DISCLAIMER
+        response.answer = raw_text
+        audit.update_usage(response)
+        audit.bypassed()
 
     async def ask(self, request: AskRequest) -> AskResponse:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
         audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
-                          repair_max_tokens=self.repair_max_tokens)
+                          repair_max_tokens=None)
         try:
             self.require_enabled()
             async with asyncio.timeout_at(deadline):
@@ -591,9 +487,7 @@ class ChatService:
                     audit.start_attempt("initial", self.llm)
                     result = await self.llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
                     audit.complete_attempt(result.raw_text, result.metadata)
-                    await self._validate_response(
-                        result.raw_text, result.metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
-                    )
+                    self._publish_answer(result.raw_text, result.metadata, response, audit=audit)
                 else:
                     audit.outcome = "direct"
                 _remaining_seconds(deadline)
@@ -613,7 +507,7 @@ class ChatService:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
         audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
-                          repair_max_tokens=self.repair_max_tokens)
+                          repair_max_tokens=None)
         try:
             async with aclosing(self._prepare_steps(request)) as steps:
                 while True:
@@ -646,20 +540,12 @@ class ChatService:
                                 parts.append(chunk.text)
                                 audit.append_text(chunk.text)
                 audit.complete_attempt("", metadata)
-                async with aclosing(self._validation_steps(
-                    "".join(parts), metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
-                )) as steps:
-                    while True:
-                        try:
-                            status = await _next_before_deadline(steps, deadline)
-                        except StopAsyncIteration:
-                            break
-                        yield {"type": "status", "content": status}
+                self._publish_answer("".join(parts), metadata, response, audit=audit)
             else:
                 audit.outcome = "direct"
             _remaining_seconds(deadline)
             response.duration_ms = int((perf_counter() - started) * 1000)
-            # Buffer until validation so rejected or truncated text never reaches the consumer.
+            # 維持只送出一次完整文字，連線錯誤仍照原流程處理。
             audit.publish(response)
             yield {"type": "text", "content": response.answer}
             audit.data["publication_completed"] = True

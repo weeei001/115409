@@ -99,9 +99,7 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
                 response = await client.post("/api/ask", json={"query": "TSMC revenue"})
                 assert response.status_code == 200, response.text
                 expected_answer = response.json()["answer"]
-                assert expected_answer.startswith("Public revenue answer.[S1]")
-                assert expected_answer.endswith("【引用來源】\n- [S1] TSMC quarterly revenue：/news/integration-article")
-                assert "新聞首次公開時間及完整修訂歷史未核實" in expected_answer
+                assert expected_answer == "Public revenue answer.[S1]"
                 assert response.json()["sources"][0]["url"] == ""
                 assert [source["category"] for source in response.json()["sources"]] == ["news", "availability"]
                 response = await client.post("/api/ask", json={"query": "TSMC revenue", "stream": True})

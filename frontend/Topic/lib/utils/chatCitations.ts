@@ -5,7 +5,7 @@ export const CHAT_CITATION_RE = new RegExp(`\\[\\*{0,3}(${CHAT_CITATION_PATTERN}
 
 /**
  * 後端在推薦類問題的回覆尾端附加的免責句（backend chat/prompts.py INVESTMENT_DISCLAIMER）。
- * 這句自稱「投資建議」，和全站「不是投資建議」矛盾，也只有部分回覆才有；畫面改用前端固定的 AI_CHAT_DISCLAIMER。
+ * 隱藏舊版固定文案，不補上其他制式說明。
  * 舊對話已經存了這句，後端改字後新舊兩版都要列在這裡，才剝得乾淨。只比對完整字串，不猜相近的句子。
  */
 export const BACKEND_CHAT_DISCLAIMERS: readonly string[] = [
@@ -58,14 +58,14 @@ export function relabelCitations(text: string, labels: ReadonlyMap<string, strin
   });
 }
 
-/** 複製回覆：畫面上看得到的正文（引用重新編號）、引用的來源標題，最後固定附上免責句 */
-export function chatCopyText(content: string, sources: readonly ChatSource[], disclaimer: string): string {
+/** 複製畫面上的正文與引用來源標題，不附加制式說明。 */
+export function chatCopyText(content: string, sources: readonly ChatSource[]): string {
   const body = chatAnswerBody(content);
   const labels = citationLabels(body, sources);
   const titles = new Map(sources.map((source) => [source.citation_id, source.title]));
   const cited = [...new Set([...body.matchAll(CHAT_CITATION_RE)].map((match) => match[1]))].filter((id) => titles.has(id));
   const sourceLines = cited.map((id) => `[${labels.get(id)}] ${titles.get(id)}`);
-  return [relabelCitations(body, labels), sourceLines.length ? `引用來源\n${sourceLines.join('\n')}` : '', disclaimer]
+  return [relabelCitations(body, labels), sourceLines.length ? `引用來源\n${sourceLines.join('\n')}` : '']
     .filter(Boolean).join('\n\n');
 }
 

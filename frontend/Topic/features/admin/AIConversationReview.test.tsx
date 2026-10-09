@@ -77,6 +77,14 @@ assert.match(renderedText(recovered), /結論缺乏依據 · 已收斂/);
 assert.match(renderedText(recovered), /已保留（2 個內容單位）/);
 assert.doesNotMatch(detailText, /保留內容經本機重新核對通過/);
 
+const direct = renderToStaticMarkup(<AIConversationDetail record={{
+  ...record, outcome: 'direct', reason: null, reasons: [], recovery: null,
+  attempts: [{ ...record.attempts[0], validation: 'not_checked', reason: null, hint: null, claim: null, detail: null }],
+}} />);
+assert.match(renderedText(direct), /本輪直接回覆，未執行回答內容檢核/);
+assert.match(renderedText(direct), /未執行檢核/);
+assert.doesNotMatch(renderedText(direct), /尚未檢核|尚未完成檢核|不是提供給使用者的有效分析/);
+
 const loading = renderToStaticMarkup(<AIConversationList data={listData} loading error={null} selectedId={null} onSelect={noop} onRetry={noop} onShowAll={noop} />);
 assert.match(loading, /aria-busy="true"/);
 assert.ok(!renderedText(loading).includes(summary.query_preview), 'Old rows are hidden while a new filter or page loads.');

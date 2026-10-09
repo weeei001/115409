@@ -152,7 +152,7 @@ def new_conversation(live):
 
 
 @pytest.mark.parametrize("authenticated", [False, True])
-def test_live_progress_arrives_before_work_and_validated_text_is_atomic(live_chat, authenticated):
+def test_live_progress_arrives_before_work_and_final_text_is_atomic(live_chat, authenticated):
     live = live_chat
     live.models.intent["data_needs"] = ["news", "market"]
     conversation_id = new_conversation(live) if authenticated else None
@@ -176,7 +176,6 @@ def test_live_progress_arrives_before_work_and_validated_text_is_atomic(live_cha
         # The fake has already yielded a partial answer, but it must remain buffered.
         assert live.models.answer_gate.entered.wait(5)
         live.models.answer_gate.release.set()
-        assert next(events) == {"type": "status", "content": "正在核對回答的引用與數值…"}
         tail = list(events)
     assert [event["type"] for event in tail] == ["text", "done"]
     assert tail[0]["content"] == tail[1]["answer"] == ANSWER
@@ -193,24 +192,16 @@ def test_live_progress_arrives_before_work_and_validated_text_is_atomic(live_cha
         assert ChatDashboard.model_validate(assistant["dashboard"]) == ChatDashboard.model_validate(tail[-1]["dashboard"])
 
 
-def test_live_retry_never_publishes_rejected_text(live_chat):
+def test_live_answer_bypasses_repair_and_preserves_model_text(live_chat):
     live = live_chat
-    live.models.answer = "Rejected prose [S99]"
+    live.models.answer = "Unverified prose [S99]"
     live.models.repair_gate.release.clear()
-    with live.client.stream("POST", "/api/ask", json={"query": "台積電", "stream": True}) as response:
-        events, before = frames(response), []
-        for event in events:
-            before.append(event)
-            if event == {"type": "status", "content": "回答未通過核對，正在依據來源重新產生…"}:
-                break
-        assert live.models.repair_gate.entered.wait(5)
-        assert all(event["type"] not in {"text", "done", "error"} for event in before)
-        live.models.repair_gate.release.set()
-        assert next(events) == {"type": "status", "content": "正在重新核對回答的引用與數值…"}
-        tail = list(events)
-    assert [event["type"] for event in tail] == ["text", "done"]
-    assert tail[0]["content"] == ANSWER
-    assert "Rejected prose" not in json.dumps(before + tail)
+    with live.client.stream("POST", "/api/ask", json={"query": "2330", "stream": True}) as response:
+        events = list(frames(response))
+    assert not live.models.repair_gate.entered.is_set()
+    assert [event["type"] for event in events[-2:]] == ["text", "done"]
+    assert events[-2]["content"] == events[-1]["answer"] == live.models.answer
+    assert live.models.stream_closed.is_set()
 
 
 def test_live_authenticated_failure_is_persisted(live_chat):

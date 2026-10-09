@@ -266,6 +266,11 @@ class ChatAudit:
         self.data["attempts"][-1]["validation"] = "passed"
         self.outcome = "repaired" if len(self.data["attempts"]) > 1 else "passed"
 
+    def bypassed(self):
+        """記錄直接回覆，不標示為檢核通過。"""
+        self._finish_attempt_time()
+        self.outcome = "direct"
+
     def recovered(self, diagnostics, *, draft_stage):
         """Record local pruning separately from the rejected model attempts."""
         self.outcome = "repaired"

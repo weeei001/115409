@@ -19,6 +19,21 @@ def new_audit():
     return audit, client
 
 
+def test_direct_answer_is_not_recorded_as_validated():
+    audit, _ = new_audit()
+    audit.append_text("Fixture generated answer")
+    audit.metadata({"finish_reason": "stop", "completion_tokens": 12})
+    audit.bypassed()
+    attempt = ChatReviewAttempt.model_validate(audit.data["attempts"][0])
+    assert audit.outcome == "direct"
+    assert attempt.validation == "not_checked"
+    assert attempt.reason is None
+    assert audit.data["reasons"] == []
+    assert audit.data["attempt_count"] == 1
+    assert attempt.tokens.output == 12
+    assert audit._attempt_started is None
+
+
 @pytest.mark.parametrize("issue", [
     "unparsed", "unsupported", "contradicted", "invalid_evidence", "conclusion_unsupported", "account_limit",
 ])

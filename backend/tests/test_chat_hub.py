@@ -10,13 +10,13 @@ from app.db.models.daily_price import DailyPrice
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.chat.router import get_service
 from app.features.chat.schemas import AskRequest
-from test_chat import NOW, chat, events, withheld_answer
+from test_chat import NOW, chat, events, published_answer
 from app.features.chat.prompts import INVESTMENT_DISCLAIMER
 from app.features.chat.service import _is_recommendation
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_recommendation_followup_fetches_market_and_appends_disclaimer(hub, stream):
+def test_recommendation_followup_fetches_market_without_appending_disclaimer(hub, stream):
     client, _, llm, retrieval = hub
     llm.intent = {"stocks": ["2330", "2317"], "data_needs": ["news"],
                   "standalone_query": "Recommend a stock from TSMC and Foxconn"}
@@ -28,8 +28,8 @@ def test_recommendation_followup_fetches_market_and_appends_disclaimer(hub, stre
     assert response.status_code == 200
     data = events(response)[-1] if stream else response.json()
     assert data["answer"].startswith(llm.answer)
-    assert data["answer"].endswith(INVESTMENT_DISCLAIMER)
-    assert data["answer"].count(INVESTMENT_DISCLAIMER) == 1
+    assert data["answer"] == llm.answer
+    assert INVESTMENT_DISCLAIMER not in data["answer"]
     assert any(source["category"] == "comparison" for source in data["sources"])
     assert any(source["category"] == "market_technical" for source in data["sources"])
     assert retrieval.calls
@@ -38,12 +38,11 @@ def test_recommendation_followup_fetches_market_and_appends_disclaimer(hub, stre
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_recommendation_disclaimer_does_not_bypass_citations(hub, stream):
+def test_recommendation_is_published_without_citation_gate(hub, stream):
     client, _, llm, _ = hub
     llm.answer = "Buy TSMC. [S99]"
     response = client.post("/api/ask", json={"query": "哪個最推薦買", "stream": stream})
-    withheld_answer(response, stream)
-    assert "Buy TSMC" not in response.text
+    assert published_answer(response, stream) == llm.answer
 
 
 @pytest.mark.parametrize("query", ["如何在模擬下單頁買進股票？", "外資買賣超多少？", "What does buy mean?"])
@@ -110,7 +109,7 @@ def test_help_and_concepts_work_without_news_or_market_configuration(chat, query
             "technical-indicator-guide/fast-stochastic"
         )
         guide = next(source for source in data["sources"] if source.get("url") == reference_url)
-        assert data["answer"].splitlines()[-1] == f'- [{guide["citation_id"]}] {guide["title"]}：{reference_url}'
+        assert data["answer"] == answer and guide["citation_id"]
         assert not data["actions"]
 
 
@@ -129,7 +128,7 @@ def test_news_failure_keeps_available_stock_evidence_and_visible_limit(hub, erro
     data = response.json()
     assert data["sources"][0]["category"] == "market_technical"
     assert data["sources"][-1]["category"] == "availability"
-    assert "新聞" in data["answer"] and "private" not in json.dumps(data)
+    assert data["answer"] == llm.answer and "private" not in json.dumps(data)
 
 
 def test_all_market_data_unavailable_is_cited_as_a_limit_not_zero(chat, monkeypatch):
@@ -141,7 +140,7 @@ def test_all_market_data_unavailable_is_cited_as_a_limit_not_zero(chat, monkeypa
     llm.answer = "這次無法取得台積電的行情資料，無法判斷目前走勢。[S2]"
     data = client.post("/api/ask", json={"query": "分析台積電"}).json()
     assert data["sources"][-1]["category"] == "availability"
-    assert "暫時無法讀取" in data["answer"]
+    assert data["answer"] == llm.answer
     assert not any(s["source"] == "system_market" for s in data["sources"])
 
 

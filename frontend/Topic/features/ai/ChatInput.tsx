@@ -3,7 +3,6 @@ import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { inputClass } from '@/components/ui/input';
 import { cn } from '@/lib/cn';
-import { AI_CHAT_DISCLAIMER } from '@/lib/disclaimers';
 
 /** openapi: AskRequest.query maxLength */
 const MAX_QUERY_LENGTH = 6000;
@@ -12,7 +11,6 @@ const COUNTER_THRESHOLD = MAX_QUERY_LENGTH - 500;
 
 /**
  * Enter 送出、Shift+Enter 換行；輸入法組字中（isComposing／keyCode 229）不送出。
- * 輸入框下方固定顯示 AI 免責：手機版 /ai 沒有頁尾、副標題也會被截斷（決議 D13）。
  * 送出鈕是這個畫面唯一的燈色主要按鈕。
  */
 export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initialValue = '' }: {
@@ -43,7 +41,7 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
           id="chat-input-message"
           value={value}
           maxLength={MAX_QUERY_LENGTH}
-          aria-describedby="chat-input-note"
+          aria-describedby={value.length >= COUNTER_THRESHOLD ? 'chat-input-note' : undefined}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
@@ -72,14 +70,11 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
           停止回覆
         </Button> : null}
       </div>
-      <p id="chat-input-note" className="mt-2 flex justify-between gap-3 text-xs leading-relaxed text-muted-foreground">
-        <span>{AI_CHAT_DISCLAIMER}</span>
-        {value.length >= COUNTER_THRESHOLD ? (
-          <span className="shrink-0 font-mono tabular-nums" aria-live="polite">
-            {value.length}／{MAX_QUERY_LENGTH} 字
-          </span>
-        ) : null}
-      </p>
+      {value.length >= COUNTER_THRESHOLD ? (
+        <p id="chat-input-note" className="mt-2 text-right font-mono text-xs tabular-nums text-muted-foreground" aria-live="polite">
+          {value.length}／{MAX_QUERY_LENGTH} 字
+        </p>
+      ) : null}
       {stopNotice ? <p role="status" className="mt-1 text-xs leading-relaxed text-muted-foreground">已停止顯示這則回覆。</p> : null}
     </div>
   );

@@ -14,12 +14,12 @@ from app.features.chat import service as chat_module
 from app.features.chat.router import get_service, router
 from app.features.chat.schemas import AskRequest, SourceChunk
 from app.features.chat.service import ChatService, extract_time_filter
-from app.features.chat.verified_fallback import VERIFIED_FALLBACK_NOTICE
+from app.features.chat.prompts import INSUFFICIENT_EVIDENCE_ANSWER
 
 
 NOW = datetime(2026, 9, 11, 15, 30)
 MODEL_ANSWER = "【綜合摘要】\n台積電營收增加。[S1]"
-ANSWER = MODEL_ANSWER + "\n\n【引用來源】\n- [S1] 營收報告：https://news.test/report"
+ANSWER = MODEL_ANSWER
 
 
 class FakeModels:
@@ -145,7 +145,7 @@ def test_frontend_stream_consumes_text(chat):
     assert result[-1]["time_range"]["to"] == "2026-09-11 15:30:00"
     assert [event["type"] for event in result[:4]] == ["status", "status", "dashboard", "status"]
     assert [event["content"] for event in result if event["type"] == "status"] == [
-        "正在理解問題與對話脈絡…", "正在搜尋相關新聞與來源…", "正在依據資料產生回答…", "正在核對回答的引用與數值…"]
+        "正在理解問題與對話脈絡…", "正在搜尋相關新聞與來源…", "正在依據資料產生回答…"]
     assert llm.closed
 
 
@@ -309,12 +309,10 @@ def test_cancelled_consumer_closes_provider_stream(chat):
     assert llm.closed
 
 
-@pytest.mark.parametrize("stage", ["intent", "news", "repair", "truncation"])
+@pytest.mark.parametrize("stage", ["intent", "news"])
 def test_cancelled_stage_closes_inflight_operation_without_background_work(chat, stage):
     _, service, llm, retrieval = chat
-    statuses = {"intent": "正在理解問題與對話脈絡…", "news": "正在搜尋相關新聞與來源…",
-                "repair": "回答未通過核對，正在依據來源重新產生…",
-                "truncation": "回答超過長度限制，正在精簡後重新產生…"}
+    statuses = {"intent": "正在理解問題與對話脈絡…", "news": "正在搜尋相關新聞與來源…"}
 
     async def cancel():
         started, closed = asyncio.Event(), asyncio.Event()
@@ -330,11 +328,6 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
             llm.generate = waiting
         elif stage == "news":
             retrieval.search_question = waiting
-        else:
-            llm.answer = "Unverified answer [S99]"
-            if stage == "truncation":
-                llm.metadata["finish_reason"] = "length"
-            llm.text = waiting
         stream = service.stream_events(AskRequest(query="台積電", stream=True))
         while True:
             event = await anext(stream)
@@ -354,23 +347,17 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
     asyncio.run(cancel())
 
 
-def withheld_answer(response, stream):
-    """Twice-rejected prose is replaced by a fixed notice or independently rebuilt source facts."""
+def published_answer(response, stream):
+    """檢查回傳格式，不檢核回答內容。"""
     if stream:
         result = events(response)
-        texts = [event["content"] for event in result if event["type"] == "text"]
         data = result[-1]
-        assert texts == [data["answer"]]
+        assert data["type"] == "done"
+        assert [event["content"] for event in result if event["type"] == "text"] == [data["answer"]]
     else:
         assert response.status_code == 200
         data = response.json()
-    answer = data["answer"]
-    if answer.startswith(VERIFIED_FALLBACK_NOTICE):
-        assert "【引用來源】" in answer and data["sources"]
-    else:
-        assert answer.startswith(chat_module.VALIDATION_FALLBACK_ANSWER) and "【引用來源】" not in answer
-    assert "[S99]" not in answer
-    return answer
+    return data["answer"]
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -384,12 +371,12 @@ def withheld_answer(response, stream):
     "【綜合摘要】\n營收增加。[S1]\n【市場情緒】\n明年一定上漲。",
     "【重點】\n營收增加。[S1]\n\n【技術解讀】\n\nKD 已經黃金交叉。",
 ])
-def test_unverifiable_answers_are_withheld_before_any_text_is_sent(chat, stream, answer):
+def test_answers_are_published_without_content_validation(chat, stream, answer):
     client, _, llm, _ = chat
     llm.answer = answer
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    withheld_answer(response, stream)
-    assert "一定上漲" not in response.text and "黃金交叉" not in response.text
+    assert published_answer(response, stream) == answer
+    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -401,42 +388,31 @@ def test_unverifiable_answers_are_withheld_before_any_text_is_sent(chat, stream,
     "台積電營收增加。[S1] <a href='//made-up.test/report'>來源</a>",
     "台積電營收增加。[S1]\n\n【引用來源】\n- 捏造標題：https://made-up.test/report",
 ])
-def test_removable_formatting_is_repaired_instead_of_rejected(chat, stream, answer):
+def test_model_formatting_and_links_are_not_rewritten(chat, stream, answer):
     client, _, llm, _ = chat
     llm.answer = answer
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     data = events(response)[-1] if stream else response.json()
-    assert data["answer"].startswith("台積電營收增加。[S1]")
-    assert "made-up" not in response.text and "[S0]" not in response.text
-    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+    assert data["answer"] == answer
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
 
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("metadata,expected_attempts", [
-    ({"finish_reason": "length"}, 2), ({"finish_reason": "stop", "truncated": True}, 2),
+    ({"finish_reason": "length"}, 1), ({"finish_reason": "stop", "truncated": True}, 1),
     ({"finish_reason": "content_filter"}, 1), ({}, 1),
     ({"finish_reason": "content_filter", "truncated": True}, 1), ({"truncated": True}, 1),
 ])
-def test_incomplete_answers_fail_with_same_json_and_sse_message(chat, stream, metadata, expected_attempts):
+def test_finish_metadata_does_not_gate_publication(chat, stream, metadata, expected_attempts):
     client, _, llm, _ = chat
     llm.metadata = metadata
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == expected_attempts
-    message = "模型回答未完整生成，請稍後重試。"
-    if expected_attempts == 2:
-        # A length overrun is retried once, then withheld like any other rejected answer.
-        withheld_answer(response, stream)
-    elif stream:
-        result = events(response)
-        assert result[-1] == {"type": "error", "message": message}
-        assert not any(event["type"] in {"text", "done"} for event in result)
-    else:
-        assert response.status_code == 503 and response.json()["detail"] == message
+    assert published_answer(response, stream) == llm.answer
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_reasonable_paragraphs_headings_and_limitations_keep_canonical_sources(chat, stream):
+def test_reasonable_paragraphs_headings_and_limitations_are_unchanged(chat, stream):
     client, _, llm, _ = chat
     llm.answer = ("【綜合摘要】\n台積電公布營收。\n營收增加。[S1]\n\n"
                   "【市場情緒】\n推論市場偏多，因營收增加。[S1]\n\n"
@@ -445,8 +421,8 @@ def test_reasonable_paragraphs_headings_and_limitations_keep_canonical_sources(c
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert data["answer"].startswith(llm.answer)
-    assert data["answer"].count("https://news.test/report") == 1
-    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+    assert "https://news.test/report" not in data["answer"]
+    assert data["answer"] == llm.answer
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -456,7 +432,7 @@ def test_structural_list_intro_without_citation_is_allowed(chat, stream):
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert data["answer"].startswith(llm.answer)
-    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+    assert data["answer"] == llm.answer
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -469,14 +445,14 @@ def test_news_answer_with_unprefixed_list_intro_and_markdown_source_url(chat, st
     response = client.post("/api/ask", json={"query": "AI需求對台積電營收的具體影響是什麼？", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert response.status_code == 200
-    assert data["answer"].endswith("【引用來源】\n- [S1] 營收報告：https://news.test/report")
+    assert data["answer"] == llm.answer
     assert data["dashboard"]["blocks"][0]["items"][0]["url"] == "https://news.test/report"
 
 
 @pytest.mark.parametrize("stream", [False, True])
 def test_insufficient_evidence_can_abstain_without_inventing_citations(chat, stream):
     client, _, llm, _ = chat
-    llm.answer = chat_module.INSUFFICIENT_EVIDENCE_ANSWER
+    llm.answer = INSUFFICIENT_EVIDENCE_ANSWER
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert data["answer"] == llm.answer
@@ -485,42 +461,42 @@ def test_insufficient_evidence_can_abstain_without_inventing_citations(chat, str
 @pytest.mark.parametrize("stream", [False, True])
 def test_forward_outlook_can_abstain_despite_available_sources(chat, stream):
     client, _, llm, _ = chat
-    llm.answer = chat_module.INSUFFICIENT_EVIDENCE_ANSWER + "[S1]"
+    llm.answer = INSUFFICIENT_EVIDENCE_ANSWER + "[S1]"
     response = client.post("/api/ask", json={"query": "台積電下周會漲嗎", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert response.status_code == 200
-    assert data["answer"].startswith(chat_module.INSUFFICIENT_EVIDENCE_ANSWER)
+    assert data["answer"].startswith(INSUFFICIENT_EVIDENCE_ANSWER)
     assert "偏多" not in data["answer"] and "下週" not in data["answer"]
 
 
-def test_multiple_citations_list_only_used_sources_once_in_citation_order(chat):
+def test_multiple_citations_are_preserved_without_source_footer(chat):
     client, _, llm, retrieval = chat
     retrieval.hits[1]["payload"].update(title="Other report", source="cnyes", page_content="Other news.",
                                          url="http://news.test/other")
     llm.answer = "兩篇新聞提供不同觀察。[S2][S1][S2]"
     response = client.post("/api/ask", json={"query": "台積電"})
     assert response.status_code == 200
-    assert response.json()["answer"].endswith("【引用來源】\n- [S2] Other report：http://news.test/other\n"
-                                              "- [S1] 營收報告：https://news.test/report")
+    assert response.json()["answer"] == llm.answer
 
 
-def test_news_citations_prefer_internal_news_detail(chat):
+def test_news_article_identity_stays_in_sources_without_answer_footer(chat):
     client, _, llm, retrieval = chat
     retrieval.hits[0]["payload"]["article_id"] = "article/one"
     llm.answer = "台積電營收增加。[S1]"
     response = client.post("/api/ask", json={"query": "台積電最近營收"})
     assert response.status_code == 200
-    assert "/news/article%2Fone" in response.json()["answer"]
+    assert response.json()["answer"] == llm.answer
+    assert response.json()["sources"][0]["article_id"] == "article/one"
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "//made-up.test", "https://[invalid",
                                   "https://news.test/with spaces", "https://user:password@news.test/report"])
-def test_source_list_does_not_make_unsafe_source_urls_clickable(chat, url):
+def test_source_urls_are_not_appended_to_answer(chat, url):
     client, _, _, retrieval = chat
     retrieval.hits[0]["payload"]["url"] = url
     response = client.post("/api/ask", json={"query": "台積電"})
     assert response.status_code == 200
-    assert response.json()["answer"] == MODEL_ANSWER + "\n\n【引用來源】\n- [S1] 營收報告"
+    assert response.json()["answer"] == MODEL_ANSWER
 
 
 @pytest.mark.parametrize("stream", [False, True])

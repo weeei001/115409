@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 from datetime import timedelta
 
 import pytest
@@ -120,10 +119,9 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagnostics(
+def test_raw_numeric_answer_is_saved_with_dashboard_without_validation_diagnostics(
         client, service, db_session, settings, monkeypatch, caplog, stream):
     from app.features.chat import service as chat_module
-    from app.features.chat.verified_fallback import VERIFIED_FALLBACK_NOTICE
     from app.features.chat.knowledge import reference_source
     from app.features.chat.service import ChatService
     from test_chat import FakeModels, FakeRetrieval, events
@@ -155,7 +153,7 @@ def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagn
         "stream": stream,
     })
 
-    # The rejected prose is withheld; dated structured facts are rebuilt independently.
+    # 對話直接保存模型原文，不檢核或修復內容。
     if stream:
         result = events(response)
         assert [event["content"] for event in result if event["type"] == "text"] == [result[-1]["answer"]]
@@ -165,25 +163,22 @@ def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagn
     else:
         assert response.status_code == 200
         answer = response.json()["answer"]
-    assert answer.startswith(VERIFIED_FALLBACK_NOTICE)
-    assert "2026-10-02 股票 2330 收盤價 100 元。[S2]" in answer
-    assert "可用資金" not in answer  # This fixture's account snapshot has no as_of.
-    assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 2
+    assert answer == models.answer
+    assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 1
 
     saved = client.get(f"/api/conversations/{conversation_id}", headers=headers).json()["messages"][-1]
     assert saved["status"] == "completed" and saved["content"] == answer
-    assert "999999" not in json.dumps(saved)
+    assert "999999" in saved["content"]
     assert saved["dashboard"]["blocks"][0]["items"][0]["value"] == 100
     assert saved["actions"]
     diagnostics = [record for record in caplog.records if record.name == chat_module.__name__]
-    assert len(diagnostics) == 1 and diagnostics[0].levelno == logging.WARNING
-    assert re.fullmatch(r"Chat answer validation failed: reason=numbers attempt=2 finish=stop sources=\d+",
-                        diagnostics[0].getMessage())
+    assert diagnostics == []
     for sentinel in ("PRIVATE_SOURCE_SENTINEL", "PRIVATE_ANSWER_SENTINEL", "PRIVATE_METADATA_SENTINEL",
                      "PRIVATE_QUERY_SENTINEL"):
         assert sentinel not in caplog.text
-    # The owner's own snapshot is returned with the sources, as in any answered turn; rejected prose is not.
-    for sentinel in ("PRIVATE_ANSWER_SENTINEL", "PRIVATE_METADATA_SENTINEL", "PRIVATE_QUERY_SENTINEL"):
+    # 回傳並保存使用者的回答，不附加模型服務的內部資料或提問。
+    assert "PRIVATE_ANSWER_SENTINEL" in response.text
+    for sentinel in ("PRIVATE_METADATA_SENTINEL", "PRIVATE_QUERY_SENTINEL"):
         assert sentinel not in response.text
         assert sentinel not in json.dumps(saved)
 

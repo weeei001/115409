@@ -10,7 +10,6 @@ import { PaperOrderDraft } from '@/features/order/PaperOrderDraft';
 import { MarkdownBlock } from '@/lib/utils/markdown';
 import { isStructuredRagReply } from '@/lib/utils/parseRagStructuredReply';
 import { CHAT_CITATION_RE, chatAnswerBody, chatCopyText, citationLabels, newsCitationPath } from '@/lib/utils/chatCitations';
-import { AI_CHAT_DISCLAIMER } from '@/lib/disclaimers';
 import { cn } from '@/lib/cn';
 import { Button, textLinkClass } from '@/components/ui/button';
 import { RagStructuredReply } from './RagStructuredReply';
@@ -90,8 +89,8 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
 
   const handleCopy = async () => {
     try {
-      // 複製畫面上看得到的內容：不含後端的引用尾段與免責句，引用編號與畫面一致，最後附上固定免責
-      await navigator.clipboard.writeText(chatCopyText(message.content, sources, AI_CHAT_DISCLAIMER));
+      // 複製畫面上的正文與來源標題，引用編號和畫面一致。
+      await navigator.clipboard.writeText(chatCopyText(message.content, sources));
       setCopied(true);
       toast.success('已複製回覆');
       window.setTimeout(() => setCopied(false), 2000);
@@ -240,11 +239,6 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
             ))}
           </div>
         </nav>
-      ) : null}
-
-      {/* 每則 AI 回覆底部固定的免責：後端只在部分回覆附加（而且寫法互相矛盾），不依賴它 */}
-      {!isUser && (message.content.trim() || message.dashboard) ? (
-        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{AI_CHAT_DISCLAIMER}</p>
       ) : null}
     </motion.div>
   );

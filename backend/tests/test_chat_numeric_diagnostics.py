@@ -2,11 +2,10 @@ import json
 
 import pytest
 
-from app.clients.llm import LlmResult
 from app.features.chat.answer_validation import NumericValidationError, _checked_answer
 from app.features.chat.claims import numeric_claim_issue, numeric_claims_supported, unsupported_numeric_claim
 from app.features.chat.schemas import SourceChunk
-from test_chat import MODEL_ANSWER, chat, events
+from test_chat import chat, events
 
 
 def source(content=None):
@@ -46,27 +45,13 @@ def test_supported_observation_keeps_compatibility():
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_numeric_repair_receives_diagnostic_without_entire_rejected_draft(chat, stream):
+def test_numeric_contradiction_is_published_without_repair(chat, stream):
     client, _, llm, retrieval = chat
     llm.answer = "一般段落不應整篇回填。[S1]\n\n股價 200 元。[S1]"
     retrieval.hits[0]["payload"]["page_content"] = "營收增加，股價 100 元。"
-    original_text = llm.text
-    attempts = []
-
-    async def repair(**kwargs):
-        attempts.append(kwargs)
-        if not stream and len(attempts) == 1:
-            return await original_text(**kwargs)
-        return LlmResult({}, MODEL_ANSWER, llm.metadata)
-
-    llm.text = repair
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     assert response.status_code == 200
     result = events(response)[-1] if stream else response.json()
-    assert result["answer"].startswith(MODEL_ANSWER)
-    assert len(attempts) == (1 if stream else 2)
-    repair_prompt = attempts[-1]["system_prompt"]
-    assert "contradicts the cited observation" in repair_prompt
-    assert "股價 200 元" in repair_prompt
-    assert "一般段落不應整篇回填" not in repair_prompt
+    assert result["answer"] == llm.answer
+    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
     assert "contradicts the cited observation" not in response.text
