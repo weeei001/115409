@@ -12,6 +12,7 @@ from .schemas import SourceChunk
 METRICS = {
     "annualized_volatility_pct": r"年化波動(?:度|率)",
     "interval_return_pct": r"(?:區間|期間|同期)(?:價格|股價)?(?:報酬率|漲跌幅|漲幅)",
+    "unspecified_return": r"報酬率",
     "max_drawdown_pct": r"最大回撤(?:幅度)?",
 }
 RANK = re.compile(r"最高|最低|最大(?!回撤)|最小|居冠|最(?:為)?(?:平穩|穩定|穩健)|(?:高於|低於)其餘\s*\d+\s*檔")
@@ -38,7 +39,7 @@ def unsupported_comparison(text: str, sources: list[SourceChunk],
         metrics = [(match, metric) for metric, pattern in METRICS.items()
                    for match in re.finditer(pattern, sentence)]
         for rank in RANK.finditer(sentence):
-            if re.search(r"(?:並非|不是|未必|不一定|不能稱為|無法判定)[^,;]{0,8}$", sentence[:rank.start()]):
+            if re.search(r"(?:並非|不是|未必|不一定|不能稱為|不能說是|無法判定)[^,;]{0,8}$", sentence[:rank.start()]):
                 continue
             clause_start = max(sentence.rfind(mark, 0, rank.start()) for mark in ",;") + 1
             local_prefix = sentence[clause_start:rank.start()].strip()
@@ -64,13 +65,15 @@ def unsupported_comparison(text: str, sources: list[SourceChunk],
             else:
                 if not preceding:
                     continue
-                metric_match, metric = max(preceding, key=lambda item: item[0].end())
+                metric_match, metric = max(preceding, key=lambda item: (item[0].end(), len(item[0][0])))
                 if ";" in sentence[metric_match.end():rank.start()]:
                     continue
                 # Do not treat an unrelated noun, such as '最大風險', as a metric rank.
                 if re.match(r"[\u4e00-\u9fff]", sentence[rank.end():]) and not sentence[rank.end():].startswith(("的", "者")):
                     continue
                 largest = rank[0] in {"最高", "最大", "居冠"} or bool(other_rank and other_rank[1] == "高於")
+            if metric == "unspecified_return":
+                return "比較排名需明示報酬率的期間與口徑：" + sentence.strip()
             subjects = _subjects(sentence[:metric_match.start()], aliases)
             if not subjects:
                 return "比較排名缺少明確股票主詞：" + sentence.strip()
@@ -83,6 +86,13 @@ def unsupported_comparison(text: str, sources: list[SourceChunk],
                 stocks = payload.get("stocks")
                 if not isinstance(stocks, list) or len(stocks) < 2 or not all(isinstance(stock, dict) for stock in stocks):
                     return "比較排名需至少兩檔完整資料。"
+                count = re.search(r"([一二三四五六七八九十百\d]+)\s*檔(?:股票)?中", sentence)
+                if count:
+                    expected = int(count[1]) if count[1].isdigit() else {
+                        word: index for index, word in enumerate("一二三四五六七八九十", 1)
+                    }.get(count[1])
+                    if expected != len(stocks):
+                        return "比較排名宣稱的股票數與來源範圍不符。"
                 start, end = payload.get("common_start_date"), payload.get("common_end_date")
                 if not start or not end:
                     return "比較排名缺少共同觀測期間。"

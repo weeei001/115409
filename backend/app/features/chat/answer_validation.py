@@ -6,7 +6,7 @@ from app.core.errors import ServiceUnavailable
 
 from app.features.market.company_catalog import company_aliases
 
-from .claims import _normalize, unsupported_numeric_claim
+from .claims import _normalize, numeric_claim_issue
 from .comparison_validation import unsupported_comparison
 from .grounding import unsupported_market_cause, target_quote_supported
 from .proposals import plan_supported
@@ -35,10 +35,17 @@ class CitationValidationError(AnswerValidationError):
 class NumericValidationError(CitationValidationError):
     reason = "numbers"
 
-    def __init__(self, detail, *, claim: str = ""):
+    def __init__(self, detail, *, claim: str = "", issue: str = "unsupported"):
         super().__init__(detail)
         # Recovery prompt only; HTTP handlers serialize detail, never the rejected prose.
         self.claim = claim
+        self.issue = issue
+        self.hint = {
+            "unparsed": "The numeric wording could not be parsed. Restate the company, period, metric and value explicitly; do not assume the value is wrong.",
+            "contradicted": "The stated value contradicts the cited observation. Correct it and reconsider dependent conclusions.",
+            "unsupported": "No matching observation supports the company, period, metric and unit.",
+            "invalid_evidence": "The cited evidence could not be read.",
+        }.get(issue, "")
 
 
 class ComplianceValidationError(CitationValidationError):
@@ -271,12 +278,12 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
     for index, paragraph in enumerate(paragraphs):
         prior_context = "\n\n".join(paragraphs[:index]) + "\n\n" if index else ""
         for text, citations, context in _citation_units(paragraph):
-            failed = unsupported_numeric_claim(text, [available[citation] for citation in citations],
-                                               company_catalog=company_catalog, context=prior_context + context,
-                                               continuation=paragraph[len(context) + len(text):])
+            failed = numeric_claim_issue(text, [available[citation] for citation in citations],
+                                         company_catalog=company_catalog, context=prior_context + context,
+                                         continuation=paragraph[len(context) + len(text):])
             if failed is not None:
                 raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE,
-                                             claim=failed or _normalize(text).strip())
+                                             claim=failed.sentence or _normalize(text).strip(), issue=failed.reason)
             comparison_issue = unsupported_comparison(
                 text, [available[citation] for citation in citations], company_catalog)
             if comparison_issue:

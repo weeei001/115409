@@ -501,7 +501,7 @@ class ChatService:
                    else "回答未通過核對，正在依據來源重新產生…")
             logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
                                              exc.reason, metadata.get("finish_reason"), len(response.sources))
-            guidance = (failed_claim_guidance(getattr(exc, "claim", "")) if exc.reason == "numbers"
+            guidance = (failed_claim_guidance(getattr(exc, "claim", "")) + "\n" + exc.hint if exc.reason == "numbers"
                         else failed_compliance_guidance(exc.hint) if exc.reason in {"compliance", "grounding"}
                         else failed_citation_guidance(getattr(exc, "hint", "")))
             repair_client = self._repair_client(deadline)

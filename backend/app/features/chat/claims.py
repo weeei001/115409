@@ -93,7 +93,7 @@ UNITS.update({"average_cost": "TWD", "favorites_count": "count", "positions_coun
 UNITS.update({"per": "multiple", "pbr": "multiple"})
 UNITS.update({field: "%" for field in ("stop_loss_pct", "take_profit_pct", "target_return_pct")})
 LABELS = "|".join(f"(?P<{field}>{label})" for field, label in METRICS.items())
-QUALIFIER = r"(?:(?:目前|現在|大約|約|為|是|高達|僅|達|有|共有|總共|共|剩餘|剩下|剩|尚有|仍有|合計|[:=])\s*)*"
+QUALIFIER = r"(?:(?:目前|現在|大約|約|為|是|高達|低至|達到|僅|達|有|共有|總共|共|剩餘|剩下|剩|尚有|仍有|合計|[:=])\s*)*"
 CLAIM = re.compile(
     rf"(?:{LABELS})\s*(?P<alias>\([^()\d]{{1,40}}\))?\s*{QUALIFIER}[(]?\s*"
     rf"(?P<currency_prefix>{FOREIGN_CURRENCY}|NT\$|TWD|NTD|[$€￥])?\s*"
@@ -143,6 +143,12 @@ class Claim:
     # Smallest step the written number can express ("2,518.7 億" -> 1e7); None means exact only.
     quantum: Decimal | None = None
     approximate_amount: bool = False
+
+
+@dataclass(frozen=True)
+class NumericClaimIssue:
+    sentence: str
+    reason: str
 
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -579,6 +585,13 @@ def numeric_claims_supported(paragraph: str, sources: list[SourceChunk], company
 def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "",
                               continuation: str = "") -> str | None:
     """The sentence holding the first rejected number, "" if evidence cannot be read, None if supported."""
+    issue = numeric_claim_issue(paragraph, sources, company_catalog, context=context, continuation=continuation)
+    return issue.sentence if issue else None
+
+
+def numeric_claim_issue(paragraph: str, sources: list[SourceChunk], company_catalog=None, *, context: str = "",
+                        continuation: str = "") -> NumericClaimIssue | None:
+    """Keep parse failures distinct from contradicted or missing evidence; all require repair."""
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}
     try:
@@ -594,7 +607,7 @@ def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], compan
             sentence = (re.split(r"[。!?;\n]", full_text[:claim.end])[-1]
                         + re.split(r"[。!?;\n]", full_text[claim.end:])[0])
             if claim.unit == "%" and guarantees_outcome(sentence):
-                return sentence.strip()
+                return NumericClaimIssue(sentence.strip(), "unsupported")
             if not claim.unit.startswith("invalid") and any(
                     proposal.start < claim.end <= proposal.end for proposal in proposals):
                 continue
@@ -603,7 +616,7 @@ def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], compan
             # 新聞也必須逐項比對。不可在欄位、日期、方向或單位不符後，降級成數字搜尋放行。
             news_matches = [fact for fact in matched if fact.source_id in news_ids]
             if claim.unit == "%" and re.search(r"保證|一定|必定|必然", local):
-                return sentence.strip()
+                return NumericClaimIssue(sentence.strip(), "unsupported")
             if claim.unit == "%" and re.search(FORECAST, local):
                 attribution = set(re.findall(ATTRIBUTION, sentence))
                 speakers = attribution - REPORT_ATTRIBUTION - ATTRIBUTION_VERBS
@@ -612,12 +625,16 @@ def unsupported_numeric_claim(paragraph: str, sources: list[SourceChunk], compan
                                  for fact in news_matches) if speakers else (
                                      bool(news_matches) and bool(attribution & REPORT_ATTRIBUTION))
                 if not attributed:
-                    return sentence.strip()
+                    return NumericClaimIssue(sentence.strip(), "unsupported")
             if matched:
                 continue
             if _quoted_example(claim, text, examples):
                 continue
-            return sentence.strip()
+            reason = "unparsed" if claim.metric is None else "unsupported"
+            if claim.metric is not None and any(
+                    _matches(replace(claim, value=fact.value), fact) for fact in facts):
+                reason = "contradicted"
+            return NumericClaimIssue(sentence.strip(), reason)
         return None
     except (ValueError, TypeError, KeyError, AttributeError, InvalidOperation):
-        return ""
+        return NumericClaimIssue("", "invalid_evidence")
