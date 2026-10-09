@@ -32,21 +32,24 @@ def test_compact_market_rows_validate_individual_numbers(claim, supported):
 
 @pytest.mark.parametrize("content,claim,supported", [
     ('[1,234]', "變動 1234%", False),
-    ('[1,234]', "變動 234%", True),
+    ('[1,234]', "變動 234%", False),
     ('{"values":[1,234.56]}', "變動 1234.56%", False),
-    ('{"values":[1,234.56]}', "變動 234.56%", True),
-    ('{"value":9.9e-3}', "變動 0.0099%", True),
-    ('{"value":-0.99}', "變動 −0.99%", True),
+    ('{"values":[1,234.56]}', "變動 234.56%", False),
+    ('{"value":9.9e-3}', "變動 0.0099%", False),
+    ('{"value":-0.99}', "變動 −0.99%", False),
     ('{"value":-0.99}', "變動 +0.99%", False),
     ('{"value":true,"other":null}', "變動 1%", False),
     ('{"0.99":0}', "變動 0.99%", False),
-    ('{"note":"變動 -1,234.56%"}', "變動 −1,234.56%", True),
-    ('變動 +1,234.56%', "變動 1,234.56%", True),
-    ('變動 -1,234.56%', "變動 −1,234.56%", True),
+    ('{"note":"變動 -1,234.56%"}', "變動 −1,234.56%", False),
+    ('變動 +1,234.56%', "變動 1,234.56%", False),
+    ('變動 -1,234.56%', "變動 −1,234.56%", False),
     ('變動 -1,234.56%', "變動 +1,234.56%", False),
+    ('漲跌幅 +1,234.56%', "漲跌幅 1,234.56%", True),
+    ('漲跌幅 -1,234.56%', "漲跌幅 −1,234.56%", True),
+    ('漲跌幅 -1,234.56%', "漲跌幅 +1,234.56%", False),
     ('漲跌幅 -0.99%，收盤價 1,234.56 元', "收盤價 1,234.56 元、漲跌幅 −0.99%", True),
 ])
-def test_json_values_and_prose_keep_numeric_boundaries_and_sign(content, claim, supported):
+def test_news_requires_metric_and_unit_as_well_as_numeric_boundaries_and_sign(content, claim, supported):
     assert numeric_claims_supported(claim, [source(content, "news")]) is supported
 
 

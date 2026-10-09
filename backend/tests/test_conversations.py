@@ -123,7 +123,7 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
 def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagnostics(
         client, service, db_session, settings, monkeypatch, caplog, stream):
     from app.features.chat import service as chat_module
-    from app.features.chat.answer_validation import NUMERIC_RECOVERY_GUIDANCE
+    from app.features.chat.verified_fallback import VERIFIED_FALLBACK_NOTICE
     from app.features.chat.knowledge import reference_source
     from app.features.chat.service import ChatService
     from test_chat import FakeModels, FakeRetrieval, events
@@ -155,8 +155,7 @@ def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagn
         "stream": stream,
     })
 
-    # The rejected prose is withheld; a fixed notice with the numeric guidance replaces it.
-    notice = chat_module.VALIDATION_FALLBACK_ANSWER + NUMERIC_RECOVERY_GUIDANCE
+    # The rejected prose is withheld; dated structured facts are rebuilt independently.
     if stream:
         result = events(response)
         assert [event["content"] for event in result if event["type"] == "text"] == [result[-1]["answer"]]
@@ -166,7 +165,9 @@ def test_final_numeric_rejection_withholds_answer_keeps_dashboard_and_safe_diagn
     else:
         assert response.status_code == 200
         answer = response.json()["answer"]
-    assert answer.startswith(notice) and "指定 1 至 2 檔股票重新提問" in answer
+    assert answer.startswith(VERIFIED_FALLBACK_NOTICE)
+    assert "2026-10-02 股票 2330 收盤價 100 元。[S2]" in answer
+    assert "可用資金" not in answer  # This fixture's account snapshot has no as_of.
     assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 2
 
     saved = client.get(f"/api/conversations/{conversation_id}", headers=headers).json()["messages"][-1]

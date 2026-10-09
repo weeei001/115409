@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.clients.llm import LlmClient
-from app.core.errors import AppError, NotFound, ServiceUnavailable
+from app.core.errors import AppError, NotFound, ServiceUnavailable, UpstreamTimeout
 from app.features.market.company_catalog import load_catalog
 from app.features.market.repository import stock_names
 from app.features.news.sentiment import extract_candidate_stocks
@@ -23,6 +23,7 @@ from app.features.retrieval.service import RetrievalService
 
 from .answer_validation import (NUMERIC_RECOVERY_GUIDANCE, AnswerValidationError, CitationValidationError,
                                 NumericValidationError, TruncatedAnswerError, _checked_answer)
+from .audit import ChatAudit
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
@@ -34,6 +35,7 @@ from .prompts import (ANSWER_PROMPT, answer_system_prompt, failed_citation_guida
                       INTENT_SYSTEM_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, INVESTMENT_DISCLAIMER, NON_FINANCE_ANSWER,
                       NO_NEWS_MESSAGE, VALIDATION_FALLBACK_ANSWER)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
+from .verified_fallback import verified_facts_fallback
 
 
 def _is_recommendation(query: str) -> bool:
@@ -130,6 +132,35 @@ def _tokens(metadata: dict) -> dict:
             "thinking": usage["reasoning_tokens"]}
 
 
+def _add_usage(response: AskResponse, metadata: dict) -> None:
+    # 只累加上游已回報的用量；皆未回報的欄位保留未知，不自行估算成零。
+    incoming = _tokens(metadata)
+    response.tokens = {
+        key: (response.tokens.get(key) or 0) + (value or 0)
+        if response.tokens.get(key) is not None or value is not None else None
+        for key, value in incoming.items()
+    }
+
+
+REQUEST_TIMEOUT_MESSAGE = "本次回答已超過時間上限，請縮小問題後再試。"
+
+
+def _remaining_seconds(deadline: float) -> float:
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise TimeoutError(REQUEST_TIMEOUT_MESSAGE)
+    return remaining
+
+
+async def _next_before_deadline(steps, deadline: float):
+    # timeout 綁定目前 Task，不能跨公開 yield；不同 anext 可能由不同 Task 消費。
+    _remaining_seconds(deadline)
+    async with asyncio.timeout_at(deadline):
+        step = await anext(steps)
+    _remaining_seconds(deadline)
+    return step
+
+
 def _conversation_history(request: AskRequest) -> list[dict[str, str]]:
     history = []
     for turn in request.history:
@@ -143,6 +174,9 @@ def _conversation_history(request: AskRequest) -> list[dict[str, str]]:
 
 class ChatService:
     def __init__(self, *, http, settings, retrieval=None, intent_llm=None, llm=None, session_factory=None):
+        configuration = settings if settings is not None else getattr(llm, "settings", None)
+        self.request_timeout_seconds = getattr(configuration, "CHAT_REQUEST_TIMEOUT_SECONDS", 60)
+        self.repair_max_tokens = getattr(configuration, "CHAT_REPAIR_MAX_TOKENS", 2048)
         self.retrieval = retrieval if retrieval is not None else RetrievalService(
             http, settings, session_factory=session_factory)
         if llm is not None:
@@ -158,6 +192,17 @@ class ChatService:
             }), http)
         self.intent_llm = intent_llm if intent_llm is not None else self.llm
         self.session_factory = session_factory
+
+    def _repair_client(self, deadline: float | None):
+        remaining = _remaining_seconds(deadline) if deadline is not None else self.request_timeout_seconds
+        if not isinstance(self.llm, LlmClient):
+            return self.llm
+        # 複製設定避免並行對話互相改動；修復沿用模型與來源，但不能取得新的整段時間。
+        settings = self.llm.settings.model_copy(update={
+            "LLM_MAX_TOKENS": min(self.llm.settings.LLM_MAX_TOKENS, self.repair_max_tokens),
+            "LLM_TIMEOUT_SECONDS": min(self.llm.settings.LLM_TIMEOUT_SECONDS, remaining),
+        })
+        return LlmClient(settings, self.llm.http)
 
     def require_enabled(self) -> None:
         # News configuration is checked only when news is actually requested.
@@ -207,10 +252,12 @@ class ChatService:
         except ValidationError:
             intent = fallback
         response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[],
-                               tokens={"input": 0, "output": 0, "thinking": None}, duration_ms=0,
+                               tokens=_tokens(result.metadata), duration_ms=0,
                                current_time=now.strftime("%Y年%m月%d日 %H:%M"))
         needs = set(intent.data_needs or ["news"])
         scopes = personal_scopes(request.query, needs)
+        # 由伺服器決定帳戶模式，不由回答的引用或「假設」標籤決定是否需要快照。
+        response._requires_portfolio = "portfolio" in scopes
         personal_symbols = []
         personal_analysis_note = ""
         if scopes:
@@ -429,17 +476,25 @@ class ChatService:
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
         yield response, prompt, warning
 
-    async def _validate_response(self, raw_text, metadata, response, request, prompt, warning):
-        async with aclosing(self._validation_steps(raw_text, metadata, response, request, prompt, warning)) as steps:
+    async def _validate_response(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None, audit=None):
+        async with aclosing(self._validation_steps(
+            raw_text, metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
+        )) as steps:
             async for _ in steps:
                 pass
 
-    async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning):
+    async def _validation_steps(self, raw_text, metadata, response, request, prompt, warning, *, deadline=None, audit=None):
+        _add_usage(response, metadata)
+        if audit:
+            audit.update_usage(response)
         yield "正在核對回答的引用與數值…"
         try:
             response.answer = _checked_answer(raw_text, metadata, response.sources, warning,
-                                              company_catalog=response._company_catalog)
+                                              company_catalog=response._company_catalog,
+                                              require_portfolio=response._requires_portfolio)
         except AnswerValidationError as exc:
+            if audit:
+                audit.rejected(exc)
             # Retry once from the same evidence; never publish or attach citations to rejected prose.
             truncated = isinstance(exc, TruncatedAnswerError)
             yield ("回答超過長度限制，正在精簡後重新產生…" if truncated
@@ -447,86 +502,154 @@ class ChatService:
             logging.getLogger(__name__).info("Chat answer recovery: reason=%s finish=%s sources=%d",
                                              exc.reason, metadata.get("finish_reason"), len(response.sources))
             guidance = (failed_claim_guidance(getattr(exc, "claim", "")) if exc.reason == "numbers"
-                        else failed_compliance_guidance(exc.hint) if exc.reason == "compliance"
+                        else failed_compliance_guidance(exc.hint) if exc.reason in {"compliance", "grounding"}
                         else failed_citation_guidance(getattr(exc, "hint", "")))
-            result = await self.llm.text(
+            repair_client = self._repair_client(deadline)
+            if audit:
+                audit.start_attempt("repair", repair_client)
+            result = await repair_client.text(
                 system_prompt=recovery_system_prompt(request.answer_detail, exc.reason) + guidance,
                 prompt=prompt,
             )
+            if audit:
+                audit.complete_attempt(result.raw_text, result.metadata)
+            _add_usage(response, result.metadata)
+            if audit:
+                audit.update_usage(response)
             yield "正在重新核對回答的引用與數值…"
             try:
                 response.answer = _checked_answer(result.raw_text, result.metadata, response.sources, warning,
-                                                  company_catalog=response._company_catalog)
+                                                  company_catalog=response._company_catalog,
+                                                  require_portfolio=response._requires_portfolio)
             except AnswerValidationError as retry_exc:
+                if audit:
+                    audit.rejected(retry_exc)
+                    audit.outcome = "fallback"
                 # Keep final rejection observable without logging private prose or evidence.
                 finish = result.metadata.get("finish_reason")
                 finish = finish if finish in ("stop", "length", "content_filter", None) else "unknown"
                 logging.getLogger(__name__).warning(
                     "Chat answer validation failed: reason=%s attempt=2 finish=%s sources=%d",
                     retry_exc.reason, finish, len(response.sources))
-                # The rejected prose is withheld, but the turn's dashboard and sources still reach the user.
-                if isinstance(retry_exc, CitationValidationError) and _is_forward_outlook(request.query):
+                # 從本輪結構化資料重建摘要，不剪接失敗草稿，避免留下依賴錯誤的結論。
+                facts = verified_facts_fallback(response.sources, warning,
+                                               company_catalog=response._company_catalog,
+                                               require_portfolio=response._requires_portfolio)
+                if facts:
+                    response.answer = facts
+                elif isinstance(retry_exc, CitationValidationError) and _is_forward_outlook(request.query):
                     response.answer = INSUFFICIENT_EVIDENCE_ANSWER + warning
                 else:
                     response.answer = VALIDATION_FALLBACK_ANSWER + (
                         NUMERIC_RECOVERY_GUIDANCE if isinstance(retry_exc, NumericValidationError) else "") + warning
-            first_usage, retry_usage = _token_usage(metadata), _token_usage(result.metadata)
-            metadata = {key: (first_usage[key] or 0) + (retry_usage[key] or 0)
-                        if first_usage[key] is not None or retry_usage[key] is not None else None
-                        for key in first_usage}
+            else:
+                if audit:
+                    audit.passed()
+        else:
+            if audit:
+                audit.passed()
         if _is_recommendation(request.query) and not response.answer.endswith(INVESTMENT_DISCLAIMER):
             response.answer += "\n\n" + INVESTMENT_DISCLAIMER
-        response.tokens = _tokens(metadata)
 
     async def ask(self, request: AskRequest) -> AskResponse:
-        self.require_enabled()
-        response, prompt, warning = await self._prepare(request)
-        if not prompt:
-            return response
         started = perf_counter()
-        result = await self.llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
-        await self._validate_response(result.raw_text, result.metadata, response, request, prompt, warning)
-        response.duration_ms = int((perf_counter() - started) * 1000)
-        return response
+        deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
+                          repair_max_tokens=self.repair_max_tokens)
+        try:
+            self.require_enabled()
+            async with asyncio.timeout_at(deadline):
+                response, prompt, warning = await self._prepare(request)
+                audit.prepared(response)
+                if prompt:
+                    _remaining_seconds(deadline)
+                    audit.start_attempt("initial", self.llm)
+                    result = await self.llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
+                    audit.complete_attempt(result.raw_text, result.metadata)
+                    await self._validate_response(
+                        result.raw_text, result.metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
+                    )
+                else:
+                    audit.outcome = "direct"
+                _remaining_seconds(deadline)
+            response.duration_ms = int((perf_counter() - started) * 1000)
+            audit.publish(response, completed=True)
+            return response
+        except TimeoutError as exc:
+            audit.failed(exc)
+            raise UpstreamTimeout(REQUEST_TIMEOUT_MESSAGE) from exc
+        except Exception as exc:
+            audit.failed(exc)
+            raise
+        finally:
+            await audit.persist(self.session_factory)
 
     async def stream_events(self, request: AskRequest):
+        started = perf_counter()
+        deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
+                          repair_max_tokens=self.repair_max_tokens)
         try:
             async with aclosing(self._prepare_steps(request)) as steps:
-                async for step in steps:
+                while True:
+                    try:
+                        step = await _next_before_deadline(steps, deadline)
+                    except StopAsyncIteration:
+                        break
                     if isinstance(step, str):
                         yield {"type": "status", "content": step}
                     else:
                         response, prompt, warning = step
+                        audit.prepared(response)
             if response.dashboard:
                 yield {"type": "dashboard", "dashboard": response.dashboard.model_dump(mode="json"),
                        "actions": [action.model_dump(mode="json") for action in response.actions]}
-            if not prompt:
-                yield {"type": "text", "content": response.answer}
-            else:
+            if prompt:
                 yield {"type": "status", "content": "正在依據資料產生回答…"}
-                started = perf_counter()
                 metadata = {}
                 parts = []
+                audit.start_attempt("initial", self.llm)
                 async with aclosing(self.llm.stream_text(
                     system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt,
                 )) as stream:
-                    async for chunk in stream:
-                        metadata.update(chunk.metadata)
-                        if chunk.text:
-                            parts.append(chunk.text)
+                    _remaining_seconds(deadline)
+                    async with asyncio.timeout_at(deadline):
+                        async for chunk in stream:
+                            metadata.update(chunk.metadata)
+                            audit.metadata(chunk.metadata)
+                            if chunk.text:
+                                parts.append(chunk.text)
+                                audit.append_text(chunk.text)
+                audit.complete_attempt("", metadata)
                 async with aclosing(self._validation_steps(
-                    "".join(parts), metadata, response, request, prompt, warning,
+                    "".join(parts), metadata, response, request, prompt, warning, deadline=deadline, audit=audit,
                 )) as steps:
-                    async for status in steps:
+                    while True:
+                        try:
+                            status = await _next_before_deadline(steps, deadline)
+                        except StopAsyncIteration:
+                            break
                         yield {"type": "status", "content": status}
-                response.duration_ms = int((perf_counter() - started) * 1000)
-                # Buffer until validation so rejected or truncated text never reaches the consumer.
-                yield {"type": "text", "content": response.answer}
+            else:
+                audit.outcome = "direct"
+            _remaining_seconds(deadline)
+            response.duration_ms = int((perf_counter() - started) * 1000)
+            # Buffer until validation so rejected or truncated text never reaches the consumer.
+            audit.publish(response)
+            yield {"type": "text", "content": response.answer}
+            audit.data["publication_completed"] = True
             yield {"type": "done", **response.model_dump(mode="json")}
+        except TimeoutError as exc:
+            audit.failed(exc)
+            yield {"type": "error", "message": REQUEST_TIMEOUT_MESSAGE}
         except AppError as exc:
+            audit.failed(exc)
             detail = exc.detail
             message = detail.get("message", "服務暫時無法回應，請稍後重試") if isinstance(detail, dict) else str(detail)
             yield {"type": "error", "message": message}
         except Exception as exc:
+            audit.failed(exc)
             logging.getLogger(__name__).error("Chat stream failed: %s", type(exc).__name__)
             yield {"type": "error", "message": "服務暫時無法回應，請稍後重試"}
+        finally:
+            await audit.persist(self.session_factory)

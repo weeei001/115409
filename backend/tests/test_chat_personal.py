@@ -47,6 +47,18 @@ def test_personal_reader_uses_trusted_owner(monkeypatch):
     assert json.loads(source.content)["favorites"] == [{"symbol": "2330", "name": "TSMC"}]
 
 
+def test_personal_reader_exposes_taipei_snapshot_time_without_changing_instant(monkeypatch):
+    from app.features.paper_portfolio import service
+    monkeypatch.setattr(service, "snapshot", lambda db, owner: {
+        "as_of": "2026-10-08T18:30:00+00:00", "positions": [],
+    })
+    _, source = read_personal_context(lambda: nullcontext(object()), 7, {"portfolio"})
+    portfolio = json.loads(source.content)["portfolio"]
+    assert portfolio["as_of"] == "2026-10-08T18:30:00+00:00"
+    assert portfolio["as_of_taipei"] == "2026-10-09T02:30:00+08:00"
+    assert source.pub_time == portfolio["as_of_taipei"]
+
+
 def test_personal_reader_samples_favorites_before_remaining_positions_without_duplicates(monkeypatch):
     from app.features.favorites import repository
     from app.features.paper_portfolio import service
@@ -82,7 +94,11 @@ def test_favorites_resolve_before_news_retrieval(monkeypatch, chat_session_facto
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("retry", [False, True])
 @pytest.mark.parametrize("favorites_count", [6, 40])
-def test_order_ai_help_resolves_personal_symbols_and_validates_cash_proposals(monkeypatch, stream, retry, favorites_count):
+@pytest.mark.parametrize("query", [
+    "請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。",
+    "請參考我的模擬投資可用資金、持股與收藏股票，協助我討論下一步投資安排",
+])
+def test_order_ai_help_resolves_personal_symbols_and_validates_cash_proposals(monkeypatch, stream, retry, favorites_count, query):
     from app.clients.llm import LlmResult
     from app.features.favorites import repository
     from app.features.paper_portfolio import service as portfolio_service
@@ -122,7 +138,7 @@ def test_order_ai_help_resolves_personal_symbols_and_validates_cash_proposals(mo
             for symbol in symbols]
 
     monkeypatch.setattr(service, "_market_sources", market_sources)
-    request = trusted("請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。")
+    request = trusted(query)
 
     async def run():
         if not stream:

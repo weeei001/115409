@@ -14,6 +14,7 @@ from app.features.chat import service as chat_module
 from app.features.chat.router import get_service, router
 from app.features.chat.schemas import AskRequest, SourceChunk
 from app.features.chat.service import ChatService, extract_time_filter
+from app.features.chat.verified_fallback import VERIFIED_FALLBACK_NOTICE
 
 
 NOW = datetime(2026, 9, 11, 15, 30)
@@ -354,16 +355,21 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
 
 
 def withheld_answer(response, stream):
-    """A twice-rejected answer is replaced by the fixed notice; only that notice is ever sent as text."""
+    """Twice-rejected prose is replaced by a fixed notice or independently rebuilt source facts."""
     if stream:
         result = events(response)
         texts = [event["content"] for event in result if event["type"] == "text"]
-        assert texts and all(text.startswith(chat_module.VALIDATION_FALLBACK_ANSWER) for text in texts)
-        answer = result[-1]["answer"]
+        data = result[-1]
+        assert texts == [data["answer"]]
     else:
         assert response.status_code == 200
-        answer = response.json()["answer"]
-    assert answer.startswith(chat_module.VALIDATION_FALLBACK_ANSWER) and "【引用來源】" not in answer
+        data = response.json()
+    answer = data["answer"]
+    if answer.startswith(VERIFIED_FALLBACK_NOTICE):
+        assert "【引用來源】" in answer and data["sources"]
+    else:
+        assert answer.startswith(chat_module.VALIDATION_FALLBACK_ANSWER) and "【引用來源】" not in answer
+    assert "[S99]" not in answer
     return answer
 
 
@@ -457,7 +463,9 @@ def test_structural_list_intro_without_citation_is_allowed(chat, stream):
 def test_news_answer_with_unprefixed_list_intro_and_markdown_source_url(chat, stream):
     client, _, llm, retrieval = chat
     retrieval.hits[0]["payload"]["url"] = "[https://news.test/report](https://news.test/report)"
-    llm.answer = "AI需求對營收的影響可分為：\n\n- 推升先進製程需求。[S1]"
+    # 標題只有主題；公司事件或因果主張必須留在有來源支持的正文。
+    retrieval.hits[0]["payload"]["page_content"] = "AI需求推升先進製程需求。"
+    llm.answer = "營收分析：\n\n- AI需求推升先進製程需求。[S1]"
     response = client.post("/api/ask", json={"query": "AI需求對台積電營收的具體影響是什麼？", "stream": stream})
     data = events(response)[-1] if stream else response.json()
     assert response.status_code == 200
@@ -550,10 +558,10 @@ def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream, chat_
                 assert result[-1]["type"] == "done", result
                 rendered = "".join(event["content"] for event in result if event["type"] == "text")
                 assert rendered == ANSWER and result[-1]["answer"] == ANSWER
-                assert result[-1]["tokens"]["output"] == 30
+                assert result[-1]["tokens"]["output"] == 60
             else:
                 response = await service.ask(request)
-                assert response.answer == ANSWER and response.tokens["output"] == 30
+                assert response.answer == ANSWER and response.tokens["output"] == 60
     asyncio.run(run())
     assert requested_models == ["test-shared-model", "test-shared-model"]
 

@@ -87,6 +87,7 @@ class ConversationService:
         trusted_request = request.model_copy(update={"history": history})
         trusted_request._user_id = user_id
         trusted_request._conversation_id = conversation_id
+        trusted_request._turn_id = turn_id
         return turn_id, trusted_request
 
     def _finish(self, conversation_id, turn_id, content, status, extra):

@@ -12,6 +12,7 @@ class ChatTurn(BaseModel):
 class AskRequest(BaseModel):
     _user_id: int | None = PrivateAttr(default=None)
     _conversation_id: str | None = PrivateAttr(default=None)
+    _turn_id: str | None = PrivateAttr(default=None)
     query: str = Field(min_length=1, max_length=6000)
     stock_id: str | None = Field(default=None, pattern=r"^[0-9]{4,6}$")
     stream: bool = False
@@ -170,6 +171,7 @@ class ChatDashboard(BaseModel):
 class AskResponse(BaseModel):
     # Recognition context stays out of API payloads and saved messages.
     _company_catalog: dict = PrivateAttr(default_factory=dict)
+    _requires_portfolio: bool = PrivateAttr(default=False)
     answer: str
     detected_stocks: list[str]
     time_range: dict | None

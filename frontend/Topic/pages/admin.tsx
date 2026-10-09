@@ -17,6 +17,7 @@ import { subscribeAuthAccount } from '@/lib/auth/account';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
 import { StockManagement } from '@/features/admin/StockManagement';
+import { AIConversationReview } from '@/features/admin/AIConversationReview';
 import { adminStageLabel, AdminRunDiagnostics } from '@/features/admin/RunDiagnostics';
 import { formatTaipei } from '@/lib/utils/date';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,7 @@ const ACTION_LABELS: Record<string, string> = {
   'administrator.bootstrap': '設定初始管理員', 'access.denied': '後台存取遭拒',
 };
 const TRIGGER_LABELS: Record<string, string> = { scheduled: '排程', schedule: '排程', manual: '手動', retry: '重跑' };
-const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
+const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-conversations', label: 'AI 對話檢核' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
 /** 帳頁表格：表頭淺底加粗線，列高至少 44px */
 const cellClass = 'px-4 py-3 align-top first:pl-4 sm:first:pl-5';
 const headCellClass = 'h-11 px-4 align-middle text-[12px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground first:pl-4 sm:first:pl-5';
@@ -313,6 +314,7 @@ export default function AdminPage() {
     setTabState(next);
     const current = routerRef.current;
     const { tab: _previous, ...rest } = current.query;
+    if (next !== 'jobs') delete rest.run;
     const query = next === 'jobs' ? rest : { ...rest, tab: next };
     void current.replace({ pathname: current.pathname, query }, undefined, { shallow: true, scroll: false });
   }, []);
@@ -513,8 +515,8 @@ export default function AdminPage() {
     void mutate((signal) => apiClient.delete(`/admin/administrators/${administrator.user_id}`, { signal }), `已撤銷 ${administrator.email} 的管理員權限。`);
   };
 
-  const head = <Head><title>股海明燈｜管理後台</title><meta name="description" content="查看服務狀態、控制工作排程及管理後台權限。" /><meta name="robots" content="noindex,nofollow" /></Head>;
-  const header = <SiteHeader title="管理後台" subtitle="服務狀態與工作排程" />;
+  const head = <Head><title>股海明燈｜管理後台</title><meta name="description" content="查看服務狀態、檢核 AI 對話、控制工作排程及管理後台權限。" /><meta name="robots" content="noindex,nofollow" /></Head>;
+  const header = <SiteHeader title="管理後台" subtitle="服務狀態、工作排程與 AI 對話檢核" />;
   if (access !== 'allowed') return <>{head}{header}<main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10"><div className="flex max-w-xl flex-col gap-4">
     {access === 'loading' ? <div className="border-t border-border-strong"><LoadingRows label="確認後台權限中…" className="h-[88px]" /></div>
       : access === 'denied' ? <Notice tone="danger">目前帳號沒有管理後台權限。請由管理員授予權限後再進入。</Notice>
@@ -556,14 +558,17 @@ export default function AdminPage() {
         <AdminJobAlertSummary jobs={overview.jobs} />
         {overview.scheduler.heartbeat || overview.scheduler.error ? <p className={cn('bg-card px-4 py-3 text-xs leading-5 sm:col-span-2 sm:px-5 lg:col-span-4', overview.scheduler.error ? 'text-danger' : 'text-muted-foreground')}>排程器最後回報：<span className="font-mono tabular-nums">{timeText(overview.scheduler.heartbeat)}</span>{overview.scheduler.error ? ` · ${overview.scheduler.error}` : ''}</p> : null}
       </Ledger>
+    </> : null}
       <div className="space-y-6">
         <nav aria-label="後台功能" className={cn(tabListClass, 'overflow-x-auto')}>{TABS.map((item) => <button type="button" key={item.id} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)} className={cn(tabTriggerClass, 'px-4 focus-lamp-inset', tab === item.id && tabTriggerActiveClass)}>{item.label}</button>)}</nav>
+        {tab === 'ai-conversations' ? <AIConversationReview onAccessError={handleAccessError} /> : null}
+        {overview ? <>
         {tab === 'jobs' ? <div className="space-y-10">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <LedgerPanel framed className="space-y-3"><LedgerHeading title={<>執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</>} headingProps={{ ref: runDetailHeading, tabIndex: -1 }} />{runDetailLoading && !selectedRun ? <LoadingRows label="載入執行紀錄中…" className="h-[88px]" /> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="flex flex-wrap items-center gap-x-2 text-sm">{jobLabel(selectedRun.job_name)} {adminRunScope(selectedRun)} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 <span className="font-mono tabular-nums">{timeText(selectedRun.started_at)}</span> · 結束 <span className="font-mono tabular-nums">{timeText(selectedRun.finished_at)}</span>{selectedRun.duration_seconds != null ? ` · ${adminDuration(selectedRun.duration_seconds)}` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</LedgerPanel> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} actionError={actionError} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} state={dataState} /><Ledger aria-labelledby="runs-heading" title={<span id="runs-heading">執行紀錄</span>} stamp={<StateStamp state={dataState}>台灣時間</StateStamp>}><div className="min-w-0 bg-card"><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><OffsetPagination label="執行紀錄分頁" offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></div></Ledger></div> : null}
         {tab === 'stocks' ? <StockManagement checkedAt={overview.checked_at} disabled={disabled} schedulerRunning={overview.scheduler.status === 'running'} backfillJob={overview.jobs.find((job) => job.name === 'stock-backfill')} onAccessError={handleAccessError} onViewRuns={() => setTab('jobs')} onAdd={(stock) => { void mutate((signal) => apiClient.post('/admin/stocks', { symbol: stock.symbol }, { signal }), `已加入 ${stock.symbol} ${stock.name}，可接著回補市場資料。`); }} onBackfill={(stock) => { const job = overview.jobs.find((item) => item.name === 'stock-backfill'); if (job) jobAction(job, 'run', stock.symbol); }} /> : null}
         {tab === 'audit' ? <Ledger aria-labelledby="audit-heading" title={<span id="audit-heading">操作紀錄</span>} stamp={<StateStamp state={dataState}>台灣時間</StateStamp>}><div className="min-w-0 bg-card"><div className="overflow-x-auto"><table className="w-full min-w-[660px] text-left text-sm"><caption className="sr-only">後台操作與管理員權限變更，時間為台灣時間</caption><thead className="border-b border-border-strong bg-muted"><tr>{['時間', '操作者', '動作／對象', '結果'].map((heading) => <th key={heading} scope="col" className={headCellClass}>{heading}</th>)}</tr></thead><tbody>{audit.items.map((item) => <tr key={item.id} className="border-b last:border-b-0"><td className={cn(cellClass, 'font-mono text-xs whitespace-nowrap tabular-nums')}>{timeText(item.created_at)}</td><td className={cn(cellClass, 'break-all')}>{item.actor_email ?? '系統'}</td><td className={cellClass}>{ACTION_LABELS[item.action] ?? item.action}<span className="mt-1 block font-mono text-xs break-all text-muted-foreground">{item.target}</span>{item.details != null ? <Disclosure className="mt-2 text-xs text-muted-foreground" summary="詳細資訊" summaryProps={{ className: 'w-fit gap-1.5' }}><pre className="max-h-40 max-w-md overflow-auto border bg-muted p-2 font-mono break-words whitespace-pre-wrap">{typeof item.details === 'string' ? item.details : JSON.stringify(item.details, null, 2)}</pre></Disclosure> : null}</td><td className={cellClass}><AdminAuditResult item={item} onView={() => setTab('jobs')} /></td></tr>)}</tbody></table>{!audit.items.length ? <EmptyState>目前沒有後台操作紀錄。</EmptyState> : null}</div><OffsetPagination label="操作紀錄分頁" offset={auditOffset} total={audit.total} busy={refreshing || pending} onChange={setAuditOffset} /></div></Ledger> : null}
         {tab === 'admins' ? <Ledger aria-labelledby="admins-heading" title={<span id="admins-heading">管理員權限</span>} actions={<p className="text-xs leading-5 text-muted-foreground">所有管理員權限相同，可控制工作與授予／撤銷管理員資格。</p>}><div className="min-w-0 bg-card"><form onSubmit={grant} className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-end sm:p-5"><div className="flex-1"><label htmlFor="admin-email" className="mb-1.5 block text-[13px] font-medium tracking-[0.04em] text-subtle">授予現有帳號管理員權限</label><Input id="admin-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" maxLength={320} placeholder="輸入帳號電子郵件" disabled={disabled} /></div><Button type="submit" disabled={disabled || !email.trim()}><ShieldCheck aria-hidden />授予權限</Button></form><ul className="divide-y">{admins.map((administrator) => <li key={administrator.user_id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"><div className="min-w-0"><p className="flex flex-wrap items-center gap-x-2 text-sm font-medium break-all"><span className="font-mono text-[13.5px]">{administrator.email}</span>{administrator.user_id === me?.user_id ? <Badge tone="outline" className="font-normal">目前帳號</Badge> : null}</p>{administrator.display_name ? <p className="mt-1 text-xs text-muted-foreground">{administrator.display_name}</p> : null}{administrator.is_active === false ? <p className="mt-1"><Status value="error" label="帳號已停用" /></p> : null}</div><Button variant="destructive" disabled={disabled || (activeAdmins <= 1 && administrator.is_active !== false)} onClick={() => revoke(administrator)} aria-label={`撤銷 ${administrator.email} 的管理員權限`}><Trash2 aria-hidden />撤銷權限</Button></li>)}</ul>{!admins.length ? <EmptyState>沒有管理員資料。</EmptyState> : null}{activeAdmins === 1 ? <p className="border-t px-4 py-3 text-xs text-muted-foreground sm:px-5">至少保留一位管理員；請先授予另一個帳號權限，才能撤銷目前管理員。</p> : null}</div></Ledger> : null}
+        </> : null}
       </div>
-    </> : null}
     <p className="border-t pt-3 text-xs text-muted-foreground">後台操作與權限變更會留下紀錄。{pending ? <span role="status" className="ml-2 text-subtle">操作處理中…</span> : null}</p>
   </main></>;
 }
