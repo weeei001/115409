@@ -11,6 +11,7 @@ const CITATION_INLINE_RE = new RegExp(String.raw`${INLINE_PATTERN}|\[\*{0,3}(${C
 const CITATION_LABEL_RE = new RegExp(`^(${CHAT_CITATION_PATTERN})$`);
 const LIST_ITEM_RE = /^\s*([-*•·]|\d+[.)])\s+/;
 export type CitationRenderer = (id: string) => React.ReactNode;
+const HEADING_RE = /^ {0,3}(#{1,6})(?:[\t ]+|$)(.*)$/;
 interface TextProps { text: string; renderCitation?: CitationRenderer }
 
 function renderInline(text: string, allowLinks = true, renderCitation?: CitationRenderer): React.ReactNode[] {
@@ -51,10 +52,10 @@ export function MarkdownText({ text, renderCitation }: TextProps) {
   );
 }
 
-/** Render paragraphs and the unordered/ordered lists used by AI answers. */
+/** Render headings, paragraphs, and the unordered/ordered lists used by AI answers. */
 export function MarkdownBlock({ text, renderCitation }: TextProps) {
   const normalized = normalizeMarkdownEscapes(text);
-  const blocks: Array<{ type: 'paragraph' | 'list'; ordered?: boolean; lines: string[] }> = [];
+  const blocks: Array<{ type: 'paragraph' | 'list' | 'heading'; ordered?: boolean; level?: number; lines: string[] }> = [];
   let paragraph: string[] = [];
   let list: string[] = [];
   let ordered = false;
@@ -69,8 +70,13 @@ export function MarkdownBlock({ text, renderCitation }: TextProps) {
   };
 
   for (const line of normalized.split('\n')) {
+    const heading = line.match(HEADING_RE);
     const match = line.match(LIST_ITEM_RE);
-    if (match) {
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: 'heading', level: heading[1].length, lines: [heading[2].replace(/[\t ]+#+[\t ]*$/, '').trim()] });
+    } else if (match) {
       flushParagraph();
       const nextOrdered = /^\d/.test(match[1]);
       if (list.length && ordered !== nextOrdered) flushList();
@@ -89,7 +95,9 @@ export function MarkdownBlock({ text, renderCitation }: TextProps) {
 
   return (
     <div className="space-y-3">
-      {blocks.map((block, index) => block.type === 'list'
+      {blocks.map((block, index) => block.type === 'heading'
+        ? React.createElement(`h${block.level}`, { key: index, className: 'font-semibold leading-relaxed text-foreground' }, <MarkdownText text={block.lines[0]} renderCitation={renderCitation} />)
+        : block.type === 'list'
         ? (block.ordered ? <ol key={index} className="list-decimal space-y-1 pl-5 marker:font-mono marker:text-muted-foreground"><ListItems items={block.lines} renderCitation={renderCitation} /></ol>
           : <ul key={index} className="list-disc space-y-1 pl-5 marker:text-muted-foreground"><ListItems items={block.lines} renderCitation={renderCitation} /></ul>)
         : <p key={index} className="whitespace-pre-wrap"><MarkdownText text={block.lines.join('\n')} renderCitation={renderCitation} /></p>)}

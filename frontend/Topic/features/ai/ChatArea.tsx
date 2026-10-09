@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
 import { parseChatSources } from '@/lib/types/chat';
-import { chatAnswerBody, citationLabels } from '@/lib/utils/chatCitations';
+import { CHAT_CITATION_RE, chatAnswerBody, citationLabels } from '@/lib/utils/chatCitations';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
 import { LoadingRows } from '@/components/common/Notice';
@@ -112,7 +112,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
     ? citationLabels(chatAnswerBody(dashboardMessage.content), parseChatSources(dashboardMessage.sources), activeDashboard.blocks.flatMap((block) => block.source_ids))
     : null;
   const latestAnswer = [...messages].reverse().find((m) => m.role === 'assistant' && chatAnswerBody(m.content).trim());
-  const hasSources = Boolean(latestAnswer && parseChatSources(latestAnswer.sources).length);
+  const hasSources = Boolean(latestAnswer && parseChatSources(latestAnswer.sources).length && [...chatAnswerBody(latestAnswer.content).matchAll(CHAT_CITATION_RE)].length);
   const showNavigation = hasDashboard || hasSources || Boolean(latestAnswer && chatAnswerBody(latestAnswer.content).length >= 600);
   const answerId = `chat-answer-${targetScope}`;
   const citationsId = `chat-citations-${targetScope}`;
@@ -147,10 +147,6 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
     if (!target) return;
     setCurrent(section);
     if (answerColumn) followRef.current = false;
-    if (id === citationsId) {
-      const rawSources = target.querySelector('details');
-      if (rawSources) rawSources.open = true;
-    }
     const container = getScrollContainer(target);
     const toolbarHeight = container.contains(navigationRef.current) ? navigationRef.current?.offsetHeight ?? 0 : 0;
     const top = target.getBoundingClientRect().top + container.scrollTop

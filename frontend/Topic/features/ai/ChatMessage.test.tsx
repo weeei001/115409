@@ -17,9 +17,9 @@ const render = (content: string, input = sources) => renderToStaticMarkup(<ChatM
 const content = '【綜合摘要】\n**data [S1]** [S2] [S1] [S99] [S0]\n\n【關鍵事件】\n- event [S1]\n\n【投資提示】\n***tip [S2]***\n\n【其他】\nextra [S1]\n\n【引用來源】\n- [S1][S1] forged title 【Injected heading】\n- [S2] /news/forged';
 const markup = render(content, [...sources, sources[0]]);
 assert.equal((markup.match(/href="\/news\/article%2Fone"/g) ?? []).length, 3); // Two in prose, one source-list entry.
-assert.equal((markup.match(/raw market data/g) ?? []).length, 1);
-assert.equal((markup.match(/raw news/g) ?? []).length, 1);
-assert.equal((markup.match(/id="chat-source-/g) ?? []).length, 2);
+assert.equal((markup.match(/raw market data/g) ?? []).length, 0);
+assert.equal((markup.match(/raw news/g) ?? []).length, 0);
+assert.equal((markup.match(/id="chat-source-/g) ?? []).length, 4);
 assert.match(markup, /\[S99\]（來源無法使用）/);
 assert.match(markup, /\[S0\]（來源無法使用）/);
 assert.doesNotMatch(renderedText(markup), /forged|Injected heading/);
@@ -50,7 +50,7 @@ assert.match(render('[S2]', [{ ...sources[1], article_id: '..', url: 'javascript
 const twoMessages = renderToStaticMarkup(<><ChatMessage message={{ id: 'one', role: 'assistant', content: '[S1]', timestamp: '', sources }} reducedMotion streamActive={false} followUpDisabled={false} />
   <ChatMessage message={{ id: 'two', role: 'assistant', content: '[S1]', timestamp: '', sources }} reducedMotion streamActive={false} followUpDisabled={false} /></>);
 const ids = [...twoMessages.matchAll(/id="(chat-source-[^"]+)"/g)].map((match) => match[1]);
-assert.equal(new Set(ids).size, 4);
+assert.equal(new Set(ids).size, 2);
 for (const [status, label] of [['completed', '已完成'], ['failed', '回覆失敗'], ['interrupted', '回覆已中斷']] as const) {
   const terminal = renderToStaticMarkup(<ChatMessage message={{ id: status, role: 'assistant', content: 'preserved answer', timestamp: '', status, error: status === 'failed' ? 'safe failure' : undefined }} reducedMotion streamActive={false} followUpDisabled={false} />);
   assert.ok(terminal.includes(label));
@@ -100,8 +100,8 @@ assert.deepEqual([...citationLabels('[S9] [S2]', gapped.slice(0, 2), ['S9']).ent
 const gappedMarkup = render(gappedBody, gapped);
 const inline = [...gappedMarkup.matchAll(/align-super[^>]*>\[(\d+)\]<\/a>/g)].map((match) => match[1]);
 assert.deepEqual(inline, ['1', '2', '3', '1']);
-// 引用來源清單依新編號排序；原始資料清單也用同一組號碼
-const listed = [...gappedMarkup.matchAll(/aria-label="引用 (\d+)：(來源 \d)，查看原始資料" class="[^"]*flex min-h-11/g)].map((match) => `${match[1]}:${match[2]}`);
+// Citation titles follow the display numbering.
+const listed = [...gappedMarkup.matchAll(/aria-label="引用 (\d+)：(來源 \d)，查看引用來源" class="[^"]*flex min-h-11/g)].map((match) => `${match[1]}:${match[2]}`);
 assert.deepEqual(listed, ['1:來源 5', '2:來源 1', '3:來源 2']);
 assert.doesNotMatch(gappedMarkup, /\[S[1-5]\]/);
 // 錨點仍用原始 id
@@ -112,3 +112,6 @@ const copied = chatCopyText(`${gappedBody}\n\n【引用來源】\n- [S5] 偽造�
 assert.equal(copied, `先看 [1]，再看 [2] 與 [3]，又提到 [1]。\n\n引用來源\n[1] 來源 5\n[2] 來源 1\n[3] 來源 2`);
 assert.equal(chatCopyText('沒有引用', []), '沒有引用');
 console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, per-message targets, no fixed disclaimer, backend disclaimer stripped, sequential citation labels, and copy text.');
+
+assert.doesNotMatch(markup, /本輪引用原始資料|<details|<pre/);
+assert.doesNotMatch(render('Answer without citations'), /引用來源|raw market data|raw news/);
