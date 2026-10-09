@@ -235,7 +235,7 @@ export default function OrderPage() {
                 <LedgerPanel>
                   <EmptyState className="py-6" action={<div className="mt-2 flex flex-wrap justify-center gap-2">
                     <Button asChild variant="outline"><Link href="/favorites">查看收藏</Link></Button>
-                    <Button asChild variant="outline"><Link href={{ pathname: '/ai', query: { prompt: '請從我的收藏股票與模擬持股，推薦今天值得研究的一至兩檔，依最新資料說明機會與風險。' } }}>請 AI 協助</Link></Button>
+                    <Button asChild variant="outline"><Link href={{ pathname: '/ai', query: { prompt: '請先檢查我的模擬投資可用資金、持股與未成交委託，聚焦一項需要注意的配置問題，說明依據與資料缺口，再提供兩個可選的後續討論方向。' } }}>請 AI 協助</Link></Button>
                   </div>}>從你關注的股票開始：挑一檔收藏，或先請 AI 幫你整理想法。</EmptyState>
                 </LedgerPanel>
               ) : data.positions.map((position) => {

@@ -12,7 +12,7 @@ from test_llm_chat import completion, configured, stream_frame
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(settings, stream, chat_session_factory):
+def test_chat_intent_and_answer_use_chat_model_without_changing_analysis(settings, stream, chat_session_factory):
     settings = configured(settings, LLM_MODEL="analysis-model", LLM_MAX_TOKENS=8192,
                           LLM_TIMEOUT_SECONDS=900, LLM_MAX_RETRIES=2,
                           CHAT_LLM_MODEL="fast-chat-model", CHAT_LLM_MAX_TOKENS=2048,
@@ -46,13 +46,11 @@ def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(
             if stream:
                 events = [event async for event in chat.stream_events(request)]
                 assert events[-1]["type"] == "done"
-                assert events[-1]["answer"].startswith(MODEL_ANSWER)
+                assert events[-1]["answer"] == "Invalid citation [S99]"
                 statuses = [event["content"] for event in events if event["type"] == "status"]
-                assert statuses[-3:] == ["正在核對回答的引用與數值…", "回答未通過核對，正在依據來源重新產生…",
-                                         "正在重新核對回答的引用與數值…"]
-                assert not any("Invalid citation" in event.get("content", "") for event in events)
+                assert not any("核對" in status for status in statuses)
             else:
-                assert (await chat.ask(request)).answer.startswith(MODEL_ANSWER)
+                assert (await chat.ask(request)).answer == "Invalid citation [S99]"
             analysis = AnalysisService(db=None, settings=settings, http=http, rag=object())
             assert analysis.llm.settings is settings
             assert analysis.llm.settings.LLM_MAX_RETRIES == 2
@@ -62,7 +60,7 @@ def test_chat_intent_answer_and_repair_use_chat_model_without_changing_analysis(
                 settings.model_copy(update={"CHAT_LLM_MODEL": "different-chat-model"}), analysis.llm.model_name)
 
     asyncio.run(run())
-    assert [body["model"] for body in calls] == ["fast-chat-model"] * 3 + ["analysis-model"]
+    assert [body["model"] for body in calls] == ["fast-chat-model"] * 2 + ["analysis-model"]
 
 
 def test_empty_chat_model_preserves_existing_model_with_separate_limits(settings):

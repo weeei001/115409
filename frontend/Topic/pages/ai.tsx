@@ -107,8 +107,8 @@ export default function AiPage() {
         <title>股海明燈｜AI 對話</title>
         <meta name="description" content="在 AI 對話中掌握個股分析、多股比較、技術指標、新聞與系統功能，直接點選建議問題繼續探索。" />
       </Head>
-      {/* 對話開啟後（lg 以上）收起副標：免責已固定在輸入列下方，高度留給訊息 */}
-      <SiteHeader title="AI 對話" subtitle={compactChrome ? undefined : '個股、比較、指標與新聞重點（非投資建議）'} />
+      {/* 桌面版開啟對話後收起副標，把空間留給訊息。 */}
+      <SiteHeader title="AI 對話" subtitle={compactChrome ? undefined : '個股、比較、指標與新聞重點'} />
 
       <main aria-label="AI 對話" className={cn(
         'mx-auto flex w-full max-w-[1320px] flex-1 flex-col px-4 pt-4 sm:px-6 lg:min-h-0 lg:px-10',
@@ -172,7 +172,7 @@ export default function AiPage() {
               signedIn={chat.signedIn}
               onSend={chat.send}
             />
-            {/* 輸入列（含免責）固定在底部：手機黏在視窗底部、閃開底部手勢區；lg 以上是固定高度面板的最後一列 */}
+            {/* 輸入列固定在手機畫面或桌面對話面板的底部。 */}
             <div className="sticky bottom-0 z-20 mt-auto shrink-0">
               <ChatInput key={`${chat.conversationId ?? 'new'}:${initialPrompt}`} initialValue={chat.conversationId ? '' : initialPrompt} onSend={(text) => {
                 if (initialPrompt) void router.replace('/ai', undefined, { shallow: true });

@@ -2,11 +2,9 @@ import json
 
 import pytest
 
-from app.clients.llm import LlmResult
-from app.features.chat import service as chat_module
-from app.features.chat.answer_validation import NumericValidationError, _checked_answer
+from app.features.chat.answer_validation import CitationValidationError, NumericValidationError, _checked_answer
 from app.features.chat.schemas import SourceChunk
-from test_chat import MODEL_ANSWER, chat, events, withheld_answer
+from test_chat import chat, events, published_answer
 
 
 def price_source(citation_id, price):
@@ -69,48 +67,27 @@ def test_personal_allocation_proposals_keep_citation_checks_local():
         "建議保留20%現金[S1]，可用資金999元[S1]。",
         "建議保留20%現金[S99]。",
     ):
-        with pytest.raises(chat_module.CitationValidationError):
+        with pytest.raises(CitationValidationError):
             _checked_answer(rejected, {"finish_reason": "stop"}, [personal])
 
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("reason", ["empty", "numbers", "citations"])
-def test_recovery_uses_failure_category_and_publishes_only_valid_replacement(chat, monkeypatch, stream, reason):
+def test_legacy_failure_categories_no_longer_trigger_recovery(chat, stream, reason):
     client, _, llm, retrieval = chat
     llm.answer = {"empty": "", "numbers": "股價 200 元。[S1]", "citations": "營收增加。[S99]"}[reason]
     retrieval.hits[0]["payload"]["page_content"] = "營收增加，股價 100 元。"
-    original_text = llm.text
-    original_prompt = chat_module.recovery_system_prompt
-    reasons, attempts = [], []
-
-    def recovery_prompt(detail, failure):
-        reasons.append(failure)
-        return original_prompt(detail, failure)
-
-    async def repair(**kwargs):
-        attempts.append(kwargs)
-        if not stream and len(attempts) == 1:
-            return await original_text(**kwargs)
-        return LlmResult({}, MODEL_ANSWER, llm.metadata)
-
-    monkeypatch.setattr(chat_module, "recovery_system_prompt", recovery_prompt)
-    llm.text = repair
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
     assert response.status_code == 200
     result = events(response)[-1] if stream else response.json()
-    assert result["answer"].startswith(MODEL_ANSWER)
-    assert "200 元" not in response.text
-    assert reasons == [reason]
-    assert len(attempts) == (1 if stream else 2)
-    assert ("「股價 200 元」" in attempts[-1]["system_prompt"]) is (reason == "numbers")
-    # A citation retry names what failed instead of only saying the check failed.
-    assert ("[S99]" in attempts[-1]["system_prompt"]) is (reason == "citations")
+    assert result["answer"] == llm.answer
+    assert sum(kind in {"text", "stream"} for kind, _ in llm.calls) == 1
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_empty_recovery_has_same_bounded_attempt_budget(chat, stream):
+def test_empty_answer_is_published_without_recovery(chat, stream):
     client, _, llm, _ = chat
     llm.answer = ""
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    assert sum(kind in {"text", "stream"} for kind, _ in llm.calls) == 2
-    withheld_answer(response, stream)
+    assert sum(kind in {"text", "stream"} for kind, _ in llm.calls) == 1
+    assert published_answer(response, stream) == ""

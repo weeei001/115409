@@ -5,7 +5,7 @@ import pytest
 from app.features.chat.answer_validation import NumericValidationError
 from app.features.chat.claims import numeric_claims_supported
 from app.features.chat.schemas import SourceChunk
-from app.features.chat.service import CitationValidationError, _checked_answer
+from app.features.chat.answer_validation import CitationValidationError, _checked_answer
 
 
 def source(content, category="market_technical"):

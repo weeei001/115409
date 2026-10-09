@@ -69,11 +69,11 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
             portfolio["as_of_taipei"] = moment.astimezone(ZoneInfo("Asia/Taipei")).isoformat()
     symbols.extend(row["symbol"] for row in portfolio.get("positions", []) if row.get("symbol"))
     symbols = list(dict.fromkeys(symbols))
-    payload["analysis_limit"] = "Market/news analysis covers at most the first 6 personal symbols per question, in favorites order followed by remaining portfolio positions."
+    payload["analysis_limit"] = "Unless stocks are explicitly selected, market/news analysis covers at most the first 3 personal symbols per question, in favorites order followed by remaining portfolio positions. The complete account snapshot remains available for allocation checks."
     source = reference_source("本次登入使用者的收藏與模擬投資資料", json.dumps(payload, ensure_ascii=False, default=str), category="personal")
     source.pub_time = portfolio.get("as_of_taipei", "")
     source.stock_ids = symbols
-    return symbols[:6], source
+    return symbols[:3], source
 
 
 def paper_draft(query, symbols, request):

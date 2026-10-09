@@ -6,7 +6,7 @@ from app.core.errors import ServiceUnavailable
 
 from app.features.market.company_catalog import company_aliases
 
-from .claims import _normalize, unsupported_numeric_claim
+from .claims import _normalize, numeric_claim_issue
 from .comparison_validation import unsupported_comparison
 from .grounding import unsupported_market_cause, target_quote_supported
 from .proposals import plan_supported
@@ -35,10 +35,19 @@ class CitationValidationError(AnswerValidationError):
 class NumericValidationError(CitationValidationError):
     reason = "numbers"
 
-    def __init__(self, detail, *, claim: str = ""):
+    def __init__(self, detail, *, claim: str = "", issue: str = "unsupported"):
         super().__init__(detail)
         # Recovery prompt only; HTTP handlers serialize detail, never the rejected prose.
         self.claim = claim
+        self.issue = issue
+        self.hint = {
+            "unparsed": "The numeric wording could not be parsed. Restate the company, period, metric and value explicitly; do not assume the value is wrong.",
+            "contradicted": "The stated value contradicts the cited observation. Correct it and reconsider dependent conclusions.",
+            "unsupported": "No matching observation supports the company, period, metric and unit.",
+            "invalid_evidence": "The cited evidence could not be read.",
+            "conclusion_unsupported": "The comparison conclusion is not supported by the cited metric. Keep verified observations and narrow or remove the conclusion and dependent advice.",
+            "account_limit": "The complete plan exceeds available cash or sellable inventory. Correct the entire allocation, including reserves and pending orders.",
+        }.get(issue, "")
 
 
 class ComplianceValidationError(CitationValidationError):
@@ -59,7 +68,6 @@ class TruncatedAnswerError(AnswerValidationError):
     reason = "length"
 
 
-NUMERIC_RECOVERY_GUIDANCE = "請先查看本輪資料面板，再指定 1 至 2 檔股票重新提問。"
 CITATION_ERROR = "回答的引用資料不足或格式無法核對，請稍後重試。"
 COMPLIANCE_ERROR = "回答含有保證結果或無法核對的目標價，請稍後重試。"
 # Real markup only: comparisons such as "K<D" or "收盤<MA20" are not tags.
@@ -191,19 +199,9 @@ def _validation_paragraphs(answer: str) -> list[str]:
     return grouped
 
 
-def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "",
-                    *, company_catalog: dict | None = None, require_portfolio: bool = False) -> str:
-    if metadata.get("finish_reason") == "length" or (
-            metadata.get("truncated") and metadata.get("finish_reason") == "stop"):
-        raise TruncatedAnswerError("模型回答未完整生成，請稍後重試。")
-    if metadata.get("truncated") or metadata.get("finish_reason") != "stop":
-        raise ServiceUnavailable("模型回答未完整生成，請稍後重試。")
+def _normalized_answer(raw_text: str) -> str:
+    """Normalize presentation only; callers must still validate every claim."""
     answer = _repaired(raw_text.strip()).strip()
-    if not answer:
-        raise EmptyAnswerError("模型服務未回傳有效內容，請稍後重試")
-    if _is_insufficient_only(answer):
-        return INSUFFICIENT_EVIDENCE_ANSWER + warning
-
     # Normalize citation typography only; every resulting ID is still checked below.
     # The prompt labels evidence "[片段N] [SN]", so both numberings name the same source.
     token = r"(?:[sS]|片段)\s*\d+"
@@ -211,7 +209,21 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
         rf"[\[［【(（]\s*{token}(?:\s*(?:[,，、]|[-–~～至到])\s*{token}|\s*[-–~～至到]\s*\d+)*\s*[\]］】)）]",
         _citation_group, answer,
     )
-    answer = _relabelled(answer)
+    return _relabelled(answer)
+
+
+def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], warning: str = "",
+                    *, company_catalog: dict | None = None, require_portfolio: bool = False) -> str:
+    if metadata.get("finish_reason") == "length" or (
+            metadata.get("truncated") and metadata.get("finish_reason") == "stop"):
+        raise TruncatedAnswerError("模型回答未完整生成，請稍後重試。")
+    if metadata.get("truncated") or metadata.get("finish_reason") != "stop":
+        raise ServiceUnavailable("模型回答未完整生成，請稍後重試。")
+    answer = _normalized_answer(raw_text)
+    if not answer:
+        raise EmptyAnswerError("模型服務未回傳有效內容，請稍後重試")
+    if _is_insufficient_only(answer):
+        return INSUFFICIENT_EVIDENCE_ANSWER + warning
     # 結構與已辨識主張的檢查並不等於完整語意蘊含驗證。
     citation_pattern = r"\[S[1-9][0-9]*\]"
     cited = list(dict.fromkeys(re.findall(citation_pattern, answer)))
@@ -271,23 +283,24 @@ def _checked_answer(raw_text: str, metadata: dict, sources: list[SourceChunk], w
     for index, paragraph in enumerate(paragraphs):
         prior_context = "\n\n".join(paragraphs[:index]) + "\n\n" if index else ""
         for text, citations, context in _citation_units(paragraph):
-            failed = unsupported_numeric_claim(text, [available[citation] for citation in citations],
-                                               company_catalog=company_catalog, context=prior_context + context,
-                                               continuation=paragraph[len(context) + len(text):])
+            failed = numeric_claim_issue(text, [available[citation] for citation in citations],
+                                         company_catalog=company_catalog, context=prior_context + context,
+                                         continuation=paragraph[len(context) + len(text):])
             if failed is not None:
-                raise NumericValidationError("回答的數值與所引用資料無法核對。" + NUMERIC_RECOVERY_GUIDANCE,
-                                             claim=failed or _normalize(text).strip())
+                raise NumericValidationError("回答的數值與所引用資料無法核對。",
+                                             claim=failed.sentence or _normalize(text).strip(), issue=failed.reason)
             comparison_issue = unsupported_comparison(
                 text, [available[citation] for citation in citations], company_catalog)
             if comparison_issue:
-                raise NumericValidationError("回答的比較排名與所引用資料無法核對。", claim=comparison_issue)
+                raise NumericValidationError("回答的比較排名與所引用資料無法核對。", claim=comparison_issue,
+                                             issue="conclusion_unsupported")
 
     aliases = {alias: symbol for symbol, company in (company_catalog or {}).items()
                for alias in company_aliases(symbol, company)}
     # 引用檢查維持逐項就地核對；帳戶限制則固定使用完整本輪快照，不能由模型選引用來跳過。
     account_bound = require_portfolio or any(source.category == "personal" for source in sources)
     if not plan_supported(_normalize(prose), sources, aliases, require_portfolio=account_bound):
-        raise NumericValidationError("回答的資金配置或賣出股數超出可用範圍。" + NUMERIC_RECOVERY_GUIDANCE)
+        raise NumericValidationError("回答的資金配置或賣出股數超出可用範圍。", issue="account_limit")
 
     references = []
     for citation in cited:
