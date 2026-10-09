@@ -352,6 +352,8 @@
    觀測台頂端有一層燈光餘溫隨之淡出，第一組面板隨之淡入，讓螢幕與面板看起來是同一個東西 */
 #terminal {
   position: relative;
+  /* 首頁 3D 版面時觀測台疊在旅程舞台底下（BeaconJourney 的負下邊距）：裡面的 z-index 不能穿出去蓋到舞台 */
+  isolation: isolate;
   --handoff-tint: color-mix(in srgb, var(--brand) 22%, var(--background));
 }
 #terminal::before {
@@ -366,6 +368,21 @@
 }
 #terminal .handoff-fade {
   opacity: var(--handoff, 1);
+}
+/* 旅程舞台（首頁 3D 版面）：觀測台疊在它底下、交接最後一段被釘在舞台上緣。
+   交接尾聲（data-handed-off，h ≥ 0.95，三塊畫面已經對齊觀測台三欄；而且觀測台正釘在底下，data-pinned）或捲到終點（data-past）時溶掉，露出觀測台；捲回來再溶回來。
+   用一段固定時間溶接、不跟著捲動拖：場景畫的清單與圖表跟觀測台的內容不同，停在半透明會兩層字疊在一起 */
+[data-journey-stage] {
+  transition:
+    opacity var(--dur-sweep) var(--ease-swell),
+    visibility var(--dur-sweep);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-handed-off] [data-journey-stage][data-pinned],
+  [data-journey-stage][data-past] {
+    opacity: 0;
+    visibility: hidden;
+  }
 }
 
 /* 可點的列：hover 只換淺色底；左側 2px 燈色標線只給選取（data-selected、aria-current="page"、aria-selected），

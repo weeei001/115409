@@ -7,6 +7,7 @@ import { NAV_SEARCH_BULK_HINT, PrimaryNav } from '@/components/layout/PrimaryNav
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { usePrefersReducedMotion, useSyncAppHeaderHeight } from '@/lib/hooks/useClientEnv';
 import type { StockInfo } from '@/lib/types/api';
+import { pinTerminal } from './journey/handoffVar';
 
 interface Props {
   /** 旅程終點（觀測台）的元素 id */
@@ -33,6 +34,8 @@ export function HomeHeader({ terminalId, symbols, stockInfos, boardDate, onSelec
     e.preventDefault();
     const target = document.getElementById(terminalId);
     if (!target) return;
+    // 旅程最後一段觀測台被釘在舞台上緣：先放開，scrollIntoView 才會捲到它真正的位置
+    pinTerminal(terminalId, 0);
     target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
     target.focus({ preventScroll: true });
   };

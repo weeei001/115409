@@ -14,7 +14,6 @@ import {
   HOUR_START,
   RAIL,
   TERMINAL_RULE_PX,
-  WATCH_ROOM_PROGRESS,
   bezelWidth,
   captionOpacity,
   chapterIndex,
@@ -138,7 +137,7 @@ RAIL.forEach((r, i) => {
   if (r.target != null) assert.equal(railIndex(r.target), i, `${r.label} 的目標 ${r.target} 不在自己的章節`);
 });
 assert.equal(RAIL[RAIL.length - 1].target, null, '最後一站直接跳觀測台');
-assert.equal(chapterIndex(WATCH_ROOM_PROGRESS), 3, '「往下看介紹」停在桌前');
+assert.equal(chapterIndex(RAIL[1].target!), 1, '「從頭看起」停在燈塔（第一段介紹）');
 
 // ── 文案透明度 ──
 const BOUNDS = CHAPTERS.slice(1).map((c) => c.start);

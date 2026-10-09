@@ -240,18 +240,6 @@ def test_saved_message_restores_draft_identity():
     assert SavedMessage.model_validate(saved.model_dump()).actions[0].draft_id == draft.draft_id
 
 
-def test_personal_market_and_return_claims_use_backend_evidence():
-    from app.features.chat.claims import numeric_claims_supported
-    from app.features.chat.knowledge import reference_source
-    source = reference_source("Portfolio", json.dumps({"portfolio": {
-        "positions": [{"symbol": "2330", "market_price": 120, "market_date": "2026-10-01"}],
-        "reviews": [{"symbol": "2330", "price_return_pct": 20, "closing_price": 120, "due_date": "2026-10-01"}],
-    }}), category="personal")
-    assert numeric_claims_supported("股票 2330 股價 120 元，報酬率 20%。", [source])
-    assert not numeric_claims_supported("股票 2330 股價 130 元。", [source])
-    assert not numeric_claims_supported("股票 2330 報酬率 30%。", [source])
-
-
 def test_personal_context_bounds_history_but_keeps_requested_old_order(monkeypatch):
     from app.features.paper_portfolio import service
     from uuid import uuid4
@@ -283,3 +271,11 @@ def test_malformed_or_extreme_draft_inputs_are_safe():
 def test_drafts_do_not_extract_partial_or_fractional_quantities(query):
     draft = paper_draft(query, ["2330"], trusted(query))
     assert draft.budget is None and draft.quantity is None
+
+
+def test_account_mode_is_server_only_context():
+    response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[], tokens={},
+                           duration_ms=0, current_time="", _requires_portfolio=True)
+    assert response._requires_portfolio is False
+    response._requires_portfolio = True
+    assert "_requires_portfolio" not in response.model_dump()

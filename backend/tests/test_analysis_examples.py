@@ -126,24 +126,3 @@ def test_opinion_rule_reaches_the_brief_gate_and_revision():
     assert any(hit.rule == "投資觀點-hard" for hit in hits)
     quoted = {"what": "收盤 100 元。09/16 09:19 鉅亨網報導：「法人看好後市」。新聞和股價變動是否有關，未經核實。"}
     assert not [hit for hit in _scan_text_brief_compliance(quoted) if hit.rule == "投資觀點-hard"]
-
-
-@pytest.mark.parametrize("separator", ["，", ";"])
-def test_historical_price_range_is_not_a_forecast_from_a_separate_support_clause(separator):
-    from datetime import date
-
-    from app.features.analysis import validation as gate
-    from app.features.analysis.evidence import EvidenceBundle
-
-    bundle = EvidenceBundle(symbol="2727", as_of_date=date(2026, 10, 1), daily_timeline=[
-        {"id": "d_01", "date": "2026-09-01", "close": 227},
-        {"id": "d_02", "date": "2026-09-02", "close": 241},
-    ])
-    item = {"id": "cs_01", "evidence_ids": ["d_01", "d_02"],
-            "text": f"市場支撐因素仍待觀察{separator}股價在 227-241 元區間震盪後回升。"}
-    prices = gate._historical_prices(bundle)
-    assert not gate._grounding_issues(item, bundle)
-    assert not any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(item, prices=prices))
-
-    item["text"] = "股價可望挑戰 241 元。"
-    assert any(hit.severity == "hard" for hit in gate._scan_text_brief_compliance(item, prices=prices))

@@ -417,12 +417,9 @@ def test_large_metadata_keeps_source_identity_when_snapshot_budget_is_exhausted(
     assert len(json.dumps(capture.data)) < 200000
 
 
-def test_clipped_validation_hint_is_explicit_and_usage_remains_unknown_when_unreported():
+def test_usage_remains_unknown_when_unreported():
     capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60, repair_max_tokens=2048)
     capture.start_attempt("initial", object())
     capture.complete_attempt("draft", {})
-    capture.rejected(SimpleNamespace(reason="citations", hint="h" * 4000, detail="reason"))
-    attempt = capture.data["attempts"][0]
-    assert attempt["diagnostics_truncated"] is True
-    assert attempt["hint"].endswith("[除錯紀錄已截短]") and len(attempt["hint"]) <= 3000
+    capture.bypassed()
     assert capture.data["tokens"] == {"input": None, "output": None, "thinking": None}

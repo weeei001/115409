@@ -14,13 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.clients.llm import LlmClient
 from app.core.config import Settings
-from app.core.errors import AppError
 from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.features.chat.prompts import ANSWER_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, answer_system_prompt
 from app.features.chat.schemas import AskRequest, SourceChunk
 from app.features.chat.service import ChatService, taipei_now
-from app.features.chat.answer_validation import _checked_answer
 
 
 MODELS = ["deepseek-ai/deepseek-v4-flash-0731", "nvidia/nemotron-3-super-120b-a12b",
@@ -128,8 +126,7 @@ async def fixed_case(case, llm):
               "review_criteria": case["review"], "semantic_review": "pending_manual_review"}
     started = perf_counter()
     response = await llm.text(system_prompt=answer_system_prompt("plain"), prompt=prompt)
-    answer = _checked_answer(response.raw_text, response.metadata, sources)
-    result.update(ok=True, total_seconds=round(perf_counter() - started, 4), answer=answer)
+    result.update(ok=True, total_seconds=round(perf_counter() - started, 4), answer=response.raw_text)
     if case["id"] == "insufficient":
         result["exact_abstention_pass"] = response.raw_text.strip() == INSUFFICIENT_EVIDENCE_ANSWER
     return result
@@ -160,8 +157,8 @@ async def run(args):
                   "temperature": settings.LLM_TEMPERATURE, "max_tokens": settings.LLM_MAX_TOKENS,
                   "thinking": False, "provider_streaming": False, "retries": 0,
                   "timeout_seconds": args.timeout, "configured_model": settings.LLM_MODEL,
-                  "measurement": "Backend ChatService through validated SSE text, excluding browser/network transport.",
-                  "limits": "Small smoke sample, sequential calls; structural validation is not semantic accuracy. Synthetic cases are not market facts."})
+                  "measurement": "Backend ChatService through SSE text, excluding browser/network transport.",
+                  "limits": "Small smoke sample, sequential calls; answers are unvalidated and need manual review. Synthetic cases are not market facts."})
             async with make_http_client(settings) as http:
                 cases = [("live", case) for case in LIVE_CASES] + [("fixed", case) for case in FIXED_CASES]
                 for index, (kind, case) in enumerate(cases):
@@ -191,14 +188,9 @@ async def run(args):
 
 
 def self_check():
-    source = sources_for(FIXED_CASES[1])[0]
-    assert _checked_answer(INSUFFICIENT_EVIDENCE_ANSWER, {"finish_reason": "stop"}, []) == INSUFFICIENT_EVIDENCE_ANSWER
-    try:
-        _checked_answer("Unsupported claim [S99]", {"finish_reason": "stop"}, [source])
-    except AppError:
-        pass
-    else:
-        raise AssertionError("Unknown citations must be rejected.")
+    for case in FIXED_CASES:
+        sources = sources_for(case)
+        assert all(source.citation_id for source in sources), case["id"]
     print("Benchmark self-check passed; no network calls.")
 
 

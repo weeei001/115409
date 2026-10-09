@@ -4,7 +4,7 @@ import { ArrowRight, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import type { ChatMessage as ChatMessageData } from '@/lib/types/chat';
 import { parseChatSources } from '@/lib/types/chat';
 import { CHAT_CITATION_RE, chatAnswerBody, citationLabels } from '@/lib/utils/chatCitations';
-import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
+import { useMediaQuery, usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { cn } from '@/lib/cn';
 import { LoadingRows } from '@/components/common/Notice';
 import { LedgerHeading, LightGlyph } from '@/components/common/Ledger';
@@ -60,18 +60,6 @@ function scrollTopFor(element: HTMLElement, container: HTMLElement, nav: HTMLEle
 /** lg 到 1439px：資料欄收在「資料」開關後面（預設收起），訊息欄拿到整個面板寬；1440 以上兩欄並排 */
 const COLLAPSIBLE_DATA_QUERY = '(min-width: 1024px) and (max-width: 1439.98px)';
 
-function useMediaMatch(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    const sync = () => setMatches(mq.matches);
-    sync();
-    mq.addEventListener('change', sync);
-    return () => mq.removeEventListener('change', sync);
-  }, [query]);
-  return matches;
-}
-
 type Section = 'answer' | 'citations' | 'data';
 
 /**
@@ -93,7 +81,7 @@ export function ChatArea({ messages, loading, streamingMessageId, exampleQuestio
   /** 自動跟隨剛捲到的位置：它觸發的 scroll 事件不算使用者操作（不然停在開頭時離底部不到 80px 會又開始跟隨） */
   const autoTopRef = useRef<number | null>(null);
   const reduce = usePrefersReducedMotion();
-  const dataCollapsible = useMediaMatch(COLLAPSIBLE_DATA_QUERY);
+  const dataCollapsible = useMediaQuery(COLLAPSIBLE_DATA_QUERY);
   /** 「資料」開關：只在 lg～1439 有作用，選擇留在元件狀態裡（換對話也保留） */
   const [dataOpen, setDataOpen] = useState(false);
   /** 區塊導覽目前所在的區塊（錨點，不是篩選） */

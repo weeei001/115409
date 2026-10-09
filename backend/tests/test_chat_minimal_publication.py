@@ -1,15 +1,37 @@
 """確認一般回覆與串流都直接回傳原文，不再局部修復。"""
 import asyncio
+import json
 
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from app.features.chat.schemas import AskRequest
+from app.features.chat.schemas import AskRequest, SourceChunk
 from app.features.chat.prompts import INSUFFICIENT_EVIDENCE_ANSWER
 import test_chat_audit
-from test_chat_claim_wording import CATALOG, LONG, evidence
 
 from test_chat_investment_arrangement import METADATA, run_turn, substantive_answer
+
+
+CATALOG = {symbol: {"name": name} for symbol, name in (
+    ("2412", "中華電"), ("2501", "國建"), ("2542", "興富發"), ("2707", "晶華"))}
+LONG = ("評選依據與多股比較：在 2026-09-09 至 2026-10-07 的共同比較期間內，"
+        "中華電（2412）區間報酬率為 4.30%，表現比同期間區間報酬率為負的"
+        "國建（2501，區間報酬率 -8.04%）、興富發（2542，區間報酬率 -19.50%）與"
+        "晶華（2707，區間報酬率 -1.68%）更為抗跌穩健。")
+
+
+def evidence():
+    return SourceChunk(citation_id="S1", title="Synthetic comparison", source="test",
+                       source_name="Test", pub_time="", url="", stock_id="", score=1,
+                       category="comparison", content=json.dumps({
+                           "common_start_date": "2026-09-09", "common_end_date": "2026-10-07",
+                           "stocks": [
+                               {"symbol": "2412", "interval_return_pct": 4.30},
+                               {"symbol": "2501", "interval_return_pct": -8.04},
+                               {"symbol": "2542", "interval_return_pct": -19.50},
+                               {"symbol": "2707", "interval_return_pct": -1.68},
+                           ],
+                       }))
 
 
 @pytest.mark.parametrize("stream", [False, True])

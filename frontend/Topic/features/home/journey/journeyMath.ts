@@ -33,9 +33,6 @@ export const RAIL: readonly { label: string; target: number | null }[] = [
   { label: '觀測台', target: null },
 ];
 
-/** 「往下看介紹」捲到窗前：鏡頭已經在桌前、螢幕亮著的位置 */
-export const WATCH_ROOM_PROGRESS = 0.7;
-
 /** 交叉淡化的總寬度（以邊界為中心，前後各一半） */
 export const CAPTION_FADE = 0.03;
 

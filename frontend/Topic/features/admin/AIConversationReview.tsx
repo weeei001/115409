@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { Ledger } from '@/components/common/Ledger';
 import { Disclosure } from '@/components/common/Disclosure';

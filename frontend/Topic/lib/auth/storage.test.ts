@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { AUTH_CHANGE_EVENT, clearAuth, getToken, getStoredUser, isAuthSessionBoundary, setAuth, updateStoredUser } from './storage';
-import type { UserPublic } from '../types';
+import type { UserPublic } from '../types/api';
 const values = new Map<string, string>();
 const local = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) };
 const fakeWindow = new EventTarget();

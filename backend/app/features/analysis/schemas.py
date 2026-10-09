@@ -198,7 +198,6 @@ class TextBriefVerification(BaseModel):
     future_dated_items: list[str] = Field(default_factory=list)
     removed_item_ids: list[str] = Field(default_factory=list)
     soft_compliance_hits: list[str] = Field(default_factory=list)
-    unverified_numbers: list[str] = Field(default_factory=list)
     undercount_sections: list[str] = Field(default_factory=list)
     truncated_sections: list[str] = Field(default_factory=list)
     jargon_hits: list[str] = Field(default_factory=list)

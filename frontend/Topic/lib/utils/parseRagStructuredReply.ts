@@ -46,18 +46,6 @@ export function parseRagStructuredReply(text: string): RagStructuredReply | null
   return { sections };
 }
 
-export function parseBulletList(body: string): string[] {
-  const items = normalizeMarkdownEscapes(body)
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => /^[-*•·]\s/.test(line))
-    .map((line) => line.replace(/^[-*•·]\s+/, '').trim())
-    .filter(Boolean);
-
-  if (items.length > 0) return items;
-  return body.trim() ? [body.trim()] : [];
-}
-
 const SECTION_ICONS: Record<string, string> = {
   綜合摘要: 'summary',
   市場情緒: 'sentiment',

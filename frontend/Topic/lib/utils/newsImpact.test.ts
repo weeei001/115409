@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { News } from '../types';
+import type { News } from '../types/api';
 import { DIRECTION_TONE, visibleImpacts } from './newsImpact';
 import { toneBadge } from './tone';
 

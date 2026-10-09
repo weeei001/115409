@@ -303,8 +303,6 @@ class AnalysisService:
                 payload = brief.model_dump(mode="python")
                 gate._backfill_key_days(payload, bundle=bundle, as_of_date=as_of, discarded=discarded,
                                         future_dated=verification.future_dated_items)
-                verification.unverified_numbers = [f"{item['id']}: {issue}" for item in payload["key_days"]
-                    for issue in gate._grounding_issues(item, bundle)]
                 verification.undercount_sections = gate._undercount_sections(payload)
                 removed, hard, soft, blocked = gate._apply_text_brief_compliance_gate(
                     payload, bundle=bundle, allow_partial_forward_views=attempt == 1)

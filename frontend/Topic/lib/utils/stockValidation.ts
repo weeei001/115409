@@ -1,4 +1,4 @@
-import type { DailyPriceResponse } from '../types';
+import type { DailyPriceResponse } from '../types/api';
 
 /**
  * 台股代號：4–6 位數字（2330、0050、00878）。只認已整理好的字串，不幫呼叫端 trim。
