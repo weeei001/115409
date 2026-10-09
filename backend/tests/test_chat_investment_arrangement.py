@@ -1,8 +1,4 @@
-"""Fixed investment evidence through validation, streaming and private audit reads.
-
-Preparation is fixed here so these tests exercise answer publication rather than
-external retrieval or nondeterministic model quality.
-"""
+"""用固定投資資料測試直接回覆、串流與管理員紀錄，不呼叫外部搜尋或模型。"""
 import asyncio
 import json
 from datetime import timedelta
@@ -132,7 +128,7 @@ def test_substantive_investment_discussion_is_published_and_audited(db_session, 
     draft = substantive_answer(scenario)
     answer, _, record, calls = run_turn(db_session, scenario, [(draft, METADATA)], stream=stream)
     assert answer.startswith(draft)
-    assert record.outcome == "passed" and len(calls) == 1
+    assert record.outcome == "direct" and len(calls) == 1
     assert record.data["attempts"][0]["finish_reason"] == "stop"
     assert all(part in answer for part in ("2026-10-08", "2026-10-07"))
     assert all(part in answer for part in ("本輪選取", "尚缺行情", "若無法承受", "另保留"))
@@ -148,7 +144,7 @@ def test_missing_or_different_dates_publish_explicit_limits(db_session, stream, 
         answer += ("台積電行情截至2026-10-07，收盤價100元；與帳戶日期不同，不能當作即時報價。[S2]\n\n"
                    "鴻海尚缺行情資料，未納入比較；先補足相同日期資料，再討論配置。[S3]")
     published, _, record, calls = run_turn(db_session, scenario, [(answer, METADATA)], stream=stream)
-    assert published.startswith(answer) and record.outcome == "passed" and len(calls) == 1
+    assert published.startswith(answer) and record.outcome == "direct" and len(calls) == 1
 
 
 @pytest.mark.parametrize("bad,reason", [
@@ -159,21 +155,23 @@ def test_missing_or_different_dates_publish_explicit_limits(db_session, stream, 
     ("假設建議賣出台積電80股。[S1]", "numbers"),
 ])
 @pytest.mark.parametrize("stream", [False, True])
-def test_bad_draft_is_repaired_once_without_leaking(db_session, bad, reason, stream):
+def test_draft_is_published_without_semantic_repair(db_session, bad, reason, stream):
     repaired = substantive_answer("pending")
     answer, public, record, calls = run_turn(
         db_session, "pending", [(bad, METADATA), (repaired, METADATA)], stream=stream)
-    assert answer.startswith(repaired) and bad not in public
-    assert len(calls) == 2 and record.outcome == "repaired"
-    assert record.data["attempts"][0]["reason"] == reason
+    assert answer == bad
+    assert len(calls) == 1 and record.outcome == "direct"
+    assert record.data["attempts"][0]["validation"] == "not_checked"
+    assert record.data["reasons"] == []
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_two_truncated_drafts_never_publish_and_never_retry_again(db_session, stream):
+def test_provider_length_finish_is_published_without_retry(db_session, stream):
     draft = substantive_answer("cash")
     metadata = {**METADATA, "finish_reason": "length"}
     answer, public, record, calls = run_turn(
         db_session, "cash", [(draft, metadata), (draft, metadata)], stream=stream)
-    assert draft not in public and draft != answer
-    assert record.outcome == "fallback" and len(calls) == 2
-    assert [attempt["reason"] for attempt in record.data["attempts"]] == ["length", "length"]
+    assert answer == draft
+    assert record.outcome == "direct" and len(calls) == 1
+    assert record.data["attempts"][0]["finish_reason"] == "length"
+    assert record.data["attempts"][0]["validation"] == "not_checked"

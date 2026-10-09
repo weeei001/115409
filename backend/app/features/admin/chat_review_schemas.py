@@ -29,6 +29,7 @@ class ChatReviewAttempt(BaseModel):
     validation: Literal["passed", "rejected", "not_checked"] = "not_checked"
     reason: str | None = None
     hint: str | None = None
+    issue: str | None = None
     claim: str | None = None
     detail: str | None = None
     diagnostics_truncated: bool = False
@@ -67,6 +68,20 @@ class ChatReviewSource(BaseModel):
         ids = value.get("stock_ids")
         value["stock_ids"] = [item for item in ids if isinstance(item, str)] if isinstance(ids, list) else []
         return value
+
+
+class ChatReviewRecoveryItem(BaseModel):
+    paragraph: int | None = None
+    reason: str
+    result: str
+    units: int | None = None
+
+
+class ChatReviewRecovery(BaseModel):
+    method: Literal["validated_partial"]
+    draft_stage: Literal["initial", "repair"]
+    validation: Literal["passed"]
+    removed: list[ChatReviewRecoveryItem] = Field(default_factory=list)
 
 
 class ChatReviewSummary(BaseModel):
@@ -115,3 +130,4 @@ class ChatReviewDetail(ChatReviewSummary):
     requires_portfolio: bool = False
     answer_detail: str = "plain"
     error_type: str | None = None
+    recovery: ChatReviewRecovery | None = None

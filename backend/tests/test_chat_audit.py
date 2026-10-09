@@ -79,9 +79,9 @@ def records(db):
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize(("answers", "outcome", "validations"), [
-    ((VALID,), "passed", ["passed"]),
-    ((REJECTED, VALID), "repaired", ["rejected", "passed"]),
-    ((REJECTED, REJECTED), "fallback", ["rejected", "rejected"]),
+    ((VALID,), "direct", ["not_checked"]),
+    ((REJECTED, VALID), "direct", ["not_checked"]),
+    ((REJECTED, REJECTED), "direct", ["not_checked"]),
 ])
 def test_audits_attempts_evidence_and_final_answer_without_public_leaks(db_session, stream, answers, outcome, validations):
     chat, calls = service(sessionmaker(db_session.get_bind()), answers)
@@ -97,7 +97,7 @@ def test_audits_attempts_evidence_and_final_answer_without_public_leaks(db_sessi
 
     final, public = asyncio.run(run())
     rows = records(db_session)
-    assert len(rows) == 1 and len(calls) == len(answers)
+    assert len(rows) == 1 and len(calls) == 1
     row = rows[0]
     assert row.outcome == outcome and row.query == "Explain the report"
     assert row.data["model"] == "test-model"
@@ -107,14 +107,11 @@ def test_audits_attempts_evidence_and_final_answer_without_public_leaks(db_sessi
     assert row.data["sources"][0]["citation_id"] == "S1"
     assert [attempt["validation"] for attempt in row.data["attempts"]] == validations
     assert row.data["attempts"][0]["tokens"] == {"input": 20, "output": 8, "thinking": 3}
-    assert row.data["tokens"] == {"input": 7 + len(answers) * 20, "output": 2 + len(answers) * 8,
-                                  "thinking": len(answers) * 3}
+    assert row.data["tokens"] == {"input": 7 + len(calls) * 20, "output": 2 + len(calls) * 8,
+                                  "thinking": len(calls) * 3}
     assert row.data["attempts"][0]["max_tokens"] == 4096
-    if outcome != "passed":
-        assert row.reason == "citations" and row.data["reasons"] == ["citations"]
-        assert row.data["attempts"][0]["text"] == REJECTED
-        assert row.data["attempts"][0]["hint"]
-    assert REJECTED not in public
+    assert final == answers[0]
+    assert row.reason is None and row.data["reasons"] == []
     assert "attempts" not in public and "publication_completed" not in public
     private = json.dumps(row.data)
     for forbidden in ("private_debug", "provider-private-secret", "reasoning_content", "hidden-chain-of-thought",
@@ -185,7 +182,7 @@ def test_closing_stream_before_done_does_not_claim_completed_publication(db_sess
     row = records(db_session)[0]
     assert row.outcome == "interrupted"
     assert row.data["publication_completed"] is False
-    assert row.data["attempts"][0]["validation"] == "passed"
+    assert row.data["attempts"][0]["validation"] == "not_checked"
     assert row.data["final_answer"].startswith(VALID)
 
 
@@ -227,7 +224,7 @@ def test_missing_audit_table_does_not_fail_chat_or_conversation_deletion(db_sess
     ChatValidationRun.__table__.drop(db_session.get_bind())
 
     result = asyncio.run(chat.ask(AskRequest(query="Secret query")))
-    assert result.answer.startswith(VALID)
+    assert result.answer == REJECTED
     conversations.delete(user.id, conversation.id)
     assert "Chat diagnostics unavailable: OperationalError" in caplog.text
     assert "Secret query" not in caplog.text and REJECTED not in caplog.text
@@ -247,11 +244,11 @@ def test_conversation_history_uses_only_public_answer_and_delete_removes_diagnos
     detail = conversations.get(user.id, conversation.id)
     row = records(db_session)[0]
     assert (row.user_id, row.conversation_id, row.turn_id) == (user.id, conversation.id, turn_id)
-    assert row.outcome == "fallback" and row.data["attempts"][0]["text"] == REJECTED
-    assert REJECTED not in detail.model_dump_json()
+    assert row.outcome == "direct" and row.data["attempts"][0]["text"] == REJECTED
+    assert REJECTED in detail.model_dump_json()
     assert "attempts" not in detail.model_dump_json()
     _, next_request = conversations.begin(user.id, conversation.id, AskRequest(query="Follow up"))
-    assert REJECTED not in next_request.model_dump_json()
+    assert REJECTED in next_request.model_dump_json()
     conversations.delete(user.id, conversation.id)
     assert records(db_session) == []
 

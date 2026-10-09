@@ -7,6 +7,7 @@ import pytest
 from app.clients.llm import LlmClient
 from app.features.chat.schemas import AskRequest, AskResponse, SourceChunk
 from app.features.chat.service import ChatService, _tokens
+from app.features.chat.audit import ChatAudit
 from test_chat import FakeRetrieval, MODEL_ANSWER
 from test_llm_chat import completion, configured, stream_frame
 
@@ -56,12 +57,13 @@ def test_provider_reasoning_usage_reaches_chat_response(settings, stream, repair
                                  source="test", source_name="Test", pub_time="", url="", stock_id="", score=1)
             response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[source],
                                    tokens={}, duration_ms=0, current_time="2026-10-03 12:00")
-            await service._validate_response(raw_text, metadata, response,
-                                             AskRequest(query="Revenue?"), "Evidence", "")
-            attempts = 2 if repair else 1
+            audit = ChatAudit(AskRequest(query="Revenue?"), llm=llm, timeout_seconds=60, repair_max_tokens=None)
+            audit.start_attempt("initial", llm)
+            service._publish_answer(raw_text, metadata, response, audit=audit)
+            attempts = 1
             assert response.tokens == {"input": 50 * attempts, "output": 12 * attempts,
                                        "thinking": reasoning * attempts if reasoning is not None else None}
-            assert response.answer.startswith(valid)
+            assert response.answer == ("Rejected.[S99]" if repair else valid)
             assert len(calls) == attempts
 
     asyncio.run(run())
@@ -69,7 +71,7 @@ def test_provider_reasoning_usage_reaches_chat_response(settings, stream, repair
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("repair", [False, True])
-def test_whole_turn_counts_intent_initial_answer_and_repair(settings, chat_session_factory, stream, repair):
+def test_whole_turn_counts_only_intent_and_initial_answer(settings, chat_session_factory, stream, repair):
     calls = []
 
     def provider(request):
@@ -101,13 +103,12 @@ def test_whole_turn_counts_intent_initial_answer_and_repair(settings, chat_sessi
                 events = [event async for event in service.stream_events(request)]
                 assert events[-1]["type"] == "done", events
                 tokens = events[-1]["tokens"]
-                assert "Rejected" not in json.dumps(events)
+                assert events[-1]["answer"] == ("Rejected.[S99]" if repair else MODEL_ANSWER)
             else:
                 response = await service.ask(request)
                 tokens = response.tokens
-                assert response.answer.startswith(MODEL_ANSWER)
-            assert tokens == ({"input": 131, "output": 35, "thinking": 14} if repair
-                              else {"input": 61, "output": 15, "thinking": 7})
+                assert response.answer == ("Rejected.[S99]" if repair else MODEL_ANSWER)
+            assert tokens == {"input": 61, "output": 15, "thinking": 7}
 
     asyncio.run(run())
-    assert calls == (["intent", "answer", "repair"] if repair else ["intent", "answer"])
+    assert calls == ["intent", "answer"]

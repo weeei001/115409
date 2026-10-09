@@ -10,7 +10,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { DetailDrawer } from '@/features/stock/DetailDrawer';
 import {
   ADMIN_CHAT_OUTCOMES, ADMIN_CHAT_PAGE_SIZE, ADMIN_CHAT_REASON_LABELS, INITIAL_ADMIN_CHAT_FILTERS,
-  adminChatOutcomeLabel, adminChatReasonLabel,
+  adminChatOutcomeLabel, adminChatReasonLabel, adminChatIssueLabel,
   type AdminChatAttempt, type AdminChatDetail, type AdminChatFilters, type AdminChatList,
   type AdminChatOutcomeFilter, type AdminChatSource, type AdminChatTokens,
 } from '@/lib/api/adminChat';
@@ -47,13 +47,14 @@ function TokenCounts({ tokens }: { tokens: AdminChatTokens }) {
 }
 
 function AttemptReview({ attempt }: { attempt: AdminChatAttempt }) {
-  const status = attempt.validation === 'passed' ? '通過檢核' : attempt.validation === 'rejected' ? '未通過檢核' : '尚未檢核';
+  const status = attempt.validation === 'passed' ? '通過檢核' : attempt.validation === 'rejected' ? '未通過檢核' : '未執行檢核';
   return <Disclosure open={attempt.validation !== 'passed'} className="min-w-0 border-b last:border-b-0"
     summary={<span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm"><span className="font-semibold">第 {attempt.number} 輪 · {attempt.stage === 'repair' ? '修復稿' : '初稿'}</span><span className={attempt.validation === 'rejected' ? 'text-warning' : 'text-subtle'}>{status}</span>{attempt.reason ? <code className="font-mono text-xs">{attempt.reason}</code> : null}</span>}>
     <div className="space-y-3 pb-4">
-      {attempt.validation !== 'passed' ? <p className="text-xs leading-5 text-warning">{attempt.validation === 'not_checked' ? '此稿尚未完成檢核' : '此稿未通過完整檢核'}，僅供管理員除錯，不是提供給使用者的有效分析。</p> : null}
-      {attempt.reason || attempt.detail || attempt.hint || attempt.claim ? <dl className="grid min-w-0 gap-2 border-l-2 border-warning-border pl-3 text-[13px] leading-6">
+      {attempt.validation === 'rejected' ? <p className="text-xs leading-5 text-warning">此稿未通過完整檢核，僅供管理員除錯，不是提供給使用者的有效分析。</p> : null}
+      {attempt.reason || attempt.issue || attempt.detail || attempt.hint || attempt.claim ? <dl className="grid min-w-0 gap-2 border-l-2 border-warning-border pl-3 text-[13px] leading-6">
         {attempt.reason ? <div><dt className="text-muted-foreground">檢核原因</dt><dd><Reason value={attempt.reason} /></dd></div> : null}
+        {attempt.issue ? <div><dt className="text-muted-foreground">檢核細節</dt><dd>{adminChatIssueLabel(attempt.issue)} <code className="font-mono text-xs break-all">{attempt.issue}</code></dd></div> : null}
         {attempt.detail ? <div><dt className="text-muted-foreground">驗證訊息</dt><dd className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{attempt.detail}</dd></div> : null}
         {attempt.claim ? <div><dt className="text-muted-foreground">問題敘述</dt><dd className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{attempt.claim}</dd></div> : null}
         {attempt.hint ? <div><dt className="text-muted-foreground">給修復流程的提示</dt><dd className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{attempt.hint}</dd></div> : null}
@@ -95,6 +96,15 @@ export function AIConversationDetail({ record }: { record: AdminChatDetail }) {
       <p className="text-xs leading-5 break-all text-subtle">{record.user_email ?? (record.user_id == null ? '無帳號連結' : `使用者 #${record.user_id}`)} · 模型 {record.model || '未記錄'}</p>
       {record.reasons.length ? <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">{record.reasons.map((reason) => <Reason key={reason} value={reason} />)}</p> : null}
       {record.outcome === 'fallback' ? <Notice tone="warning">本輪改用安全回覆，請先查看下方各輪的檢核原因。</Notice> : null}
+      {record.outcome === 'direct' ? <p className="text-xs leading-5 text-muted-foreground">本輪直接回覆，未執行回答內容檢核。</p> : null}
+      {record.recovery?.method === 'validated_partial' && record.recovery.validation === 'passed' ? <Notice>
+        <p>{record.attempts.filter((attempt) => attempt.validation === 'rejected').length} 輪稿件未通過完整檢核；已從{record.recovery.draft_stage === 'repair' ? '修復稿' : '初稿'}省略未確認敘述及相依結論，保留內容經本機重新核對通過。</p>
+        <ul className="mt-2 space-y-1 text-xs">{record.recovery.removed.map((entry, index) => <li key={index}>
+          {entry.paragraph == null ? '' : `第 ${entry.paragraph + 1} 段 · `}{adminChatIssueLabel(entry.reason)}
+          {' · '}{({ removed: '已移除', narrowed: '已收斂', retained: '已保留', withheld: '未發布', ineligible: '不適用' } as Record<string, string>)[entry.result] ?? entry.result}
+          {entry.units == null ? '' : `（${entry.units} 個內容單位）`}
+        </li>)}</ul>
+      </Notice> : null}
       {record.error_type ? <p className="text-sm">流程錯誤類型：<code className="font-mono break-all">{record.error_type}</code></p> : null}
       <p className="text-xs leading-5 text-muted-foreground">{record.publication_completed ? 'AI 服務已交出完整結果。' : '尚未確認 AI 服務交出完整結果。'}對話是否保存、瀏覽器是否完整接收，仍需另行核對。</p>
     </section>
@@ -195,7 +205,7 @@ export function AIConversationReview({ onAccessError }: { onAccessError: (error:
     actions={<Button variant="outline" disabled={review.listLoading} aria-busy={review.listLoading || undefined} onClick={review.refresh}><RefreshCw aria-hidden />{review.listLoading ? '讀取中…' : '重新整理檢核'}</Button>}>
     <div className="min-w-0 bg-card">
       <div className="space-y-1 border-b px-4 py-3 text-xs leading-5 text-muted-foreground sm:px-5">
-        <p>對照原稿、修復稿、未通過原因與本輪來源。預設顯示安全回覆、生成失敗及中斷。</p>
+        <p>目前回答直接輸出，不執行內容檢核。歷史原稿、修復稿與檢核原因仍可查閱；預設顯示歷史安全回覆、生成失敗及中斷。</p>
         <p>原稿僅限管理員查看；紀錄自功能上線後開始保存，過去未保存的原稿無法回補。</p>
         <p>查不到紀錄不代表檢核通過：部署前、程序強制終止或紀錄寫入失敗，都可能沒有紀錄。</p>
       </div>

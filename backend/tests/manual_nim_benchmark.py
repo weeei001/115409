@@ -19,7 +19,8 @@ from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.features.chat.prompts import ANSWER_PROMPT, INSUFFICIENT_EVIDENCE_ANSWER, answer_system_prompt
 from app.features.chat.schemas import AskRequest, SourceChunk
-from app.features.chat.service import ChatService, _checked_answer, taipei_now
+from app.features.chat.service import ChatService, taipei_now
+from app.features.chat.answer_validation import _checked_answer
 
 
 MODELS = ["deepseek-ai/deepseek-v4-flash-0731", "nvidia/nemotron-3-super-120b-a12b",

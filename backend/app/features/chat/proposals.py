@@ -20,7 +20,7 @@ INTRO = re.compile(r"\s*(?:(?:[-•·]|\d+[.)])\s*)?"
                    # A short section label does not change the following local action.
                    r"(?:[\u4e00-\u9fff]{0,12}方案(?:[一二三四五六七八九十A-C1-9])?\s*[:：]\s*)?"
                    r"(?:我的建議是|建議(?:你)?|你可以(?:考慮)?|可以(?:考慮)?|可考慮|可(?!用)|不妨"
-                   r"|每次|每批|首批|第[一二三1-3]批|分批)\s*")
+                   r"|每次|每批|首批|第[一二三1-3]批|分批|示範|例如|舉例(?:來說)?|比方說)\s*")
 CONDITION = re.compile(r"\s*(?:若|如果|假設|假如)\s*")
 MODIFIER = r"(?:(?:先|再|並|另|另外|然後|接著|其中|其餘|每檔|各檔|單一|分批|暫時|至少|最多|約|大約|的|\s|[、：:])*)"
 FUNDS = r"(?:可用資金|可用現金|模擬資金|投資預算|賣出所得|現金|資金|總資產|持股)"
@@ -143,7 +143,11 @@ def _role(before, after, aliases, *, continued=False, allow_target=False):
         allow_target = False
     introduction = INTRO.match(before)
     if not introduction and not continued:
-        return None
+        # An explicit trade consumes real account capacity even without a
+        # suggestion marker. This does not grant target/observation exemptions.
+        bare = _without_subject(before, aliases).strip()
+        if not re.fullmatch(rf"{MODIFIER}(?:賣出|賣掉|減碼|{ACTION})(?:{FUNDS})?{MODIFIER}", bare):
+            return None
     prefix = before[introduction.end():] if introduction else before
     prefix = re.sub(r"^\s*(?:[-•·]|\d+[.)])\s*", "", prefix)
     prefix = _without_subject(prefix, aliases).strip()

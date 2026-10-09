@@ -101,7 +101,7 @@ def test_undated_or_uninitialized_account_does_not_present_zero_as_current_money
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("finish", ["stop", "length"])
-def test_two_failed_attempts_publish_only_new_source_summary_without_dependencies(chat, stream, finish):
+def test_answer_is_published_without_fallback_or_finish_reason_checks(chat, stream, finish):
     client, service, llm, _ = chat
     llm.intent = {"is_finance": True, "stocks": ["2330"], "data_needs": ["market"]}
     service._market_sources = lambda *_: [price_source([["2026-09-11", 100]])]
@@ -110,10 +110,8 @@ def test_two_failed_attempts_publish_only_new_source_summary_without_dependencie
     response = client.post("/api/ask", json={"query": "台積電股價", "stream": stream})
     assert response.status_code == 200
     data = events(response)[-1] if stream else response.json()
-    assert data["answer"].startswith(VERIFIED_FALLBACK_NOTICE)
-    assert "2026-09-11 股票 2330 收盤價 100 元。[S1]" in data["answer"]
-    assert "999" not in data["answer"] and "全部投入" not in data["answer"]
-    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 2
+    assert data["answer"] == llm.answer
+    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
     assert data["sources"] and data["dashboard"]
     if stream:
         result = events(response)
@@ -121,7 +119,7 @@ def test_two_failed_attempts_publish_only_new_source_summary_without_dependencie
         assert result[-1]["type"] == "done"
 
 
-def test_unsupported_cause_uses_grounding_recovery_then_source_facts(chat):
+def test_unsupported_cause_is_published_without_grounding_recovery(chat):
     client, service, llm, _ = chat
     llm.intent = {"is_finance": True, "stocks": ["2330"], "data_needs": ["market"]}
     market = price_source([["2026-09-11", 100]])
@@ -129,6 +127,5 @@ def test_unsupported_cause_uses_grounding_recovery_then_source_facts(chat):
     service._market_sources = lambda *_: [market]
     llm.answer = "因公司取得大單，2330上漲2%。[S1]"
     data = client.post("/api/ask", json={"query": "台積電為什麼上漲"}).json()
-    assert data["answer"].startswith(VERIFIED_FALLBACK_NOTICE)
-    assert "大單" not in data["answer"] and "收盤價 100 元" in data["answer"]
-    assert "漲跌原因沒有可核對的原文支持" in llm.calls[-1][1]["system_prompt"]
+    assert data["answer"] == llm.answer
+    assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1

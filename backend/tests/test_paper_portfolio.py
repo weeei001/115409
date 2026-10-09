@@ -188,7 +188,7 @@ def test_allocation_uses_total_equity_and_preserves_pending_cash(db_session, own
     import json
     from contextlib import nullcontext
     from app.features.chat.personal_context import read_personal_context
-    from app.features.chat.service import _checked_answer
+    from app.features.chat.answer_validation import _checked_answer
 
     fund(db_session, owner, 'initial', 30000)
     buy(db_session, owner, budget=10000)
