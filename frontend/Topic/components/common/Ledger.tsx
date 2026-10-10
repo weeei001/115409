@@ -79,6 +79,10 @@ export const panelClass = 'min-w-0 bg-card p-4 sm:p-5';
 /** 面板裡的主讀數（金額、比例）：等寬數字，隨視窗寬度在 24–32px 間縮放 */
 export const figureClass = 'font-mono text-[clamp(24px,2.4vw,32px)] leading-tight font-semibold tabular-nums';
 
+/** 帳頁表格（放在 padded={false} 的面板裡）：表頭淺底加粗線，列高至少 44px；第一欄左內距和面板對齊 */
+export const cellClass = 'px-4 py-3 align-top first:pl-4 sm:first:pl-5';
+export const headCellClass = 'h-11 px-4 align-middle text-[12px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground first:pl-4 sm:first:pl-5';
+
 /** 帳頁裡的一格面板。固定順序：標題與單位 → 讀數 → 圖或刻度 → 日期戳記 */
 export function LedgerPanel({ title, unit, padded = true, framed = false, as: Element = 'div', className, children, ...rest }: LedgerPanelProps) {
   return (

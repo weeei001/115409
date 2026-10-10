@@ -3,22 +3,24 @@ import { RefreshCw } from 'lucide-react';
 import { figureClass, Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
-import { fetchAIFeedbackSummary, fetchAITrackRecord } from '@/lib/api/aiEffectiveness';
+import { fetchAIFeedbackSummary, fetchAITrackRecord, fetchAIUsageSummary } from '@/lib/api/aiEffectiveness';
 import { userFacingMessage } from '@/lib/api/errorDetail';
-import { hasEnoughSamples, hitRateSummary, hitRateText, HORIZON_LABEL } from '@/lib/brief/trackRecord';
-import type { AIFeedbackSummary, AITrackRecordResponse } from '@/lib/types/api';
+import { hasEnoughSamples, hitRateSummary, hitRateText, HORIZON_LABEL, relativeSummary } from '@/lib/brief/trackRecord';
+import { avgTokensText, costNote, latencyText, retryText, tokenSplitText, usdText } from '@/lib/brief/usage';
+import type { AIFeedbackSummary, AITrackRecordResponse, AIUsageSummary } from '@/lib/types/api';
 import { formatTaipei } from '@/lib/utils/date';
 import { fmtPercent } from '@/lib/utils/format';
 import { cn } from '@/lib/cn';
 
 /**
- * AI 成效：全站 AI 摘要的命中率（對照每次都猜漲）與使用者對 AI 對話的回饋。
- * 兩份資料各自載入，一份失敗不影響另一份。
+ * AI 成效：全站 AI 摘要的命中率（對照每次都猜漲與大盤）、使用者對 AI 對話的回饋，以及摘要的用量與估算成本。
+ * 三份資料各自載入，一份失敗不影響其他。
  */
 export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error: unknown) => boolean }) {
   const [track, setTrack] = useState<AITrackRecordResponse | null>(null);
   const [feedback, setFeedback] = useState<AIFeedbackSummary | null>(null);
-  const [errors, setErrors] = useState<{ track?: string; feedback?: string }>({});
+  const [usage, setUsage] = useState<AIUsageSummary | null>(null);
+  const [errors, setErrors] = useState<{ track?: string; feedback?: string; usage?: string }>({});
   const [revision, setRevision] = useState(0);
   const accessError = useRef(onAccessError);
   accessError.current = onAccessError;
@@ -26,17 +28,18 @@ export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error:
   useEffect(() => {
     const ctrl = new AbortController();
     setErrors({});
-    const fail = (key: 'track' | 'feedback', fallback: string) => (err: unknown) => {
+    const fail = (key: 'track' | 'feedback' | 'usage', fallback: string) => (err: unknown) => {
       if (ctrl.signal.aborted || accessError.current(err)) return;
       setErrors((previous) => ({ ...previous, [key]: userFacingMessage(err, fallback) }));
     };
     fetchAITrackRecord(undefined, ctrl.signal).then(setTrack, fail('track', '無法載入 AI 摘要命中率。'));
     fetchAIFeedbackSummary(ctrl.signal).then(setFeedback, fail('feedback', '無法載入 AI 對話回饋。'));
+    fetchAIUsageSummary(ctrl.signal).then(setUsage, fail('usage', '無法載入 AI 摘要用量。'));
     return () => ctrl.abort();
   }, [revision]);
 
-  const failed = Boolean(errors.track || errors.feedback);
-  const state: LightState = failed ? 'error' : track && feedback ? 'ready' : 'loading';
+  const failed = Boolean(errors.track || errors.feedback || errors.usage);
+  const state: LightState = failed ? 'error' : track && feedback && usage ? 'ready' : 'loading';
   const retry = <Button variant="outline" size="sm" onClick={() => setRevision((value) => value + 1)}><RefreshCw aria-hidden />重試</Button>;
 
   return (
@@ -48,13 +51,44 @@ export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error:
       >
         {errors.track ? <LedgerPanel className="sm:col-span-3"><Notice tone="danger" action={retry}>{errors.track}</Notice></LedgerPanel>
           : !track ? <LedgerPanel padded={false} className="sm:col-span-3"><LoadingRows className="h-32" /></LedgerPanel>
-          : track.horizons.map((horizon) => (
-            <LedgerPanel key={horizon.horizon} title={HORIZON_LABEL[horizon.horizon]} unit={`第 ${horizon.trading_days} 個交易日`}>
-              <p className={cn(figureClass,!hasEnoughSamples(horizon) && 'text-muted-foreground')}>{hitRateText(horizon)}</p>
-              <p className="mt-2 text-[13px] leading-relaxed text-subtle">{hitRateSummary(horizon)}</p>
-              <p className="mt-1 text-xs text-muted-foreground">未表態 {horizon.no_call} 次 · 未到期 {horizon.pending} 次</p>
+          : track.horizons.map((horizon) => {
+            const relative = relativeSummary(horizon);
+            return (
+              <LedgerPanel key={horizon.horizon} title={HORIZON_LABEL[horizon.horizon]} unit={`第 ${horizon.trading_days} 個交易日`}>
+                <p className={cn(figureClass,!hasEnoughSamples(horizon) && 'text-muted-foreground')}>{hitRateText(horizon)}</p>
+                <p className="mt-2 text-[13px] leading-relaxed text-subtle">{hitRateSummary(horizon)}</p>
+                {relative ? <p className="mt-1 text-[13px] leading-relaxed text-subtle">{relative}</p> : null}
+                <p className="mt-1 text-xs text-muted-foreground">未表態 {horizon.no_call} 次 · 未到期 {horizon.pending} 次</p>
+              </LedgerPanel>
+            );
+          })}
+      </Ledger>
+
+      <Ledger
+        title="AI 摘要用量與估算成本"
+        stamp={usage ? `近 ${usage.days} 天 · ${usage.briefs} 份摘要` : undefined}
+        cols="grid-cols-1 sm:grid-cols-3"
+      >
+        {errors.usage ? <LedgerPanel className="sm:col-span-3"><Notice tone="danger" action={retry}>{errors.usage}</Notice></LedgerPanel>
+          : !usage ? <LedgerPanel padded={false} className="sm:col-span-3"><LoadingRows className="h-32" /></LedgerPanel>
+          : !usage.briefs ? <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">近 {usage.days} 天沒有產生 AI 摘要；排程每天產生後，用量會出現在這裡。</EmptyState></LedgerPanel>
+          : <>
+            <LedgerPanel title="每份平均 token">
+              <p className={figureClass}>{avgTokensText(usage)}</p>
+              <p className="mt-2 text-[13px] text-subtle">{tokenSplitText(usage)}</p>
             </LedgerPanel>
-          ))}
+            <LedgerPanel title="每份平均產生時間">
+              <p className={figureClass}>{latencyText(usage)}</p>
+              <p className="mt-2 text-[13px] text-subtle">{retryText(usage)}</p>
+            </LedgerPanel>
+            <LedgerPanel title="每份估算成本">
+              <p className={figureClass}>{usdText(usage.avg_cost_usd)}</p>
+              <p className="mt-2 text-[13px] text-subtle">近 {usage.days} 天合計 {usdText(usage.total_cost_usd)}</p>
+            </LedgerPanel>
+            <LedgerPanel className="sm:col-span-3">
+              <p className="text-[13px] leading-relaxed text-muted-foreground">{costNote(usage)}</p>
+            </LedgerPanel>
+          </>}
       </Ledger>
 
       <Ledger

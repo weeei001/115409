@@ -1,6 +1,11 @@
 import type { Brief, ClaimType } from '../types/textBrief';
 import { FORWARD_VIEWS } from './textBriefLabels';
 
+/** importance=high 先排（同級維持原順序）；後端只有 high／medium 兩級。回傳新陣列，不改動原本的 */
+export function byImportance<T extends { importance?: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => Number(b.importance === 'high') - Number(a.importance === 'high'));
+}
+
 /** 未來看法沒有自己的 id，另外編一組 key */
 export function forwardViewKey(key: string): string {
   return `fv:${key}`;

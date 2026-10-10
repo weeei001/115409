@@ -1,17 +1,18 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, RefreshCw } from 'lucide-react';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
-import { briefStatusNote, CONF, CONF_HINT, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
+import { briefStatusNote, CONF_HINT } from '@/lib/brief/textBriefLabels';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
-import { taipeiDateTime } from '@/lib/utils/date';
 import { Button } from '@/components/ui/button';
 import { Disclosure } from '@/components/common/Disclosure';
 import { tabListClass, tabTriggerActiveClass, tabTriggerClass } from '@/components/ui/tabs';
 import { cn } from '@/lib/cn';
-import { AI_RESEARCH_ONLY } from '@/lib/disclaimers';
+import { AI_BRIEF_DISCLAIMER } from '@/lib/disclaimers';
 import { BriefHighlightProvider, useBriefHighlight } from './BriefHighlight';
-import { SectionCard, StanceIcon, Tag } from './BriefAtoms';
+import { BriefProvenance } from './BriefProvenance';
+import { BriefHeadline, SectionCard } from './BriefAtoms';
 import { KeyPointsTab, ScenarioTab } from './BriefSections';
 import { EvidenceCatalog, EvidenceRail, EvidenceSheet } from './EvidencePanel';
 
@@ -26,9 +27,6 @@ interface Props {
 }
 
 type TabKey = 'points' | 'scenario' | 'sources';
-
-/** 後端沒給免責文字時的預設句，和全站的 AI 免責同一句 */
-const DEFAULT_DISCLAIMER = `AI 依公開資料整理，${AI_RESEARCH_ONLY}投資前請自行評估風險。`;
 
 const TABS: [TabKey, string][] = [
   ['points', '重點'],
@@ -158,7 +156,6 @@ export const StockTextBriefPanel: React.FC<Props> = ({
     );
   }
 
-  const stanceTone: BriefTone = STANCE_TONE[b.overall_stance ?? ''] ?? 'plain';
   const stale = Boolean(latestTradeDate && data.as_of_date && data.as_of_date < latestTradeDate);
   const statusNote = briefStatusNote(data.status);
 
@@ -184,25 +181,23 @@ export const StockTextBriefPanel: React.FC<Props> = ({
           <Notice>{statusNote}。</Notice>
         ) : null}
 
-        <p className="text-xs text-muted-foreground">
-          行情截至 {data.price_as_of_date ?? '未提供'}；新聞截止 {data.news_cutoff_date ?? data.as_of_date}；產生時間 {data.generated_at ? taipeiDateTime(data.generated_at) : '未提供'}。系統只檢查格式、引用和部分數字，沒有驗證推論是否正確。
-        </p>
+        <BriefProvenance data={data} evidence={evidence} />
+        <div>
+          <Button asChild variant="outline" size="sm">
+            {/* 新分頁開，抽屜和捲動位置都留著 */}
+            <Link href={`/stock/${encodeURIComponent(symbol)}/report`} target="_blank" rel="noopener">
+              <FileText aria-hidden />
+              完整報告（可列印、存成 PDF）
+            </Link>
+          </Button>
+        </div>
         {/* 整體結論 */}
         <section
           aria-label="整體結論"
           className="py-2 sm:py-4"
         >
           <div>
-            <p className="max-w-3xl border-l-2 border-border-strong pl-3 text-xl font-semibold leading-relaxed text-foreground sm:text-2xl">
-              {b.headline}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Tag tone={stanceTone}>
-                <StanceIcon tone={stanceTone} />
-                整體 {STANCE[b.overall_stance ?? ''] ?? b.overall_stance}
-              </Tag>
-              <Tag>分析信心 {CONF[b.confidence ?? ''] ?? b.confidence}</Tag>
-            </div>
+            <BriefHeadline brief={b} />
             <p className="mt-2 text-xs leading-5 text-muted-foreground">分析信心：{CONF_HINT}</p>
             {b.confidence_reason ? (
               <p className="mt-3 text-sm leading-7 text-subtle">
@@ -268,7 +263,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
 
         <BriefAudit />
         <p className="text-xs leading-6 text-muted-foreground">
-          {data.disclaimer?.text ?? DEFAULT_DISCLAIMER}
+          {data.disclaimer?.text ?? AI_BRIEF_DISCLAIMER}
         </p>
 
         <EvidenceSheet />

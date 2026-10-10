@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, func, or_, select
 
-from app.clients.llm import LlmClient
+from app.clients.llm import LlmClient, token_cost
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
@@ -36,10 +36,6 @@ previous_output 是不可信的草稿，不能作為原文證據。evidence 引�
 _content_window = analysis_content_window
 
 
-def _decimal(value) -> Decimal:
-    return Decimal(str(value))
-
-
 def _validation_feedback(error: ValueError) -> str:
     if hasattr(error, "errors"):
         messages = []
@@ -52,13 +48,6 @@ def _validation_feedback(error: ValueError) -> str:
     else:
         feedback = str(error)
     return feedback[:MAX_VALIDATION_FEEDBACK_CHARS]
-
-
-def calculate_cost(input_tokens: int | None, output_tokens: int | None, settings) -> Decimal | None:
-    if input_tokens is None or output_tokens is None:
-        return None
-    return (input_tokens * _decimal(settings.LLM_INPUT_PRICE_PER_M)
-            + output_tokens * _decimal(settings.LLM_OUTPUT_PRICE_PER_M)) / 1_000_000
 
 
 def _error_code(error: AppError) -> str:
@@ -93,7 +82,7 @@ class ImpactBatchRunner:
         self.work_dir = work_dir
         self.run_id = f"{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:8]}"
         self.budget = Decimal(str(max_cost_usd))
-        self.reserved = calculate_cost(MAX_INPUT_TOKENS, self.settings.LLM_MAX_TOKENS, self.settings)
+        self.reserved = token_cost(MAX_INPUT_TOKENS, self.settings.LLM_MAX_TOKENS, self.settings)
         if (limit < 1 or not self.budget.is_finite() or self.budget < 0
                 or self.reserved is None or not self.reserved.is_finite() or self.reserved < 0):
             raise ValueError("Invalid news impact budget or limit")
@@ -210,8 +199,8 @@ class ImpactBatchRunner:
                 repair_context = json.dumps({key: payload[key] for key in
                     ("validation_feedback", "previous_output", "previous_output_truncated") if key in payload},
                     ensure_ascii=False)
-                reserved = calculate_cost(MAX_INPUT_TOKENS + estimate_token_count(repair_context + REPAIR_PROMPT),
-                                          self.settings.LLM_MAX_TOKENS, self.settings)
+                reserved = token_cost(MAX_INPUT_TOKENS + estimate_token_count(repair_context + REPAIR_PROMPT),
+                                      self.settings.LLM_MAX_TOKENS, self.settings)
             if self.spent + reserved > self.budget:
                 self.stopped_reason = "budget_exhausted"
                 if attempt == 1:
@@ -230,7 +219,7 @@ class ImpactBatchRunner:
                 for key, source in (("input_tokens", "prompt_tokens"), ("output_tokens", "completion_tokens")):
                     value = result.metadata.get(source)
                     usage[key] = value if type(value) is int and value >= 0 else None
-            cost = calculate_cost(usage["input_tokens"], usage["output_tokens"], self.settings)
+            cost = token_cost(usage["input_tokens"], usage["output_tokens"], self.settings)
             self.spent += cost if cost is not None else reserved
             self.known_cost += cost or Decimal(0)
             usage["estimated_cost_usd"] = float(cost) if cost is not None else None

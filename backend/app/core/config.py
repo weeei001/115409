@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     JOBS_IMPACT_LIMIT: int = Field(100, ge=1)
     JOBS_IMPACT_MAX_COST_USD: float = Field(0.50, ge=0, allow_inf_nan=False)
     JOBS_BRIEF_TIMEOUT_SECONDS: float = Field(180, gt=0, allow_inf_nan=False)
+    # Settled reviews of past briefs fed back into new ones: "" off, "*" every stock, or comma-separated codes.
+    TEXT_BRIEF_LESSONS_SYMBOLS: str = ""
+    # Reviews written per warmup run, one model call each; 0 writes none while briefs still read existing ones.
+    JOBS_LESSONS_LIMIT: int = Field(30, ge=0)
 
     JWT_SECRET: str = "change-me-in-production-use-long-random-string"
     JWT_ALGORITHM: str = "HS256"

@@ -25,6 +25,7 @@ from app.features.news.eligibility import contains_simulation
 from .compliance import compliance_rules_signature
 from .evidence import (FIELD_GLOSSARY, NEWS_FIRST_PUBLIC_LIMITATION, TIMELINE_TRADING_DAYS,
                        build_evidence_bundle)
+from .lessons import PAST_REVIEWS_GUIDANCE, lessons_enabled
 from .prompts import TEXT_BRIEF_SYSTEM_PROMPT, few_shot_examples, select_examples
 from .prediction import (StrategyConfig, WeeklyPredictionOutput,
                          build_chart_payload, compute_weighted_regression,
@@ -250,17 +251,22 @@ class AnalysisService:
                 limitations=[gate.TEXT_BRIEF_CACHE_MISS_LIMITATION])
 
         config = build_llm_runtime_config(self.settings, self.llm.model_name)
+        lessons = lessons_enabled(self.settings, symbol)
+        if lessons:
+            # Kept out of the config when disabled, so enabling reviews for some stocks leaves the others' cache keys alone.
+            config["past_reviews"] = compute_config_hash({"guidance": PAST_REVIEWS_GUIDANCE,
+                                                          "limit": repository.PAST_REVIEW_LIMIT})[:12]
         config_hash = compute_config_hash(config)
         if not req.force_refresh and not refresh_sources:
             cached = await _db_work(repository.load_cached, self.db, symbol=symbol,
-                                    as_of=as_of, config_hash=config_hash)
+                                    as_of=as_of, config_hash=config_hash, lessons=lessons)
             if cached is not None:
                 return cached
 
         self._validate_symbol(symbol)
         if not refresh_sources or req.force_refresh:
             self.llm.require_enabled()
-        rows = await _db_work(repository.collect_rows, self.db, symbol=symbol, as_of=as_of)
+        rows = await _db_work(repository.collect_rows, self.db, symbol=symbol, as_of=as_of, lessons=lessons)
         rag = await self.rag.collect(symbol=symbol, as_of=as_of,
                                      max_events=gate.RAG_DEFAULT_MAX_NEWS_EVENTS, enforce_window=True)
         sources = await _db_work(repository.attach_article_ids, self.db, rag.news_sources)
@@ -281,16 +287,27 @@ class AnalysisService:
         if refresh_sources and not req.force_refresh:
             cached = await _db_work(repository.load_cached, self.db, symbol=symbol,
                 as_of=as_of, config_hash=config_hash, source_fingerprints={as_of: source_fingerprint},
-                evidence_fingerprint=evidence_fingerprint)
+                evidence_fingerprint=evidence_fingerprint, lessons=lessons)
             if cached is not None:
                 return cached
         self.llm.require_enabled()
         config.update(input_fingerprint=source_fingerprint, evidence_fingerprint=evidence_fingerprint)
         prompt = TEXT_BRIEF_SYSTEM_PROMPT + "\n<field_glossary>\n" + json.dumps(FIELD_GLOSSARY, ensure_ascii=False) + "\n</field_glossary>"
+        if lessons:
+            # Recorded per snapshot, so briefs with and without reviews can be compared later.
+            config["past_review_count"] = len(bundle.past_reviews)
+        if bundle.past_reviews:
+            prompt += PAST_REVIEWS_GUIDANCE
         started = perf_counter()
+        usage: dict[str, int] | None = {"prompt_tokens": 0, "completion_tokens": 0}
         for attempt in range(2):
             output = await self.llm.generate(system_prompt=prompt, payload=task_packet, schema=StockBehaviorTextBrief,
                                              examples=select_examples(symbol, as_of.isoformat()))
+            if usage is not None and all(output.metadata.get(key) is not None for key in usage):
+                for key in usage:
+                    usage[key] += output.metadata[key]
+            else:
+                usage = None  # A call the provider did not report leaves the total unknown, not zero.
             filtered_ids = []
             gate._filter_text_brief_evidence_ids(output.payload, allowed_ids=bundle.evidence_ids(),
                                                 filtered_ids=filtered_ids)
@@ -331,6 +348,9 @@ class AnalysisService:
                 + json.dumps(verification.compliance_violations or [fallback_message], ensure_ascii=False)
             )
         output.metadata["validation_attempts"] = attempt + 1
+        if usage is not None:
+            # Every call of this brief, not only the last attempt, so cost estimates include the retry.
+            output.metadata["usage_total"] = usage
         output.metadata["verification"] = {
             "removed_item_ids": verification.removed_item_ids,
             "compliance_rules": sorted({hit.split(":", 1)[0] for hit in verification.compliance_violations}),
@@ -379,6 +399,8 @@ class AnalysisService:
         response.verification = {key: len(value) for key, value in verification.model_dump().items()}
         response.analysis_mode = "historical_reanalysis" if as_of < today else "current_analysis" if as_of == today else None
         response.analysis_revision, response.config_hash = config["revision"], config_hash
+        if lessons:
+            response.past_review_count = len(bundle.past_reviews)
         await _db_work(self._save_snapshot, response, config, output.raw_text,
                        len(bundle.news), latency_ms, output.metadata)
         return response

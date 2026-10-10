@@ -2,8 +2,7 @@
  * 海報版面「看板」的數字：跟觀測台用同一組格式函式（fmtNum、fmtPrice、signedText），兩邊顯示的數字一定一樣。
  * 純函式，不碰 DOM（單元測試在 journeyMode.test.ts）。
  */
-import { signedText } from '@/components/common/LightEntry';
-import { fmtNum, fmtPrice } from '@/lib/utils/format';
+import { fmtNum, fmtPrice, signedText } from '@/lib/utils/format';
 import { getValueTone, type ValueTone } from '@/lib/utils/tone';
 import type { BeaconJourneyProps } from './types';
 

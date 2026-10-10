@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { AIFeedbackSummary, AITrackRecordResponse, MessageFeedback } from '../types/api';
+import type { AIFeedbackSummary, AITrackRecordResponse, AIUsageSummary, MessageFeedback } from '../types/api';
 
 /** openapi: GET /analyze/stock-behavior/track-record（省略 symbol 為全站統計） */
 export async function fetchAITrackRecord(symbol?: string, signal?: AbortSignal): Promise<AITrackRecordResponse> {
@@ -19,4 +19,9 @@ export async function rateChatMessage(conversationId: string, messageId: string,
 /** openapi: GET /admin/ai-feedback */
 export async function fetchAIFeedbackSummary(signal?: AbortSignal): Promise<AIFeedbackSummary> {
   return (await apiClient.get<AIFeedbackSummary>('/admin/ai-feedback', { signal })).data;
+}
+
+/** openapi: GET /admin/ai-usage */
+export async function fetchAIUsageSummary(signal?: AbortSignal): Promise<AIUsageSummary> {
+  return (await apiClient.get<AIUsageSummary>('/admin/ai-usage', { signal })).data;
 }

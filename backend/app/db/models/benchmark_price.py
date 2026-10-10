@@ -2,6 +2,9 @@ from sqlalchemy import Column, Date, DECIMAL, String
 
 from app.db.base import Base
 
+# The only benchmark stored: the TWSE capitalization-weighted price index, excluding dividends.
+TAIEX = "TAIEX"
+
 
 class BenchmarkPrice(Base):
     __tablename__ = "market_benchmark_prices"

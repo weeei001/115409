@@ -321,6 +321,10 @@ export interface TrackRecordOutcome {
   call: 'up' | 'down' | 'none';
   /** 基準日收盤到區間終點收盤的漲跌幅（%）；未到期為 null */
   return_pct?: number | null;
+  /** 同期間加權指數（未含息）的漲跌幅（%）；未到期或缺大盤資料為 null */
+  benchmark_return_pct?: number | null;
+  /** 區間終點的交易日（YYYY-MM-DD）；未到期為 null */
+  resolved_on?: string | null;
   result: 'hit' | 'miss' | 'no_call' | 'pending';
 }
 
@@ -340,6 +344,12 @@ export interface TrackRecordHorizon {
   hit_rate?: number | null;
   /** 同一批樣本中實際上漲的比例（每次都猜漲的命中率），0–1 */
   up_baseline_rate?: number | null;
+  /** 已到期、有方向判斷且有同期大盤資料的樣本數 */
+  relative_calls?: number;
+  /** 看多且漲幅勝過大盤、看空且表現落後大盤的次數 */
+  relative_hits?: number;
+  /** relative_hits / relative_calls，0–1；沒有樣本為 null */
+  relative_hit_rate?: number | null;
   no_call: number;
   pending: number;
 }
@@ -371,4 +381,192 @@ export interface AIFeedbackSummary {
   unhelpful: number;
   helpful_rate?: number | null;
   recent_unhelpful: Array<{ message_id: string; conversation_id: string; rated_at: string; answer_excerpt: string }>;
+}
+
+// ── AI 回測（GET /admin/ai-backtest/stream 的 done 事件、GET /admin/ai-backtest/result） ──
+
+export type BacktestStance = 'bullish' | 'mildly_bullish' | 'neutral' | 'mildly_bearish' | 'bearish';
+export type BacktestGroupKey = 'rule' | 'ai_plain' | 'ai_signals';
+export type BacktestPreset = 'conservative' | 'standard' | 'aggressive';
+
+export interface BacktestGroupDecision {
+  /** AI 呼叫失敗時為 null，持股不變 */
+  stance?: BacktestStance | null;
+  signal_keys?: string[];
+  reason?: string;
+  /** 規則換算的目標持股比例 0–1；中性為 null */
+  target_exposure?: number | null;
+  /** 隔日開盤成交的股數；買為正、賣為負 */
+  traded_shares?: number;
+  failed?: boolean;
+}
+
+export interface BacktestDecisionRecord {
+  date: string;
+  execution_date?: string | null;
+  /** 判斷日收盤到之後第 5 個交易日收盤的漲跌（%） */
+  forward_return_pct?: number | null;
+  market_return_pct?: number | null;
+  active_signals?: string[];
+  groups: Partial<Record<BacktestGroupKey, BacktestGroupDecision>>;
+}
+
+export interface BacktestTierStats {
+  stance: BacktestStance;
+  count: number;
+  avg_forward_pct?: number | null;
+  hit_rate?: number | null;
+}
+
+export interface BacktestCitationStats {
+  key: string;
+  label: string;
+  available: number;
+  cited: number;
+  avg_edge_pct?: number | null;
+  cited_hit_rate?: number | null;
+}
+
+export interface BacktestGroupResult {
+  key: BacktestGroupKey;
+  label: string;
+  final_value: number;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  trades: number;
+  costs_paid: number;
+  /** 0–1 */
+  avg_exposure: number;
+  directional_calls: number;
+  hit_rate?: number | null;
+  beat_market_rate?: number | null;
+  failed_calls?: number;
+  tiers: BacktestTierStats[];
+  citations?: BacktestCitationStats[];
+  /** 每個交易日收盤的資產，和 AIBacktestResult.dates 對齊 */
+  equity: number[];
+}
+
+/** openapi: AIBacktestResult */
+export interface AIBacktestResult {
+  symbol: string;
+  start: string;
+  end: string;
+  preset: BacktestPreset;
+  initial_cash: number;
+  decision_every: number;
+  model_name?: string | null;
+  dates: string[];
+  buy_and_hold: number[];
+  market_index: number[];
+  groups: BacktestGroupResult[];
+  decisions: BacktestDecisionRecord[];
+  method_note: string;
+}
+
+// ── 訊號檢驗（GET /admin/signal-check） ──
+
+export type SignalReading = 'bullish' | 'bearish';
+
+export interface SignalPeriodStats {
+  /** 已走完觀察期、去除重疊後的事件數 */
+  events: number;
+  /** 成立日收盤到第 N 個交易日收盤的平均漲跌（%） */
+  avg_return_pct?: number | null;
+  /** 0–1 */
+  up_rate?: number | null;
+  /** 漲跌勝過同期加權指數的比例，0–1 */
+  beat_market_rate?: number | null;
+  /** 平均漲跌減同期加權指數漲跌（百分點） */
+  avg_excess_pct?: number | null;
+  /** 扣一次買賣成本後的平均漲跌（%）；只有偏多訊號才算 */
+  net_return_pct?: number | null;
+}
+
+export interface SignalStats {
+  key: string;
+  label: string;
+  definition: string;
+  /** 一般解讀，不是買賣建議 */
+  reading: SignalReading;
+  source: string;
+  discovery: SignalPeriodStats;
+  validation: SignalPeriodStats;
+  /** 期間內成立、觀察期還沒走完的事件數 */
+  pending: number;
+}
+
+export interface RecentSignal {
+  date: string;
+  key: string;
+  label: string;
+  reading: SignalReading;
+}
+
+export interface SignalEvidenceItem {
+  /** 證據編號 sg_01 起；AI 判斷時用這個編號引用 */
+  id: string;
+  key: string;
+  label: string;
+  definition: string;
+  reading: SignalReading;
+  source: string;
+  fired_on: string;
+  /** 成立日距判斷日幾個交易日；0 是判斷日當天 */
+  trading_days_ago: number;
+  /** 截至判斷日，股票清單全部股票的歷史統計 */
+  all_stocks: SignalPeriodStats;
+  /** 截至判斷日，這檔股票自己的歷史統計 */
+  this_stock: SignalPeriodStats;
+  /** 全部股票的平均漲跌減任一天進場（百分點） */
+  edge_vs_baseline_pct?: number | null;
+}
+
+/** openapi: GET /admin/signal-evidence → SignalEvidenceResponse */
+export interface SignalEvidenceResponse {
+  symbol: string;
+  as_of: string;
+  /** 查詢日當天或之前最近的交易日 */
+  decision_date: string;
+  horizon: number;
+  baseline: SignalPeriodStats;
+  items: SignalEvidenceItem[];
+  method_note: string;
+}
+
+/** openapi: GET /admin/signal-check → SignalCheckResponse */
+export interface SignalCheckResponse {
+  symbol?: string | null;
+  stock_count: number;
+  horizon: number;
+  start: string;
+  split: string;
+  end: string;
+  latest_date?: string | null;
+  round_trip_cost_pct: number;
+  /** 任一天進場：同一批股票、同一期間每隔 N 個交易日取一天 */
+  baseline: SignalStats;
+  signals: SignalStats[];
+  recent?: RecentSignal[];
+  method_note: string;
+}
+
+/** openapi: GET /admin/ai-usage → AIUsageSummary（AI 摘要的 token、產生時間與估算成本） */
+export interface AIUsageSummary {
+  days: number;
+  /** 期間內產生的摘要份數，含沒有通過檢查、未產出內容的 */
+  briefs: number;
+  unavailable: number;
+  /** 有 token 紀錄的份數；平均與成本只用這些計算 */
+  measured: number;
+  avg_prompt_tokens?: number | null;
+  avg_completion_tokens?: number | null;
+  avg_latency_seconds?: number | null;
+  /** 需要第二次呼叫的比例，0–1 */
+  retry_rate?: number | null;
+  /** 美元／百萬 token */
+  input_price_per_m: number;
+  output_price_per_m: number;
+  avg_cost_usd?: number | null;
+  total_cost_usd?: number | null;
 }

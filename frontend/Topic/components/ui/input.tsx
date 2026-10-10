@@ -11,6 +11,9 @@ export const inputClass =
 /** 欄位標籤（表單小標） */
 export const fieldLabelClass = "block text-[13px] font-medium tracking-[0.04em] text-subtle"
 
+/** 包住欄位的標籤：同一組字，欄位排在下方 6px；放在 grid 裡也能縮窄（min-w-0） */
+export const stackedFieldLabelClass = cn(fieldLabelClass, "flex min-w-0 flex-col gap-1.5")
+
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input

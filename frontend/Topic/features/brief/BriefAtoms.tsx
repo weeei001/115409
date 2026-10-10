@@ -1,11 +1,12 @@
 import React from 'react';
 import { AlertTriangle, FileWarning, Minus, Plus, TrendingDown, TrendingUp } from 'lucide-react';
-import type { Direction } from '@/lib/types/textBrief';
+import type { Brief, Direction } from '@/lib/types/textBrief';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/common/Notice';
 import { cn } from '@/lib/cn';
+import { signedText } from '@/lib/utils/format';
 import type { BadgeTone } from '@/lib/utils/tone';
-import { claimTypeMeta, type BriefTone } from '@/lib/brief/textBriefLabels';
+import { claimTypeMeta, CONF, STANCE, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
 import type { EvidenceIndex, ResolvedEvidence } from '@/lib/brief/textBriefEvidence';
 import { EVIDENCE_CATEGORY } from '@/lib/brief/textBriefEvidence';
 
@@ -70,6 +71,26 @@ export const DirectionMark: React.FC<{ direction?: Direction; label?: string }> 
       <Icon size={13} aria-hidden />
       {label ? <span>{label}</span> : null}
     </span>
+  );
+};
+
+/** 關鍵交易日的漲跌幅：由後端依當日行情回填，不是模型寫的，所以直接照數字上紅漲綠跌；0 與缺值不上色 */
+export const KeyDayMove: React.FC<{ move?: number | null }> = ({ move }) => {
+  const cls = move != null && move > 0 ? 'text-up' : move != null && move < 0 ? 'text-down' : 'text-muted-foreground';
+  return <span className={cn('font-mono text-sm font-semibold tabular-nums', cls)}>{signedText(move, 2, '%')}</span>;
+};
+
+/** 整體結論的標題句與兩個標籤（整體立場、分析信心）：完整分析與可列印報告共用，說明文字各自排 */
+export const BriefHeadline: React.FC<{ brief: Brief }> = ({ brief }) => {
+  const tone: BriefTone = STANCE_TONE[brief.overall_stance ?? ''] ?? 'plain';
+  return (
+    <>
+      <p className="max-w-3xl border-l-2 border-border-strong pl-3 text-xl font-semibold leading-relaxed text-foreground sm:text-2xl">{brief.headline}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Tag tone={tone}><StanceIcon tone={tone} />整體 {STANCE[brief.overall_stance ?? ''] ?? brief.overall_stance}</Tag>
+        <Tag>分析信心 {CONF[brief.confidence ?? ''] ?? brief.confidence}</Tag>
+      </div>
+    </>
   );
 };
 

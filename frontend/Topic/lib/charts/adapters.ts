@@ -1,10 +1,10 @@
 import type { EChartsOption } from './echarts';
-import type { ChipsVolumeData } from '../types/api';
+import type { AIBacktestResult, ChipsVolumeData } from '../types/api';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import type { CompareChartMode } from '../types/compare';
 import type { CompareChartSeries } from '../utils/compare';
 import { LESS_THAN_ONE_LOT, fmtInstitutionalShares, fmtLotsAxisLabel, isUnderOneLot, lotsNumber, sharesToLots, withSign } from '../utils/format';
-import { getChartPalette, getInstitutionColors, getMaColors, type ChartPalette } from './theme';
+import { AI_SERIES_PALETTE, getChartPalette, getInstitutionColors, getMaColors, type ChartPalette } from './theme';
 
 /** 自訂 tooltip 是 HTML 字串（ECharts renderMode 'html' 會當 innerHTML）：拼進去的 API 值一律先跳脫（02-F5） */
 export function escapeHtml(value: unknown): string {
@@ -603,6 +603,40 @@ export function institutionalCompareOption(
     legend: legend(palette, series, { type: 'scroll', pageTextStyle: { color: palette.tickMuted, fontFamily: CHART_MONO } }),
     xAxis: baseAxis(palette, chart.dates),
     yAxis: valueAxis(palette, { axisLabel: institutionalAxisLabel }),
+    series,
+  };
+}
+
+/** AI 回測三組的線色：類別色、不帶漲跌意義；兩條基準用墨色與參考線色的虛線 */
+export const BACKTEST_GROUP_COLORS = { rule: AI_SERIES_PALETTE[2], ai_plain: AI_SERIES_PALETTE[1], ai_signals: AI_SERIES_PALETTE[0] } as const;
+
+const moneyAxisLabel = (value: number) => (Math.abs(value) >= 10_000 ? `${Math.round(value / 10_000)} 萬` : String(Math.round(value)));
+
+/** AI 回測的資產曲線：三組加買進持有、加權指數（換算成同樣的起始資金）；用內建圖例切換 */
+export function aiBacktestOption(result: AIBacktestResult, isDark: boolean): EChartsOption | null {
+  if (!result.dates.length) return null;
+  const palette = getChartPalette(isDark);
+  const series = [
+    ...result.groups.map((group) => ({ ...lineLook(BACKTEST_GROUP_COLORS[group.key], 2), name: group.label, data: group.equity })),
+    { ...lineLook(palette.text, 1.5, true), name: '買進持有', data: result.buy_and_hold },
+    { ...lineLook(palette.referenceLine, 1.5, true), name: '加權指數', data: result.market_index },
+  ];
+  return {
+    animation: false,
+    grid: chartGrid({ top: 34 }),
+    // 五條線在手機寬度會換行壓到刻度，單行可捲動
+    legend: legend(palette, series, { type: 'scroll', pageTextStyle: { color: palette.tickMuted, fontFamily: CHART_MONO } }),
+    tooltip: tooltip(palette, {
+      formatter: (params: unknown) => {
+        const items = (Array.isArray(params) ? params : [params]) as SeriesTooltipItem[];
+        const lines = items
+          .filter((item) => typeof item.value === 'number' && Number.isFinite(item.value))
+          .map((item) => `${swatch(item.color)}${escapeHtml(item.seriesName)}：${Math.round(item.value as number).toLocaleString('zh-TW')} 元`);
+        return [`<b>${escapeHtml(items[0]?.axisValue)}</b>`, ...lines].join('<br/>');
+      },
+    }),
+    xAxis: { ...baseAxis(palette, result.dates), boundaryGap: false },
+    yAxis: valueAxis(palette, { scale: true, axisLabel: { formatter: (value: number) => moneyAxisLabel(Number(value)) } }),
     series,
   };
 }
