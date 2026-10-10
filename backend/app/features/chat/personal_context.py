@@ -8,19 +8,6 @@ from .knowledge import reference_source
 from .schemas import PaperOrderDraft, PaperOrderIntent
 
 
-def personal_scopes(query, needs):
-    scopes = set(needs) & {"favorites", "portfolio"}
-    if re.search(r"我的收藏|我收藏|收藏股|收藏清單|my (?:watchlist|favorites)", query, re.I):
-        scopes.add("favorites")
-    if re.search(r"我的持股|我持有|我的投資|我的模擬|模擬持股|模擬帳戶|剩餘資金|可用資金|我的.{0,12}(?:股票|訂單|委託)|回顧|模擬.{0,20}(?:買|賣)|my (?:portfolio|positions)", query, re.I):
-        scopes.add("portfolio")
-    if re.search(r"(?:我|目前|現在).{0,12}(?:預算|本金|資金|買得起|能買多少|可以買多少)|(?:增加|減少|調整|設定|投入|取回).{0,8}(?:模擬資金|投資預算)|my (?:budget|cash)|can I afford", query, re.I):
-        scopes.add("portfolio")
-    if "favorites" in scopes and re.search(r"買|賣|投入|分配|配置|預算|本金|資金|投資|buy|sell|allocat|invest|afford", query, re.I):
-        scopes.add("portfolio")
-    return scopes
-
-
 def read_personal_context(session_factory, user_id, scopes, query=""):
     from app.features.favorites.repository import favorites
     from app.core.errors import ServiceUnavailable

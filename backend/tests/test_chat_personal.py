@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.features.chat import service as chat_module
-from app.features.chat.personal_context import paper_draft, paper_draft_offers, personal_scopes, read_personal_context
+from app.features.chat.personal_context import paper_draft, paper_draft_offers, read_personal_context
 from app.features.chat.schemas import AskRequest, AskResponse, ChatTurn, Intent, PaperOrderIntent
 from app.features.chat.service import ChatService
 from test_chat import FakeModels, FakeRetrieval
@@ -162,17 +162,33 @@ def test_order_ai_help_resolves_personal_symbols_and_returns_raw_proposals(monke
 
 
 @pytest.mark.parametrize("query,needs,expected", [
-    ("我的投資預算有多少？", [], {"portfolio"}),
-    ("我買得起 2330 嗎？", ["market"], {"portfolio"}),
-    ("目前資金可以買多少？", [], {"portfolio"}),
-    ("增加模擬資金", ["help"], {"portfolio"}),
-    ("從我的收藏幫我分配投入金額", ["favorites"], {"favorites", "portfolio"}),
-    ("這些收藏哪檔適合買？", ["favorites", "market"], {"favorites", "portfolio"}),
+    ("我的投資預算有多少？", ["portfolio"], {"portfolio"}),
+    ("我買得起 2330 嗎？", ["portfolio", "market"], {"portfolio"}),
+    ("目前資金可以買多少？", ["portfolio"], {"portfolio"}),
+    ("增加模擬資金", ["portfolio", "help"], {"portfolio"}),
+    ("從我的收藏幫我分配投入金額", ["favorites", "portfolio"], {"favorites", "portfolio"}),
+    ("這些收藏哪檔適合買？", ["favorites", "portfolio", "market"], {"favorites", "portfolio"}),
+    ("請從我的收藏選出值得研究的股票，不要讀取我的持股或資金", ["favorites"], {"favorites"}),
+    ("照先前說的先看這個帳戶", ["portfolio"], {"portfolio"}),
     ("我的收藏有哪些新聞？", ["favorites", "news"], {"favorites"}),
-    ("什麼是資金配置？", ["knowledge"], set()),
 ])
-def test_personal_scopes_include_budget_only_when_relevant(query, needs, expected):
-    assert personal_scopes(query, needs) == expected
+def test_private_reads_use_only_semantic_scopes(monkeypatch, chat_session_factory, query, needs, expected):
+    from app.features.chat.knowledge import reference_source
+
+    reads = []
+
+    def reader(factory, owner, scopes, query=""):
+        reads.append((owner, scopes))
+        return [], reference_source("Owned personal data", "{}", category="personal")
+
+    monkeypatch.setattr(chat_module, "read_personal_context", reader)
+    models = FakeModels(intent={"stocks": [], "data_needs": needs})
+    service = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
+                          session_factory=chat_session_factory)
+    response, _, _ = asyncio.run(service._prepare(trusted(query)))
+    assert reads == [(7, expected)]
+    assert response._requires_portfolio == ("portfolio" in expected)
+    assert len(models.calls) == 1
 
 
 def test_unconfigured_portfolio_is_distinct_from_zero_funds(monkeypatch):

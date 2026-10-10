@@ -12,13 +12,12 @@ from app.features.chat.router import get_service
 from app.features.chat.schemas import AskRequest
 from test_chat import NOW, chat, events, published_answer
 from app.features.chat.prompts import INVESTMENT_DISCLAIMER
-from app.features.chat.service import _is_recommendation
 
 
 @pytest.mark.parametrize("stream", [False, True])
 def test_recommendation_followup_fetches_market_without_appending_disclaimer(hub, stream):
     client, _, llm, retrieval = hub
-    llm.intent = {"stocks": ["2330", "2317"], "data_needs": ["news"],
+    llm.intent = {"stocks": ["2330", "2317"], "data_needs": ["market", "news"],
                   "standalone_query": "Recommend a stock from TSMC and Foxconn"}
     llm.answer = "Under a momentum assumption, I prefer TSMC based on its rising close. [S1]"
     response = client.post("/api/ask", json={
@@ -43,11 +42,6 @@ def test_recommendation_is_published_without_citation_gate(hub, stream):
     llm.answer = "Buy TSMC. [S99]"
     response = client.post("/api/ask", json={"query": "哪個最推薦買", "stream": stream})
     assert published_answer(response, stream) == llm.answer
-
-
-@pytest.mark.parametrize("query", ["如何在模擬下單頁買進股票？", "外資買賣超多少？", "What does buy mean?"])
-def test_order_help_and_market_facts_are_not_recommendations(query):
-    assert not _is_recommendation(query)
 
 
 @pytest.fixture

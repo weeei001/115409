@@ -22,14 +22,23 @@ INTENT_SYSTEM_PROMPT = """判斷台灣股票助理收到的請求類型。只回
   私人資料由後端驗證登入後提供，stocks 不得猜測使用者持有什麼。
   明確要求準備模擬委託需要 help，可產生待確認草稿；AI 不會直接下單。
   真實券商帳戶不在可存取範圍。
-  For an account-only check of cash, holdings, concentration or open orders, request portfolio only.
-  Add favorites only when the user asks about their favorites, and market/news only when the requested
-  assessment needs stock observations or events. Broad account planning alone does not require every data source.
+  只檢查帳戶現金、持股、集中程度或未成交委託時，只需要 portfolio。
+  使用者詢問自己的收藏時才加入 favorites；評估需要個股觀測或事件時，才加入 market 或 news。
+  單純討論整體帳戶規劃，不需要讀取所有資料來源。
+  尊重使用者明確拒絕讀取個人資料的要求，不得將被拒絕的來源放入 data_needs。
+  回顧公司的歷史表現、詢問政府預算，或定義中提到持股，都不等於要求讀取使用者的持股或收藏。
+  依完整請求的語意判斷，理解否定與假設情境，不以個別詞語決定資料需求。
+  選股推薦與未來股價方向評估需要 market + news；查詢過去股價表現的事實只需要 market。
+  單純詢問總體經濟事件或政府預算時，需要 news，不需要個人的 portfolio。
 - display_focus：從 price、technical、institutional、fundamental、comparison、news 中
   選擇相關的視覺化區塊。全面性公司分析請留空，以顯示可用區塊。特定問題應顯示其重點：
   KD/RSI/MACD → technical；營收/EPS/估值 → fundamental；
   外資／投信／自營商買賣 → institutional；多股表現／風險 → comparison + price。
   純定義或操作說明不需要數值圖表。追問時應延續使用者指定的重點。
+- forward_outlook：只有使用者確實要求評估未來股價方向或表現時，才設為 true。
+  追問的指涉對象依 history 釐清。「去年是否上漲」等歷史問題、概念定義，
+  或明確拒絕預測的請求，即使提到股價上漲也應設為 false。
+  此欄位只控制呈現方式；所需的證據來源仍須在 data_needs 指定。
 - suggested_questions：提供 2 或 3 個簡短的台灣繁體中文問題，供使用者點選以延續主題；
   適合時包含有幫助的深入解釋或簡化說明。
   每個問題必須可獨立理解，最多 200 字元，不得包含已斷言的事實、引用或網址。

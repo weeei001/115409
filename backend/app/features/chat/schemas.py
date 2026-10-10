@@ -43,6 +43,7 @@ class Intent(BaseModel):
     suggested_questions: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
     standalone_query: str | None = Field(default=None, max_length=6000)
     display_focus: list[Literal["price", "technical", "institutional", "fundamental", "comparison", "news"]] = Field(default_factory=list)
+    forward_outlook: bool = Field(default=False, strict=True)
     paper_order: PaperOrderIntent = Field(default_factory=PaperOrderIntent)
 
 
