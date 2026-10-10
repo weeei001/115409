@@ -22,6 +22,7 @@ from app.features.news.sentiment import TAIPEI_TZ, clean_text, extract_candidate
 
 
 MAX_INPUT_TOKENS = 8000
+MAX_VALIDATION_FEEDBACK_CHARS = 2000
 RETRY_DELAY = timedelta(hours=1)
 
 
@@ -213,6 +214,7 @@ class ImpactBatchRunner:
                 else:
                     try:
                         output = validate_output(result.payload, article=article, catalog=self.catalog)
+                        feedback = (output.validation_feedback or "")[:MAX_VALIDATION_FEEDBACK_CHARS] or None
                     except ValueError as exc:
                         feedback = ("; ".join(item["msg"] for item in exc.errors(include_input=False))
                                     if hasattr(exc, "errors") else str(exc))[:250]
