@@ -1,45 +1,77 @@
-@startuml
-title 股海明燈｜UML 部署圖
-skinparam shadowing false
-skinparam defaultFontName Microsoft JhengHei
-skinparam monochrome true
-skinparam linetype ortho
-left to right direction
+```@startuml
+title 圖 7-1-1 系統佈署圖
 
-node "使用者裝置" as client <<device>> {
-    node "瀏覽器" as browser <<executionEnvironment>>
+skinparam defaultFontName "標楷體"
+skinparam nodesep 30
+skinparam ranksep 55
+
+node "使用者裝置" <<device>> as client {
+  node "瀏覽器" <<executionEnvironment>> as browser {
+    artifact "前端應用程式" as spa
+  }
 }
 
-node "Cloudflare\n網站入口" as edge
-
-node "Windows 正式主機" as host <<device>> {
-    node "Docker" as docker_runtime <<executionEnvironment>> {
-        node "Tunnel 容器" as tunnel_runtime <<executionEnvironment>> {
-            artifact "cloudflared" as tunnel <<artifact>>
-        }
-        node "反向代理容器" as proxy_runtime <<executionEnvironment>> {
-            artifact "Nginx" as proxy <<artifact>>
-        }
-        node "Qdrant 容器\n向量資料庫" as vector_runtime <<executionEnvironment>>
-    }
-    node "Node.js" as frontend_runtime <<executionEnvironment>> {
-        artifact "Next.js 前端" as frontend <<artifact>>
-    }
-    node "Python" as backend_runtime <<executionEnvironment>> {
-        artifact "FastAPI 後端\n包含 RAG 與排程" as backend <<artifact>>
-    }
-    node "MySQL\n關聯式資料庫" as sql_runtime <<executionEnvironment>>
+cloud "Cloudflare" as cf {
+  component "網站入口" as cfedge
 }
 
-node "外部服務\nAI／行情／新聞" as external
+node "Windows 正式主機" <<device>> as host {
+  node "Docker" <<executionEnvironment>> as docker {
+    node "Tunnel 容器" <<executionEnvironment>> as tunnelc {
+      artifact "cloudflared" as cloudflared
+    }
+    node "反向代理容器" <<executionEnvironment>> as proxyc {
+      artifact "Nginx" as nginx
+    }
+    node "Qdrant 容器" <<executionEnvironment>> as qdrantc {
+      artifact "向量資料庫" as qdrant
+    }
+  }
+  node "Node.js" <<executionEnvironment>> as nodert {
+    artifact "Next.js 前端" as web
+  }
+  node "Python" <<executionEnvironment>> as pyrt {
+    artifact "FastAPI 後端\n內含 RAG 檢索與排程協調器" as api
+    artifact "排程工作程序" as jobs
+  }
+  node "MySQL" <<executionEnvironment>> as mysqlrt {
+    artifact "關聯式資料庫" as mysql
+  }
+}
 
-' Solid, undirected associations represent UML communication paths.
-browser -- edge : HTTPS
-edge -- tunnel_runtime : Tunnel
-tunnel_runtime -- proxy_runtime : HTTP
-proxy_runtime -- frontend_runtime : HTTP
-proxy_runtime -- backend_runtime : HTTP
-backend_runtime -- vector_runtime : HTTP
-backend_runtime -- sql_runtime : SQL
-backend_runtime -- external : HTTPS
-@enduml
+cloud "AI 服務" as extai {
+  component "語言模型推論服務" as llm
+  component "文字嵌入服務" as embed
+}
+
+cloud "第三方服務" as extsvc {
+  component "Google 身分驗證服務" as google
+  component "行動推播服務" as fcm
+  component "郵件服務" as smtp
+}
+
+cloud "外部資料來源" as extdata {
+  component "證券市場資料\n證交所、櫃買中心、集保結算所" as market
+  component "財經新聞\n鉅亨網、自由時報" as news
+}
+
+spa -- cfedge : «HTTPS»
+cfedge -- cloudflared : «Tunnel»
+cloudflared -- nginx : «HTTP»
+nginx -- web : «HTTP»
+nginx -- api : «HTTP»
+
+api ..> jobs : «啟動»
+
+api -- qdrant : «HTTP»
+api -- mysql : «SQL»
+api -- extai : «HTTPS»
+api -- extsvc : «HTTPS»
+
+jobs -- qdrant : «HTTP»
+jobs -- mysql : «SQL»
+jobs -- extai : «HTTPS»
+jobs -- extsvc : «HTTPS»
+jobs -- extdata : «HTTPS»
+
+@enduml```
