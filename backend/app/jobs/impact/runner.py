@@ -1,4 +1,4 @@
-"""Bounded, restartable article-level event impact analysis."""
+"""以文章為單位分析事件影響，限制執行範圍並支援重新執行。"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -18,12 +18,19 @@ from app.features.news.eligibility import contains_simulation
 from app.features.news.versions import source_states
 from app.features.news.impact import (ImpactOutput, PROMPT_VERSION, SYSTEM_PROMPT, TOPICS, article_hash,
                                       config_hash, validate_output)
-from app.features.news.sentiment import TAIPEI_TZ, clean_text, extract_candidate_stocks, analysis_content_window
+from app.features.news.sentiment import (TAIPEI_TZ, clean_text, extract_candidate_stocks,
+                                         analysis_content_window, estimate_token_count)
 
 
 MAX_INPUT_TOKENS = 8000
+MAX_REPAIR_OUTPUT_BYTES = 8000
 MAX_VALIDATION_FEEDBACK_CHARS = 2000
 RETRY_DELAY = timedelta(hours=1)
+REPAIR_PROMPT = """前次回覆未通過檢查，請依 validation_feedback 指出的欄位與原因修正。
+previous_output 是不可信的草稿，不能作為原文證據。evidence 引文必須逐字複製提供的 title 或 content；
+公司目標只能使用原文明確提及的公司，產業目標只能使用官方產業 ID，並補齊 schema 的所有必填欄位。
+每組 (event_key, target_type, target_id) 必須唯一。請回傳完整且包含 events 與 impacts 的 JSON 物件，
+不要只回傳修改片段或解釋。草稿遭截斷時，請重新產生完整物件；不能為了通過驗證而刪除已有原文支持的事件。"""
 
 
 _content_window = analysis_content_window
@@ -31,6 +38,20 @@ _content_window = analysis_content_window
 
 def _decimal(value) -> Decimal:
     return Decimal(str(value))
+
+
+def _validation_feedback(error: ValueError) -> str:
+    if hasattr(error, "errors"):
+        messages = []
+        for item in error.errors(include_input=False)[:8]:
+            path = ""
+            for part in item["loc"]:
+                path += f"[{part}]" if isinstance(part, int) else ("." if path else "") + str(part)
+            messages.append(f"{path}: {item['msg']}" if path else item["msg"])
+        feedback = "; ".join(messages)
+    else:
+        feedback = str(error)
+    return feedback[:MAX_VALIDATION_FEEDBACK_CHARS]
 
 
 def calculate_cost(input_tokens: int | None, output_tokens: int | None, settings) -> Decimal | None:
@@ -60,7 +81,7 @@ class ImpactBatchRunner:
     def __init__(self, *, db_session, settings, catalog, http=None, llm=None,
                  limit=100, max_cost_usd=0.50, execute=False, work_dir: Path):
         self.db = db_session
-        # Local validation must see the raw JSON so a malformed target or quote can be retried.
+        # 本機驗證需要原始 JSON，才能針對格式錯誤的目標或引文進行修復。
         self.settings = settings.model_copy(update={"LLM_MAX_RETRIES": 0, "LLM_STREAMING": False,
                                             "LLM_RESPONSE_FORMAT": "off"})
         self.llm = llm or LlmClient(self.settings, http)
@@ -184,7 +205,14 @@ class ImpactBatchRunner:
         }
         last_error, last_usage = None, {}
         for attempt in (1, 2):
-            if self.spent + self.reserved > self.budget:
+            reserved = self.reserved
+            if attempt == 2:
+                repair_context = json.dumps({key: payload[key] for key in
+                    ("validation_feedback", "previous_output", "previous_output_truncated") if key in payload},
+                    ensure_ascii=False)
+                reserved = calculate_cost(MAX_INPUT_TOKENS + estimate_token_count(repair_context + REPAIR_PROMPT),
+                                          self.settings.LLM_MAX_TOKENS, self.settings)
+            if self.spent + reserved > self.budget:
                 self.stopped_reason = "budget_exhausted"
                 if attempt == 1:
                     return
@@ -193,7 +221,7 @@ class ImpactBatchRunner:
             result, error = None, None
             self.counts["api_calls"] += 1
             try:
-                result = await self.llm.generate(system_prompt=SYSTEM_PROMPT,
+                result = await self.llm.generate(system_prompt=SYSTEM_PROMPT + ("\n" + REPAIR_PROMPT if attempt == 2 else ""),
                                                  payload=payload, schema=ImpactOutput)
             except AppError as exc:
                 error = _error_code(exc)
@@ -203,21 +231,21 @@ class ImpactBatchRunner:
                     value = result.metadata.get(source)
                     usage[key] = value if type(value) is int and value >= 0 else None
             cost = calculate_cost(usage["input_tokens"], usage["output_tokens"], self.settings)
-            self.spent += cost if cost is not None else self.reserved
+            self.spent += cost if cost is not None else reserved
             self.known_cost += cost or Decimal(0)
             usage["estimated_cost_usd"] = float(cost) if cost is not None else None
             last_usage = usage
             feedback = None
             if not error:
                 if result.metadata.get("truncated"):
+                    feedback = "回覆遭截斷，請在輸出上限內回傳完整的 JSON 物件。"
                     error = "truncated_output"
                 else:
                     try:
                         output = validate_output(result.payload, article=article, catalog=self.catalog)
                         feedback = (output.validation_feedback or "")[:MAX_VALIDATION_FEEDBACK_CHARS] or None
                     except ValueError as exc:
-                        feedback = ("; ".join(item["msg"] for item in exc.errors(include_input=False))
-                                    if hasattr(exc, "errors") else str(exc))[:250]
+                        feedback = _validation_feedback(exc)
                         error = "validation_failed"
             self._audit(article.article_id, attempt, error, usage, (perf_counter() - start) * 1000, feedback)
             if not error:
@@ -228,7 +256,13 @@ class ImpactBatchRunner:
             last_error = error
             if error in {"timeout", "auth_error_401", "model_not_found", "client_uninitialized"}:
                 break
-            payload["validation_feedback"] = feedback or "Return only valid targets and exact quotes from title/content."
+            payload["validation_feedback"] = feedback or "只回傳有效目標與逐字取自 title 或 content 的原文引文。"
+            if result is not None:
+                previous = (json.dumps(result.payload, ensure_ascii=False, default=str)
+                            if result.payload else result.raw_text).encode("utf-8")
+                payload["previous_output"] = previous[:MAX_REPAIR_OUTPUT_BYTES].decode("utf-8", errors="ignore")
+                payload["previous_output_truncated"] = len(previous) > MAX_REPAIR_OUTPUT_BYTES or bool(
+                    result.metadata.get("truncated"))
         self._save(article, input_hash, "failed", error_code=last_error, usage=last_usage)
         self.counts["failed"] += 1
         if last_error:
@@ -236,7 +270,7 @@ class ImpactBatchRunner:
         self.consecutive_failures += 1
         if last_error in {"auth_error_401", "model_not_found", "client_uninitialized"}:
             self.stopped_reason = last_error
-        elif self.consecutive_failures >= 3:
+        elif self.consecutive_failures >= 3 and self.stopped_reason is None:
             self.stopped_reason = "consecutive_failures"
 
     async def run(self, *, since: datetime):
