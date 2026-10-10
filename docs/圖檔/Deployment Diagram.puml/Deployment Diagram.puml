@@ -1,78 +1,45 @@
 @startuml
+title 股海明燈｜UML 部署圖
 skinparam shadowing false
-skinparam node {
-    BackgroundColor White
-    BorderColor Black
-}
-skinparam component {
-    BackgroundColor White
-    BorderColor Black
-}
+skinparam defaultFontName Microsoft JhengHei
+skinparam monochrome true
+skinparam linetype ortho
 left to right direction
 
-' ==========================================
-' 1. 用戶端節點
-' ==========================================
-node "Web Client (使用者裝置)" as web_client <<device>> {
-    component "React UI" as ui <<component>>
+node "使用者裝置" as client <<device>> {
+    node "瀏覽器" as browser <<executionEnvironment>>
 }
 
-' ==========================================
-' 2. 前端與後端伺服器節點 (本機開發 / 雲端)
-' ==========================================
-node "Frontend Server" as frontend_server <<device>> {
-    component "Next.js API Proxy" as frontend_api <<component>>
+node "Cloudflare\n網站入口" as edge
+
+node "Windows 正式主機" as host <<device>> {
+    node "Docker" as docker_runtime <<executionEnvironment>> {
+        node "Tunnel 容器" as tunnel_runtime <<executionEnvironment>> {
+            artifact "cloudflared" as tunnel <<artifact>>
+        }
+        node "反向代理容器" as proxy_runtime <<executionEnvironment>> {
+            artifact "Nginx" as proxy <<artifact>>
+        }
+        node "Qdrant 容器\n向量資料庫" as vector_runtime <<executionEnvironment>>
+    }
+    node "Node.js" as frontend_runtime <<executionEnvironment>> {
+        artifact "Next.js 前端" as frontend <<artifact>>
+    }
+    node "Python" as backend_runtime <<executionEnvironment>> {
+        artifact "FastAPI 後端\n包含 RAG 與排程" as backend <<artifact>>
+    }
+    node "MySQL\n關聯式資料庫" as sql_runtime <<executionEnvironment>>
 }
 
-node "Backend Server" as backend_server <<device>> {
-    component "Backend Application" as backend <<component>>
-}
+node "外部服務\nAI／行情／新聞" as external
 
-' ==========================================
-' 3. 資料庫節點
-' ==========================================
-node "Database Server" as db_node <<device>> {
-    component "MySQL Database" as mysql <<component>>
-}
-
-' ==========================================
-' 4. RAG 微服務叢集 (Docker Compose)
-' ==========================================
-node "RAG Docker Host" as rag_node <<device>> {
-    component "Cloudflared" as cloudflared <<component>>
-    component "Reverse Proxy" as nginx <<component>>
-    component "RAG Engine" as rag <<component>>
-    component "Vector DB" as qdrant <<component>>
-}
-
-' ==========================================
-' 5. 雲端外部服務
-' ==========================================
-cloud "External Services" as ext_node <<device>> {
-    component "NVIDIA NIM" as ext_llm <<component>>
-    component "Google OAuth API" as ext_google <<component>>
-    component "TWSE / 鉅亨網" as ext_data <<component>>
-}
-
-' ==========================================
-' 網路通訊協定與實際連線 (Port / Protocols)
-' ==========================================
-' 前端交互
-web_client --> frontend_server
-web_client --> backend_server
-
-frontend_server --> backend_server
-
-' 後端依賴與存取
-backend_server --> db_node
-
-' RAG Docker 叢集內部架構與通訊
-backend_server --> rag_node
-cloudflared --> nginx
-nginx --> rag
-rag --> qdrant
-
-' AI 推論與爬蟲連線
-backend_server --> ext_node
-rag_node --> ext_node
+' Solid, undirected associations represent UML communication paths.
+browser -- edge : HTTPS
+edge -- tunnel_runtime : Tunnel
+tunnel_runtime -- proxy_runtime : HTTP
+proxy_runtime -- frontend_runtime : HTTP
+proxy_runtime -- backend_runtime : HTTP
+backend_runtime -- vector_runtime : HTTP
+backend_runtime -- sql_runtime : SQL
+backend_runtime -- external : HTTPS
 @enduml
