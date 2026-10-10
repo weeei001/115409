@@ -131,6 +131,32 @@ def test_retention_is_enforced_on_reads_even_before_opportunistic_cleanup(client
     assert client.get(f"/admin/ai-conversations/{uuid4()}", headers=headers).status_code == 404
 
 
+def test_planning_and_coverage_are_admin_only_typed_diagnostics(client, db_session, settings):
+    _, headers = credentials(db_session, settings, admin=True)
+    _, member_headers = credentials(db_session, settings)
+    row = retained_run(db_session, outcome="direct")
+    row.data = {**row.data, "planning": [
+        {"stage": "plan", "status": "accepted", "result": {
+            "tasks": ["portfolio_review"], "portfolio_access": "requested",
+            "favorites_access": "not_needed", "private_debug": "PRIVATE_METADATA"}},
+        {"stage": "plan", "status": "accepted", "result": {"tasks": ["portfolio_review"]},
+         "effective_needs": ["portfolio"], "tokens": {"prompt_tokens": 42}, "private_debug": "PRIVATE_METADATA"}],
+        "evidence": {"requested": ["portfolio"], "available": [], "missing": ["portfolio"],
+                     "blocked": True, "status": "blocked", "private_debug": "PRIVATE_METADATA"}}
+    db_session.commit()
+    path = f"/admin/ai-conversations/{row.id}"
+    assert client.get(path, headers=member_headers).status_code == 403
+    response = client.get(path, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["planning"][0]["result"]["tasks"] == ["portfolio_review"]
+    assert data["planning"][1]["result"]["tasks"] == ["portfolio_review"]
+    assert data["planning"][1]["tokens"]["prompt_tokens"] == 42
+    assert data["evidence"]["blocked"] is True
+    assert data["evidence"]["missing"] == ["portfolio"]
+    assert "PRIVATE_METADATA" not in response.text
+
+
 def test_clipped_provenance_remains_readable_without_inventing_missing_values(client, db_session, settings):
     _, headers = credentials(db_session, settings, admin=True)
     row = retained_run(db_session)

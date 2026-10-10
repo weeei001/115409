@@ -10,7 +10,7 @@ from app.features.chat.schemas import AskRequest
 from app.features.chat.service import ChatService
 from app.features.news.impact import ImpactOutput, SYSTEM_PROMPT
 from app.jobs.impact.runner import ImpactBatchRunner
-from test_chat import FakeRetrieval, MODEL_ANSWER
+from test_chat import FakeRetrieval, MODEL_ANSWER, plan_payload
 from test_llm_chat import completion, configured, stream_frame
 
 
@@ -41,8 +41,8 @@ def test_news_analysis_and_chat_share_provider_with_separate_limits(
             return httpx.Response(200, json=completion(text))
         assert body["max_completion_tokens"] == 2048
         assert request.extensions["timeout"]["read"] == 45
-        text = ('{"is_finance":true,"stocks":["2330"],"data_needs":["news"]}'
-                if "response_format" in body else "Invalid citation [S99]" if len(calls) == 2 else MODEL_ANSWER)
+        text = (json.dumps(plan_payload({"stocks": ["2330"], "data_needs": ["news"]})) if len(calls) == 1
+                else "Invalid citation [S99]")
         if body.get("stream"):
             first = stream_frame(text).replace(b'"delta": {', b'"delta": {"role": "assistant", ')
             return httpx.Response(200, content=first + stream_frame(finish="stop") + b"data: [DONE]\n\n",
@@ -55,14 +55,7 @@ def test_news_analysis_and_chat_share_provider_with_separate_limits(
             assert chat.intent_llm is chat.llm
             assert chat.llm.settings.LLM_MAX_RETRIES == 0
             request = AskRequest(query="台積電", stream=stream)
-            if stream:
-                events = [event async for event in chat.stream_events(request)]
-                assert events[-1]["type"] == "done"
-                assert events[-1]["answer"] == "Invalid citation [S99]"
-                statuses = [event["content"] for event in events if event["type"] == "status"]
-                assert not any("核對" in status for status in statuses)
-            else:
-                assert (await chat.ask(request)).answer == "Invalid citation [S99]"
+            assert (await chat.ask(request)).answer == "Invalid citation [S99]"
             analysis = AnalysisService(db=None, settings=settings, http=http, rag=object())
             news = ImpactBatchRunner(db_session=None, settings=settings, catalog={}, http=http, work_dir=tmp_path)
             assert analysis.llm.settings is settings

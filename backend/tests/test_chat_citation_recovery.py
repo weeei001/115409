@@ -15,17 +15,13 @@ def test_citations_are_published_unchanged_without_repair(chat, stream, answer):
     llm.answer = answer
     response = client.post("/api/ask", json={"query": "????????", "stream": stream})
     assert response.status_code == 200
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"] == answer
     assert data["tokens"] == {"input": 100, "output": 30, "thinking": None}
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
     assert len(retrieval.calls) == 1
     assert data["sources"][0]["url"] == "https://news.test/report"
     assert "https://news.test/report" not in data["answer"]
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "done" and llm.closed
-        assert "".join(event["content"] for event in result if event["type"] == "text") == answer
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -39,15 +35,11 @@ def test_truncation_and_citation_metadata_do_not_gate_or_retry_output(chat, stre
     llm.metadata.update(completion, thinking_tokens=7)
     response = client.post("/api/ask", json={"query": "???????", "stream": stream})
     assert response.status_code == 200
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"] == llm.answer
     assert data["tokens"] == {"input": 100, "output": 30, "thinking": 7}
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
     assert len(retrieval.calls) == 1
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "done" and llm.closed
-        assert [event["content"] for event in result if event["type"] == "text"] == [llm.answer]
 
 
 @pytest.mark.parametrize("news", ["接單成長", "工廠停工並取消財測"])
@@ -62,7 +54,7 @@ def test_outlook_is_not_replaced_by_verified_fallback(chat, news, stream):
     llm.answer = "保證上漲。[S99]"
     response = client.post("/api/ask", json={"query": "???????????", "stream": stream})
     assert response.status_code == 200
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"] == llm.answer
     assert any(source["stock_id"] == "2317" for source in data["sources"])
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
@@ -77,7 +69,7 @@ def test_partial_market_coverage_does_not_append_to_model_answer(chat, monkeypat
     service._market_sources = lambda *_: []
     response = client.post("/api/ask", json={"query": "????????", "stream": stream})
     assert response.status_code == 200
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"] == MODEL_ANSWER
     assert data["detected_stocks"] == ["2330", "2603"]
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1

@@ -22,9 +22,34 @@ MODEL_ANSWER = "【綜合摘要】\n台積電營收增加。[S1]"
 ANSWER = MODEL_ANSWER
 
 
+def plan_payload(intent):
+    if "data_needs" not in intent or not isinstance(intent["data_needs"], list):
+        return dict(intent)
+    needs = set(intent["data_needs"])
+    supported = {"news", "market", "portfolio", "favorites", "knowledge", "help"}
+    if not needs <= supported:
+        return dict(intent)
+    tasks = []
+    if intent.get("is_finance") is False and not needs & {"help", "portfolio", "favorites"}:
+        tasks.append("non_finance")
+    else:
+        if {"market", "news"} <= needs:
+            tasks.append("stock_analysis")
+        elif "market" in needs:
+            tasks.append("stock_facts")
+        elif "news" in needs:
+            tasks.append("news_search")
+        tasks.extend(task for scope, task in (("portfolio", "portfolio_review"),
+                     ("favorites", "favorites_review"), ("knowledge", "explain_finance"),
+                     ("help", "app_help")) if scope in needs)
+    return {**{key: value for key, value in intent.items() if key not in {"data_needs", "is_finance"}},
+            "tasks": tasks, "portfolio_access": "requested" if "portfolio" in needs else "not_needed",
+            "favorites_access": "requested" if "favorites" in needs else "not_needed"}
+
+
 class FakeModels:
     def __init__(self, intent=None, answer=MODEL_ANSWER, error=None, raw_intent=""):
-        self.intent = intent if intent is not None else {"is_finance": True, "stocks": ["2330"]}
+        self.intent = intent if intent is not None else {"is_finance": True, "stocks": ["2330"], "data_needs": ["news"]}
         self.answer, self.error, self.raw_intent = answer, error, raw_intent
         self.calls = []
         self.closed = False
@@ -35,7 +60,7 @@ class FakeModels:
 
     async def generate(self, **kwargs):
         self.calls.append(("intent", kwargs))
-        return LlmResult(self.intent, self.raw_intent, {})
+        return LlmResult(plan_payload(self.intent), self.raw_intent, {})
 
     async def text(self, **kwargs):
         self.calls.append(("text", kwargs))
@@ -43,15 +68,6 @@ class FakeModels:
             raise self.error
         return LlmResult({}, self.answer, self.metadata)
 
-    async def stream_text(self, **kwargs):
-        self.calls.append(("stream", kwargs))
-        try:
-            yield SimpleNamespace(text=self.answer[:8], metadata={})
-            if self.error:
-                raise self.error
-            yield SimpleNamespace(text=self.answer[8:], metadata=self.metadata)
-        finally:
-            self.closed = True
 
 
 class FakeRetrieval:
@@ -88,8 +104,8 @@ def chat(monkeypatch, chat_session_factory):
 
 def events(response):
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    return [json.loads(line.removeprefix("data: ")) for line in response.text.splitlines() if line.startswith("data:")]
+    assert response.headers["content-type"].startswith("application/json")
+    return response.json()
 
 
 def test_json_answer_keeps_contract_sources_tokens_and_ignores_demo_token(chat):
@@ -135,18 +151,13 @@ def test_all_listed_company_and_macro_news_do_not_require_six_stock_market_suppo
     assert "想分析或比較哪幾檔股票" not in response.json()["answer"]
 
 
-def test_frontend_stream_consumes_text(chat):
-    client, _, llm, retrieval = chat
-    result = events(client.post("/api/ask", json={"query": "台積電最近新聞", "stock_id": None, "stream": True}))
-    rendered = "".join(event["content"] for event in result if event["type"] == "text")
-    assert rendered.startswith(MODEL_ANSWER)
-    assert result[-1]["type"] == "done" and result[-1]["answer"] == rendered
-    assert result[-1]["actions"][0]["path"] == "/stock/2330" and result[-1]["sources"]
-    assert result[-1]["time_range"]["to"] == "2026-09-11 15:30:00"
-    assert [event["type"] for event in result[:4]] == ["status", "status", "dashboard", "status"]
-    assert [event["content"] for event in result if event["type"] == "status"] == [
-        "正在理解問題與對話脈絡…", "正在搜尋相關新聞與來源…", "正在依據資料產生回答…"]
-    assert llm.closed
+def test_legacy_stream_flag_returns_complete_json(chat):
+    client, _, llm, _ = chat
+    result = events(client.post("/api/ask", json={"query": "台積電最近新聞", "stream": True}))
+    assert result["answer"] == MODEL_ANSWER
+    assert result["actions"][0]["path"] == "/stock/2330" and result["sources"]
+    assert result["time_range"]["to"] == "2026-09-11 15:30:00"
+    assert llm.calls[-1][0] == "text"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -164,10 +175,10 @@ def test_answer_detail_reaches_answer_model_without_changing_retrieval(chat, str
         body["answer_detail"] = detail
     llm.answer = "【重點】\n\n台積電營收增加。[S1]"
     response = client.post("/api/ask", json=body)
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"].startswith(llm.answer)
     call_kind, call = llm.calls[-1]
-    assert call_kind == ("stream" if stream else "text")
+    assert call_kind == "text"
     assert instruction in call["system_prompt"]
     assert "優先於預設值" in call["system_prompt"]
     assert "不得捏造 KD/RSI/MACD 數值" in call["system_prompt"]
@@ -186,29 +197,26 @@ def test_invalid_answer_detail_is_rejected_before_model_calls(chat, stream, deta
 @pytest.mark.parametrize("stream", [False, True])
 def test_non_finance_reply_is_visible_without_retrieval_or_answer_model(chat, stream):
     client, _, llm, retrieval = chat
-    llm.intent = {"is_finance": False}
+    llm.intent = {"is_finance": False, "data_needs": []}
     response = client.post("/api/ask", json={"query": "今天天氣如何", "stream": stream})
-    if stream:
-        result = events(response)
-        assert [event["type"] for event in result] == ["status", "text", "done"]
-        assert result[1]["content"] == result[2]["answer"]
-        data = result[-1]
-    else:
-        data = response.json()
+    data = response.json()
     assert "個股分析、多股比較" in data["answer"]
     assert data["sources"] == [] and data["detected_stocks"] == []
     assert not retrieval.calls and len(llm.calls) == 1
 
 
-def test_malformed_intent_uses_public_news_and_stock_fallback_but_manual_stock_wins(chat, monkeypatch):
+def test_malformed_intent_stops_without_news_but_valid_manual_stock_wins(chat, monkeypatch):
     client, _, llm, retrieval = chat
     monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2024": {"name": "Test steel company"}})
     llm.intent = {"stocks": None, "time_from": "not a date"}
     response = client.post("/api/ask", json={"query": "2024年Q4台積電和鴻海營收"})
     assert response.status_code == 200
-    assert response.json()["detected_stocks"] == ["2330", "2317"]
-    assert retrieval.calls[-1]["time_from"] == "2026-08-12 15:30:00"
-    llm.intent = {"is_finance": True, "stocks": ["2330", "2317", "invalid"]}
+    assert response.json()["detected_stocks"] == []
+    assert response.json()["sources"] == []
+    assert "請稍後重試" in response.json()["answer"]
+    assert not retrieval.calls
+    assert [kind for kind, _ in llm.calls] == ["intent", "intent"]
+    llm.intent = {"is_finance": True, "stocks": ["2330", "2317", "invalid"], "data_needs": ["news"]}
     response = client.post("/api/ask", json={"query": "台積電和鴻海", "stock_id": "2454"})
     assert response.json()["detected_stocks"] == ["2454"]
     assert retrieval.calls[-1]["symbols"] == ["2454"]
@@ -216,7 +224,7 @@ def test_malformed_intent_uses_public_news_and_stock_fallback_but_manual_stock_w
 
 def test_reversed_intent_dates_use_default_news_window(chat):
     client, _, llm, retrieval = chat
-    llm.intent = {"is_finance": True, "stocks": [], "time_from": "2026-09-12", "time_to": "2026-09-01"}
+    llm.intent = {"is_finance": True, "stocks": [], "data_needs": ["news"], "time_from": "2026-09-12", "time_to": "2026-09-01"}
     client.post("/api/ask", json={"query": "昨日股票市場"})
     assert retrieval.calls[-1]["time_from"] == "2026-08-12 15:30:00"
     assert retrieval.calls[-1]["time_to"] == "2026-09-11 15:30:00"
@@ -232,7 +240,7 @@ def test_reversed_intent_dates_use_default_news_window(chat):
     (None, None, (None, None)),
 ])
 def test_semantic_time_range_is_normalized_without_reinterpreting_the_query(start, end, expected):
-    assert _intent_time_range(Intent(time_from=start, time_to=end)) == expected
+    assert _intent_time_range(Intent(time_from=start, time_to=end, data_needs=[])) == expected
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -240,11 +248,7 @@ def test_empty_search_is_not_found_or_stream_error(chat, stream):
     client, _, _, retrieval = chat
     retrieval.hits = []
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    if stream:
-        result = events(response)
-        assert result[-1]["type"] == "error" and "未找到相關新聞" in result[-1]["message"]
-    else:
-        assert response.status_code == 404 and "未找到相關新聞" in response.json()["detail"]
+    assert response.status_code == 404 and "未找到相關新聞" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -258,16 +262,12 @@ def test_missing_configuration_returns_http_503_before_starting_stream(chat, str
     assert not llm.calls
 
 
-def test_stream_timeout_and_unknown_errors_are_safe_and_close_provider(chat):
+def test_legacy_stream_flag_uses_normal_http_error(chat):
     client, _, llm, _ = chat
     llm.error = UpstreamTimeout("LLM 服務超時，請稍後再試")
-    result = events(client.post("/api/ask", json={"query": "台積電", "stream": True}))
-    assert result[-1] == {"type": "error", "message": "LLM 服務超時，請稍後再試"}
-    assert not any(event["type"] in {"text", "done"} for event in result) and llm.closed
-    llm.error = RuntimeError("private upstream key and SQL")
-    result = events(client.post("/api/ask", json={"query": "台積電", "stream": True}))
-    assert result[-1]["type"] == "error"
-    assert "private" not in json.dumps(result)
+    response = client.post("/api/ask", json={"query": "台積電", "stream": True})
+    assert response.status_code == 504
+    assert response.json()["detail"] == "LLM 服務超時，請稍後再試"
 
 
 def test_nonstream_timeout_uses_central_http_error_handler(chat):
@@ -277,27 +277,19 @@ def test_nonstream_timeout_uses_central_http_error_handler(chat):
     assert response.status_code == 504 and response.json()["detail"] == "LLM 服務超時，請稍後再試"
 
 
-def test_cancelled_consumer_closes_provider_stream(chat):
+def test_cancelled_request_closes_provider_operation(chat):
     _, service, llm, _ = chat
     async def cancel():
-        buffered = asyncio.Event()
+        started = asyncio.Event()
         async def waiting_provider(**kwargs):
+            started.set()
             try:
-                yield SimpleNamespace(text=MODEL_ANSWER, metadata={})
-                buffered.set()
-                await asyncio.Event().wait()
+                await asyncio.Future()
             finally:
                 llm.closed = True
-        llm.stream_text = waiting_provider
-        stream = service.stream_events(AskRequest(query="台積電", stream=True))
-        assert (await anext(stream))["type"] == "status"
-        assert (await anext(stream))["type"] == "status"
-        assert (await anext(stream))["type"] == "dashboard"
-        assert (await anext(stream))["type"] == "status"
-        pending = asyncio.create_task(anext(stream))
-        async with asyncio.timeout(1):
-            await buffered.wait()
-        assert not pending.done()
+        llm.text = waiting_provider
+        pending = asyncio.create_task(service.ask(AskRequest(query="台積電")))
+        await asyncio.wait_for(started.wait(), timeout=1)
         pending.cancel()
         with pytest.raises(asyncio.CancelledError):
             await pending
@@ -308,7 +300,6 @@ def test_cancelled_consumer_closes_provider_stream(chat):
 @pytest.mark.parametrize("stage", ["intent", "news"])
 def test_cancelled_stage_closes_inflight_operation_without_background_work(chat, stage):
     _, service, llm, retrieval = chat
-    statuses = {"intent": "正在理解問題與對話脈絡…", "news": "正在搜尋相關新聞與來源…"}
 
     async def cancel():
         started, closed = asyncio.Event(), asyncio.Event()
@@ -324,19 +315,11 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
             llm.generate = waiting
         elif stage == "news":
             retrieval.search_question = waiting
-        stream = service.stream_events(AskRequest(query="台積電", stream=True))
-        while True:
-            event = await anext(stream)
-            assert event["type"] != "text"
-            if event == {"type": "status", "content": statuses[stage]}:
-                break
-        assert not started.is_set()
-        pending = asyncio.create_task(anext(stream))
+        pending = asyncio.create_task(service.ask(AskRequest(query="台積電")))
         await asyncio.wait_for(started.wait(), timeout=1)
         pending.cancel()
         with pytest.raises(asyncio.CancelledError):
             await pending
-        await stream.aclose()
         assert closed.is_set()
         assert all(task is asyncio.current_task() for task in asyncio.all_tasks())
 
@@ -344,16 +327,10 @@ def test_cancelled_stage_closes_inflight_operation_without_background_work(chat,
 
 
 def published_answer(response, stream):
-    """檢查回傳格式，不檢核回答內容。"""
-    if stream:
-        result = events(response)
-        data = result[-1]
-        assert data["type"] == "done"
-        assert [event["content"] for event in result if event["type"] == "text"] == [data["answer"]]
-    else:
-        assert response.status_code == 200
-        data = response.json()
-    return data["answer"]
+    """檢查一般 JSON 回傳格式，不檢核回答內容。"""
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    return response.json()["answer"]
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -388,7 +365,7 @@ def test_model_formatting_and_links_are_not_rewritten(chat, stream, answer):
     client, _, llm, _ = chat
     llm.answer = answer
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"] == answer
     assert len([kind for kind, _ in llm.calls if kind in {"text", "stream"}]) == 1
 
@@ -415,7 +392,7 @@ def test_reasonable_paragraphs_headings_and_limitations_are_unchanged(chat, stre
                   "【關鍵事件】\n- 營收增加。[S1]\n\n"
                   "【投資提示】\n目前提供的資料不足以回答此問題。\n\n非投資建議。")
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"].startswith(llm.answer)
     assert "https://news.test/report" not in data["answer"]
     assert data["answer"] == llm.answer
@@ -426,7 +403,7 @@ def test_structural_list_intro_without_citation_is_allowed(chat, stream):
     client, _, llm, _ = chat
     llm.answer = "台積電整體狀況如下。[S1]\n\n以下為詳細重點整理：\n\n- 營收增加。[S1]"
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"].startswith(llm.answer)
     assert data["answer"] == llm.answer
 
@@ -439,7 +416,7 @@ def test_news_answer_with_unprefixed_list_intro_and_markdown_source_url(chat, st
     retrieval.hits[0]["payload"]["page_content"] = "AI需求推升先進製程需求。"
     llm.answer = "營收分析：\n\n- AI需求推升先進製程需求。[S1]"
     response = client.post("/api/ask", json={"query": "AI需求對台積電營收的具體影響是什麼？", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert response.status_code == 200
     assert data["answer"] == llm.answer
     assert data["dashboard"]["blocks"][0]["items"][0]["url"] == "https://news.test/report"
@@ -450,7 +427,7 @@ def test_insufficient_evidence_can_abstain_without_inventing_citations(chat, str
     client, _, llm, _ = chat
     llm.answer = INSUFFICIENT_EVIDENCE_ANSWER
     response = client.post("/api/ask", json={"query": "台積電", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"] == llm.answer
 
 
@@ -460,7 +437,7 @@ def test_forward_outlook_can_abstain_despite_available_sources(chat, stream):
     llm.intent.update(data_needs=["market", "news"], forward_outlook=True)
     llm.answer = INSUFFICIENT_EVIDENCE_ANSWER + "[S1]"
     response = client.post("/api/ask", json={"query": "台積電下周會漲嗎", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert response.status_code == 200
     assert data["answer"].startswith(INSUFFICIENT_EVIDENCE_ANSWER)
     assert "偏多" not in data["answer"] and "下週" not in data["answer"]
@@ -507,7 +484,7 @@ def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream, chat_
         body = json.loads(request.content)
         requested_models.append(body["model"])
         intent = "response_format" in body
-        text = '{"is_finance":true,"stocks":["2330"]}' if intent else "<think>private reasoning</think>" + MODEL_ANSWER
+        text = json.dumps(plan_payload({"stocks": ["2330"], "data_needs": ["news"]})) if intent else "<think>private reasoning</think>" + MODEL_ANSWER
         base = {"id": "chat-test", "object": "chat.completion", "created": 1, "model": body["model"]}
         if body.get("stream"):
             chunks = [{**base, "object": "chat.completion.chunk", "choices": [{"index": 0,
@@ -526,17 +503,10 @@ def test_chat_intent_and_answer_share_actual_llm_adapter(settings, stream, chat_
             service = ChatService(http=http, settings=configured, retrieval=FakeRetrieval(), session_factory=chat_session_factory)
             assert service.intent_llm is service.llm
             request = AskRequest(query="台積電營收", stream=stream)
-            if stream:
-                result = [event async for event in service.stream_events(request)]
-                assert result[-1]["type"] == "done", result
-                rendered = "".join(event["content"] for event in result if event["type"] == "text")
-                assert rendered == ANSWER and result[-1]["answer"] == ANSWER
-                assert result[-1]["tokens"]["output"] == 60
-            else:
-                response = await service.ask(request)
-                assert response.answer == ANSWER and response.tokens["output"] == 60
+            response = await service.ask(request)
+            assert response.answer == ANSWER and response.tokens["output"] == 60
     asyncio.run(run())
-    assert requested_models == ["test-shared-model", "test-shared-model"]
+    assert requested_models == ["test-shared-model"] * 2
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("with_chart", [False, True])
@@ -551,7 +521,7 @@ def test_answer_model_receives_actual_dashboard_for_both_transports(chat, monkey
         source="system_market", source_name="Database", pub_time="2026-09-11", url="", score=1,
         content=json.dumps(payload if with_chart else {}))])
     response = client.post("/api/ask", json={"query": "台積電 KD", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert response.status_code == 200 and data.get("answer")
     call = llm.calls[-1][1]
     panel_line = next(line for line in call["prompt"].splitlines()

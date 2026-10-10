@@ -132,13 +132,7 @@ def test_order_ai_help_resolves_personal_symbols_and_returns_raw_proposals(monke
     request = trusted(query)
 
     async def run():
-        if not stream:
-            return (await service.ask(request)).model_dump()
-        results = [event async for event in service.stream_events(request)]
-        assert results[-1]["type"] == "done"
-        assert not any("重新" in event.get("content", "") for event in results if event["type"] == "status")
-        assert "".join(event["content"] for event in results if event["type"] == "text") == models.answer
-        return results[-1]
+        return (await service.ask(request)).model_dump()
 
     result = asyncio.run(run())
     assert result["answer"] == models.answer
@@ -149,7 +143,7 @@ def test_order_ai_help_resolves_personal_symbols_and_returns_raw_proposals(monke
     assert retrieval.calls[0]["symbols"] == [row.symbol for row in favorites[:3]]
     assert len(json.loads(result["sources"][0]["content"])["favorites"]) == favorites_count
     assert result["sources"][0]["stock_ids"] == [row.symbol for row in favorites]
-    expected_calls = ["intent", "stream" if stream else "text"]
+    expected_calls = ["intent", "text"]
     assert [kind for kind, _ in models.calls] == expected_calls
     if favorites_count > 3:
         content = result["dashboard"]["blocks"][0]["description"]
@@ -188,7 +182,7 @@ def test_private_reads_use_only_semantic_scopes(monkeypatch, chat_session_factor
     response, _, _ = asyncio.run(service._prepare(trusted(query)))
     assert reads == [(7, expected)]
     assert response._requires_portfolio == ("portfolio" in expected)
-    assert len(models.calls) == 1
+    assert [kind for kind, _ in models.calls] == ["intent"]
 
 
 def test_unconfigured_portfolio_is_distinct_from_zero_funds(monkeypatch):
@@ -308,14 +302,7 @@ def semantic_paper_chat(monkeypatch, chat_session_factory):
 
 
 async def semantic_paper_response(service, request, stream):
-    if not stream:
-        return (await service.ask(request)).model_dump(mode="json")
-    events = [event async for event in service.stream_events(request)]
-    assert events[-1]["type"] == "done"
-    for event in events:
-        if event["type"] == "dashboard":
-            assert event["actions"] == events[-1]["actions"]
-    return events[-1]
+    return (await service.ask(request)).model_dump(mode="json")
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -328,7 +315,7 @@ async def semantic_paper_response(service, request, stream):
     ("台積電現在適合減碼嗎？", {"mode": "offer", "side": "sell", "quantity": 1000}, "sell", None, None),
     ("想討論台積電的投資安排", {"mode": "offer"}, "buy", None, None),
 ])
-def test_semantic_paper_intent_uses_one_classifier_without_executing_orders(
+def test_semantic_paper_intent_is_reviewed_without_executing_orders(
         semantic_paper_chat, db_session, stream, query, semantic, side, budget, quantity):
     from app.db.models.paper_portfolio import PaperOrder
 
@@ -346,7 +333,7 @@ def test_semantic_paper_intent_uses_one_classifier_without_executing_orders(
     assert UUID(drafts[0]["draft_id"])
     source = next(source for source in result["sources"] if source["title"] == "模擬單草稿")
     assert "是否需要建立模擬單" in source["content"] and "尚未建立委託" in source["content"]
-    assert [kind for kind, _ in models.calls] == ["intent", "stream" if stream else "text"]
+    assert [kind for kind, _ in models.calls] == ["intent", "text"]
     assert db_session.query(PaperOrder).count() == 0
 
 
@@ -451,8 +438,8 @@ def test_saved_conversation_restores_semantic_offer_identity(semantic_paper_chat
     assert saved_draft.budget is None and saved_draft.quantity is None
 
 
-def test_missing_semantic_classification_defaults_to_no_order_intent():
-    assert Intent.model_validate({"stocks": ["2330"]}).paper_order.mode == "none"
+def test_missing_order_classification_defaults_to_no_order_intent():
+    assert Intent.model_validate({"stocks": ["2330"], "data_needs": ["market"]}).paper_order.mode == "none"
 
 
 def test_account_mode_is_server_only_context():

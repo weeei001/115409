@@ -11,11 +11,7 @@ from test_chat_hub import hub
 
 
 async def respond(service, request, stream):
-    if not stream:
-        return (await service.ask(request)).model_dump(mode="json")
-    events = [event async for event in service.stream_events(request)]
-    assert events[-1]["type"] == "done"
-    return events[-1]
+    return (await service.ask(request)).model_dump(mode="json")
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -55,7 +51,7 @@ def test_public_semantic_needs_are_not_overridden_by_query_words(
     assert bool(retrieval.calls) == ("news" in needs)
     assert bool(market_reads) == ("market" in needs)
     assert [kind for kind, _ in models.calls] == (
-        ["intent", "stream" if stream else "text"] if needs else ["intent"])
+        ["intent", "text"] if needs else ["intent"])
     if needs:
         assert "這是未來走勢問題" not in models.calls[-1][1]["prompt"]
     else:
@@ -97,19 +93,20 @@ def test_semantic_outlook_controls_prompt_and_dashboard_without_another_classifi
     blocks = result["dashboard"]["blocks"] if result["dashboard"] else []
     assert any(block["title"] == "收盤價走勢" for block in blocks) == forward_outlook
     assert bool(retrieval.calls) == ("news" in needs)
-    assert [kind for kind, _ in models.calls] == ["intent", "stream" if stream else "text"]
+    assert [kind for kind, _ in models.calls] == ["intent", "text"]
 
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("payload,metadata", [
     ({}, {}),
+    ({"is_finance": True, "stocks": []}, {}),
     ({"stocks": None, "data_needs": ["portfolio"]}, {}),
     ({"data_needs": ["favorites"], "forward_outlook": "true"}, {}),
     ({"data_needs": ["portfolio"], "paper_order": {"mode": "invalid"}}, {}),
     ({"data_needs": ["portfolio"]}, {"finish_reason": "length"}),
     ({"data_needs": ["favorites"]}, {"finish_reason": "stop", "truncated": True}),
 ])
-def test_invalid_or_incomplete_intent_recovers_without_private_data_access(
+def test_invalid_or_incomplete_intent_stops_without_data_access(
         hub, monkeypatch, stream, payload, metadata):
     _, service, models, retrieval = hub
     models.intent = payload
@@ -127,10 +124,8 @@ def test_invalid_or_incomplete_intent_recovers_without_private_data_access(
     request = AskRequest(query="回顧台積電，提到我的收藏、持股與預算")
     request._user_id = 7
     result = asyncio.run(respond(service, request, stream))
-    assert result["detected_stocks"] == ["2330"]
-    assert result["sources"]
-    assert not any(source["category"] == "personal" for source in result["sources"])
-    assert retrieval.calls[0]["symbols"] == ["2330"]
-    assert "登入後" not in result["answer"]
-    assert "這是未來走勢問題" not in models.calls[-1][1]["prompt"]
-    assert [kind for kind, _ in models.calls] == ["intent", "stream" if stream else "text"]
+    assert result["detected_stocks"] == []
+    assert result["sources"] == []
+    assert not retrieval.calls
+    assert "請稍後重試" in result["answer"]
+    assert [kind for kind, _ in models.calls] == ["intent", "intent"]

@@ -92,16 +92,12 @@ def run_turn(db, scenario, drafts, *, stream):
                                duration_ms=0, current_time="2026-10-08")
         response._company_catalog = CATALOG
         response._requires_portfolio = True
-        yield response, "Fixed evidence for investment discussion", ""
+        return response, "Fixed evidence for investment discussion", ""
 
-    chat._prepare_steps = prepare
+    chat._prepare = prepare
 
     async def run():
         request = AskRequest(query=QUERY, stream=stream)
-        if stream:
-            events = [event async for event in chat.stream_events(request)]
-            assert events[-1]["type"] == "done"
-            return events[-1]["answer"], json.dumps(events, ensure_ascii=False)
         response = await chat.ask(request)
         return response.answer, response.model_dump_json()
 

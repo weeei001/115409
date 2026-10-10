@@ -23,7 +23,6 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
 let state: ReturnType<typeof useChat>;
 function Harness() { state = useChat(); return null; }
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
-const encoder = new TextEncoder();
 const apiRequests: Array<{ method?: string; url?: string }> = [];
 let historyMessages: Array<Record<string, unknown>> = [];
 const previousAdapter = apiClient.defaults.adapter;
@@ -38,21 +37,16 @@ apiClient.defaults.adapter = async (config) => {
   else throw new Error(`Unexpected request: ${config.method} ${config.url}`);
   return { data, config, status: 200, statusText: 'OK', headers: {} };
 };
-let streamRequest: RequestInit | undefined;
-let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
-const streamingFetch = async (_url: string | URL | Request, options?: RequestInit) => {
-  streamRequest = options;
-  return new Response(new ReadableStream<Uint8Array>({
-    start(controller) {
-      streamController = controller;
-      options?.signal?.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true });
-    },
-  }));
+let pendingRequest: RequestInit | undefined;
+const waitingFetch = async (_url: string | URL | Request, options?: RequestInit) => {
+  pendingRequest = options;
+  return new Promise<Response>((_resolve, reject) => {
+    options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+  });
 };
-const event = (value: Record<string, unknown>) => streamController!.enqueue(encoder.encode(`data: ${JSON.stringify(value)}\n\n`));
-const completedFetch = (messageId?: string) => async () => new Response(
-  `data: ${JSON.stringify({ type: 'done', answer: 'Completed answer', actions: [], ...(messageId ? { message_id: messageId } : {}) })}\n\n`,
-);
+const completedFetch = (messageId?: string) => async () => new Response(JSON.stringify({
+  answer: 'Completed answer', actions: [], ...(messageId ? { message_id: messageId } : {}),
+}));
 
 async function main() {
   let renderer: ReactTestRenderer | undefined;
@@ -84,12 +78,14 @@ async function main() {
     await act(async () => { await state!.rate(unsaved.id, 'up'); });
     assert.equal(feedbackCount(), ratedBeforeUnsaved, 'Completion without a saved ID cannot be rated');
 
-    globalThis.fetch = streamingFetch;
+    globalThis.fetch = waitingFetch;
     let pending: Promise<void>;
-    await act(async () => { pending = state!.send('Cancel'); await flush(); event({ type: 'text', content: 'Partial' }); await flush(); });
+    await act(async () => { pending = state!.send('Cancel'); await flush(); });
+    assert.equal(state!.messages.at(-1)!.content, '');
+    assert.equal(state!.loading, true);
     const cancelledId = state!.messages.at(-1)!.id;
     await act(async () => { state!.stop(); await pending!; await flush(); });
-    assert.equal(streamRequest?.signal?.aborted, true);
+    assert.equal(pendingRequest?.signal?.aborted, true);
     assert.equal(state!.messages.at(-1)!.status, 'interrupted');
     assert.equal(state!.messages.at(-1)!.serverId, undefined);
     await act(async () => { await state!.rate(cancelledId, 'up'); });
@@ -106,7 +102,7 @@ async function main() {
       values.set('topictest_access_token', 'second-token');
       values.set('topictest_user', JSON.stringify({ id: 8 }));
       fakeWindow.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
-      deliverOldResponse!(new Response('data: {"type":"done","answer":"Late answer","message_id":"stale-saved"}\n\n'));
+      deliverOldResponse!(new Response('{"answer":"Late answer","message_id":"stale-saved"}\n'));
       await pending!;
       await flush();
     });

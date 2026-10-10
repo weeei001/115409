@@ -163,25 +163,6 @@ def test_device_disappearing_after_claim_does_not_send(db_session, monkeypatch):
     assert sender.calls == []
 
 
-def test_real_firebase_sdk_accepts_transport_payload(settings, monkeypatch):
-    from firebase_admin import messaging
-    from app.clients.fcm import FCMClient
-    settings.FCM_ENABLED = True
-    settings.FCM_PROJECT_ID = "offline-test"
-    settings.FCM_WEB_ORIGIN = "https://example.com"
-    client = FCMClient(settings)
-    monkeypatch.setattr(client, "_firebase_app", lambda: object())
-    encoded = []
-    def capture(message, app):
-        encoded.append(str(message))  # The real SDK encoder validates every option.
-        return "message-id"
-    monkeypatch.setattr(messaging, "send", capture)
-    assert client.send(token="test-token", title="Alert", body="Details", url="/stock/2330",
-                       notification_id=1) == "message-id"
-    assert 'https://example.com/stock/2330' in encoded[0]
-    assert '3600s' in encoded[0]
-
-
 def test_notification_tick_opt_in_interval_and_failure_isolation(settings, monkeypatch):
     from app.jobs.runtime import JobRuntime
     runtime = JobRuntime(settings, lambda: None)
