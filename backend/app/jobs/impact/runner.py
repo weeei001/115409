@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, func, or_, select
 
-from app.clients.llm import LlmClient
+from app.clients.llm import LlmClient, token_cost
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
@@ -26,17 +26,6 @@ RETRY_DELAY = timedelta(hours=1)
 
 
 _content_window = analysis_content_window
-
-
-def _decimal(value) -> Decimal:
-    return Decimal(str(value))
-
-
-def calculate_cost(input_tokens: int | None, output_tokens: int | None, settings) -> Decimal | None:
-    if input_tokens is None or output_tokens is None:
-        return None
-    return (input_tokens * _decimal(settings.LLM_INPUT_PRICE_PER_M)
-            + output_tokens * _decimal(settings.LLM_OUTPUT_PRICE_PER_M)) / 1_000_000
 
 
 def _error_code(error: AppError) -> str:
@@ -71,7 +60,7 @@ class ImpactBatchRunner:
         self.work_dir = work_dir
         self.run_id = f"{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:8]}"
         self.budget = Decimal(str(max_cost_usd))
-        self.reserved = calculate_cost(MAX_INPUT_TOKENS, self.settings.LLM_MAX_TOKENS, self.settings)
+        self.reserved = token_cost(MAX_INPUT_TOKENS, self.settings.LLM_MAX_TOKENS, self.settings)
         if (limit < 1 or not self.budget.is_finite() or self.budget < 0
                 or self.reserved is None or not self.reserved.is_finite() or self.reserved < 0):
             raise ValueError("Invalid news impact budget or limit")
@@ -201,7 +190,7 @@ class ImpactBatchRunner:
                 for key, source in (("input_tokens", "prompt_tokens"), ("output_tokens", "completion_tokens")):
                     value = result.metadata.get(source)
                     usage[key] = value if type(value) is int and value >= 0 else None
-            cost = calculate_cost(usage["input_tokens"], usage["output_tokens"], self.settings)
+            cost = token_cost(usage["input_tokens"], usage["output_tokens"], self.settings)
             self.spent += cost if cost is not None else self.reserved
             self.known_cost += cost or Decimal(0)
             usage["estimated_cost_usd"] = float(cost) if cost is not None else None

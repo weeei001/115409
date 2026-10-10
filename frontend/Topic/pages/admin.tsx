@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Pause, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { Ledger, LedgerHeading, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { cellClass, headCellClass, Ledger, LedgerHeading, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button, textLinkClass } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,9 @@ import { cn } from '@/lib/cn';
 import { StockManagement } from '@/features/admin/StockManagement';
 import { AIConversationReview } from '@/features/admin/AIConversationReview';
 import { AIEffectivenessPanel } from '@/features/admin/AIEffectivenessPanel';
+import { SignalCheckPanel } from '@/features/admin/SignalCheckPanel';
+import { SignalEvidencePanel } from '@/features/admin/SignalEvidencePanel';
+import { AIBacktestPanel } from '@/features/admin/AIBacktestPanel';
 import { adminStageLabel, AdminRunDiagnostics } from '@/features/admin/RunDiagnostics';
 import { formatTaipei } from '@/lib/utils/date';
 import { Badge } from '@/components/ui/badge';
@@ -52,10 +55,7 @@ const ACTION_LABELS: Record<string, string> = {
   'administrator.bootstrap': '設定初始管理員', 'access.denied': '後台存取遭拒',
 };
 const TRIGGER_LABELS: Record<string, string> = { scheduled: '排程', schedule: '排程', manual: '手動', retry: '重跑' };
-const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-conversations', label: 'AI 成效與檢核' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
-/** 帳頁表格：表頭淺底加粗線，列高至少 44px */
-const cellClass = 'px-4 py-3 align-top first:pl-4 sm:first:pl-5';
-const headCellClass = 'h-11 px-4 align-middle text-[12px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground first:pl-4 sm:first:pl-5';
+const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-conversations', label: 'AI 成效與檢核' }, { id: 'signals', label: '訊號檢驗' }, { id: 'backtest', label: 'AI 回測' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
 /** 文字連結：中性色加底線，不用燈色 */
 const linkClass = cn('text-foreground', textLinkClass);
 
@@ -284,6 +284,8 @@ export default function AdminPage() {
   const [admins, setAdmins] = useState<Administrator[]>([]);
   const queryTab = TABS.find((item) => item.id === router.query.tab)?.id;
   const [tab, setTabState] = useState<(typeof TABS)[number]['id']>('jobs');
+  /** 開過的「訊號檢驗」「AI 回測」分頁：之後一直掛載，切走只隱藏 */
+  const [keptTabs, setKeptTabs] = useState({ signals: false, backtest: false });
   const [runOffset, setRunOffset] = useState(0);
   const [auditOffset, setAuditOffset] = useState(0);
   const [email, setEmail] = useState('');
@@ -530,6 +532,8 @@ export default function AdminPage() {
   const dataState: LightState = refreshing ? 'loading' : error ? 'error' : 'ready';
   const jobsDisabled = disabled || overview?.scheduler.status !== 'running';
   const activeAdmins = admins.filter((administrator) => administrator.is_active !== false).length;
+  // 第一次開啟時記下來（render 中調整 state，不等 effect，切過去的那一次就直接掛上）
+  if ((tab === 'signals' || tab === 'backtest') && !keptTabs[tab]) setKeptTabs({ ...keptTabs, [tab]: true });
   return <>{head}{header}<main aria-label="管理後台" className="mx-auto w-full max-w-[1320px] flex-1 space-y-10 px-4 py-6 sm:px-6 lg:space-y-16 lg:px-10 lg:py-10">
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -562,6 +566,10 @@ export default function AdminPage() {
     </> : null}
       <div className="space-y-6">
         <nav aria-label="後台功能" className={cn(tabListClass, 'overflow-x-auto')}>{TABS.map((item) => <button type="button" key={item.id} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)} className={cn(tabTriggerClass, 'px-4 focus-lamp-inset', tab === item.id && tabTriggerActiveClass)}>{item.label}</button>)}</nav>
+        {/* 這兩個分頁開過就不卸載、切走只用 hidden 隱藏：卸載會中止跑到一半的回測（最多數百次模型呼叫白跑），結果也會消失。
+            兩者只在按下送出時發請求，沒有背景輪詢；其他分頁照舊離開就卸載 */}
+        {keptTabs.backtest ? <div hidden={tab !== 'backtest'}><AIBacktestPanel onAccessError={handleAccessError} /></div> : null}
+        {keptTabs.signals ? <div hidden={tab !== 'signals'} className="space-y-10 lg:space-y-16"><SignalCheckPanel onAccessError={handleAccessError} /><SignalEvidencePanel onAccessError={handleAccessError} /></div> : null}
         {tab === 'ai-conversations' ? <div className="space-y-10 lg:space-y-16"><AIEffectivenessPanel onAccessError={handleAccessError} /><AIConversationReview onAccessError={handleAccessError} /></div> : null}
         {overview ? <>
         {tab === 'jobs' ? <div className="space-y-10">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <LedgerPanel framed className="space-y-3"><LedgerHeading title={<>執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</>} headingProps={{ ref: runDetailHeading, tabIndex: -1 }} />{runDetailLoading && !selectedRun ? <LoadingRows label="載入執行紀錄中…" className="h-[88px]" /> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="flex flex-wrap items-center gap-x-2 text-sm">{jobLabel(selectedRun.job_name)} {adminRunScope(selectedRun)} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 <span className="font-mono tabular-nums">{timeText(selectedRun.started_at)}</span> · 結束 <span className="font-mono tabular-nums">{timeText(selectedRun.finished_at)}</span>{selectedRun.duration_seconds != null ? ` · ${adminDuration(selectedRun.duration_seconds)}` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</LedgerPanel> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} actionError={actionError} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} state={dataState} /><Ledger aria-labelledby="runs-heading" title={<span id="runs-heading">執行紀錄</span>} stamp={<StateStamp state={dataState}>台灣時間</StateStamp>}><div className="min-w-0 bg-card"><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><OffsetPagination label="執行紀錄分頁" offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></div></Ledger></div> : null}

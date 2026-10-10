@@ -6,7 +6,7 @@ import re
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models.benchmark_price import BenchmarkPrice
+from app.db.models.benchmark_price import TAIEX, BenchmarkPrice
 from app.jobs.market_history import OfficialClient, _date, _months, _number, _upsert
 
 
@@ -36,7 +36,7 @@ def parse(payload: object, start: date, end: date) -> list[dict]:
         if close is not None and not 0 < Decimal(close) <= Decimal("9999999999.99"):
             raise ValueError("Invalid TWSE benchmark close")
         if start <= day <= end and close is not None:
-            rows[day] = {"symbol": "TAIEX", "date": day, "close": close}
+            rows[day] = {"symbol": TAIEX, "date": day, "close": close}
     return [rows[day] for day in sorted(rows)]
 
 
@@ -47,7 +47,7 @@ def import_history(engine, client: OfficialClient, start: date, end: date, *, in
         # ponytail: refresh only the latest month; omit --incremental to repair older gaps or corrections.
         with Session(engine) as db:
             first, last = db.execute(select(func.min(BenchmarkPrice.date), func.max(BenchmarkPrice.date))
-                                    .where(BenchmarkPrice.symbol == "TAIEX")).one()
+                                    .where(BenchmarkPrice.symbol == TAIEX)).one()
         if first and last and start.replace(day=1) >= first.replace(day=1):
             start = max(start, date(last.year, last.month, 1))
     count = 0

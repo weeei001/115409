@@ -3,7 +3,7 @@ import type { TechnicalDay } from '@/lib/types/view';
 import { fmtIndicator, INDICATOR_LABELS, kdSignal, MACD_DECIMALS, macdSignal, rsiSignal, type Signal } from '@/lib/utils/indicatorSignals';
 import { SignalTag } from '@/components/common/SignalTag';
 import { Button } from '@/components/ui/button';
-import { signedText } from '@/components/common/LightEntry';
+import { signedText } from '@/lib/utils/format';
 import { CardShell } from './CardShell';
 import type { LightState } from '@/components/common/Ledger';
 

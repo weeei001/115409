@@ -590,6 +590,7 @@ def test_blocked_answer_is_regenerated_once_with_same_evidence(db_session, setti
     class RecoveringLlm(FakeLlm):
         async def generate(self, **kwargs):
             output = await super().generate(**kwargs)
+            output.metadata.update(prompt_tokens=1000 * self.calls, completion_tokens=100)
             if self.calls == 1:
                 self.first_packet = deepcopy(kwargs["payload"])
                 output.payload["forward_views"]["short_1_5"]["reason"] = "目標價 2400 元"
@@ -603,7 +604,19 @@ def test_blocked_answer_is_regenerated_once_with_same_evidence(db_session, setti
     assert result.brief is not None and llm.calls == 2
     row = db_session.get(LlmResponse, result.snapshot_id)
     assert not row.is_fallback
-    assert json.loads(row.normalized_json)["model_metadata"]["validation_attempts"] == 2
+    metadata = json.loads(row.normalized_json)["model_metadata"]
+    assert metadata["validation_attempts"] == 2
+    # The retry is paid for too: usage covers both calls, while prompt_tokens stays the last call's.
+    assert metadata["usage_total"] == {"prompt_tokens": 3000, "completion_tokens": 200}
+    assert metadata["prompt_tokens"] == 2000
+
+
+def test_usage_total_is_left_out_when_the_provider_does_not_report_tokens(db_session, settings):
+    seed_prices(db_session)
+    result = run_service(db_session, settings)
+    metadata = json.loads(db_session.get(LlmResponse, result.snapshot_id).normalized_json)["model_metadata"]
+    # Unknown is not zero: the usage summary must not count this brief as costing nothing.
+    assert "usage_total" not in metadata
 
 
 def test_repeated_invalid_output_stops_after_two_attempts(db_session, settings):

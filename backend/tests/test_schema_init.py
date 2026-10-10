@@ -14,7 +14,7 @@ def test_fresh_schema_includes_chunks_and_preserves_existing_rows():
         metadata = schema_metadata()
         assert set(metadata.tables) == {
             "users", "password_reset_tokens", "favorite_stocks", "simulated_orders", "stock_info", "llm_responses",
-            "chat_conversations", "chat_messages",
+            "ai_brief_lessons", "chat_conversations", "chat_messages", "chat_message_feedback", "chat_validation_runs",
             "paper_accounts", "paper_orders", "paper_reviews", "paper_cash_movements",
             "notification_preferences", "push_devices", "notifications", "notification_deliveries",
             "market_benchmark_prices", "market_daily_prices", "market_technical_indicators",

@@ -3,12 +3,14 @@ import { RefreshCw } from 'lucide-react';
 import { figureClass, Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { FoldSection } from '@/components/common/CollapsibleSection';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
-import { signedText } from '@/components/common/LightEntry';
+import { signedText } from '@/lib/utils/format';
 import { Button } from '@/components/ui/button';
 import { fetchAITrackRecord } from '@/lib/api/aiEffectiveness';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { STANCE } from '@/lib/brief/textBriefLabels';
-import { hasEnoughSamples, hitRateSummary, hitRateText, HORIZON_LABEL, TRACK_RESULT_LABEL } from '@/lib/brief/trackRecord';
+import {
+  hasEnoughSamples, hitRateSummary, hitRateText, HORIZON_LABEL, relativeSummary, TRACK_RESULT_LABEL,
+} from '@/lib/brief/trackRecord';
 import type { AITrackRecordResponse, TrackRecordItem } from '@/lib/types/api';
 import { valueToneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
@@ -32,6 +34,15 @@ function RecentRow({ item }: { item: TrackRecordItem }) {
                   {signedText(outcome.return_pct, 2, '%')}
                 </span>
               ) : null}
+              {outcome.benchmark_return_pct != null ? (
+                <span className="ml-1 text-muted-foreground">
+                  （大盤{' '}
+                  <span className={cn('font-mono tabular-nums', valueToneText(outcome.benchmark_return_pct))}>
+                    {signedText(outcome.benchmark_return_pct, 2, '%')}
+                  </span>
+                  ）
+                </span>
+              ) : null}
               <span className="ml-1.5 text-muted-foreground">· {TRACK_RESULT_LABEL[outcome.result]}</span>
             </dd>
           </div>
@@ -42,7 +53,7 @@ function RecentRow({ item }: { item: TrackRecordItem }) {
 }
 
 /**
- * AI 判斷回顧：拿這檔股票過去的 AI 摘要立場，對照之後實際漲跌算命中率，並列出「每次都猜漲」的基準。
+ * AI 判斷回顧：拿這檔股票過去的 AI 摘要立場，對照之後實際漲跌算命中率，並列出「每次都猜漲」的基準與相對大盤的命中率。
  * 命中率是品質，不是漲跌方向：讀數不上漲跌色；只有實際漲跌幅依正負上色。
  */
 export function AITrackRecordCard({ symbol }: { symbol: string }) {
@@ -87,14 +98,18 @@ export function AITrackRecordCard({ symbol }: { symbol: string }) {
   } else {
     body = (
       <>
-        {current.horizons.map((horizon) => (
-          <LedgerPanel key={horizon.horizon} title={HORIZON_LABEL[horizon.horizon]} unit={`第 ${horizon.trading_days} 個交易日`}>
-            {/* 樣本不足時讀數改淡色，避免少數幾次的結果被當成結論 */}
-            <p className={cn(figureClass, !hasEnoughSamples(horizon) && 'text-muted-foreground')}>{hitRateText(horizon)}</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">命中率</p>
-            <p className="mt-2 text-[13px] leading-relaxed text-subtle">{hitRateSummary(horizon)}</p>
-          </LedgerPanel>
-        ))}
+        {current.horizons.map((horizon) => {
+          const relative = relativeSummary(horizon);
+          return (
+            <LedgerPanel key={horizon.horizon} title={HORIZON_LABEL[horizon.horizon]} unit={`第 ${horizon.trading_days} 個交易日`}>
+              {/* 樣本不足時讀數改淡色，避免少數幾次的結果被當成結論 */}
+              <p className={cn(figureClass, !hasEnoughSamples(horizon) && 'text-muted-foreground')}>{hitRateText(horizon)}</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">命中率</p>
+              <p className="mt-2 text-[13px] leading-relaxed text-subtle">{hitRateSummary(horizon)}</p>
+              {relative ? <p className="mt-1 text-[13px] leading-relaxed text-subtle">{relative}</p> : null}
+            </LedgerPanel>
+          );
+        })}
         <FoldSection
           className="sm:col-span-3"
           title="計算方式"

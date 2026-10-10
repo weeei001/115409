@@ -192,6 +192,8 @@ export interface TextBriefResponse {
   generated_at?: string | null;
   analysis_revision?: string | null;
   config_hash?: string | null;
+  /** 這份分析讀到幾則已到期判斷的檢討；這檔股票未啟用檢討回饋時為 null */
+  past_review_count?: number | null;
 }
 
 export interface TextBriefRequest {

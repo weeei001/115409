@@ -4,8 +4,9 @@ import { isChatAction } from '../nav';
 import { parseChatSources, type ChatSource, type ChatAction } from '../types/chat';
 import { parseChatDashboard, type ChatDashboard } from '../types/chatDashboard';
 import { ApiRequestError } from './client';
-import { genericMessageForStatus, pickDetailMessage, userFacingMessage } from './errorDetail';
+import { userFacingMessage } from './errorDetail';
 import { getRagApiTimeoutMs } from './ragTimeout';
+import { errorMessageFrom, parseSseEvent, streamLines } from './sse';
 
 const ASK_URL = `${API_BASE}/api/ask`;
 
@@ -70,31 +71,7 @@ interface StreamEvent {
   message_id?: unknown;
 }
 
-/** 接受 `data: {...}` 或整行 JSON；`[DONE]` 與註解行忽略 */
-function parseLine(line: string): StreamEvent | null {
-  const t = line.replace(/\r$/, '').trim();
-  if (!t || t.startsWith(':')) return null;
-  let json: string | null = null;
-  if (t.slice(0, 5).toLowerCase() === 'data:') json = t.slice(5).replace(/^\s+/, '');
-  else if (t.startsWith('{') || t.startsWith('[')) json = t;
-  if (!json || json === '[DONE]') return null;
-  try {
-    return JSON.parse(json) as StreamEvent;
-  } catch {
-    return null;
-  }
-}
-
 const safeActions = (value: unknown): ChatAction[] => (Array.isArray(value) ? value.filter(isChatAction) : []);
-
-/** 與 axios client 同一套規則：中文 detail 原樣，其餘依狀態碼給通用文案（決議 D13） */
-async function errorMessageFrom(res: Response): Promise<string> {
-  try {
-    return pickDetailMessage(JSON.parse(await res.text()), res.status);
-  } catch {
-    return genericMessageForStatus(res.status);
-  }
-}
 
 export interface RagAskStreamResult {
   /** 至少收到一段文字 */
@@ -112,7 +89,6 @@ export async function ragAskStream(
   const ctrl = new AbortController();
   const timeoutMs = getRagApiTimeoutMs();
   let timedOut = false;
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   // 逾時算的是「多久沒有新內容」：每收到一段就重新計時，持續串流中的長回覆不會被切斷
   let timer: ReturnType<typeof setTimeout> | undefined;
   const armTimer = () => {
@@ -162,9 +138,10 @@ export async function ragAskStream(
           ? { serverId: event.message_id } : {}) });
     };
 
+    /** 接受 `data: {...}` 或整行 JSON；`[DONE]` 與註解行忽略 */
     const processLine = (line: string): boolean => {
-      const event = parseLine(line);
-      if (!event || typeof event.type !== 'string') return false;
+      const event = parseSseEvent<StreamEvent>(line, { lenient: true });
+      if (!event) return false;
       switch (event.type) {
         case 'status':
           if (typeof event.content === 'string') handlers.onStatus?.(event.content);
@@ -190,24 +167,14 @@ export async function ragAskStream(
       }
     };
 
-    reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let carry = '';
     let fullRaw = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    const lines = streamLines(res.body, (chunk) => {
       armTimer();
-      const chunk = decoder.decode(value, { stream: true });
       fullRaw += chunk;
-      carry += chunk;
-      const lines = carry.split('\n');
-      carry = lines.pop() ?? '';
-      for (const line of lines) {
-        if (line.trim() && processLine(line)) return { hadStreamText, completed };
-      }
+    });
+    for await (const line of lines) {
+      if (line.trim() && processLine(line)) return { hadStreamText, completed };
     }
-    if (carry.trim() && processLine(carry)) return { hadStreamText, completed };
 
     // 讀取完整 JSON 回覆，登入使用者的對話另包含已儲存的訊息 ID。
     if (!hadStreamText && fullRaw.trim()) {
@@ -234,9 +201,5 @@ export async function ragAskStream(
   } finally {
     clearTimeout(timer);
     options?.signal?.removeEventListener('abort', abort);
-    if (reader) {
-      void reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-    }
   }
 }

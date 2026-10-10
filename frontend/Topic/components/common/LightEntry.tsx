@@ -1,14 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
-import { fmtPrice, withSign } from '@/lib/utils/format';
+import { fmtPrice, signedText } from '@/lib/utils/format';
 import { getValueTone, toneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
-
-/** 帶正負號的漲跌；負號用 U+2212，和數字等寬 */
-export function signedText(value: number | null | undefined, decimals = 2, suffix = ''): string {
-  if (value == null || !Number.isFinite(value)) return '--';
-  return `${withSign(value, Math.abs(value).toFixed(decimals))}${suffix}`;
-}
 
 export interface LightEntryProps {
   symbol: string;

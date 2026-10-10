@@ -1,4 +1,4 @@
-import { signedText } from '@/components/common/LightEntry';
+import { signedText } from '@/lib/utils/format';
 import { fmtIndicator, INDICATOR_LABELS, kdSignal, MACD_DECIMALS, macdSignal, rsiSignal } from '@/lib/utils/indicatorSignals';
 
 /** 技術指標三列：名稱帶參數、RSI／KD 1 位、MACD 柱 3 位，和個股頁的指標卡同一組格式（P2-091、04-U7） */

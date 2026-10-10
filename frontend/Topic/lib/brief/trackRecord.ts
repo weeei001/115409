@@ -39,3 +39,15 @@ export function hitRateSummary(horizon: TrackRecordHorizon): string {
   if (Math.abs(gap) < 0.05) return `${counts}；和每次都猜漲（${baseline}）相同`;
   return `${counts}；比每次都猜漲（${baseline}）${gap > 0 ? '高' : '低'} ${Math.abs(gap).toFixed(1)} 個百分點`;
 }
+
+/**
+ * 相對大盤的一行：看多且漲幅勝過加權指數、看空且落後加權指數算命中，分辨 AI 是不是只跟著大盤走。
+ * 沒有可比較的樣本時回傳 null，畫面就不顯示這一行。
+ */
+export function relativeSummary(horizon: TrackRecordHorizon): string | null {
+  const n = horizon.relative_calls ?? 0;
+  if (n === 0) return null;
+  const counts = `相對大盤：${n} 次中命中 ${horizon.relative_hits ?? 0} 次`;
+  if (n < MIN_TRACK_RECORD_SAMPLES) return counts;
+  return `${counts}（${fmtPercent(horizon.relative_hit_rate, { fromRatio: true, decimals: 1 })}）`;
+}

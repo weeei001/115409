@@ -43,6 +43,7 @@ def test_indicators_preserve_lookback_rounding_and_upsert(db_session):
     ("scheduler", "app.jobs.scheduler", "main", ()),
     ("methodology-train", "app.jobs.research.methodology_trainer", "main", ()),
     ("backtest-learned", "app.jobs.research.backtest_learned_prompt", "main", ()),
+    ("brief-lessons", "app.jobs.brief_lessons", "main", ()),
 ])
 def test_workers_dispatch_to_native_modules_with_compatible_arguments(monkeypatch, command, module, entry, prefix):
     calls = []

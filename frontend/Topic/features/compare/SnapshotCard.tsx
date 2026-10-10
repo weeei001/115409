@@ -1,9 +1,8 @@
 import { useMemo } from 'react';
 import { Sparkline } from '@/components/common/Sparkline';
 import { plottedSpan, plottedSpanText } from '@/lib/charts/adapters';
-import { signedText } from '@/components/common/LightEntry';
 import type { MultiStockResponse, StockInfo } from '@/lib/types/api';
-import { fmtPrice } from '@/lib/utils/format';
+import { fmtPrice, signedText } from '@/lib/utils/format';
 import { getValueTone, valueToneText } from '@/lib/utils/tone';
 
 interface Props {

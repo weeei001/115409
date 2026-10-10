@@ -12,7 +12,7 @@ COMMANDS = (
     "migrate-admin-schema",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler",
-    "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
+    "cache-warmup", "brief-lessons", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
     "stock-backfill",
@@ -68,6 +68,9 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job == "news-source-versions":
         from app.jobs.news_versions import main as versions
         return versions(argv)
+    if job == "brief-lessons":
+        from app.jobs.brief_lessons import main as lessons
+        return lessons(argv)
     if job == "methodology-train":
         from app.jobs.research.methodology_trainer import main as train
         return train(argv)

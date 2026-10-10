@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PriceChartData } from '@/lib/types/view';
-import { signedText } from '@/components/common/LightEntry';
+import { signedText } from '@/lib/utils/format';
 import { LightGlyph, type LightState } from '@/components/common/Ledger';
 import { getValueTone, type ValueTone } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
