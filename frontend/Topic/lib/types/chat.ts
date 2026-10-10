@@ -51,7 +51,7 @@ export interface ChatMessage {
   actions?: ChatAction[];
   dashboard?: ChatDashboard | null;
   sources?: ChatSource[];
-  /** 後端儲存的訊息 id（openapi: SavedMessage.id）：串流中的本地訊息要等回合結束、重讀對話後才有，有了才能回饋 */
+  /** 已儲存的訊息 ID，由完成的對話回覆帶入，或從歷史紀錄載入。 */
   serverId?: string;
   /** 使用者對這則回覆的評價（openapi: SavedMessage.feedback） */
   feedback?: 'up' | 'down' | null;

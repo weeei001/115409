@@ -11,9 +11,9 @@ from app.db.models.user import User
 from app.features.auth import service as auth_service
 from app.features.auth.router import Configuration, Database
 from app.features.chat.router import get_service as get_chat_service
-from app.features.chat.schemas import AskRequest, AskResponse
+from app.features.chat.schemas import AskRequest
 
-from .schemas import ConversationDetail, ConversationList, MessageFeedback, MessageFeedbackRequest
+from .schemas import ConversationAskResponse, ConversationDetail, ConversationList, MessageFeedback, MessageFeedbackRequest
 from .service import ConversationService
 
 
@@ -68,7 +68,7 @@ def clear_message_rating(conversation_id: UUID, message_id: UUID, user: CurrentU
     return service.rate(user.id, str(conversation_id), str(message_id), None)
 
 
-@router.post("/{conversation_id}/ask", response_model=AskResponse)
+@router.post("/{conversation_id}/ask", response_model=ConversationAskResponse)
 async def ask_conversation(conversation_id: UUID, body: AskRequest, user: CurrentUser, service: Service):
     service.chat.require_enabled()
     turn_id, request = service.begin(user.id, str(conversation_id), body)

@@ -6,10 +6,10 @@ from uuid import uuid4
 
 from app.core.errors import Conflict, NotFound, ServiceUnavailable
 from app.db.models.conversation import Conversation, ConversationMessage
-from app.features.chat.schemas import AskResponse, ChatTurn
+from app.features.chat.schemas import ChatTurn
 
 from . import repository
-from .schemas import ConversationDetail, ConversationList, ConversationSummary, MessageFeedback, SavedMessage
+from .schemas import ConversationAskResponse, ConversationDetail, ConversationList, ConversationSummary, MessageFeedback, SavedMessage
 
 
 LEASE_SECONDS = 120
@@ -139,12 +139,14 @@ class ConversationService:
                     elif event["type"] == "done":
                         content = event.get("answer", content)
                         extra.update({key: event[key] for key in ("dashboard", "actions", "sources") if key in event})
-                        finished = self._finish(conversation_id, turn_id, content, "completed", extra)
-                        if not finished:
+                        message_id = self._finish(conversation_id, turn_id, content, "completed", extra)
+                        if not message_id:
                             return
+                        finished = True
+                        event = {**event, "message_id": message_id}
                     elif event["type"] == "error":
                         extra["error"] = event.get("message", "服務暫時無法回應")
-                        finished = self._finish(conversation_id, turn_id, content, "failed", extra)
+                        finished = bool(self._finish(conversation_id, turn_id, content, "failed", extra))
                         if not finished:
                             return
                     yield event
@@ -164,7 +166,7 @@ class ConversationService:
         async with aclosing(self.stream_events(conversation_id, turn_id, request)) as events:
             async for event in events:
                 if event["type"] == "done":
-                    return AskResponse.model_validate(event)
+                    return ConversationAskResponse.model_validate(event)
                 if event["type"] == "error":
                     raise ServiceUnavailable(event["message"])
         raise ServiceUnavailable("對話回覆中斷，請稍後重試")

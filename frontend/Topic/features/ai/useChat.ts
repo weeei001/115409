@@ -186,23 +186,6 @@ export function useChat() {
     }
   }, [interrupt, resetAccount, changeMessages]);
 
-  /**
-   * 串流的 done 事件不帶訊息 id：回合結束後重讀一次對話，把後端 id 補到剛完成的回覆上，才能送回饋。
-   * 讀不到就不顯示回饋鈕；這段期間又開始新回合（最後一則還在串流）也不補。
-   */
-  const attachServerId = useCallback(async (conversation: string, localId: string) => {
-    try {
-      const saved = await getConversation(conversation);
-      if (conversationRef.current !== conversation) return;
-      const last = [...saved.messages].reverse().find((message) => message.role === 'assistant');
-      if (!last?.serverId || last.status !== 'completed') return;
-      changeMessages((messages) => messages.map((message) => message.id === localId
-        ? { ...message, serverId: last.serverId, feedback: last.feedback ?? null } : message));
-    } catch {
-      // 回饋是附加功能：讀取失敗不打擾對話
-    }
-  }, [changeMessages]);
-
   const send = useCallback(async (text: string) => {
     if (!readyRef.current || abortRef.current) return;
     if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
@@ -289,14 +272,14 @@ export function useChat() {
           pendingText = '';
           pendingStatus = undefined;
           if (!selectedId) completedHistory.current = appendCompletedChatTurn(history, text, answer);
-          update(() => ({ content: answer, streamStatus: undefined, status: 'completed', actions, dashboard, sources }));
+          update(() => ({ content: answer, streamStatus: undefined, status: 'completed', actions, dashboard, sources,
+            ...(selectedId && result.serverId ? { serverId: result.serverId, feedback: null } : {}) }));
         },
       }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
       if (frame !== null) { window.cancelAnimationFrame(frame); flush(); }
       if (!current()) return;
       update(() => ({ content: answer.trim() ? answer : '（無回覆內容）', streamStatus: undefined,
         status: result.completed ? 'completed' : 'interrupted', actions, dashboard, sources }));
-      if (selectedId && result.completed) void attachServerId(selectedId, assistantId);
     } catch (error) {
       if (!current()) return;
       const message = userFacingMessage(error, '請稍後再試。');
@@ -314,13 +297,16 @@ export function useChat() {
         if (selectedId) setRevision((value) => value + 1);
       }
     }
-  }, [changeMessages, resetAccount, interrupt, attachServerId]);
+  }, [changeMessages, resetAccount, interrupt]);
 
   /** 有幫助／沒幫助；再按一次同一顆取消。先更新畫面，送不出去再還原 */
   const rate = useCallback(async (messageId: string, rating: 'up' | 'down' | null) => {
+    if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
+    const owner = ownerRef.current;
     const conversation = conversationRef.current;
     const target = messagesRef.current.find((message) => message.id === messageId);
-    if (!conversation || !target?.serverId) return;
+    if (!owner || owner === 'guest' || !conversation || !target?.serverId
+      || target.role !== 'assistant' || target.status !== 'completed') return;
     const previous = target.feedback ?? null;
     const patch = (feedback: 'up' | 'down' | null) => changeMessages((messages) =>
       messages.map((message) => message.id === messageId ? { ...message, feedback } : message));
@@ -328,10 +314,11 @@ export function useChat() {
     try {
       await rateChatMessage(conversation, target.serverId, rating);
     } catch (error) {
-      if (conversationRef.current === conversation) patch(previous);
+      if (sessionOwner() !== owner || ownerRef.current !== owner || conversationRef.current !== conversation) return;
+      patch(previous);
       toast.error(userFacingMessage(error, '回饋沒有送出，請稍後再試。'));
     }
-  }, [changeMessages]);
+  }, [changeMessages, resetAccount]);
 
   return { messages, rate, loading, ready, notice, stopNotice, streamingMessageId, signedIn,
     conversations, conversationId, search, setSearch, historyLoading, historyError, hasMore,

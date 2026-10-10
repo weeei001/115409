@@ -381,6 +381,23 @@ async function check() {
   assert.equal(savedResult.completed, true);
   assert.deepEqual(continued, ['Continued']);
 
+  for (const payload of [
+    'data: {"type":"done","answer":"Saved answer","actions":[],"message_id":"saved-assistant"}\n\n',
+    JSON.stringify({ answer: 'Saved answer', actions: [], message_id: 'saved-assistant' }),
+  ]) {
+    globalThis.fetch = async () => new Response(payload);
+    let savedId: string | undefined;
+    await ragAskStream({ query: 'Saved' }, { onText: () => {}, onDone: (reply) => { savedId = reply.serverId; } },
+      { conversationId: 'conversation-one' });
+    assert.equal(savedId, 'saved-assistant', 'SSE and JSON acknowledgments carry the persisted message ID');
+    await ragAskStream({ query: 'Guest' }, { onText: () => {}, onDone: (reply) => assert.equal(reply.serverId, undefined) });
+  }
+  for (const messageId of [null, '', '  ', 123, {}]) {
+    globalThis.fetch = async () => new Response(`data: ${JSON.stringify({ type: 'done', answer: 'Legacy reply', message_id: messageId })}\n\n`);
+    await ragAskStream({ query: 'Legacy' }, { onText: () => {}, onDone: (reply) => assert.equal(reply.serverId, undefined) },
+      { conversationId: 'conversation-one' });
+  }
+
 }
 
 if (process.argv.includes('--child')) {
