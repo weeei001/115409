@@ -60,14 +60,18 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
 }) {
   const scope = useId();
   const account = useAuthAccount();
+  const [accepted, setAccepted] = useState(false);
+  const [declined, setDeclined] = useState(false);
+  const [order, setOrder] = useState<PaperOrder | null>(null);
+  const formActive = (!chatMode || accepted) && !order;
+  const refreshOnFocusRef = useRef(formActive);
+  refreshOnFocusRef.current = formActive || order?.status === 'pending';
   // 股票用搜尋選（顯示名稱），不再是純文字欄（P1-30）
-  const { data: stockInfos } = useStockInfos({ enabled: Boolean(account) });
+  const { data: stockInfos } = useStockInfos({ enabled: Boolean(account) && formActive });
   const stockList = useMemo(() => stockInfos ?? [], [stockInfos]);
   const [reference, setReference] = useState<Reference>({ status: 'idle', close: null, date: null });
   /** 送出前的確認摘要（P1-30）：按「送出委託」先看摘要，再按「確認送出」才真的送 */
   const [confirming, setConfirming] = useState(false);
-  const [accepted, setAccepted] = useState(false);
-  const [declined, setDeclined] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const [symbol, setSymbol] = useState(initial?.symbol ?? '');
@@ -76,7 +80,6 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
   const [reason, setReason] = useState(initial?.reason ?? '');
   const [observation, setObservation] = useState(initial?.observation ?? '');
   const days = String(initial?.review_after_days ?? 20);
-  const [order, setOrder] = useState<PaperOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -98,14 +101,26 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
     setAccepted(false);
     setDeclined(false);
     submitting.current = false;
+  }, [account, requestId]);
+
+  // 開啟對話草稿前先查詢已送出的委託；表單專用資料等使用者接受後才讀取。
+  const needsPortfolio = !chatMode || Boolean(requestId) || accepted;
+  useEffect(() => {
     if (!account) { setChecking(false); return; }
+    if (currentPortfolio) {
+      const match = requestId ? currentPortfolio.orders.find((item) => item.client_request_id === requestId) : undefined;
+      if (match) setOrder(match);
+      setChecking(false);
+      return;
+    }
+    if (!needsPortfolio) { setChecking(false); return; }
     const ctrl = new AbortController();
     setChecking(true);
     const refresh = () => {
       void fetchPaperPortfolio(ctrl.signal).then((portfolio) => {
         if (ctrl.signal.aborted) return;
         setPortfolio(portfolio);
-        const match = portfolio.orders.find((item) => item.client_request_id === requestId);
+        const match = requestId ? portfolio.orders.find((item) => item.client_request_id === requestId) : undefined;
         if (match) setOrder(match);
         setError(null);
         setChecking(false);
@@ -116,9 +131,10 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
       });
     };
     refresh();
-    window.addEventListener('focus', refresh);
-    return () => { ctrl.abort(); window.removeEventListener('focus', refresh); };
-  }, [account, requestId]);
+    const onFocus = () => { if (refreshOnFocusRef.current) refresh(); };
+    window.addEventListener('focus', onFocus);
+    return () => { ctrl.abort(); window.removeEventListener('focus', onFocus); };
+  }, [account, requestId, currentPortfolio, needsPortfolio]);
 
   const funds = currentPortfolio ?? portfolio;
   const code = symbol.trim().toUpperCase();
@@ -129,7 +145,7 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
 
   // 參考價：選定股票後讀最近收盤
   useEffect(() => {
-    if (!account || !/^[0-9A-Z]{1,10}$/.test(code)) { setReference({ status: 'idle', close: null, date: null }); return; }
+    if (!account || !formActive || !/^[0-9A-Z]{1,10}$/.test(code)) { setReference({ status: 'idle', close: null, date: null }); return; }
     const ctrl = new AbortController();
     setReference({ status: 'loading', close: null, date: null });
     fetchLatestPrice(code, { signal: ctrl.signal }).then((row) => {
@@ -138,7 +154,7 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
       setReference(close != null && Number.isFinite(close) && close > 0 ? { status: 'ready', close, date: row.date } : { status: 'error', close: null, date: null });
     }).catch(() => { if (!ctrl.signal.aborted) setReference({ status: 'error', close: null, date: null }); });
     return () => ctrl.abort();
-  }, [account, code]);
+  }, [account, code, formActive]);
   const estimate = paperEstimateText(side, Number(amount), reference);
 
   useEffect(() => {

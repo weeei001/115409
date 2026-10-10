@@ -5,6 +5,8 @@ import apiClient, { ApiRequestError } from '../../lib/api/client';
 import type { PaperOrder, PaperPortfolio } from '../../lib/api/paperPortfolio';
 import type { ChatAction, ChatMessage as Message } from '../../lib/types/chat';
 import { ChatMessage } from '../ai/ChatMessage';
+import { PaperOrderDraft } from './PaperOrderDraft';
+import { AUTH_CHANGE_EVENT } from '../../lib/auth/storage';
 
 Object.assign(globalThis, {
   React, IS_REACT_ACT_ENVIRONMENT: true, self: globalThis,
@@ -43,8 +45,10 @@ let portfolio = basePortfolio;
 let failNextOrder = false;
 let finishOrder: (() => void) | undefined;
 const sent: Array<Record<string, unknown>> = [];
+const requests: string[] = [];
 const previousAdapter = apiClient.defaults.adapter;
 apiClient.defaults.adapter = async (config) => {
+  requests.push(config.url ?? '');
   let data: unknown;
   if (config.url === '/stocks/info') data = [{ symbol: '2330', name: '台積電', industry: null }];
   else if (config.url === '/stocks/2330/latest') data = { close: 1000, date: '2026-10-09' };
@@ -93,13 +97,22 @@ async function main() {
   const unmount = async () => { await act(async () => { renderer?.unmount(); }); renderer = undefined; };
   try {
     await mount();
-    assert.match(text(renderer!.root), /要為 2330 台積電 建立模擬單嗎？/);
+    assert.match(text(renderer!.root), /要為 2330 建立模擬單嗎？/);
+    assert.deepEqual(requests, ['/paper-portfolio'], 'An unopened invitation only looks up a previously submitted order');
+    await act(async () => { fakeWindow.dispatchEvent(new Event('focus')); await flush(); });
+    assert.deepEqual(requests, ['/paper-portfolio'], 'Focusing the page must not refresh each unopened invitation');
     assert.equal(renderer!.root.findAllByType('form').length, 0);
     assert.equal(sent.length, 0, 'Receiving an AI proposal must not create an order');
     await click(renderer!, '暫時不用');
     assert.match(text(renderer!.root), /這次先不建立模擬單/);
     assert.equal(sent.length, 0, 'Declining must not create an order');
+    assert.deepEqual(requests, ['/paper-portfolio']);
     await click(renderer!, '重新開啟模擬單');
+    assert.equal(requests.filter((path) => path === '/stocks/2330/latest').length, 1, 'Reference price loads only after the invitation is accepted');
+    assert.equal(requests.filter((path) => path === '/stocks/info').length, 1);
+    assert.match(text(renderer!.root), /2330 台積電/);
+    await act(async () => { fakeWindow.dispatchEvent(new Event('focus')); await flush(); });
+    assert.equal(requests.filter((path) => path === '/paper-portfolio').length, 2, 'An open form refreshes spendable funds on focus');
     assert.ok(focused.includes('amount'), 'Opening the draft moves focus to its amount field');
     assert.equal(sent.length, 0, 'Accepting the invitation only opens the editable draft');
     await act(async () => { renderer!.root.findByType('input').props.onChange({ target: { value: '60000' } }); });
@@ -136,10 +149,18 @@ async function main() {
       fill_price: null, fee: null, tax: null, created_at: '', trade_date: null } as unknown as PaperOrder;
     await unmount();
     portfolio = { ...basePortfolio, orders: [created] };
+    const beforeRestoration = requests.length;
     await mount();
     assert.match(text(renderer!.root), /待成交/);
     assert.doesNotMatch(text(renderer!.root), /建立模擬單嗎/);
     assert.equal(sent.length, 2, 'Restoring history displays the existing order without another POST');
+    assert.deepEqual(requests.slice(beforeRestoration), ['/paper-portfolio'], 'Restoring a submitted order does not load form data or a reference price');
+    portfolio = { ...basePortfolio, orders: [{ ...created, status: 'filled', filled_quantity: 9, fill_price: 1000, trade_date: '2026-10-12' }] };
+    await act(async () => { fakeWindow.dispatchEvent(new Event('focus')); await flush(); });
+    assert.match(text(renderer!.root), /已成交/);
+    assert.deepEqual(requests.slice(beforeRestoration), ['/paper-portfolio', '/paper-portfolio'], 'A pending order still refreshes its status when focus returns');
+    await act(async () => { fakeWindow.dispatchEvent(new Event('focus')); await flush(); });
+    assert.equal(requests.length - beforeRestoration, 2, 'A settled order needs no further focus refresh');
     await unmount();
     portfolio = { ...basePortfolio, initialized: false };
     await mount();
@@ -147,6 +168,34 @@ async function main() {
     assert.match(text(renderer!.root), /先設定想投入的模擬資金/);
     assert.equal(sent.length, 2);
     await unmount();
+    const beforeSuppliedPortfolio = requests.length;
+    await act(async () => {
+      renderer = create(<PaperOrderDraft initial={action} requestId={action.draft_id} currentPortfolio={basePortfolio} chatMode />);
+      await flush();
+    });
+    assert.deepEqual(requests.slice(beforeSuppliedPortfolio), [], 'A supplied portfolio is already the order and funds snapshot');
+    await click(renderer!, '建立模擬單');
+    await act(async () => {
+      renderer!.update(<PaperOrderDraft initial={action} requestId={action.draft_id} currentPortfolio={{ ...basePortfolio, available_cash: 40000 }} chatMode />);
+      await flush();
+    });
+    assert.equal(renderer!.root.findAllByType('form').length, 1, 'A parent portfolio refresh preserves the accepted form');
+    assert.match(text(renderer!.root), /40,000/);
+    assert.equal(requests.slice(beforeSuppliedPortfolio).filter((path) => path === '/paper-portfolio').length, 0);
+    await act(async () => {
+      renderer!.update(<PaperOrderDraft initial={action} requestId={action.draft_id} currentPortfolio={{ ...basePortfolio, orders: [created] }} chatMode />);
+      await flush();
+    });
+    assert.match(text(renderer!.root), /待成交/);
+    await act(async () => {
+      values.delete('topictest_access_token');
+      fakeWindow.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+      await flush();
+    });
+    assert.match(text(renderer!.root), /登入後前往模擬投資/);
+    assert.doesNotMatch(text(renderer!.root), /待成交/);
+    await unmount();
+    values.set('topictest_access_token', 'fixture-token');
     for (const status of ['streaming', 'failed', 'interrupted'] as const) {
       await mount({ status }, status === 'streaming');
       assert.doesNotMatch(text(renderer!.root), /建立模擬單嗎/);
