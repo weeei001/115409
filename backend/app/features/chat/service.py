@@ -477,8 +477,7 @@ class ChatService:
     async def ask(self, request: AskRequest) -> AskResponse:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
-                          repair_max_tokens=None)
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds)
         try:
             self.require_enabled()
             async with asyncio.timeout_at(deadline):
@@ -508,8 +507,7 @@ class ChatService:
     async def stream_events(self, request: AskRequest):
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
-                          repair_max_tokens=None)
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds)
         try:
             async with aclosing(self._prepare_steps(request)) as steps:
                 while True:

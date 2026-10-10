@@ -57,7 +57,7 @@ def test_provider_reasoning_usage_reaches_chat_response(settings, stream, repair
                                  source="test", source_name="Test", pub_time="", url="", stock_id="", score=1)
             response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[source],
                                    tokens={}, duration_ms=0, current_time="2026-10-03 12:00")
-            audit = ChatAudit(AskRequest(query="Revenue?"), llm=llm, timeout_seconds=60, repair_max_tokens=None)
+            audit = ChatAudit(AskRequest(query="Revenue?"), llm=llm, timeout_seconds=60)
             audit.start_attempt("initial", llm)
             service._publish_answer(raw_text, metadata, response, audit=audit)
             attempts = 1

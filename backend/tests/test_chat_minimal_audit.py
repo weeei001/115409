@@ -9,7 +9,7 @@ from app.features.chat.schemas import AskRequest
 def new_audit():
     client = SimpleNamespace(model_name="fixture", settings=SimpleNamespace(LLM_MAX_TOKENS=2048))
     audit = ChatAudit(AskRequest(query="Discuss the fixed evidence"), llm=client,
-                      timeout_seconds=60, repair_max_tokens=2048)
+                      timeout_seconds=60)
     audit.start_attempt("initial", client)
     return audit, client
 
@@ -25,6 +25,9 @@ def test_direct_answer_is_not_recorded_as_validated():
     assert attempt.reason is None
     assert audit.data["reasons"] == []
     assert audit.data["attempt_count"] == 1
+    assert audit.data["schema_version"] == 2
+    assert "repair_max_tokens" not in audit.data
+    assert not {"reason", "issue", "hint", "claim", "detail", "diagnostics_truncated"} & audit.data["attempts"][0].keys()
     assert attempt.tokens.output == 12
     assert audit._attempt_started is None
 

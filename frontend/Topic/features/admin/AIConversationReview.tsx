@@ -139,7 +139,7 @@ export function AIConversationDetail({ record }: { record: AdminChatDetail }) {
         <div><dt className="text-muted-foreground">總耗時</dt><dd className="font-mono tabular-nums">{durationText(record.duration_ms)}</dd></div>
         <div><dt className="text-muted-foreground">整輪時間上限</dt><dd className="font-mono tabular-nums">{numberText(record.request_timeout_seconds)} 秒</dd></div>
         <div className="sm:col-span-2"><dt className="text-muted-foreground">已回報 Token 合計（未回報為 —）</dt><dd><TokenCounts tokens={record.tokens} /></dd></div>
-        <div><dt className="text-muted-foreground">修復輸出上限</dt><dd className="font-mono tabular-nums">{numberText(record.repair_max_tokens)} tokens</dd></div>
+        {record.repair_max_tokens != null ? <div><dt className="text-muted-foreground">修復輸出上限</dt><dd className="font-mono tabular-nums">{numberText(record.repair_max_tokens)} tokens</dd></div> : null}
         <div><dt className="text-muted-foreground">是否需要帳戶約束</dt><dd>{record.requires_portfolio ? '需要' : '不需要'}</dd></div>
         <div><dt className="text-muted-foreground">回答詳細度</dt><dd>{({ plain: '白話', standard: '標準', technical: '技術' } as Record<string, string>)[record.answer_detail] ?? record.answer_detail}</dd></div>
         <div><dt className="text-muted-foreground">紀錄格式版本</dt><dd className="font-mono">{record.schema_version}</dd></div>

@@ -104,6 +104,25 @@ def test_filters_match_both_attempts_and_literal_queries_with_server_pagination(
     assert client.get(base, params={"days": 1}, headers=headers).json()["total"] == 2
 
 
+def test_current_generation_record_remains_readable_without_legacy_repair_fields(client, db_session, settings):
+    _, headers = credentials(db_session, settings, admin=True)
+    row = retained_run(db_session, outcome="direct", reason=None)
+    row.data = {"schema_version": 2, "attempt_count": 1, "reasons": [],
+                "final_answer": "Current answer", "publication_completed": True,
+                "attempts": [{"number": 1, "stage": "initial", "text": "Current answer",
+                              "validation": "not_checked", "tokens": {"output": 12}}]}
+    db_session.commit()
+
+    response = client.get(f"/admin/ai-conversations/{row.id}", headers=headers)
+    assert response.status_code == 200
+    detail = response.json()
+    assert detail["schema_version"] == 2 and detail["final_answer"] == "Current answer"
+    assert detail["repair_max_tokens"] is None and detail["recovery"] is None
+    attempt = detail["attempts"][0]
+    assert attempt["validation"] == "not_checked" and attempt["tokens"]["output"] == 12
+    assert attempt["hint"] is None and attempt["diagnostics_truncated"] is False
+
+
 def test_retention_is_enforced_on_reads_even_before_opportunistic_cleanup(client, db_session, settings):
     _, headers = credentials(db_session, settings, admin=True)
     old = retained_run(db_session, age_days=15)

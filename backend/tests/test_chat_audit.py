@@ -261,7 +261,7 @@ def test_deleted_conversation_cannot_be_resurrected_by_late_audit_save(db_sessio
     conversations = ConversationService(factory, None)
     conversation = conversations.create(user.id)
     _, request = conversations.begin(user.id, conversation.id, AskRequest(query="Report"))
-    capture = ChatAudit(request, llm=object(), timeout_seconds=60, repair_max_tokens=2048)
+    capture = ChatAudit(request, llm=object(), timeout_seconds=60)
     conversations.delete(user.id, conversation.id)
     asyncio.run(capture.persist(factory))
     assert records(db_session) == []
@@ -295,7 +295,7 @@ def test_capture_limits_are_explicit_and_retention_removes_expired_rows(db_sessi
     db_session.add(ChatValidationRun(id="expired", created_at=utcnow() - timedelta(days=RETENTION_DAYS, seconds=1),
                                     outcome="error", query="old", data={}))
     db_session.commit()
-    capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60, repair_max_tokens=2048)
+    capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60)
     prepared = response()
     prepared.sources[0].content = "x" * (MAX_SOURCE_CHARS + 1)
     prepared.answer = "a" * (MAX_ANSWER_CHARS + 1)
@@ -320,7 +320,7 @@ def test_capture_limits_are_explicit_and_retention_removes_expired_rows(db_sessi
 def test_untrusted_metadata_and_client_private_fields_are_not_saved(db_session):
     capture = ChatAudit(AskRequest.model_validate({"query": "Report", "_user_id": 123,
                                                   "_conversation_id": "forged", "_turn_id": "forged"}),
-                        llm=object(), timeout_seconds=60, repair_max_tokens=2048)
+                        llm=object(), timeout_seconds=60)
     assert capture.user_id is None and capture.conversation_id is None and capture.turn_id is None
     capture.start_attempt("initial", object())
     capture.complete_attempt("draft", {"finish_reason": "private-provider-string", "prompt_tokens": float("inf"),
@@ -404,7 +404,7 @@ def test_cancellation_during_audit_wait_is_not_swallowed(db_session, monkeypatch
 
 
 def test_large_metadata_keeps_source_identity_when_snapshot_budget_is_exhausted():
-    capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60, repair_max_tokens=2048)
+    capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60)
     prepared = response()
     source = prepared.sources[0]
     source.impact_context = [{"entries": [{"label": "x"} for _ in range(64)]} for _ in range(64)]
@@ -418,7 +418,7 @@ def test_large_metadata_keeps_source_identity_when_snapshot_budget_is_exhausted(
 
 
 def test_usage_remains_unknown_when_unreported():
-    capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60, repair_max_tokens=2048)
+    capture = ChatAudit(AskRequest(query="Report"), llm=object(), timeout_seconds=60)
     capture.start_attempt("initial", object())
     capture.complete_attempt("draft", {})
     capture.bypassed()
