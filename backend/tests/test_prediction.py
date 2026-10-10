@@ -49,37 +49,33 @@ def test_next_trading_days_skips_weekends():
     assert next_trading_days("2026-09-11", 3) == ["2026-09-14", "2026-09-15", "2026-09-16"]
 
 
-def test_bob_h200_environment_names_feed_shared_settings(monkeypatch):
-    monkeypatch.setenv("H200_API_KEY", "test-h200-key")
-    monkeypatch.setenv("H200_BASE_URL", "https://h200.test/v1")
-    monkeypatch.setenv("H200_MODEL", "google/gemma-test")
+def test_backend_llm_environment_names_feed_shared_settings(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.test/v1")
+    monkeypatch.setenv("LLM_MODEL", "google/gemma-test")
     monkeypatch.setenv("LLM_ENABLE_THINKING", "false")
     settings = Settings(_env_file=None)
 
-    assert settings.LLM_API_KEY == "test-h200-key"
-    assert settings.LLM_BASE_URL == "https://h200.test/v1"
+    assert settings.LLM_API_KEY == "test-llm-key"
+    assert settings.LLM_BASE_URL == "https://llm.test/v1"
     assert settings.LLM_MODEL == "google/gemma-test"
     assert _thinking_extra_body(settings.LLM_MODEL, settings.LLM_ENABLE_THINKING) == {
         "chat_template_kwargs": {"enable_thinking": False}
     }
 
 
-def test_analysis_and_stream_llm_environment_groups_are_independent(monkeypatch):
-    monkeypatch.setenv("ANALYSIS_LLM_API_KEY", "analysis-key")
-    monkeypatch.setenv("ANALYSIS_LLM_BASE_URL", "https://analysis.test/v1")
-    monkeypatch.setenv("ANALYSIS_LLM_MODEL", "analysis-model")
-    monkeypatch.setenv("STREAM_LLM_API_KEY", "stream-key")
-    monkeypatch.setenv("STREAM_LLM_BASE_URL", "https://stream.test/v1")
-    monkeypatch.setenv("STREAM_LLM_MODEL", "stream-model")
+def test_removed_analysis_llm_environment_names_do_not_override_shared_settings(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "shared-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://shared.test/v1")
+    monkeypatch.setenv("LLM_MODEL", "shared-model")
+    monkeypatch.setenv("ANALYSIS_LLM_API_KEY", "obsolete-analysis-key")
+    monkeypatch.setenv("ANALYSIS_LLM_BASE_URL", "https://obsolete-analysis.test/v1")
+    monkeypatch.setenv("ANALYSIS_LLM_MODEL", "obsolete-analysis-model")
 
     settings = Settings(_env_file=None)
 
     assert (settings.LLM_API_KEY, settings.LLM_BASE_URL, settings.LLM_MODEL) == (
-        "analysis-key", "https://analysis.test/v1", "analysis-model")
-    assert settings.stream_llm_overrides == {
-        "LLM_API_KEY": "stream-key", "LLM_BASE_URL": "https://stream.test/v1",
-        "LLM_MODEL": "stream-model",
-    }
+        "shared-key", "https://shared.test/v1", "shared-model")
 
 
 def test_service_uses_backend_price_rows_for_bobs_response(monkeypatch, settings, db_session):
