@@ -78,12 +78,14 @@ assert.match(renderedText(recovered), /已保留（2 個內容單位）/);
 assert.doesNotMatch(detailText, /保留內容經本機重新核對通過/);
 
 const direct = renderToStaticMarkup(<AIConversationDetail record={{
-  ...record, outcome: 'direct', reason: null, reasons: [], recovery: null,
+  ...record, schema_version: 2, outcome: 'direct', reason: null, reasons: [], recovery: null, repair_max_tokens: null,
   attempts: [{ ...record.attempts[0], validation: 'not_checked', reason: null, hint: null, claim: null, detail: null }],
 }} />);
 assert.match(renderedText(direct), /本輪直接回覆，未執行回答內容檢核/);
 assert.match(renderedText(direct), /未執行檢核/);
 assert.doesNotMatch(renderedText(direct), /尚未檢核|尚未完成檢核|不是提供給使用者的有效分析/);
+assert.doesNotMatch(renderedText(direct), /修復輸出上限|給修復流程的提示/);
+assert.match(detailText, /修復輸出上限/);
 
 const loading = renderToStaticMarkup(<AIConversationList data={listData} loading error={null} selectedId={null} onSelect={noop} onRetry={noop} onShowAll={noop} />);
 assert.match(loading, /aria-busy="true"/);

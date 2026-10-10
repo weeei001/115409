@@ -12,8 +12,8 @@ from app.clients.llm import LlmResult
 from app.core.errors import ServiceUnavailable, UpstreamTimeout, install_error_handlers
 from app.features.chat import service as chat_module
 from app.features.chat.router import get_service, router
-from app.features.chat.schemas import AskRequest, SourceChunk
-from app.features.chat.service import ChatService, extract_time_filter
+from app.features.chat.schemas import AskRequest, Intent, SourceChunk
+from app.features.chat.service import ChatService, _intent_time_range
 from app.features.chat.prompts import INSUFFICIENT_EVIDENCE_ANSWER
 
 
@@ -128,7 +128,7 @@ def test_all_listed_company_and_macro_news_do_not_require_six_stock_market_suppo
     assert retrieval.calls[-1]["symbols"] == ["2603"]
     assert not response.json()["actions"]
 
-    llm.intent = {"is_finance": True, "stocks": [], "data_needs": ["market"]}
+    llm.intent = {"is_finance": True, "stocks": [], "data_needs": ["news"]}
     response = client.post("/api/ask", json={"query": "央行利率新聞"})
     assert response.status_code == 200
     assert retrieval.calls[-1]["symbols"] == []
@@ -200,43 +200,39 @@ def test_non_finance_reply_is_visible_without_retrieval_or_answer_model(chat, st
     assert not retrieval.calls and len(llm.calls) == 1
 
 
-def test_malformed_intent_uses_stock_and_calendar_fallback_but_manual_stock_wins(chat, monkeypatch):
+def test_malformed_intent_uses_public_news_and_stock_fallback_but_manual_stock_wins(chat, monkeypatch):
     client, _, llm, retrieval = chat
     monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2024": {"name": "Test steel company"}})
     llm.intent = {"stocks": None, "time_from": "not a date"}
     response = client.post("/api/ask", json={"query": "2024年Q4台積電和鴻海營收"})
     assert response.status_code == 200
     assert response.json()["detected_stocks"] == ["2330", "2317"]
-    assert retrieval.calls[-1]["time_from"] == "2024-10-01 00:00:00"
+    assert retrieval.calls[-1]["time_from"] == "2026-08-12 15:30:00"
     llm.intent = {"is_finance": True, "stocks": ["2330", "2317", "invalid"]}
     response = client.post("/api/ask", json={"query": "台積電和鴻海", "stock_id": "2454"})
     assert response.json()["detected_stocks"] == ["2454"]
     assert retrieval.calls[-1]["symbols"] == ["2454"]
 
 
-def test_invalid_or_reversed_intent_dates_use_question_dates(chat):
+def test_reversed_intent_dates_use_default_news_window(chat):
     client, _, llm, retrieval = chat
     llm.intent = {"is_finance": True, "stocks": [], "time_from": "2026-09-12", "time_to": "2026-09-01"}
     client.post("/api/ask", json={"query": "昨日股票市場"})
-    assert retrieval.calls[-1]["time_from"] == "2026-09-10 00:00:00"
-    assert retrieval.calls[-1]["time_to"] == "2026-09-10 23:59:59"
+    assert retrieval.calls[-1]["time_from"] == "2026-08-12 15:30:00"
+    assert retrieval.calls[-1]["time_to"] == "2026-09-11 15:30:00"
 
 
-@pytest.mark.parametrize(("query", "start", "end"), [
-    ("今天", "2026-09-11 00:00:00", "2026-09-11 15:30:00"),
-    ("這週", "2026-09-07 00:00:00", "2026-09-11 15:30:00"),
-    ("上週", "2026-08-31 00:00:00", "2026-09-06 23:59:59"),
-    ("上個月", "2026-08-01 00:00:00", "2026-08-31 23:59:59"),
-    ("2024年第一季", "2024-01-01 00:00:00", "2024-03-31 23:59:59"),
-    ("2024年下半年", "2024-07-01 00:00:00", "2024-12-31 23:59:59"),
-    ("最近", "2026-08-12 15:30:00", "2026-09-11 15:30:00"),
-    ("最近三個月", "2026-06-13 15:30:00", "2026-09-11 15:30:00"),
-    ("最近半年", "2026-03-15 15:30:00", "2026-09-11 15:30:00"),
-    ("最近一年", "2025-09-11 15:30:00", "2026-09-11 15:30:00"),
-    ("一般財經", None, None),
+@pytest.mark.parametrize(("start", "end", "expected"), [
+    ("2025-01-01 00:00:00", "2025-12-31 23:59:59", ("2025-01-01 00:00:00", "2025-12-31 23:59:59")),
+    ("2026-09-10T16:00:00Z", "2026-09-11T07:30:00+00:00", ("2026-09-11 00:00:00", "2026-09-11 15:30:00")),
+    (None, "2026-09-10", (None, "2026-09-10 00:00:00")),
+    ("2026-09-01", None, ("2026-09-01 00:00:00", None)),
+    ("not a date", None, (None, None)),
+    ("2026-09-12", "2026-09-01", (None, None)),
+    (None, None, (None, None)),
 ])
-def test_calendar_fallback_boundaries(query, start, end):
-    assert extract_time_filter(query, NOW) == (start, end)
+def test_semantic_time_range_is_normalized_without_reinterpreting_the_query(start, end, expected):
+    assert _intent_time_range(Intent(time_from=start, time_to=end)) == expected
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -461,6 +457,7 @@ def test_insufficient_evidence_can_abstain_without_inventing_citations(chat, str
 @pytest.mark.parametrize("stream", [False, True])
 def test_forward_outlook_can_abstain_despite_available_sources(chat, stream):
     client, _, llm, _ = chat
+    llm.intent.update(data_needs=["market", "news"], forward_outlook=True)
     llm.answer = INSUFFICIENT_EVIDENCE_ANSWER + "[S1]"
     response = client.post("/api/ask", json={"query": "台積電下周會漲嗎", "stream": stream})
     data = events(response)[-1] if stream else response.json()

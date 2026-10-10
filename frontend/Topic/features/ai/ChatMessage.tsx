@@ -82,7 +82,8 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
   const cursor = !isUser && streamActive;
   const navActions = !isUser && (!streamActive || message.dashboard) ? (message.actions ?? []).filter(isChatNavigationAction) : [];
   const followUps = !isUser && !streamActive && onFollowUp ? (message.actions ?? []).filter(isChatFollowUpAction) : [];
-  const drafts = !isUser && !streamActive ? (message.actions ?? []).filter(isPaperOrderDraftAction) : [];
+  const drafts = !isUser && !streamActive && (!message.status || message.status === 'completed')
+    ? (message.actions ?? []).filter(isPaperOrderDraftAction) : [];
 
   const handleCopy = async () => {
     try {
@@ -197,7 +198,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
         </div>
       ) : null}
 
-      {drafts.map((action) => <div className="mt-4" key={action.draft_id}><PaperOrderDraft initial={action} requestId={action.draft_id} /></div>)}
+      {drafts.map((action) => <div className="mt-4" key={action.draft_id}><PaperOrderDraft initial={action} requestId={action.draft_id} chatMode /></div>)}
 
       {navActions.length > 0 ? (
         <nav className="mt-4" aria-label="相關功能">

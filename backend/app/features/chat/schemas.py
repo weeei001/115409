@@ -27,6 +27,13 @@ class AskRequest(BaseModel):
         return value.strip()
 
 
+class PaperOrderIntent(BaseModel):
+    mode: Literal["none", "offer", "draft"] = "none"
+    side: Literal["buy", "sell"] | None = None
+    budget: float | None = Field(default=None, gt=0, le=1000000000, allow_inf_nan=False)
+    quantity: int | None = Field(default=None, gt=0, le=1000000000, strict=True)
+
+
 class Intent(BaseModel):
     is_finance: bool = True
     stocks: list[str] = Field(default_factory=list)
@@ -36,6 +43,8 @@ class Intent(BaseModel):
     suggested_questions: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
     standalone_query: str | None = Field(default=None, max_length=6000)
     display_focus: list[Literal["price", "technical", "institutional", "fundamental", "comparison", "news"]] = Field(default_factory=list)
+    forward_outlook: bool = Field(default=False, strict=True)
+    paper_order: PaperOrderIntent = Field(default_factory=PaperOrderIntent)
 
 
 class SourceChunk(BaseModel):

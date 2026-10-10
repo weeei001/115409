@@ -86,6 +86,9 @@ def test_history_auth_ownership_search_pagination_and_delete(client, service, db
     assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]
     answer = detail["messages"][1]
     assert answer["status"] == "completed" and answer["sources"][0]["content"] == "Stored evidence"
+    done = next(json.loads(line[6:]) for line in result.text.splitlines() if line.startswith("data: ")
+                and json.loads(line[6:])["type"] == "done")
+    assert done["message_id"] == answer["id"]
     assert answer["dashboard"]["blocks"][0]["items"][0]["value"] == 100
     for query in (" first ", "findme"):
         assert client.get("/api/conversations", params={"q": query}, headers=headers).json()["items"][0]["id"] == conversation_id
@@ -107,7 +110,9 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
     owner, headers = login(db_session, settings)
     conversation_id = service.create(owner).id
     url = f"/api/conversations/{conversation_id}/ask"
-    assert client.post(url, headers=headers, json={"query": "First"}).status_code == 200
+    first = client.post(url, headers=headers, json={"query": "First"})
+    assert first.status_code == 200
+    assert first.json()["message_id"] == service.get(owner, conversation_id).messages[-1].id
     service.chat.fail = True
     assert client.post(url, headers=headers, json={"query": "Failed turn"}).status_code == 503
     service.chat.fail = False
@@ -116,6 +121,81 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
         ("user", "First"), ("assistant", "FindMe [S1]")]
     messages = service.get(owner, conversation_id).messages
     assert messages[3].status == "failed" and messages[3].error == "Provider unavailable"
+
+
+def test_done_acknowledges_committed_message_before_it_is_delivered(service, db_session, settings):
+    owner, _ = login(db_session, settings)
+    conversation_id = service.create(owner).id
+    emitted_ids = []
+
+    async def run():
+        for query in ("First", "Second"):
+            turn_id, request = service.begin(owner, conversation_id, AskRequest(query=query))
+            async for event in service.stream_events(conversation_id, turn_id, request):
+                if event["type"] != "done":
+                    assert "message_id" not in event
+                    continue
+                saved = service.get(owner, conversation_id).messages[-1]
+                assert saved.status == "completed" and event["message_id"] == saved.id
+                emitted_ids.append(event["message_id"])
+
+    asyncio.run(run())
+    assert len(emitted_ids) == 2 and emitted_ids[0] != emitted_ids[1]
+
+
+def test_unsaved_or_failed_turn_never_emits_completed_message_id(service, db_session, settings, monkeypatch):
+    from app.features.conversations import repository
+
+    owner, _ = login(db_session, settings)
+    conversation_id = service.create(owner).id
+    original_finish = repository.finish
+
+    def fail_completed(db, conversation_id, turn_id, content, status, extra, now):
+        saved_id = original_finish(db, conversation_id, turn_id, content, status, extra, now)
+        if status == "completed":
+            raise RuntimeError("Persistence failed")
+        return saved_id
+
+    monkeypatch.setattr(repository, "finish", fail_completed)
+    turn_id, request = service.begin(owner, conversation_id, AskRequest(query="Unsaved"))
+    received = []
+
+    async def run():
+        with pytest.raises(RuntimeError, match="Persistence failed"):
+            async for event in service.stream_events(conversation_id, turn_id, request):
+                received.append(event)
+
+    asyncio.run(run())
+    assert all(event["type"] != "done" and "message_id" not in event for event in received)
+    assert service.get(owner, conversation_id).messages[-1].status == "interrupted"
+    monkeypatch.setattr(repository, "finish", original_finish)
+    service.chat.fail = True
+    turn_id, request = service.begin(owner, conversation_id, AskRequest(query="Failed"))
+
+    async def failed():
+        return [event async for event in service.stream_events(conversation_id, turn_id, request)]
+
+    received = asyncio.run(failed())
+    assert received[-1]["type"] == "error" and all("message_id" not in event for event in received)
+
+
+def test_stale_stream_cannot_acknowledge_another_turn(service, db_session, settings):
+    owner, _ = login(db_session, settings)
+    conversation_id = service.create(owner).id
+    stale_turn, request = service.begin(owner, conversation_id, AskRequest(query="Stale"))
+    db_session.execute(update(Conversation).where(Conversation.id == conversation_id)
+                       .values(lease_until=utcnow() - timedelta(seconds=1)))
+    db_session.commit()
+    current_turn, _ = service.begin(owner, conversation_id, AskRequest(query="Current"))
+
+    async def run():
+        return [event async for event in service.stream_events(conversation_id, stale_turn, request)]
+
+    received = asyncio.run(run())
+    assert all(event["type"] != "done" and "message_id" not in event for event in received)
+    current_id = service._finish(conversation_id, current_turn, "Current answer", "completed", {})
+    messages = service.get(owner, conversation_id).messages
+    assert messages[1].status == "interrupted" and messages[-1].id == current_id
 
 
 @pytest.mark.parametrize("stream", [False, True])

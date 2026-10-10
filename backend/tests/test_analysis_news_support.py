@@ -42,7 +42,7 @@ def test_unverified_first_publication_is_one_plain_limitation(db_session, settin
     assert not any(text.startswith("缺少：新聞") or "首次公開" in text for text in result.limitations)
 
 
-def test_opinion_words_do_not_reach_the_published_brief(db_session, settings):
+def test_ambiguous_opinion_words_preserve_the_brief_with_diagnostics(db_session, settings):
     from app.db.models.stock_info import StockInfo
     from test_analysis_service import FakeLlm, brief_payload, run_service, seed_prices
 
@@ -51,9 +51,12 @@ def test_opinion_words_do_not_reach_the_published_brief(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()
     payload["current_status"][0]["text"] = "基本面提供支撐，長期趨勢仍看好。"
-    response = run_service(db_session, settings, FakeLlm(payload))
-    assert response.status == "limited" and response.brief.current_status == []
-    assert "看好" not in response.model_dump_json()
+    llm = FakeLlm(payload)
+    response = run_service(db_session, settings, llm)
+    assert response.status == "limited" and llm.calls == 1
+    assert response.brief.current_status[0].text == payload["current_status"][0]["text"]
+    assert response.verification["soft_compliance_hits"] > 0
+    assert response.verification["removed_item_ids"] == 0
 
 
 def test_unknown_time_and_fact_groups_survive_evidence_packet():

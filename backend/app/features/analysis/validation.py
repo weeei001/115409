@@ -318,7 +318,6 @@ def _scan_text_brief_compliance(value: Any, *, prices: dict[str, Decimal] | None
             hits.extend(_scan_text_brief_compliance(item, prices=prices))
     elif isinstance(value, dict):
         cited_prices = {(prices or {})[ref] for ref in value.get("evidence_ids", []) if ref in (prices or {})}
-        cites_news = any(str(ref).startswith("nw_") for ref in value.get("evidence_ids") or [])
         for key, text in value.items():
             if key in TEXT_BRIEF_COMPLIANCE_TEXT_KEYS and isinstance(text, str):
                 condition = key in FORWARD_CONDITION_KEYS
@@ -335,7 +334,7 @@ def _scan_text_brief_compliance(value: Any, *, prices: dict[str, Decimal] | None
                     for match, scenario in zip(matches, scenarios))
                 if any(scenarios) and valid_amounts and not grounded:
                     hits.append(ComplianceHit("情境價位-soft", "soft", text))
-                hits.extend(scan_compliance_hits(text, grounded_condition=supported, cites_news=cites_news))
+                hits.extend(scan_compliance_hits(text, grounded_condition=supported))
                 if condition and amounts and not supported:
                     hits.append(ComplianceHit("前瞻價位-hard", "hard", text))
             elif key == "limitations" and isinstance(text, list):

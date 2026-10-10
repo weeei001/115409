@@ -5,10 +5,11 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from app.features.chat import service as chat_module
-from app.features.chat.personal_context import paper_draft, personal_scopes, read_personal_context
-from app.features.chat.schemas import AskRequest, AskResponse
+from app.features.chat.personal_context import paper_draft, paper_draft_offers, read_personal_context
+from app.features.chat.schemas import AskRequest, AskResponse, ChatTurn, Intent, PaperOrderIntent
 from app.features.chat.service import ChatService
 from test_chat import FakeModels, FakeRetrieval
 
@@ -161,17 +162,33 @@ def test_order_ai_help_resolves_personal_symbols_and_returns_raw_proposals(monke
 
 
 @pytest.mark.parametrize("query,needs,expected", [
-    ("我的投資預算有多少？", [], {"portfolio"}),
-    ("我買得起 2330 嗎？", ["market"], {"portfolio"}),
-    ("目前資金可以買多少？", [], {"portfolio"}),
-    ("增加模擬資金", ["help"], {"portfolio"}),
-    ("從我的收藏幫我分配投入金額", ["favorites"], {"favorites", "portfolio"}),
-    ("這些收藏哪檔適合買？", ["favorites", "market"], {"favorites", "portfolio"}),
+    ("我的投資預算有多少？", ["portfolio"], {"portfolio"}),
+    ("我買得起 2330 嗎？", ["portfolio", "market"], {"portfolio"}),
+    ("目前資金可以買多少？", ["portfolio"], {"portfolio"}),
+    ("增加模擬資金", ["portfolio", "help"], {"portfolio"}),
+    ("從我的收藏幫我分配投入金額", ["favorites", "portfolio"], {"favorites", "portfolio"}),
+    ("這些收藏哪檔適合買？", ["favorites", "portfolio", "market"], {"favorites", "portfolio"}),
+    ("請從我的收藏選出值得研究的股票，不要讀取我的持股或資金", ["favorites"], {"favorites"}),
+    ("照先前說的先看這個帳戶", ["portfolio"], {"portfolio"}),
     ("我的收藏有哪些新聞？", ["favorites", "news"], {"favorites"}),
-    ("什麼是資金配置？", ["knowledge"], set()),
 ])
-def test_personal_scopes_include_budget_only_when_relevant(query, needs, expected):
-    assert personal_scopes(query, needs) == expected
+def test_private_reads_use_only_semantic_scopes(monkeypatch, chat_session_factory, query, needs, expected):
+    from app.features.chat.knowledge import reference_source
+
+    reads = []
+
+    def reader(factory, owner, scopes, query=""):
+        reads.append((owner, scopes))
+        return [], reference_source("Owned personal data", "{}", category="personal")
+
+    monkeypatch.setattr(chat_module, "read_personal_context", reader)
+    models = FakeModels(intent={"stocks": [], "data_needs": needs})
+    service = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
+                          session_factory=chat_session_factory)
+    response, _, _ = asyncio.run(service._prepare(trusted(query)))
+    assert reads == [(7, expected)]
+    assert response._requires_portfolio == ("portfolio" in expected)
+    assert len(models.calls) == 1
 
 
 def test_unconfigured_portfolio_is_distinct_from_zero_funds(monkeypatch):
@@ -206,20 +223,21 @@ def test_fund_context_keeps_full_totals_with_bounded_history(monkeypatch):
     assert payload["context_counts"]["fund_movements_shown"] == 20
 
 
-@pytest.mark.parametrize("query,quantity,budget", [
-    ("模擬買進 2330 2 張", None, None),
-    ("模擬買進 2330，投入 10 萬元", None, 100000),
-    ("模擬買進 2330，投入 10萬", None, 100000),
-    ("模擬買進 2330，投入 10,000 元", None, 10000),
-    ("模擬買進 2330，投入 1.5 萬 塊", None, 15000),
-    ("模擬買進 2330，投入 10萬 ", None, 100000),
-    ("模擬賣出 2330 100 股", 100, None),
-    ("模擬賣出 2330 1,000 股", 1000, None),
-    ("模擬賣出 2330 1.5 張", 1500, None),
-    ("模擬買進 2330", None, None),
+@pytest.mark.parametrize("query,side,quantity,budget", [
+    ("模擬買進 2330 2 張", "buy", None, None),
+    ("模擬買進 2330，投入 10 萬元", "buy", None, 100000),
+    ("模擬買進 2330，投入 10萬", "buy", None, 100000),
+    ("模擬買進 2330，投入 10,000 元", "buy", None, 10000),
+    ("模擬買進 2330，投入 1.5 萬 塊", "buy", None, 15000),
+    ("模擬買進 2330，投入 10萬 ", "buy", None, 100000),
+    ("模擬賣出 2330 100 股", "sell", 100, None),
+    ("模擬賣出 2330 1,000 股", "sell", 1000, None),
+    ("模擬賣出 2330 1.5 張", "sell", 1500, None),
+    ("模擬買進 2330", "buy", None, None),
 ])
-def test_drafts_keep_explicit_units_and_persist_identity(query, quantity, budget):
-    draft = paper_draft(query, ["2330"], trusted(query))
+def test_drafts_keep_semantic_units_and_persist_identity(query, side, quantity, budget):
+    order_intent = PaperOrderIntent(mode="draft", side=side, quantity=quantity, budget=budget)
+    draft = paper_draft(order_intent, ["2330"], trusted(query))
     assert draft.quantity == quantity and draft.budget == budget
     assert draft.conversation_id == "owned-conversation"
     assert UUID(draft.draft_id)
@@ -229,13 +247,13 @@ def test_drafts_keep_explicit_units_and_persist_identity(query, quantity, budget
 
 @pytest.mark.parametrize("query", ["如果模擬買進 2330", "不要模擬買進 2330", "如何模擬賣出 2330", "台積電適合買嗎？"])
 def test_questions_do_not_create_drafts(query):
-    assert paper_draft(query, ["2330"], trusted(query)) is None
+    assert paper_draft(PaperOrderIntent(), ["2330"], trusted(query)) is None
 
 
 def test_saved_message_restores_draft_identity():
     from datetime import datetime, timezone
     from app.features.conversations.schemas import SavedMessage
-    draft = paper_draft("模擬買進 2330", ["2330"], trusted("模擬買進 2330"))
+    draft = paper_draft(PaperOrderIntent(mode="draft", side="buy"), ["2330"], trusted("模擬買進 2330"))
     saved = SavedMessage(id="message", role="assistant", content="draft", timestamp=datetime.now(timezone.utc), actions=[draft])
     assert SavedMessage.model_validate(saved.model_dump()).actions[0].draft_id == draft.draft_id
 
@@ -257,9 +275,10 @@ def test_personal_context_bounds_history_but_keeps_requested_old_order(monkeypat
 
 
 def test_malformed_or_extreme_draft_inputs_are_safe():
-    request = trusted("模擬買進 2330，投入 999999999999999999999 萬元")
-    assert paper_draft(request.query, ["2330"], request).budget is None
-    assert paper_draft(request.query, ["INVALID"], request) is None
+    with pytest.raises(ValidationError):
+        PaperOrderIntent(mode="draft", side="buy", budget=999999999999999999999)
+    order_intent = PaperOrderIntent(mode="draft", side="buy")
+    assert paper_draft(order_intent, ["INVALID"], trusted("準備一筆練習委託")) is None
 
 
 @pytest.mark.parametrize("query", [
@@ -268,9 +287,172 @@ def test_malformed_or_extreme_draft_inputs_are_safe():
     "模擬賣出 2330 10,00 股",
     "模擬賣出 2330 1.1 股",
 ])
-def test_drafts_do_not_extract_partial_or_fractional_quantities(query):
-    draft = paper_draft(query, ["2330"], trusted(query))
+def test_drafts_do_not_reparse_amounts_from_query(query):
+    draft = paper_draft(PaperOrderIntent(mode="draft", side="buy"), ["2330"], trusted(query))
     assert draft.budget is None and draft.quantity is None
+
+
+@pytest.fixture
+def semantic_paper_chat(monkeypatch, chat_session_factory):
+    from app.features.chat.knowledge import reference_source
+
+    models = FakeModels(answer="可先討論安排，再確認模擬委託。[S1]")
+    service = ChatService(http=None, settings=None, llm=models, retrieval=FakeRetrieval(),
+                          session_factory=chat_session_factory)
+    monkeypatch.setattr(chat_module, "load_catalog", lambda: {"2603": {"name": "長榮"}})
+    monkeypatch.setattr(chat_module, "read_personal_context", lambda *args, **kwargs: (
+        [], reference_source("Owned portfolio", json.dumps({"portfolio": {
+            "initialized": True, "available_cash": 50000, "positions": [],
+        }}), category="personal")))
+    return service, models
+
+
+async def semantic_paper_response(service, request, stream):
+    if not stream:
+        return (await service.ask(request)).model_dump(mode="json")
+    events = [event async for event in service.stream_events(request)]
+    assert events[-1]["type"] == "done"
+    for event in events:
+        if event["type"] == "dashboard":
+            assert event["actions"] == events[-1]["actions"]
+    return events[-1]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("query,semantic,side,budget,quantity", [
+    ("我想投入一萬試試", {"mode": "draft", "side": "buy", "budget": 10000}, "buy", 10000, None),
+    ("照剛才談的練習買一筆", {"mode": "draft", "side": "buy"}, "buy", None, None),
+    ("把手上的一千股拿來練習調整", {"mode": "draft", "side": "sell", "quantity": 1000}, "sell", None, 1000),
+    ("模擬買進 2330，投入十萬元", {"mode": "draft", "side": "buy", "budget": 100000}, "buy", 100000, None),
+    ("台積電適合買嗎？", {"mode": "offer", "side": "buy", "budget": 50000}, "buy", None, None),
+    ("台積電現在適合減碼嗎？", {"mode": "offer", "side": "sell", "quantity": 1000}, "sell", None, None),
+    ("想討論台積電的投資安排", {"mode": "offer"}, "buy", None, None),
+])
+def test_semantic_paper_intent_uses_one_classifier_without_executing_orders(
+        semantic_paper_chat, db_session, stream, query, semantic, side, budget, quantity):
+    from app.db.models.paper_portfolio import PaperOrder
+
+    service, models = semantic_paper_chat
+    models.intent = {"stocks": ["2330"], "data_needs": ["help"], "paper_order": semantic}
+    request = trusted(query)
+    request.history = [ChatTurn(role="assistant", content="先前討論台積電的練習投資安排。")]
+    result = asyncio.run(semantic_paper_response(service, request, stream))
+    drafts = [action for action in result["actions"] if action["type"] == "paper_order_draft"]
+    assert len(drafts) == 1
+    assert (drafts[0]["symbol"], drafts[0]["side"], drafts[0]["budget"], drafts[0]["quantity"]) == (
+        "2330", side, budget, quantity)
+    assert drafts[0]["conversation_id"] == request._conversation_id
+    assert "先前分析摘錄" in drafts[0]["reason"]
+    assert UUID(drafts[0]["draft_id"])
+    source = next(source for source in result["sources"] if source["title"] == "模擬單草稿")
+    assert "是否需要建立模擬單" in source["content"] and "尚未建立委託" in source["content"]
+    assert [kind for kind, _ in models.calls] == ["intent", "stream" if stream else "text"]
+    assert db_session.query(PaperOrder).count() == 0
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("query,semantic", [
+    ("不要模擬買進 2330，先討論風險", {"mode": "none"}),
+    ("今天台積電收盤價是多少？", {"mode": "none"}),
+    ("模擬單是什麼？", {"mode": "none"}),
+    ("如果模擬買進 2330 一萬元呢？", {"mode": "none"}),
+    ("幫我在真實券商買進 2330", {"mode": "none"}),
+    ("好，確認", {}),
+    ("模擬買進 2330，投入十萬元", {}),
+    ("照剛才談的練習買一筆", {"mode": "draft", "budget": 10000}),
+])
+def test_none_or_incomplete_semantic_intent_never_falls_back_to_keywords(
+        semantic_paper_chat, stream, query, semantic):
+    service, models = semantic_paper_chat
+    models.intent = {"stocks": ["2330"], "data_needs": ["help"], "paper_order": semantic}
+    result = asyncio.run(semantic_paper_response(service, trusted(query), stream))
+    assert not any(action["type"] == "paper_order_draft" for action in result["actions"])
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("symbols,logged_in", [(["2603"], True), (["9999"], True), ([], True), (["2330"], False)])
+def test_semantic_drafts_require_known_supported_symbols_and_authenticated_owner(
+        semantic_paper_chat, stream, symbols, logged_in):
+    service, models = semantic_paper_chat
+    models.intent = {"stocks": symbols, "data_needs": ["help"],
+                     "paper_order": {"mode": "draft", "side": "buy", "budget": 10000}}
+    request = trusted("照剛才談的練習買一筆") if logged_in else AskRequest(query="照剛才談的練習買一筆")
+    result = asyncio.run(semantic_paper_response(service, request, stream))
+    assert not any(action["type"] == "paper_order_draft" for action in result["actions"])
+
+
+@pytest.mark.parametrize("mode", ["offer", "draft"])
+def test_multiple_stock_proposals_are_capped_and_never_copy_a_shared_budget(mode):
+    request = trusted("討論這幾檔的投資安排")
+    order_intent = PaperOrderIntent(mode=mode, side="buy", budget=10000)
+    symbols = ["2330", "2317", "2330", "2454", "2881"]
+    assert paper_draft(order_intent, symbols, request) is None
+    offers = paper_draft_offers(order_intent, symbols, request)
+    assert [draft.symbol for draft in offers] == ["2330", "2317", "2454"]
+    assert all(draft.budget is None and draft.quantity is None for draft in offers)
+    assert len({draft.draft_id for draft in offers}) == 3
+
+
+@pytest.mark.parametrize("side,budget,quantity,expected", [
+    ("buy", None, 2000, (None, None)),
+    ("sell", 10000, 1000, (None, 1000)),
+])
+def test_semantic_draft_sizes_preserve_buy_and_sell_contracts(side, budget, quantity, expected):
+    draft = paper_draft(PaperOrderIntent(mode="draft", side=side, budget=budget, quantity=quantity),
+                        ["2330"], trusted("照剛才談的練習準備一筆"))
+    assert (draft.budget, draft.quantity) == expected
+
+
+@pytest.mark.parametrize("semantic,metadata", [
+    ({"mode": "draft", "side": "buy", "budget": 10000}, {"truncated": True}),
+    ({"mode": "draft", "side": "buy", "budget": 10000}, {"finish_reason": "length"}),
+    ({"mode": "unknown", "side": "buy"}, {}),
+    ({"mode": "draft", "side": "buy", "budget": float("inf")}, {}),
+    ({"mode": "draft", "side": "buy", "budget": -100}, {}),
+    ({"mode": "draft", "side": "buy", "budget": 1000000001}, {}),
+    ({"mode": "draft", "side": "sell", "quantity": 1.1}, {}),
+    ({"mode": "draft", "side": "sell", "quantity": "100"}, {}),
+    (None, {}),
+])
+def test_invalid_or_truncated_classifier_output_cannot_produce_drafts(
+        semantic_paper_chat, monkeypatch, semantic, metadata):
+    service, models = semantic_paper_chat
+    models.intent = {"stocks": ["2330"], "data_needs": ["help"], "paper_order": semantic}
+    generate = models.generate
+
+    async def classified(**kwargs):
+        result = await generate(**kwargs)
+        result.metadata.update(metadata)
+        return result
+
+    monkeypatch.setattr(models, "generate", classified)
+    result = asyncio.run(semantic_paper_response(service, trusted("模擬買進 2330，投入一萬元"), False))
+    assert not any(action["type"] == "paper_order_draft" for action in result["actions"])
+
+
+def test_saved_conversation_restores_semantic_offer_identity(semantic_paper_chat, db_session, chat_session_factory):
+    from app.db.models.user import User
+    from app.features.conversations.service import ConversationService
+
+    owner = User(email="semantic-paper@example.com", password_hash="unused")
+    db_session.add(owner)
+    db_session.commit()
+    service, models = semantic_paper_chat
+    models.intent = {"stocks": ["2330"], "data_needs": ["help"], "paper_order": {"mode": "offer", "side": "buy"}}
+    conversations = ConversationService(chat_session_factory, service)
+    conversation = conversations.create(owner.id)
+    turn_id, request = conversations.begin(owner.id, conversation.id, AskRequest(query="想討論台積電的投資安排"))
+    response = asyncio.run(conversations.ask(conversation.id, turn_id, request))
+    draft = next(action for action in response.actions if action.type == "paper_order_draft")
+    restored = conversations.get(owner.id, conversation.id)
+    saved_draft = next(action for action in restored.messages[-1].actions if action.type == "paper_order_draft")
+    assert saved_draft.draft_id == draft.draft_id
+    assert saved_draft.conversation_id == conversation.id
+    assert saved_draft.budget is None and saved_draft.quantity is None
+
+
+def test_missing_semantic_classification_defaults_to_no_order_intent():
+    assert Intent.model_validate({"stocks": ["2330"]}).paper_order.mode == "none"
 
 
 def test_account_mode_is_server_only_context():

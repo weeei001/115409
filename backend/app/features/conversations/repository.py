@@ -63,11 +63,12 @@ def next_position(db, conversation_id):
 def finish(db, conversation_id, turn_id, content, status, extra, now):
     owned = db.execute(update(Conversation).where(Conversation.id == conversation_id, Conversation.active_turn == turn_id)
                        .values(active_turn=None, lease_until=None, updated_at=now)).rowcount
-    if owned:
-        db.execute(update(ConversationMessage).where(
-            ConversationMessage.conversation_id == conversation_id, ConversationMessage.turn_id == turn_id,
-            ConversationMessage.role == "assistant").values(content=content, status=status, extra=extra))
-    return bool(owned)
+    if not owned:
+        return None
+    assistant = (ConversationMessage.conversation_id == conversation_id,
+                 ConversationMessage.turn_id == turn_id, ConversationMessage.role == "assistant")
+    db.execute(update(ConversationMessage).where(*assistant).values(content=content, status=status, extra=extra))
+    return db.scalar(select(ConversationMessage.id).where(*assistant))
 
 
 def delete_conversation(db, user_id, conversation_id):

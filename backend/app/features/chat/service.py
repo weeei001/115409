@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import calendar
 import json
 import logging
 import re
@@ -26,82 +25,18 @@ from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
-from .personal_context import personal_scopes, read_personal_context, paper_draft
+from .personal_context import read_personal_context, paper_draft, paper_draft_offers
 
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
                       INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER, NO_NEWS_MESSAGE)
 from .schemas import (AskRequest, AskResponse, ChatAction, ChatFollowUp, Intent, SourceChunk)
 
 
-def _is_recommendation(query: str) -> bool:
-    return bool(re.search(
-        r"推薦|推荐|買哪|买哪|哪.{0,12}[買买]|"
-        r"(?:該|该|應該|应该|適合|适合|值得|能不能|可不可以).{0,6}[買买賣卖]|"
-        r"[買买賣卖](?:進|进|出)?(?:嗎|吗)|值得.{0,8}投資|"
-        r"\brecommend\w*\b|\b(?:should I|which\b.{0,40})\s+(?:buy|sell)\b",
-        query, re.IGNORECASE))
-
-
-def _is_forward_outlook(query: str) -> bool:
-    has_future = re.search(r"下[週周]|明天|明日|未來|未来|後市|接下來|後續", query)
-    has_direction = re.search(r"漲|跌|上漲|下跌|走勢|行情|表現|看多|看空", query)
-    asks_direction = re.search(r"會不會|是否|能否|可能", query) and has_direction
-    return bool((has_future and has_direction) or asks_direction)
-
-
 def taipei_now() -> datetime:
     return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
 
 
-def extract_time_filter(query: str, now: datetime | None = None) -> tuple[str | None, str | None]:
-    now = now or taipei_now()
-    start = end = None
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if re.search(r"今[天日]", query):
-        start, end = midnight, now
-    elif re.search(r"昨[天日]", query):
-        start, end = midnight - timedelta(days=1), midnight - timedelta(seconds=1)
-    elif re.search(r"這[週周]|本[週周]", query):
-        start, end = midnight - timedelta(days=now.weekday()), now
-    elif re.search(r"上[週周]", query):
-        end = midnight - timedelta(days=now.weekday()) - timedelta(seconds=1)
-        start = (end - timedelta(days=6)).replace(hour=0, minute=0, second=0)
-    elif re.search(r"這個月|本月", query):
-        start, end = midnight.replace(day=1), now
-    elif "上個月" in query:
-        end = midnight.replace(day=1) - timedelta(seconds=1)
-        start = end.replace(day=1, hour=0, minute=0, second=0)
-    # 較長的「近 N 期間」要先比對，否則「最近三個月」會被泛用的「最近」吃成 30 天。
-    elif re.search(r"近三個月|近3個月|近一季", query):
-        start, end = now - timedelta(days=90), now
-    elif re.search(r"近半年|近六個月|近6個月", query):
-        start, end = now - timedelta(days=180), now
-    elif re.search(r"近一年|近1年|近十二個月|近12個月", query):
-        start, end = now - timedelta(days=365), now
-    elif re.search(r"最近|近期|近一個月|近1個月", query):
-        start, end = now - timedelta(days=30), now
-    elif match := re.search(r"(\d{4})年", query):
-        year = int(match.group(1))
-        if not 1 <= year <= 9999:
-            return None, None
-        first_month, last_month = 1, 12
-        quarter = re.search(r"第?([一二三四1-4])季|Q([1-4])", query)
-        if quarter:
-            token = quarter.group(1) or quarter.group(2)
-            number = "一二三四".index(token) + 1 if token in "一二三四" else int(token)
-            first_month, last_month = (number - 1) * 3 + 1, number * 3
-        elif "上半年" in query:
-            last_month = 6
-        elif "下半年" in query:
-            first_month = 7
-        start = datetime(year, first_month, 1)
-        end = datetime(year, last_month, calendar.monthrange(year, last_month)[1], 23, 59, 59)
-    if start is None:
-        return None, None
-    return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _intent_time_range(intent: Intent, query: str, now: datetime) -> tuple[str | None, str | None]:
+def _intent_time_range(intent: Intent) -> tuple[str | None, str | None]:
     if intent.time_from or intent.time_to:
         try:
             values = [datetime.fromisoformat(value) if value else None for value in (intent.time_from, intent.time_to)]
@@ -111,7 +46,7 @@ def _intent_time_range(intent: Intent, query: str, now: datetime) -> tuple[str |
                 return tuple(value.strftime("%Y-%m-%d %H:%M:%S") if value else None for value in values)
         except ValueError:
             pass
-    return extract_time_filter(query, now)
+    return None, None
 
 
 def _token_usage(metadata: dict) -> dict:
@@ -237,8 +172,8 @@ class ChatService:
         response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[],
                                tokens=_tokens(result.metadata), duration_ms=0,
                                current_time=now.strftime("%Y年%m月%d日 %H:%M"))
-        needs = set(intent.data_needs or ["news"])
-        scopes = personal_scopes(request.query, needs)
+        needs = set(intent.data_needs)
+        scopes = needs & {"favorites", "portfolio"}
         # 由伺服器決定帳戶模式，不由回答的引用或「假設」標籤決定是否需要快照。
         response._requires_portfolio = "portfolio" in scopes
         personal_symbols = []
@@ -262,11 +197,6 @@ class ChatService:
             return
 
         query = (intent.standalone_query or request.query).strip() if history else request.query
-        if _is_recommendation(request.query) or _is_recommendation(query):
-            needs.update({"market", "news"})
-        forward_outlook = _is_forward_outlook(query)
-        if forward_outlook:
-            needs.update({"market", "news"})
         stock_options_available = True
         try:
             stock_options = await asyncio.to_thread(self._stock_options)
@@ -324,18 +254,17 @@ class ChatService:
             if "favorites" in scopes:
                 questions.append("請從我的收藏股票中選出本輪資料足夠的最多三檔比較，說明選取依據與待確認事項。")
         response.actions.extend(ChatFollowUp(label=question, query=question) for question in questions)
-        draft = paper_draft(request.query, symbols, request)
-        if draft:
-            response.actions.append(draft)
-            response.sources.append(reference_source("模擬單草稿", "已準備可編輯草稿，尚未下單或成交。使用者必須確認金額、股數、理由與觀察期間，再由系統驗證資金和庫存。", category="help"))
+        supported_symbols = [symbol for symbol in symbols if symbol in stock_options]
+        draft = paper_draft(intent.paper_order, supported_symbols, request)
+        drafts = [draft] if draft else paper_draft_offers(intent.paper_order, supported_symbols, request)
+        if drafts:
+            response.actions.extend(drafts)
+            response.sources.append(reference_source("模擬單草稿", "是否需要建立模擬單？對話會先詢問是否建立，再由使用者編輯金額或股數、理由與觀察重點，查看摘要並確認送出。尚未建立委託或成交；送出時仍由系統驗證資金和庫存。", category="help"))
         market_symbols = [symbol for symbol in symbols if symbol in stock_options]
         if "market" in needs and len(market_symbols) > MAX_COMPARISON_STOCKS:
             response.answer = f"單次最多比較 {MAX_COMPARISON_STOCKS} 檔股票，請縮小本次比較範圍。"
             yield response, "", ""
             return
-        if ("market" in needs and not market_symbols and not symbols
-                and re.search(r"台股|大盤|加權指數|櫃買|央行|利率|通膨|關稅|匯率|Fed|聯準會", query, re.I)):
-            needs.add("news")
         if "market" in needs and not symbols and "news" in needs:
             needs.remove("market")
         if "market" in needs and not symbols:
@@ -345,7 +274,7 @@ class ChatService:
             yield response, "", ""
             return
 
-        time_from, time_to = _intent_time_range(intent, query, now)
+        time_from, time_to = _intent_time_range(intent)
         if time_to:
             time_to = min(datetime.fromisoformat(time_to), now).strftime("%Y-%m-%d %H:%M:%S")
         if time_from and datetime.fromisoformat(time_from) > now:
@@ -442,7 +371,7 @@ class ChatService:
                                  f"來源：{item.source_name} | 時間：{item.pub_time or '參考定義／無發布時間'}\n"
                                  f"內容：{item.content}{impact_context}\n連結：{item.url}")
         response.dashboard = build_dashboard(
-            response.sources, symbols, query, [] if forward_outlook else intent.display_focus
+            response.sources, symbols, query, [] if intent.forward_outlook else intent.display_focus
         )
         if personal_analysis_note and response.dashboard:
             response.dashboard.blocks[0].description += "\n" + personal_analysis_note
@@ -454,7 +383,7 @@ class ChatService:
             time_focus += ("\n行情資料為附日期的每日觀測，並非即時報價。請使用提供的共同期間比較；"
                            "未指定期間時，價格比較採最近 30 個日曆日。各股技術指標時序最多包含 "
                            "40 筆觀測，回答時請列明實際日期。")
-        if forward_outlook:
+        if intent.forward_outlook:
             time_focus += ("\n這是未來走勢問題，請區分已觀測事實與預測。證據不足以支持方向時，"
                            "應明確說明無法判定；有資料來源不代表足以預測走勢。")
         time_focus += "\n本輪介面呈現的資料面板：" + json.dumps(
@@ -475,8 +404,7 @@ class ChatService:
     async def ask(self, request: AskRequest) -> AskResponse:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
-                          repair_max_tokens=None)
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds)
         try:
             self.require_enabled()
             async with asyncio.timeout_at(deadline):
@@ -506,8 +434,7 @@ class ChatService:
     async def stream_events(self, request: AskRequest):
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds,
-                          repair_max_tokens=None)
+        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds)
         try:
             async with aclosing(self._prepare_steps(request)) as steps:
                 while True:

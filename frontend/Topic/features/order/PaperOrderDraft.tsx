@@ -48,29 +48,38 @@ export function paperEstimateText(side: 'buy' | 'sell', amount: number, referenc
   return { text: `${ref}：約可拿回 ${paperMoney(sell.proceeds)} 元（手續費約 ${paperMoney(sell.fee)} 元、證券交易稅約 ${paperMoney(sell.tax)} 元）。實際依下一交易日收盤價成交。`, tone: 'info' };
 }
 
-export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfolio, embedded = false }: {
+export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfolio, embedded = false, chatMode = false }: {
   initial?: Partial<PaperDraft>;
   currentPortfolio?: PaperPortfolio;
   requestId?: string;
   onCreated?: (order: PaperOrder) => void;
   /** 模擬投資頁：外層帳頁已有標題與外框 */
   embedded?: boolean;
+  /** Ask before opening the editable draft inside an AI reply. */
+  chatMode?: boolean;
 }) {
   const scope = useId();
   const account = useAuthAccount();
+  const [accepted, setAccepted] = useState(false);
+  const [declined, setDeclined] = useState(false);
+  const [order, setOrder] = useState<PaperOrder | null>(null);
+  const formActive = (!chatMode || accepted) && !order;
+  const refreshOnFocusRef = useRef(formActive);
+  refreshOnFocusRef.current = formActive || order?.status === 'pending';
   // 股票用搜尋選（顯示名稱），不再是純文字欄（P1-30）
-  const { data: stockInfos } = useStockInfos({ enabled: Boolean(account) });
+  const { data: stockInfos } = useStockInfos({ enabled: Boolean(account) && formActive });
   const stockList = useMemo(() => stockInfos ?? [], [stockInfos]);
   const [reference, setReference] = useState<Reference>({ status: 'idle', close: null, date: null });
   /** 送出前的確認摘要（P1-30）：按「送出委託」先看摘要，再按「確認送出」才真的送 */
   const [confirming, setConfirming] = useState(false);
+  const amountRef = useRef<HTMLInputElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
   const [symbol, setSymbol] = useState(initial?.symbol ?? '');
   const [side, setSide] = useState<'buy' | 'sell'>(initial?.side ?? 'buy');
   const [amount, setAmount] = useState(String(initial?.side === 'sell' ? initial.quantity ?? '' : initial?.budget ?? ''));
   const [reason, setReason] = useState(initial?.reason ?? '');
   const [observation, setObservation] = useState(initial?.observation ?? '');
   const days = String(initial?.review_after_days ?? 20);
-  const [order, setOrder] = useState<PaperOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -88,15 +97,30 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
     setError(null);
     setLocked(false);
     setBusy(false);
+    setConfirming(false);
+    setAccepted(false);
+    setDeclined(false);
     submitting.current = false;
+  }, [account, requestId]);
+
+  // 開啟對話草稿前先查詢已送出的委託；表單專用資料等使用者接受後才讀取。
+  const needsPortfolio = !chatMode || Boolean(requestId) || accepted;
+  useEffect(() => {
     if (!account) { setChecking(false); return; }
+    if (currentPortfolio) {
+      const match = requestId ? currentPortfolio.orders.find((item) => item.client_request_id === requestId) : undefined;
+      if (match) setOrder(match);
+      setChecking(false);
+      return;
+    }
+    if (!needsPortfolio) { setChecking(false); return; }
     const ctrl = new AbortController();
     setChecking(true);
     const refresh = () => {
       void fetchPaperPortfolio(ctrl.signal).then((portfolio) => {
         if (ctrl.signal.aborted) return;
         setPortfolio(portfolio);
-        const match = portfolio.orders.find((item) => item.client_request_id === requestId);
+        const match = requestId ? portfolio.orders.find((item) => item.client_request_id === requestId) : undefined;
         if (match) setOrder(match);
         setError(null);
         setChecking(false);
@@ -107,9 +131,10 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
       });
     };
     refresh();
-    window.addEventListener('focus', refresh);
-    return () => { ctrl.abort(); window.removeEventListener('focus', refresh); };
-  }, [account, requestId]);
+    const onFocus = () => { if (refreshOnFocusRef.current) refresh(); };
+    window.addEventListener('focus', onFocus);
+    return () => { ctrl.abort(); window.removeEventListener('focus', onFocus); };
+  }, [account, requestId, currentPortfolio, needsPortfolio]);
 
   const funds = currentPortfolio ?? portfolio;
   const code = symbol.trim().toUpperCase();
@@ -120,7 +145,7 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
 
   // 參考價：選定股票後讀最近收盤
   useEffect(() => {
-    if (!account || !/^[0-9A-Z]{1,10}$/.test(code)) { setReference({ status: 'idle', close: null, date: null }); return; }
+    if (!account || !formActive || !/^[0-9A-Z]{1,10}$/.test(code)) { setReference({ status: 'idle', close: null, date: null }); return; }
     const ctrl = new AbortController();
     setReference({ status: 'loading', close: null, date: null });
     fetchLatestPrice(code, { signal: ctrl.signal }).then((row) => {
@@ -129,8 +154,13 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
       setReference(close != null && Number.isFinite(close) && close > 0 ? { status: 'ready', close, date: row.date } : { status: 'error', close: null, date: null });
     }).catch(() => { if (!ctrl.signal.aborted) setReference({ status: 'error', close: null, date: null }); });
     return () => ctrl.abort();
-  }, [account, code]);
+  }, [account, code, formActive]);
   const estimate = paperEstimateText(side, Number(amount), reference);
+
+  useEffect(() => {
+    if (confirming) confirmRef.current?.focus();
+    else if (chatMode && accepted && !checking && !order) amountRef.current?.focus();
+  }, [confirming, chatMode, accepted, checking, order]);
 
   /** 欄位檢查；回傳錯誤訊息，沒問題回 null */
   const validate = (): string | null => {
@@ -182,6 +212,15 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
   // 連結文字說清楚目的地：登入後會到模擬投資頁，不是回到目前這一頁（P2-128）
   if (!account) return <p className={cn(frame, 'text-sm leading-relaxed')}><Link className={paperLink} href={{ pathname: '/login', query: { returnUrl: '/order' } }}>登入後前往模擬投資</Link>，用模擬帳戶的虛擬資金下單。</p>;
   if (order) return <PaperOrderStatus order={order} embedded={embedded} />;
+  if (chatMode && !accepted) return <section className={frame} aria-labelledby={`${scope}-offer`}>
+    <h3 id={`${scope}-offer`} className="text-sm font-medium">要為 {stockLabel} 建立模擬單嗎？</h3>
+    {declined ? <p className="mt-2 text-sm text-muted-foreground" role="status">這次先不建立模擬單。</p>
+      : <p className="mt-2 text-sm leading-relaxed text-muted-foreground">可直接在對話中選擇買賣、填寫金額或股數，查看委託內容後再確認送出。</p>}
+    <div className="mt-3 flex flex-wrap gap-2">
+      <Button type="button" variant={declined ? 'outline' : 'default'} onClick={() => { setAccepted(true); setDeclined(false); }}>{declined ? '重新開啟模擬單' : '建立模擬單'}</Button>
+      {declined ? null : <Button type="button" variant="outline" onClick={() => setDeclined(true)}>暫時不用</Button>}
+    </div>
+  </section>;
   if (funds && !funds.initialized) return <div className={cn(frame, 'text-sm leading-relaxed')}><p>先設定想投入的模擬資金，再回來確認這筆委託。</p><Button asChild variant="outline" className="mt-3"><Link href="/order">設定模擬資金</Link></Button></div>;
   const amountText = side === 'buy' ? `${paperMoney(Number(amount))} 元` : `${Number(amount).toLocaleString()} 股`;
   return <form onSubmit={review} className={frame} aria-label="模擬下單" aria-busy={busy || checking}>
@@ -209,7 +248,7 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
           )}
         </div>
         <label htmlFor={`${scope}-side`} className={fieldLabelClass}>操作<NativeSelect wrapperClassName="mt-1.5" id={`${scope}-side`} value={side} onChange={(e) => { setSide(e.target.value as 'buy' | 'sell'); setAmount(''); }}><option value="buy">買進</option><option value="sell">賣出</option></NativeSelect></label>
-        <label htmlFor={`${scope}-amount`} className={fieldLabelClass}>{side === 'buy' ? '買進金額（元）' : '賣出股數（股）'}<input id={`${scope}-amount`} className={cn(fieldInput, 'font-mono tabular-nums')} type="number" min={side === 'buy' ? 0.01 : 1} max={1000000000} step={side === 'buy' ? '0.01' : '1'} required value={amount} onChange={(e) => setAmount(e.target.value)} aria-describedby={`${scope}-estimate`} /></label>
+        <label htmlFor={`${scope}-amount`} className={fieldLabelClass}>{side === 'buy' ? '買進金額（元）' : '賣出股數（股）'}<input ref={amountRef} id={`${scope}-amount`} className={cn(fieldInput, 'font-mono tabular-nums')} type="number" min={side === 'buy' ? 0.01 : 1} max={1000000000} step={side === 'buy' ? '0.01' : '1'} required value={amount} onChange={(e) => setAmount(e.target.value)} aria-describedby={`${scope}-estimate`} /></label>
       </div>
       <p id={`${scope}-estimate`} className={cn('text-[13px] leading-relaxed', estimate?.tone === 'warning' ? 'text-warning' : 'text-muted-foreground')} aria-live="polite">
         {!code ? '先選擇股票，會顯示最近收盤與估算股數。'
@@ -235,14 +274,17 @@ export function PaperOrderDraft({ initial, requestId, onCreated, currentPortfoli
           <dt className="text-muted-foreground">預估</dt><dd className="text-subtle">{estimate?.text ?? '無法取得最近收盤，無法估算。'}</dd>
           <dt className="text-muted-foreground">成交規則</dt><dd className="text-subtle">送出後下一個交易日的收盤價成交</dd>
           {side === 'buy' ? <><dt className="text-muted-foreground">回顧</dt><dd className="text-subtle">買進成交後第 {days} 個交易日</dd></> : null}
+          {reason.trim() ? <><dt className="text-muted-foreground">我的理由</dt><dd className="whitespace-pre-wrap text-subtle">{reason.trim()}</dd></> : null}
+          {observation.trim() ? <><dt className="text-muted-foreground">觀察重點</dt><dd className="whitespace-pre-wrap text-subtle">{observation.trim()}</dd></> : null}
         </dl>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button type="button" onClick={() => void submit()} disabled={busy} aria-busy={busy || undefined} className="sm:min-w-32">{busy ? '送出中…' : '確認送出'}</Button>
+          <Button ref={confirmRef} type="button" onClick={() => void submit()} disabled={busy} aria-busy={busy || undefined} className="sm:min-w-32">{busy ? '送出中…' : '確認送出'}</Button>
           <Button type="button" variant="outline" onClick={() => setConfirming(false)} disabled={busy}>返回修改</Button>
         </div>
       </section>
     ) : (
       <Button type="submit" disabled={busy || checking || !funds} aria-busy={busy || undefined} className="mt-4 w-full sm:w-auto sm:min-w-44">{busy ? '送出中…' : checking ? '確認委託狀態…' : locked ? '重試相同委託' : '送出委託'}</Button>
     )}
+    {chatMode && !confirming && !locked ? <Button type="button" variant="outline" disabled={busy} className="mt-4 sm:ml-2" onClick={() => { setAccepted(false); setDeclined(true); }}>暫時不用</Button> : null}
   </form>;
 }

@@ -3,7 +3,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.features.chat.schemas import ChatAction, ChatDashboard, ChatFollowUp, PaperOrderDraft, SourceChunk
+from app.features.chat.schemas import AskResponse, ChatAction, ChatDashboard, ChatFollowUp, PaperOrderDraft, SourceChunk
+
+
+class ConversationAskResponse(AskResponse):
+    message_id: str = Field(description="已完成並成功儲存至這段對話的助理訊息 ID。")
 
 
 class ConversationSummary(BaseModel):

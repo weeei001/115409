@@ -103,7 +103,7 @@ class _SnapshotBudget:
 
 
 class ChatAudit:
-    def __init__(self, request, *, llm, timeout_seconds, repair_max_tokens):
+    def __init__(self, request, *, llm, timeout_seconds):
         self.id = str(uuid4())
         self.created_at = utcnow()
         self.started = perf_counter()
@@ -118,7 +118,7 @@ class ChatAudit:
         self._saved = False
         self._preparation_tokens = {"input": None, "output": None, "thinking": None}
         self.data = {
-            "schema_version": 1,
+            "schema_version": 2,
             "model": model[:160] if isinstance(model, str) else "",
             "duration_ms": 0,
             "attempt_count": 0,
@@ -133,7 +133,6 @@ class ChatAudit:
             "sources": [],
             "tokens": {"input": None, "output": None, "thinking": None},
             "request_timeout_seconds": _number(timeout_seconds),
-            "repair_max_tokens": _number(repair_max_tokens),
             "requires_portfolio": False,
             "answer_detail": request.answer_detail,
             "error_type": None,
@@ -194,8 +193,7 @@ class ChatAudit:
             "number": len(self.data["attempts"]) + 1, "stage": stage,
             "text": "", "text_truncated": False, "original_chars": 0,
             "finish_reason": None, "truncated": False, "validation": "not_checked",
-            "reason": None, "issue": None, "hint": "", "claim": "", "detail": "", "duration_ms": 0,
-            "diagnostics_truncated": False,
+            "duration_ms": 0,
             "tokens": {"input": None, "output": None, "thinking": None},
             "max_tokens": _number(getattr(getattr(client, "settings", None), "LLM_MAX_TOKENS", None)),
         })

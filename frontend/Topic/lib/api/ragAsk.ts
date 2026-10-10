@@ -44,6 +44,8 @@ export interface RagAskDone {
   actions: ChatAction[];
   dashboard?: ChatDashboard;
   sources?: ChatSource[];
+  /** 登入使用者的對話回覆完成並成功儲存後，才會帶入訊息 ID。 */
+  serverId?: string;
 }
 
 export interface RagAskStreamHandlers {
@@ -55,7 +57,7 @@ export interface RagAskStreamHandlers {
 
 /**
  * 後端 SSE 事件（chat/service.py）：status／text 用 content，error 用 message，
- * dashboard 帶 dashboard 與 actions，done 展開整個 AskResponse。只讀這些鍵（決議 D2）。
+ * dashboard 帶 dashboard 與 actions，done 展開 AskResponse；已儲存的對話回覆另帶 message_id。
  */
 interface StreamEvent {
   type: string;
@@ -65,6 +67,7 @@ interface StreamEvent {
   actions?: unknown;
   dashboard?: unknown;
   sources?: unknown;
+  message_id?: unknown;
 }
 
 /** 接受 `data: {...}` 或整行 JSON；`[DONE]` 與註解行忽略 */
@@ -154,7 +157,9 @@ export async function ragAskStream(
         handlers.onText(event.answer);
       }
       completed = true;
-      handlers.onDone?.({ actions: safeActions(event.actions), dashboard: parseChatDashboard(event.dashboard), sources: parseChatSources(event.sources) });
+      handlers.onDone?.({ actions: safeActions(event.actions), dashboard: parseChatDashboard(event.dashboard), sources: parseChatSources(event.sources),
+        ...(options?.conversationId && typeof event.message_id === 'string' && event.message_id.trim()
+          ? { serverId: event.message_id } : {}) });
     };
 
     const processLine = (line: string): boolean => {
@@ -204,7 +209,7 @@ export async function ragAskStream(
     }
     if (carry.trim() && processLine(carry)) return { hadStreamText, completed };
 
-    // 非串流的 AskResponse（整份 JSON，可能跨多行）：只讀 answer、actions、dashboard、sources（決議 D2）
+    // 讀取完整 JSON 回覆，登入使用者的對話另包含已儲存的訊息 ID。
     if (!hadStreamText && fullRaw.trim()) {
       try {
         const obj = JSON.parse(fullRaw.trim()) as StreamEvent;
