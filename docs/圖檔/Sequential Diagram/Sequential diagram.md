@@ -1,452 +1,471 @@
-# 股海明燈 - Sequential diagram
-
-## 1. 會員註冊
+#會員註冊與登入
 ```mermaid
 sequenceDiagram
     actor User as 使用者
     participant FE as 前端介面 (Frontend)
     participant Google as Google 驗證服務
     participant API as 後端伺服器 (Backend API)
-    participant DB as 資料庫 (Database)
+    participant DB as 資料庫 (MySQL)
 
-    alt 情境一：一般填表註冊
-        %% 同步請求 (實心)
-        User->>FE: 1. 填寫姓名、信箱、密碼並送出
+    alt 情境一：以電子郵件註冊或登入
+        User->>FE: 1. 選擇註冊或登入，填寫帳號密碼並送出
         activate FE
-        FE->>FE: 1.1 本地驗證 (必填、長度、格式、密碼一致性)
+        FE->>FE: 1.1 本地驗證 (必填、長度、信箱格式)
         alt 驗證失敗
-            %% 回應訊息 (虛線+空心)
-            FE--)User: 1.1.1 顯示錯誤文字並中斷流程
+            FE--)User: 1.1.1 顯示格式錯誤並中斷流程
         else 驗證成功
             FE->>FE: 1.2 信箱轉小寫去空白，顯示 Loading
-            FE->>API: 1.3 發送註冊請求 POST
+            FE->>API: 1.3 發送認證請求 POST
             activate API
-            
-            API->>DB: 1.3.1 檢查信箱是否已被註冊
+            API->>DB: 1.3.1 查詢該信箱的使用者
             activate DB
             DB--)API: 1.3.1.1 回傳查詢結果
             deactivate DB
-            
-            alt 信箱已註冊
-                API--)FE: 1.3.2 回傳錯誤狀態
-                FE--)User: 1.3.2.1 顯示錯誤提示並關閉 Loading
-            else 信箱可使用
-                API->>API: 1.3.3 密碼 Hash 加密
-                
-                %% 💡 修正重點：補上資料庫的生命線與回傳確認
-                API->>DB: 1.3.4 寫入新使用者資料
+            alt 註冊且信箱已存在
+                API--)FE: 1.3.2 回傳錯誤 此 email 已註冊
+                FE--)User: 1.3.2.1 顯示提示並關閉 Loading
+            else 登入且密碼不符
+                API--)FE: 1.3.3 回傳錯誤 帳號或密碼錯誤
+                FE--)User: 1.3.3.1 顯示提示並關閉 Loading
+            else 驗證通過
+                API->>API: 1.3.4 註冊時以 bcrypt 雜湊密碼
+                API->>DB: 1.3.5 寫入或讀取使用者資料
                 activate DB
-                DB--)API: 1.3.4.1 回傳寫入成功確認
+                DB--)API: 1.3.5.1 回傳確認
                 deactivate DB
-                
-                %% 💡 抽象化：拿掉具體變數與函式名
-                API--)FE: 1.3.5 回傳登入憑證與會員資料
-                FE->>FE: 1.3.5.1 將登入狀態儲存於本地端
-                %% 非同步/觸發跳轉 (實線+空心)
-                FE-)User: 1.3.5.2 導向首頁 (自動登入完成)
+                API->>API: 1.3.6 簽發 JWT 存取憑證
+                API--)FE: 1.3.7 回傳憑證與使用者資訊
+                deactivate API
             end
-            deactivate API
         end
-        deactivate FE
-
-    else 情境二：Google 第三方註冊/登入
-        User->>FE: 2. 點擊「使用 Google 登入/註冊」
-        activate FE
-        FE->>Google: 2.1 呼叫 Google 驗證視窗
+    else 情境二：以 Google 帳號註冊或登入
+        User->>FE: 2. 點擊 Google 按鈕
+        FE->>Google: 2.1 要求使用者授權
         activate Google
-        %% 彈出視窗屬於非同步觸發
-        Google-)User: 2.1.1 請求 Google 帳號授權
-        User->>Google: 2.1.2 同意授權
-        
-        %% 💡 抽象化：改為通用的憑證描述
-        Google--)FE: 2.1.3 回傳第三方授權憑證
+        Google--)FE: 2.1.1 回傳 id_token
         deactivate Google
-        
-        FE->>API: 2.2 發送第三方憑證至後端 POST
-        activate API
-        API->>Google: 2.2.1 (背景) 驗證第三方授權憑證合法性
-        
-        %% 💡 修正重點：補上資料庫的生命線與回傳！
-        API->>DB: 2.2.2 檢查信箱，新用戶自動建檔 / 舊用戶取得資料
-        activate DB
-        DB--)API: 2.2.2.1 回傳使用者資料
-        deactivate DB
-        
-        API--)FE: 2.2.3 回傳登入憑證與會員資料
-        deactivate API
-        
-        FE->>FE: 2.3 將登入狀態儲存於本地端
-        FE-)User: 2.4 導向首頁 (登入完成)
-        deactivate FE
-    end
-```
-
-## 2. 會員登入
-```mermaid
-sequenceDiagram
-    actor User as 使用者
-    participant FE as 前端介面 (Frontend)
-    participant Google as Google 驗證服務
-    participant API as 後端伺服器 (Backend API)
-    participant DB as 資料庫 (Database)
-
-    alt 情境一：一般帳號密碼登入
-        User->>FE: 1. 填寫信箱與密碼並點擊登入
-        activate FE
-        FE->>FE: 1.1 本地驗證 (去空白轉小寫、必填、長度與格式)
-        alt 驗證失敗
-            FE--)User: 1.1.1 顯示錯誤提示並中斷流程
-        else 驗證成功
-            FE->>FE: 1.2 顯示 Loading 狀態
-            FE->>API: 1.3 發送登入請求 POST /auth/login
+        alt 授權失敗或取消
+            FE--)User: 2.1.2 顯示授權失敗提示
+        else 授權成功
+            FE->>API: 2.2 發送 id_token POST
             activate API
-            
-            API->>DB: 1.3.1 查詢帳號並比對密碼
+            API->>Google: 2.2.1 驗證 id_token 簽章與有效性
+            activate Google
+            Google--)API: 2.2.1.1 回傳使用者識別碼與信箱
+            deactivate Google
+            API->>DB: 2.2.2 先以 Google 識別碼查詢使用者
             activate DB
-            DB--)API: 1.3.1.1 回傳比對結果
+            DB--)API: 2.2.2.1 回傳查詢結果
             deactivate DB
-            
-            alt 帳號不存在或密碼錯誤
-                API--)FE: 1.3.2 回傳錯誤狀態 (HTTP 4xx/5xx)
-                FE--)User: 1.3.2.1 顯示錯誤文字並關閉 Loading
-            else 登入成功
-                API--)FE: 1.3.3 回傳 access_token 與 user 資料
-                FE->>FE: 1.3.3.1 呼叫 setAuth 將 token 寫入本地端
-                FE-)User: 1.3.3.2 導向 returnUrl 或首頁 (登入完成)
+            alt 查無 Google 識別碼
+                API->>DB: 2.2.3 改以信箱查詢
+                activate DB
+                DB--)API: 2.2.3.1 回傳查詢結果
+                deactivate DB
+                alt 該信箱已綁定其他 Google 帳號
+                    API--)FE: 2.2.4 回傳錯誤
+                    FE--)User: 2.2.4.1 顯示此 email 已綁定其他 Google 帳號
+                else 可綁定或建立新帳號
+                    API->>DB: 2.2.5 綁定識別碼或建立使用者
+                end
             end
+            API->>API: 2.2.6 簽發 JWT 存取憑證
+            API--)FE: 2.2.7 回傳憑證與使用者資訊
             deactivate API
         end
-        deactivate FE
-
-    else 情境二：Google 第三方登入
-        User->>FE: 2. 點擊「使用 Google 登入」
-        activate FE
-        FE->>Google: 2.1 呼叫 Google 授權視窗
-        activate Google
-        Google-)User: 2.1.1 請求 Google 帳號授權
-        User->>Google: 2.1.2 選擇帳號並同意授權
-        Google--)FE: 2.1.3 回傳 Credential (ID Token)
-        deactivate Google
-        
-        FE->>FE: 2.2 顯示 Loading 狀態
-        FE->>API: 2.3 發送憑證 POST /auth/google
-        activate API
-        API->>Google: 2.3.1 (背景) 驗證 ID Token 合法性
-        API->>DB: 2.3.2 查詢該信箱是否存在並取得資料
-        activate DB
-        DB--)API: 2.3.2.1 回傳使用者資料
-        deactivate DB
-        
-        alt 驗證失敗
-            API--)FE: 2.3.3 回傳錯誤狀態
-            FE--)User: 2.3.3.1 顯示「Google 登入失敗」並關閉 Loading
-        else 驗證成功
-            API--)FE: 2.3.4 回傳 access_token 與 user 資料
-            FE->>FE: 2.3.4.1 呼叫 setAuth 將 token 寫入本地端
-            FE-)User: 2.3.4.2 導向 returnUrl 或首頁 (登入完成)
-        end
-        deactivate API
-        deactivate FE
     end
-```
 
-## 3. 忘記密碼
+    FE->>FE: 3. 保存登入狀態
+    FE--)User: 3.1 返回原本瀏覽的頁面或進入系統首頁
+    deactivate FE
+```
+#個股分析與證據溯源
 ```mermaid
 sequenceDiagram
     actor User as 使用者
     participant FE as 前端介面 (Frontend)
     participant API as 後端伺服器 (Backend API)
-    participant DB as 資料庫 (Database)
-    participant Email as 郵件服務 (Email Service)
+    participant DB as 資料庫 (MySQL)
 
-    User->>FE: 1. 輸入信箱並點擊「發送重設連結」
+    User->>FE: 1. 搜尋或選擇股票代號
     activate FE
-    FE->>FE: 1.1 本地驗證 (必填、信箱格式)
-    
-    alt 驗證失敗
-        %% 回應錯誤並中斷
-        FE--)User: 1.1.1 顯示錯誤提示並中斷流程
-    else 驗證成功
-        FE->>FE: 1.2 顯示 Loading 狀態
-        FE->>API: 1.3 發送忘記密碼請求
-        activate API
-        
-        API->>DB: 1.3.1 查詢信箱是否存在
-        activate DB
-        DB--)API: 1.3.1.1 回傳查詢結果
-        deactivate DB
-        
-        %% 💡 修正這裡：改用 opt (Optional) 取代沒有 else 的 alt
-        opt 信箱存在於資料庫
-            API->>API: 1.3.2 產生時效性重設密碼憑證
-            API->>DB: 1.3.3 將憑證寫入資料庫
-            activate DB
-            DB--)API: 1.3.3.1 回傳寫入成功
-            deactivate DB
-            
-            API-)Email: 1.3.4 (非同步) 觸發寄信服務
-            activate Email
-            Email--)API: 1.3.4.1 回傳已進入發送排程
-            deactivate Email
-        end
-        
-        %% 無論剛才 opt 有沒有跑，最後都會走到這裡
-        API--)FE: 1.3.5 回傳請求處理完成狀態
-        deactivate API
-        
-        FE->>FE: 1.3.5.1 關閉 Loading，切換至成功畫面
-        FE--)User: 1.3.5.2 顯示「若信箱存在，已寄出連結」提示
-    end
-    deactivate FE
-
-    User->>FE: 2. 點擊「返回登入」
-    activate FE
-    FE-)User: 2.1 導航回登入頁面
-    deactivate FE
-```
-## 4. 投資顧問
-```mermaid
-sequenceDiagram
-    actor User as 使用者
-    participant UI as 顧問介面 (Frontend)
-    participant FE_API as 前端派發器 (Progressive API)
-    participant API_BE as 後端伺服器 (Backend API)
-    participant DB as 系統資料庫 (Database)
-    participant AI as AI 模型 (LLM Service)
-
-    User->>UI: 1. 輸入股票代號並點擊「產生建議」
-    activate UI
-    UI->>UI: 1.1 初始化載入狀態與防呆檢查
-    UI->>FE_API: 1.2 發起漸進式報告分析請求
-    activate FE_API
-
-    %% 平行處理區塊 (Concurrent Requests)
-    par 階段 A：法人分析 (Timeout 45s)
-        FE_API->>API_BE: 1.2.1 請求法人籌碼分析
-        activate API_BE
-        API_BE->>DB: 1.2.1.1 查詢最新三大法人交易紀錄
-        activate DB
-        DB--)API_BE: 1.2.1.2 回傳籌碼數據
-        deactivate DB
-        API_BE--)FE_API: 1.2.1.3 回傳法人分析結果
-        deactivate API_BE
-        FE_API--)UI: 1.2.1.4 觸發局部更新回調
-        UI-)User: 1.2.1.5 渲染顯示法人分析區塊
-    and 階段 B：技術觀察 (Timeout 90s)
-        FE_API->>API_BE: 1.2.2 請求技術指標分析
-        activate API_BE
-        API_BE->>DB: 1.2.2.1 查詢歷史價格與指標數據
-        activate DB
-        DB--)API_BE: 1.2.2.2 回傳技術面數據
-        deactivate DB
-        API_BE--)FE_API: 1.2.2.3 回傳技術觀察結果
-        deactivate API_BE
-        FE_API--)UI: 1.2.2.4 觸發局部更新回調
-        UI-)User: 1.2.2.5 渲染顯示技術觀察區塊
-    and 階段 C：AI 最終建議 (Timeout 120s)
-        FE_API->>API_BE: 1.2.3 請求 AI 綜合評估建議
-        activate API_BE
-        API_BE->>DB: 1.2.3.1 檢索相關財報與新聞上下文 (RAG)
-        activate DB
-        DB--)API_BE: 1.2.3.2 回傳文本背景資料
-        deactivate DB
-        API_BE->>AI: 1.2.3.3 將數據與上下文送往 AI 模型分析
-        activate AI
-        AI--)API_BE: 1.2.3.4 回傳生成的建議文本
-        deactivate AI
-        API_BE--)FE_API: 1.2.3.5 回傳 AI 最終建議
-        deactivate API_BE
-        FE_API--)UI: 1.2.3.6 觸發局部更新回調
-        UI-)User: 1.2.3.7 渲染顯示 AI 建議區塊
-    end
-
-    FE_API->>FE_API: 1.3 等待所有並行分析請求完成
-
-    alt 成功取得完整報告
-        FE_API--)UI: 1.3.1 回傳完整分析報告資料
-        UI-)User: 1.3.1.1 關閉主要載入動畫，完整顯示報告
-    else 關鍵請求失敗或逾時
-        FE_API--)UI: 1.3.2 回傳錯誤狀態或降級資料
-        UI-)User: 1.3.2.1 畫面顯示錯誤提示或展示歷史紀錄
-    end
-
-    deactivate FE_API
-    deactivate UI
-```
-## 5. 歷史回測
-```mermaid
-sequenceDiagram
-    actor User as 使用者
-    participant UI as 下單介面 (前端狀態)
-    participant OrderAPI as 後端伺服器 (Backend API)
-    %% 💡 修正重點：正名為統一的資料庫，並全程參與
-    participant DB as 系統資料庫 (Database)
-
-    %% 進入頁面：初始化與平行資料載入
-    User->>UI: 1. 進入歷史回測頁面
-    activate UI
-    %% 💡 抽象化：Session ID 轉譯
-    UI->>UI: 1.1 讀取或自動產生會話識別碼 (Session ID)
-    
-    par 平行載入初始資料
-        UI->>OrderAPI: 1.2.1 發送取得歷史委託紀錄請求 GET
-        activate OrderAPI
-        %% 💡 補漏：加上資料庫查詢與回傳
-        OrderAPI->>DB: 1.2.1.1 查詢該會話歷史訂單
-        activate DB
-        DB--)OrderAPI: 1.2.1.2 回傳訂單明細
-        deactivate DB
-        OrderAPI--)UI: 1.2.1.3 回傳歷史委託紀錄
-        deactivate OrderAPI
-    and 
-        UI->>OrderAPI: 1.2.2 發送取得股票損益彙總請求 GET
-        activate OrderAPI
-        %% 💡 補漏：加上資料庫查詢與回傳
-        OrderAPI->>DB: 1.2.2.1 查詢該會話損益數據
-        activate DB
-        DB--)OrderAPI: 1.2.2.2 回傳損益計算結果
-        deactivate DB
-        OrderAPI--)UI: 1.2.2.3 回傳股票損益彙總
-        deactivate OrderAPI
-    end
-    UI-)User: 1.3 渲染收益表與委託紀錄表
-    
-    %% 使用者填單與前端驗證
-    User->>UI: 2. 填寫股票代號、買賣方向、日期、張數
-    User->>UI: 3. 點擊「確認買進 / 賣出」
-    UI->>UI: 3.1 執行本地防呆驗證 (格式、張數、日期限制)
-    
-    alt 驗證失敗
-        UI--)User: 3.1.1 拋出錯誤提示文字並中斷
-    else 驗證成功
-        %% 💡 抽象化：Dialog 轉譯
-        UI-)User: 3.1.2 彈出最後確認視窗
-    end
-    
-    %% 確認送出與後端處理
-    User->>UI: 4. 點擊「確認送出」
-    UI->>UI: 4.1 開啟載入狀態 (防止按鈕雙擊)
-    UI->>OrderAPI: 4.2 發送下單請求 POST
-    activate OrderAPI
-    
-    OrderAPI->>DB: 4.2.1 依委託日期與代號查詢歷史收盤價
-    activate DB
-    DB--)OrderAPI: 4.2.1.1 回傳歷史價格資料
-    deactivate DB
-    
-    alt 找不到歷史價格 (例如：休市日或代號錯誤)
-        OrderAPI--)UI: 4.2.2 回傳查無資料錯誤狀態
-        UI--)User: 4.2.2.1 提示「該日無收盤資料，請換日期或代號」
-    else 成功取得價格並進行交易
-        OrderAPI->>OrderAPI: 4.2.3 計算該筆委託損益
-        %% 💡 補漏：真正將訂單「寫入」資料庫的動作
-        OrderAPI->>DB: 4.2.4 將訂單與損益結果寫入資料庫
-        activate DB
-        DB--)OrderAPI: 4.2.4.1 回傳寫入成功確認
-        deactivate DB
-        
-        OrderAPI--)UI: 4.2.5 回傳建立好的訂單與成功狀態
-        deactivate OrderAPI
-        
-        UI->>UI: 4.2.5.1 關閉確認視窗，清空表單，顯示成功提示
-        UI->>UI: 4.2.5.2 背景重新發起步驟 1.2 的平行請求
-        UI-)User: 4.2.5.3 動態更新畫面上的收益表與紀錄表
-    end
-    
-    %% 例外分支：重置 Session
-    opt 例外操作分支：重置會話
-        User->>UI: 5. 點擊「重置會話」
-        %% 💡 抽象化：LocalStorage 轉譯
-        UI->>UI: 5.1 刪除本地端的舊會話識別碼
-        UI->>UI: 5.2 產生全新會話識別碼，清空畫面狀態
-        UI-)User: 5.3 顯示空白的全新回測帳戶
-    end
-    deactivate UI
-```
-## 6. 多股比較
-```mermaid
-sequenceDiagram
-    actor User as 使用者
-    participant UI as 比較介面 (Compare UI)
-    participant Cache as 快取與算力層 (前端記憶體)
-    participant API as 後端伺服器 (Backend API)
-    %% 💡 升級重點一：補上資料庫
-    participant DB as 資料庫 (Database)
-
-    %% 初始化階段
-    User->>UI: 1. 進入多股比較頁面
-    activate UI
-    UI->>API: 1.1 發送取得股票清單請求 GET
+    FE->>API: 1.1 請求個股行情、技術指標、籌碼與財務資料
     activate API
-    
-    API->>DB: 1.1.1 查詢可用股票代號
+    API->>DB: 1.1.1 查詢各項市場資料
     activate DB
-    DB--)API: 1.1.1.1 回傳代號清單
+    DB--)API: 1.1.1.1 回傳查詢結果
     deactivate DB
-    
-    API--)UI: 1.1.2 回傳股票清單資料
+    API--)FE: 1.1.2 回傳個股資料
     deactivate API
-    UI-)User: 1.2 顯示預設畫面與搜尋框
-    
-    %% 使用者操作與快取驗證
-    User->>UI: 2. 選擇多檔股票、設定日期並點擊「開始比較」
-    UI->>UI: 2.1 本地防呆驗證 (至少 2 檔，最多 10 檔)
-    
-    %% 💡 升級重點二：抽象化 (拿掉 queryKey)
-    UI->>Cache: 2.2 組合快取鍵值並檢查紀錄
-    activate Cache
-    
-    alt 命中快取 (Cache Hit)
-        Cache--)UI: 2.2.1 回傳已儲存的圖表與指標資料
-        UI-)User: 2.2.2 略過 API，瞬間渲染所有圖表與數據表
-    else 無快取 (Cache Miss)
-        Cache--)UI: 2.2.3 回傳無資料，準備發起網路請求
-        deactivate Cache
-        
-        %% 💡 抽象化 (拿掉 chartLoading, metricsLoading)
-        UI->>UI: 2.3 開啟圖表與數據雙重載入狀態
-        
-        %% 平行處理：搶先渲染與巨量請求
-        par 階段一：載入走勢比較圖 (快速)
-            UI->>API: 2.4.1 發送取得多股歷史報價請求 GET
-            activate API
-            
-            API->>DB: 2.4.1.1 查詢多檔股票歷史價格
-            activate DB
-            DB--)API: 2.4.1.2 回傳歷史價格資料
-            deactivate DB
-            
-            API--)UI: 2.4.1.3 回傳多股線圖報價資料
-            deactivate API
-            
-            %% 💡 抽象化 (拿掉 compareCacheRef)
-            UI->>Cache: 2.4.1.4 寫入走勢圖快取
-            UI-)User: 2.4.1.5 關閉圖表載入狀態，搶先渲染「走勢折線圖」
-        and 階段二：載入細部指標與矩陣 (平行請求)
-            UI->>API: 2.4.2 並行發送取得漲跌與成交量請求
-            activate API
-            
-            API->>DB: 2.4.2.1 查詢各股詳細交易數據
-            activate DB
-            DB--)API: 2.4.2.2 回傳交易數據結果
-            deactivate DB
-            
-            API--)UI: 2.4.2.3 收集並回傳全數結果 (含容錯處理)
-            deactivate API
-            
-            %% 💡 抽象化 (拿掉 warnings 與 metricsCacheRef)
-            UI->>UI: 2.4.2.4 處理遺漏資料並紀錄系統警告
-            UI->>Cache: 2.4.2.5 寫入指標快取
+    FE--)User: 1.2 渲染價量走勢與指標圖表
+
+    FE->>API: 2. 請求已存的 AI 分析 (cache_only)
+    activate API
+    API->>DB: 2.1 讀取該標的截止日前最新的分析結果
+    activate DB
+    DB--)API: 2.1.1 回傳分析結果或查無資料
+    deactivate DB
+
+    alt 查無已存分析
+        API--)FE: 2.2 回傳狀態 unavailable
+        FE--)User: 2.2.1 顯示 排程更新後才會出現
+    else 有已存分析
+        API->>API: 2.3 套用輸出檢核 (引用、引文、數值、法遵)
+        alt 所有項目遭移除
+            API--)FE: 2.3.1 回傳未通過合規檢查
+            FE--)User: 2.3.1.1 顯示 本次無法提供
+        else 尚有通過項目
+            API--)FE: 2.3.2 回傳分析敘述、證據目錄與移除清單
+            FE->>FE: 2.4 依證據目錄計算五項面向分級
+            Note over FE: 缺少數字時該格顯示資料不足
+            FE--)User: 2.5 呈現分析敘述、面向分級與證據標籤
         end
-        
-        %% 前端運算層
-        %% 💡 抽象化 (拿掉 buildCorrelationMatrix)
-        UI->>Cache: 2.5 觸發本地端相關係數矩陣運算
-        activate Cache
-        Cache--)UI: 2.5.1 本地 CPU 運算完成，回傳矩陣資料
-        deactivate Cache
-        
-        UI-)User: 2.6 關閉數據載入狀態，渲染指標表與熱力圖
     end
-    deactivate UI
+    deactivate API
+
+    loop 使用者逐條查證
+        User->>FE: 3. 點擊某條敘述的證據標籤
+        FE->>FE: 3.1 自回應中的證據目錄取出對應項目
+        Note over FE: 證據已隨分析一併回傳，展開不再發送請求
+        FE--)User: 3.2 展開該敘述所依據的交易數據或新聞原文
+    end
+    deactivate FE
+```
+#AI對話
+```mermaid
+sequenceDiagram
+    actor User as 使用者
+    participant FE as 前端介面 (Frontend)
+    participant API as 後端伺服器 (Backend API)
+    participant LLM as 大型語言模型 API
+    participant Embed as 向量化服務
+    participant VDB as 向量資料庫 (Qdrant)
+    participant DB as 資料庫 (MySQL)
+
+    User->>FE: 1. 輸入投資問題並送出
+    activate FE
+    FE->>API: 1.1 發送提問與對話識別碼 POST
+    activate API
+
+    API->>LLM: 1.2 判讀提問意圖
+    activate LLM
+    LLM--)API: 1.2.1 回傳涉及的標的與時間範圍
+    deactivate LLM
+
+    API->>DB: 1.3 讀取該標的的量化脈絡
+    activate DB
+    DB--)API: 1.3.1 回傳行情與籌碼資料
+    deactivate DB
+
+    API->>Embed: 1.4 將提問轉為查詢向量
+    activate Embed
+    Embed--)API: 1.4.1 回傳向量
+    deactivate Embed
+
+    API->>VDB: 1.5 以相似度檢索新聞切塊
+    activate VDB
+    VDB--)API: 1.5.1 回傳命中的切塊與中介資料
+    deactivate VDB
+
+    API->>API: 1.6 去除重複轉載與超出時間窗的結果
+    Note over API: 同一篇文章最多保留兩個切塊
+
+    API->>LLM: 1.7 送出提示詞並要求串流生成
+    activate LLM
+    loop 串流回傳
+        LLM--)API: 1.7.1 回傳片段
+        API--)FE: 1.7.2 轉發片段
+        FE--)User: 1.7.3 即時顯示
+    end
+    deactivate LLM
+
+    API->>API: 1.8 檢核引用、數值與法遵
+    alt 檢核失敗
+        API--)FE: 1.8.1 回傳檢核失敗
+        FE--)User: 1.8.1.1 提示系統異常請稍後再試
+    else 通過檢核
+        alt 使用者已登入
+            API->>DB: 1.8.2 將提問與回覆寫入對話紀錄
+            activate DB
+            DB--)API: 1.8.2.1 回傳寫入確認
+            deactivate DB
+        end
+        API--)FE: 1.8.3 回傳完整回覆與引用來源
+        FE--)User: 1.9 顯示回覆與可點擊的新聞來源
+    end
+    deactivate API
+    deactivate FE
+```
+
+#模擬投資與決策回顧
+```mermaid
+sequenceDiagram
+    actor User as 使用者
+    participant FE as 前端介面 (Frontend)
+    participant API as 後端伺服器 (Backend API)
+    participant DB as 資料庫 (MySQL)
+    participant Sched as 排程執行器
+
+    User->>FE: 1. 選擇標的與買賣方向，輸入預算或股數
+    activate FE
+    User->>FE: 1.1 記錄投資理由與觀察重點，設定回顧交易日數
+    FE->>API: 1.2 送出模擬委託 POST
+    activate API
+    API->>DB: 1.2.1 檢查可用資金或持股
+    activate DB
+    DB--)API: 1.2.1.1 回傳帳戶狀態
+    deactivate DB
+    alt 資金或持股不足
+        API--)FE: 1.2.2 回傳錯誤
+        FE--)User: 1.2.2.1 顯示提示
+    else 檢查通過
+        API->>DB: 1.2.3 建立狀態為待成交的委託
+        activate DB
+        DB--)API: 1.2.3.1 回傳委託資料
+        deactivate DB
+        API--)FE: 1.2.4 回傳委託建立成功
+        FE--)User: 1.3 更新委託清單
+    end
+    deactivate API
+    deactivate FE
+
+    Note over Sched,DB: 以下由每日排程於交易日結束後執行
+
+    Sched->>API: 2. 執行模擬委託結算
+    activate API
+    API->>DB: 2.1 取出所有待成交委託
+    activate DB
+    DB--)API: 2.1.1 回傳委託清單
+    deactivate DB
+
+    loop 逐筆結算
+        API->>DB: 2.2 查詢次一交易日收盤價
+        activate DB
+        DB--)API: 2.2.1 回傳收盤價或查無資料
+        deactivate DB
+        alt 預算不足一股或長期查無收盤價
+            API->>DB: 2.3 將委託更新為已取消
+        else 可成交
+            API->>API: 2.4 計算成交股數、手續費與證交稅
+            API->>DB: 2.5 更新委託為已成交並調整現金與持股
+        end
+    end
+
+    API->>API: 3. 檢查已成交的買進委託是否達回顧交易日數
+    alt 已達回顧日數
+        API->>DB: 3.1 建立決策回顧並寫入通知
+        activate DB
+        DB--)API: 3.1.1 回傳確認
+        deactivate DB
+    end
+    deactivate API
+
+    User->>FE: 4. 開啟模擬投資頁面或點擊通知連結
+    activate FE
+    FE->>API: 4.1 請求帳戶快照與待回顧清單
+    activate API
+    API->>DB: 4.1.1 查詢持股、損益與回顧資料
+    activate DB
+    DB--)API: 4.1.1.1 回傳結果
+    deactivate DB
+    API->>API: 4.1.2 計算區間漲跌幅與同期大盤表現
+    API--)FE: 4.1.3 回傳回顧內容
+    deactivate API
+    FE--)User: 4.2 顯示當初的投資理由與績效對照
+
+    alt 選擇與 AI 回顧
+        User->>FE: 4.3 點擊與 AI 回顧
+        FE--)User: 4.3.1 帶入該筆委託進入 AI 對話
+    else 選擇完成回顧
+        User->>FE: 4.4 點擊完成回顧
+        FE->>API: 4.4.1 送出回顧確認 POST
+        activate API
+        API->>DB: 4.4.1.1 將回顧狀態更新為已完成
+        API--)FE: 4.4.1.2 回傳確認
+        deactivate API
+        FE--)User: 4.4.2 自待回顧清單移除該筆
+    end
+    deactivate FE
+```
+
+#每日資料管線
+```mermaid
+sequenceDiagram
+    participant Sched as 排程執行器
+    participant Job as 命令列工作
+    participant Market as 公開市場資料
+    participant News as 財經新聞來源
+    participant Embed as 向量化服務
+    participant VDB as 向量資料庫 (Qdrant)
+    participant LLM as 大型語言模型 API
+    participant DB as 資料庫 (MySQL)
+
+    Note over Sched: 每日台北時間 17 時觸發，整條管線串列執行
+
+    Sched->>Job: 1. 執行大盤指數增量補齊
+    activate Job
+    Job->>Market: 1.1 擷取大盤指數
+    Market--)Job: 1.1.1 回傳資料
+    Job->>DB: 1.2 寫入指數資料
+    Job--)Sched: 1.3 回傳結束代碼
+    deactivate Job
+
+    Sched->>Job: 2. 執行個股行情與籌碼彙整
+    activate Job
+    Job->>DB: 2.1 讀取股票名單
+    DB--)Job: 2.1.1 回傳支援的標的
+    loop 逐檔擷取
+        Job->>Market: 2.2 擷取行情、法人、融資券、外資持股與財報
+        Market--)Job: 2.2.1 回傳資料並暫存為檔案
+    end
+    Job--)Sched: 2.3 回傳結束代碼
+    deactivate Job
+
+    Sched->>Job: 3. 執行資料匯入
+    activate Job
+    Job->>DB: 3.1 將暫存檔案寫入各市場資料表
+    Job--)Sched: 3.2 回傳結束代碼
+    deactivate Job
+
+    Sched->>Job: 4. 執行模擬委託結算
+    activate Job
+    Job->>DB: 4.1 以次一交易日收盤價結算並產生決策回顧
+    Job--)Sched: 4.2 回傳結束代碼
+    deactivate Job
+
+    Sched->>Job: 5. 執行財經新聞爬取
+    activate Job
+    Job->>News: 5.1 擷取鉅亨網與自由時報財經新聞
+    News--)Job: 5.1.1 回傳文章內容
+    Job->>DB: 5.2 清洗後寫入新聞資料表
+    Job--)Sched: 5.3 回傳結束代碼
+    Note over Sched,Job: 單一新聞來源失敗不中止整條管線
+    deactivate Job
+
+    Sched->>Job: 6. 執行新聞切塊與向量化
+    activate Job
+    Job->>DB: 6.1 讀取尚未索引的新聞
+    DB--)Job: 6.1.1 回傳文章
+    Job->>Job: 6.2 依句界切塊 (上限 800 字、重疊 120 字)
+    Job->>Embed: 6.3 批次向量化
+    Embed--)Job: 6.3.1 回傳向量
+    Job->>VDB: 6.4 寫入向量索引
+    Job->>DB: 6.5 記錄切塊與索引指紋
+    Job--)Sched: 6.6 回傳結束代碼
+    deactivate Job
+
+    Sched->>Job: 7. 執行新聞事件影響分析
+    activate Job
+    Job->>DB: 7.1 取出待分析的新聞
+    Job->>LLM: 7.2 分析事件對市場、產業與個股的影響
+    LLM--)Job: 7.2.1 回傳判讀結果
+    Job->>DB: 7.3 寫入事件影響並同步回新聞資料
+    Job--)Sched: 7.4 回傳結束代碼
+    Note over Sched,LLM: 受處理篇數與成本上限限制
+    deactivate Job
+
+    Sched->>Job: 8. 執行個股分析預先產生
+    activate Job
+    Job->>DB: 8.1 組成證據目錄
+    Job->>LLM: 8.2 產生個股分析報告
+    LLM--)Job: 8.2.1 回傳結構化輸出
+    Job->>Job: 8.3 執行輸出檢核與法遵過濾
+    Job->>DB: 8.4 寫入通過檢核的分析結果
+    Job--)Sched: 8.5 回傳結束代碼
+    deactivate Job
+
+    Sched->>DB: 9. 寫入本次管線的執行紀錄
+```
+
+#後台管理
+```mermaid
+sequenceDiagram
+    actor Admin as 系統管理員
+    participant FE as 前端介面 (Frontend)
+    participant API as 後端伺服器 (Backend API)
+    participant RT as 排程執行器 (JobRuntime)
+    participant Job as 命令列工作
+    participant DB as 資料庫 (MySQL)
+    participant VDB as 向量資料庫 (Qdrant)
+
+    Admin->>FE: 1. 進入後台管理頁面
+    activate FE
+    FE->>API: 1.1 請求總覽
+    activate API
+    API->>API: 1.1.1 驗證管理員權限
+    alt 非管理員
+        API--)FE: 1.1.2 回傳無權限
+        FE--)Admin: 1.1.2.1 顯示無權限提示
+    else 通過驗證
+        API->>RT: 1.2 取得執行器狀態快照
+        activate RT
+        RT--)API: 1.2.1 回傳狀態、心跳與各工作資訊
+        deactivate RT
+        API->>DB: 1.3 查詢各工作的最近執行結果
+        activate DB
+        DB--)API: 1.3.1 回傳執行紀錄
+        deactivate DB
+        API->>VDB: 1.4 檢查向量資料庫連線
+        activate VDB
+        VDB--)API: 1.4.1 回傳健康狀態
+        deactivate VDB
+        API--)FE: 1.5 回傳總覽資料
+        FE--)Admin: 1.6 顯示排程狀態與服務健康檢查
+    end
+    deactivate API
+
+    alt 情境一：檢視執行紀錄或稽核紀錄
+        Admin->>FE: 2. 選擇檢視紀錄
+        FE->>API: 2.1 請求執行紀錄或稽核紀錄
+        activate API
+        API->>DB: 2.1.1 查詢對應資料表
+        activate DB
+        DB--)API: 2.1.1.1 回傳紀錄清單
+        deactivate DB
+        API--)FE: 2.1.2 回傳結果
+        deactivate API
+        FE--)Admin: 2.2 顯示觸發者、起迄時間、結束代碼與失敗原因
+    else 情境二：控制排程工作
+        Admin->>FE: 3. 選擇工作與動作 (暫停、恢復、立即執行、重跑)
+        FE->>API: 3.1 送出控制請求 POST
+        activate API
+        API->>RT: 3.2 檢查工作狀態並建立執行紀錄
+        activate RT
+        alt 工作已排隊或執行中
+            RT--)API: 3.2.1 回傳衝突
+            API--)FE: 3.2.1.1 回傳錯誤
+            FE--)Admin: 3.2.1.2 提示請稍後再試
+        else 重跑對象尚未完成
+            RT--)API: 3.2.2 回傳僅能重跑已完成的執行
+            API--)FE: 3.2.2.1 回傳錯誤
+            FE--)Admin: 3.2.2.2 顯示提示
+        else 可執行
+            RT->>DB: 3.2.3 寫入工作控制狀態與執行紀錄
+            RT--)API: 3.2.4 回傳受理
+            API->>DB: 3.3 寫入稽核紀錄
+            API--)FE: 3.4 回傳受理確認
+            FE--)Admin: 3.5 更新畫面狀態
+            RT->>Job: 3.6 以子程序啟動該工作
+            activate Job
+            Job--)RT: 3.6.1 回傳結束代碼
+            deactivate Job
+            RT->>DB: 3.7 更新執行紀錄為成功或失敗
+            Note over RT,DB: 失敗原因以受限代碼記錄，不對外公開子程序輸出
+        end
+        deactivate RT
+        deactivate API
+    else 情境三：管理員與股票名單維護
+        Admin->>FE: 4. 新增或移除管理員、同步股票名單
+        FE->>API: 4.1 送出請求
+        activate API
+        API->>DB: 4.1.1 更新對應資料表
+        activate DB
+        DB--)API: 4.1.1.1 回傳確認
+        deactivate DB
+        API->>DB: 4.2 寫入稽核紀錄
+        API--)FE: 4.3 回傳確認
+        deactivate API
+        FE--)Admin: 4.4 更新清單
+    end
+    deactivate FE
 ```

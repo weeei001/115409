@@ -1,78 +1,65 @@
 @startuml
-skinparam shadowing false
-skinparam node {
-    BackgroundColor White
-    BorderColor Black
-}
-skinparam component {
-    BackgroundColor White
-    BorderColor Black
-}
-left to right direction
+title 圖 7-1-1 系統佈署圖
 
-' ==========================================
-' 1. 用戶端節點
-' ==========================================
-node "Web Client (使用者裝置)" as web_client <<device>> {
-    component "React UI" as ui <<component>>
+skinparam defaultFontName "標楷體"
+skinparam nodesep 35
+skinparam ranksep 60
+
+node "使用者裝置" <<device>> as client {
+  node "網頁瀏覽器" <<execution environment>> as browser {
+    artifact "前端應用程式" as ui
+    artifact "推播服務工作者" as sw
+  }
 }
 
-' ==========================================
-' 2. 前端與後端伺服器節點 (本機開發 / 雲端)
-' ==========================================
-node "Frontend Server" as frontend_server <<device>> {
-    component "Next.js API Proxy" as frontend_api <<component>>
+node "正式主機" <<device>> as host {
+  node "Node.js 22" <<execution environment>> as nodert {
+    artifact "前端網站" as web
+  }
+  node "Python 3.12 / Uvicorn" <<execution environment>> as pyrt {
+    artifact "應用程式介面服務" as api
+    artifact "排程服務" as jobs
+  }
+  database "MySQL" as mysql
+  database "Qdrant" as qdrant
+  artifact "持續部署代理程式" as runner
 }
 
-node "Backend Server" as backend_server <<device>> {
-    component "Backend Application" as backend <<component>>
+cloud "外部服務" as ext {
+  component "語言模型推論服務" as llm
+  component "文字嵌入服務" as embed
+  component "Google 身分驗證服務" as google
+  component "行動推播服務" as fcm
+  component "郵件服務" as smtp
+  component "證券市場資料來源\n（證交所、櫃買中心、集保結算所）" as market
+  component "新聞來源網站\n（鉅亨網、自由時報）" as news
 }
 
-' ==========================================
-' 3. 資料庫節點
-' ==========================================
-node "Database Server" as db_node <<device>> {
-    component "MySQL Database" as mysql <<component>>
+cloud "持續整合與部署平台" as gh {
+  component "GitHub Actions" as ci
 }
 
-' ==========================================
-' 4. RAG 微服務叢集 (Docker Compose)
-' ==========================================
-node "RAG Docker Host" as rag_node <<device>> {
-    component "Cloudflared" as cloudflared <<component>>
-    component "Reverse Proxy" as nginx <<component>>
-    component "RAG Engine" as rag <<component>>
-    component "Vector DB" as qdrant <<component>>
-}
+ui --> web : «HTTPS»
+ui --> api : «HTTPS»
+fcm --> sw : «HTTPS»
 
-' ==========================================
-' 5. 雲端外部服務
-' ==========================================
-cloud "External Services" as ext_node <<device>> {
-    component "NVIDIA NIM" as ext_llm <<component>>
-    component "Google OAuth API" as ext_google <<component>>
-    component "TWSE / 鉅亨網" as ext_data <<component>>
-}
+api --> mysql : «TCP/IP»
+api --> qdrant : «HTTP»
+api --> llm : «HTTPS»
+api --> embed : «HTTPS»
+api --> google : «HTTPS»
+api --> smtp : «SMTP»
 
-' ==========================================
-' 網路通訊協定與實際連線 (Port / Protocols)
-' ==========================================
-' 前端交互
-web_client --> frontend_server
-web_client --> backend_server
+jobs --> mysql : «TCP/IP»
+jobs --> qdrant : «HTTP»
+jobs --> llm : «HTTPS»
+jobs --> embed : «HTTPS»
+jobs --> market : «HTTPS»
+jobs --> news : «HTTPS»
+jobs --> fcm : «HTTPS»
 
-frontend_server --> backend_server
+ci ..> runner : «HTTPS»
+runner ..> web : «deploy»
+runner ..> api : «deploy»
 
-' 後端依賴與存取
-backend_server --> db_node
-
-' RAG Docker 叢集內部架構與通訊
-backend_server --> rag_node
-cloudflared --> nginx
-nginx --> rag
-rag --> qdrant
-
-' AI 推論與爬蟲連線
-backend_server --> ext_node
-rag_node --> ext_node
 @enduml
