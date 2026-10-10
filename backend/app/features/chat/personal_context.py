@@ -1,12 +1,11 @@
 """Read authenticated personal evidence and prepare non-executing paper drafts."""
 import json
-import math
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .knowledge import reference_source
-from .schemas import PaperOrderDraft
+from .schemas import PaperOrderDraft, PaperOrderIntent
 
 
 def personal_scopes(query, needs):
@@ -76,32 +75,30 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
     return symbols[:3], source
 
 
-def paper_draft(query, symbols, request):
-    # Drafts never execute trades. Ambiguous, negated and hypothetical requests stay in chat.
-    if not request._user_id or len(symbols) != 1 or not re.fullmatch(r"[0-9]{4,6}", symbols[0]):
-        return None
-    if not re.search(r"模擬|虛擬|paper", query, re.I):
-        return None
-    if re.search(r"不要|別|不想|假設|如果|怎麼|如何|能不能|是否|[？?]", query):
-        return None
-    buy, sell = bool(re.search(r"買|buy", query, re.I)), bool(re.search(r"賣|sell", query, re.I))
-    if buy == sell:
-        return None
-    quantity = None
-    amount = None
-    units = re.findall(r"(?<![\d.,-])(\d{1,3}(?:,\d{3})++|\d++(?:\.\d++)?)\s*+(張|股)", query)
-    if len(units) == 1:
-        count = float(units[0][0].replace(",", "")) * (1000 if units[0][1] == "張" else 1)
-        if sell and math.isfinite(count) and 0 < count <= 1000000000 and count.is_integer():
-            quantity = int(count)
-    amounts = re.findall(r"(?<![\d.,-])(\d{1,3}(?:,\d{3})++|\d++(?:\.\d++)?)\s*+(?:(萬|万|千)\s*+(?:元|塊)?|(?:元|塊))", query)
-    if len(amounts) == 1 and buy and quantity is None:
-        amount = float(amounts[0][0].replace(",", "")) * {"萬": 10000, "万": 10000, "千": 1000, "": 1}[amounts[0][1]]
-        if not math.isfinite(amount) or amount <= 0 or amount > 1000000000:
-            amount = None
+def _paper_reason(request):
     prior = next((turn.content for turn in reversed(request.history) if turn.role == "assistant"), "")
-    reason = query[:800]
+    reason = request.query[:800]
     if prior:
         reason += "\n\n先前分析摘錄（請確認是否作為本次理由）：\n" + prior[:1100]
-    return PaperOrderDraft(symbol=symbols[0], side="buy" if buy else "sell", budget=amount,
-                          quantity=quantity, reason=reason, conversation_id=request._conversation_id)
+    return reason
+
+
+def paper_draft(order_intent: PaperOrderIntent, symbols, request):
+    """Prepare a non-executing draft from the validated semantic classification."""
+    if (not request._user_id or order_intent.mode != "draft" or order_intent.side is None
+            or len(symbols) != 1 or not re.fullmatch(r"[0-9]{4,6}", symbols[0])):
+        return None
+    return PaperOrderDraft(symbol=symbols[0], side=order_intent.side,
+                          budget=order_intent.budget if order_intent.side == "buy" else None,
+                          quantity=order_intent.quantity if order_intent.side == "sell" else None,
+                          reason=_paper_reason(request), conversation_id=request._conversation_id)
+
+
+def paper_draft_offers(order_intent: PaperOrderIntent, symbols, request):
+    """Offer editable drafts without adopting model-suggested order sizes."""
+    if (not request._user_id or order_intent.mode == "none"
+            or (order_intent.mode == "draft" and order_intent.side is None)):
+        return []
+    candidates = list(dict.fromkeys(symbol for symbol in symbols if re.fullmatch(r"[0-9]{4,6}", symbol)))[:3]
+    return [PaperOrderDraft(symbol=symbol, side=order_intent.side or "buy", reason=_paper_reason(request),
+                            conversation_id=request._conversation_id) for symbol in candidates]

@@ -20,7 +20,7 @@ INTENT_SYSTEM_PROMPT = """判斷台灣股票助理收到的請求類型。只回
   portfolio：詢問自己的模擬持股、損益、餘額、投資預算、可負擔金額、資金增減、委託或到期回顧。
   依收藏挑選買入標的或分配資金時，同時需要 favorites + portfolio；只問收藏新聞則不需要 portfolio。
   私人資料由後端驗證登入後提供，stocks 不得猜測使用者持有什麼。
-  明確要求模擬買入或賣出需要 help，可產生待確認草稿；AI 不會直接下單。
+  明確要求準備模擬委託需要 help，可產生待確認草稿；AI 不會直接下單。
   真實券商帳戶不在可存取範圍。
   For an account-only check of cash, holdings, concentration or open orders, request portfolio only.
   Add favorites only when the user asks about their favorites, and market/news only when the requested
@@ -37,6 +37,22 @@ INTENT_SYSTEM_PROMPT = """判斷台灣股票助理收到的請求類型。只回
   For a broad request, offer 2 or 3 concrete, focused follow-up choices, such as checking available cash
   after open orders, reviewing position concentration, or comparing up to three favorites with sufficient data.
   Phrase them as questions, never as assumed findings. Do not replace or narrow an explicitly requested scope.
+- paper_order：依最新請求的語意及明確的歷史指涉判斷，回傳 mode、side、budget、quantity。
+  不以固定關鍵字或問號決定意圖，也不要求出現「模擬買進／賣出」字樣。
+  mode=offer：使用者討論具體股票的買賣、投入金額或投資安排，尚未要求準備模擬委託。
+  一般個股分析、純行情／營收事實、帳戶餘額查詢、純定義或操作說明，不因此主動提示建單。
+  mode=draft：使用者明確想準備一筆待確認的模擬或練習委託，可依歷史釐清股票與買賣方向。
+  例如延續台積電的練習投資討論後說「我想投入一萬試試」或「照剛才談的練習買一筆」，
+  即使沒有固定交易用語，也可判為 draft；資訊缺漏不得猜測。
+  mode=none：拒絕、暫不建單、假設情境、真實券商操作，或與具體投資安排無關的請求。
+  只說「好」「確認」等未明確要求準備委託的訊息，不當成下單授權，使用 none。
+  side：可辨識方向時填 buy 或 sell，不明確時填 null。股票沿用 stocks 欄位；不得創造標的。
+  budget／quantity：offer 和 none 一律填 null。draft 也僅抽取使用者明確提供的數值與單位，
+  不把先前助理建議的金額或股數當成使用者選擇。買入以元為 budget，quantity 為 null；
+  買入「兩張」不是金額，不得轉成 budget。賣出以股為 quantity，budget 為 null，一張為 1000 股。
+  未指定、區間、多個數值、單位不明、負值、非整股或超過 1000000000 時，對應欄位填 null，
+  不拆取部分數字或自行推算金額。mode 缺乏可靠判斷時填 none。
+  此欄位僅控制對話內的提示與可編輯草稿；任何意圖都不會直接執行交易，須由使用者在介面確認送出。
 - standalone_query：保留最新請求及其偏好；僅在追問時，依歷史對話補足代名詞、省略的公司或期間。
   討論台積電後詢問「那跟鴻海比呢？」，表示依前一主題比較台積電與鴻海。
   明確提出的新主題應取代舊主題。「簡單一點」指向前一主題，並須保留新的表達風格要求。

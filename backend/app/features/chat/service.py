@@ -26,7 +26,7 @@ from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
-from .personal_context import personal_scopes, read_personal_context, paper_draft
+from .personal_context import personal_scopes, read_personal_context, paper_draft, paper_draft_offers
 
 from .prompts import (ANSWER_PROMPT, answer_system_prompt, INTENT_SYSTEM_PROMPT,
                       INSUFFICIENT_EVIDENCE_ANSWER, NON_FINANCE_ANSWER, NO_NEWS_MESSAGE)
@@ -324,10 +324,12 @@ class ChatService:
             if "favorites" in scopes:
                 questions.append("請從我的收藏股票中選出本輪資料足夠的最多三檔比較，說明選取依據與待確認事項。")
         response.actions.extend(ChatFollowUp(label=question, query=question) for question in questions)
-        draft = paper_draft(request.query, symbols, request)
-        if draft:
-            response.actions.append(draft)
-            response.sources.append(reference_source("模擬單草稿", "已準備可編輯草稿，尚未下單或成交。使用者必須確認金額、股數、理由與觀察期間，再由系統驗證資金和庫存。", category="help"))
+        supported_symbols = [symbol for symbol in symbols if symbol in stock_options]
+        draft = paper_draft(intent.paper_order, supported_symbols, request)
+        drafts = [draft] if draft else paper_draft_offers(intent.paper_order, supported_symbols, request)
+        if drafts:
+            response.actions.extend(drafts)
+            response.sources.append(reference_source("模擬單草稿", "是否需要建立模擬單？對話會先詢問是否建立，再由使用者編輯金額或股數、理由與觀察重點，查看摘要並確認送出。尚未建立委託或成交；送出時仍由系統驗證資金和庫存。", category="help"))
         market_symbols = [symbol for symbol in symbols if symbol in stock_options]
         if "market" in needs and len(market_symbols) > MAX_COMPARISON_STOCKS:
             response.answer = f"單次最多比較 {MAX_COMPARISON_STOCKS} 檔股票，請縮小本次比較範圍。"
