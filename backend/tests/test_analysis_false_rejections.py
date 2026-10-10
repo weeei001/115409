@@ -55,21 +55,48 @@ def test_company_actions_negated_scope_and_past_moves_are_not_advice(text):
 
 @pytest.mark.parametrize("text", [
     "建議投入 30% 資金。", "可配置部分資金布局。", "配置全部資金。", "宜全押。",
-    "可進一步上攻。", "有機會進一步下探。",
     "不提供目標價，但上看 1,200 元。", "保證獲利。",
 ])
-def test_reader_advice_forward_moves_and_targets_remain_blocked(text):
+def test_reader_advice_and_targets_remain_blocked(text):
     assert any(hit.severity == "hard" for hit in scan_compliance_hits(text))
 
 
-def test_named_speaker_view_is_a_report_only_when_the_item_cites_news():
+def test_citations_and_reporting_verbs_do_not_verify_source_attribution():
     def rules(text, refs):
         return [hit.rule for hit in gate._scan_text_brief_compliance({"text": text, "evidence_ids": refs})]
 
-    assert rules("報導指出法人看好 AI 需求延續。", ["nw_01"]) == ["投資觀點-attributed-soft"]
-    # Without cited news, or with a vague subject, the view is still the brief's own.
-    assert "投資觀點-hard" in rules("報導指出法人看好 AI 需求延續。", ["d_40"])
-    assert "投資觀點-hard" in rules("市場看好 AI 需求延續。", ["nw_01"])
+    for text in ("報導指出法人看好 AI 需求延續。", "市場看好 AI 需求延續。", "我認為值得看好。",
+                 "報導指出法人觀點，然而我看好後市。", "公司看好今年營收成長。"):
+        for refs in ([], ["d_40"], ["nw_01"]):
+            assert rules(text, refs) == ["投資觀點-semantic-soft"]
+
+
+@pytest.mark.parametrize("text", [
+    "不存在穩賺的投資。", "沒有任何投資必然上漲。", "不建議買進，應先釐清風險。",
+    "建議不要加碼。", "並非絕對會上漲。", "分析師建議買進。", "公司保證產品品質。",
+    "新聞引述「穩賺」說法，尚待核實。", "公司看好今年營收成長。",
+    "可進一步上攻。", "有機會進一步下探。",
+])
+def test_negated_reported_and_ambiguous_semantics_are_diagnostic_only(text):
+    hits = scan_compliance_hits(text)
+    assert hits and all(hit.severity == "soft" for hit in hits)
+
+
+@pytest.mark.parametrize("text", [
+    "不存在穩賺的投資，但建議買進。", "不建議買進。保證獲利。",
+    "分析師看好需求，建議加碼。", "新聞引述「穩賺」說法，但保證上漲。",
+    "未來保證獲利。", "未來穩賺。", "不錯的標的保證上漲。", "不論景氣如何保證獲利。",
+    "建議投入未使用資金。",
+])
+def test_diagnostic_context_does_not_hide_separate_affirmative_advice(text):
+    assert any(hit.severity == "hard" for hit in scan_compliance_hits(text))
+
+
+def test_reported_guarantees_are_diagnostics_and_do_not_claim_verified_attribution():
+    for refs in ([], ["d_40"], ["nw_01"]):
+        hits = gate._scan_text_brief_compliance({"text": "分析師保證獲利。", "evidence_ids": refs})
+        assert [hit.rule for hit in hits] == ["承諾詞-semantic-soft"]
+        assert all(hit.severity == "soft" for hit in hits)
 
 
 @pytest.fixture
@@ -104,3 +131,13 @@ def test_invalid_risk_description_still_removes_the_risk(bundle):
                          "trigger": "若外資續賣。", "evidence_ids": ["d_40"]}]
     removed, _, _, _ = _gate(payload, bundle)
     assert removed == ["rk_01"] and payload["risks"] == []
+
+
+@pytest.mark.parametrize("text", ["不存在穩賺的投資。", "不建議買進，應先釐清風險。",
+                                  "公司看好今年營收成長。"])
+def test_semantic_diagnostics_preserve_legitimate_analysis_items(bundle, text):
+    payload = brief_payload()
+    payload["current_status"][0]["text"] = text
+    removed, hard_hits, soft_hits, blocked = _gate(payload, bundle)
+    assert not blocked and not removed and not hard_hits and soft_hits
+    assert payload["current_status"][0]["text"] == text
