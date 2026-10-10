@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { userFacingMessage } from '@/lib/api/errorDetail';
-import { appendCompletedChatTurn, ragAskStream, type RagHistoryMessage } from '@/lib/api/ragAsk';
+import { appendCompletedChatTurn, ragAsk, type RagHistoryMessage } from '@/lib/api/ragAsk';
 import { AUTH_CHANGE_EVENT, getStoredUser, getToken, isAuthSessionBoundary } from '@/lib/auth/storage';
 import { toast } from 'sonner';
 import { createConversation, getConversation, listConversations, type ConversationSummary } from '@/lib/api/conversations';
@@ -18,7 +18,7 @@ function sessionOwner(): string | null {
   } catch { return null; }
 }
 
-/** Conversation content is persisted by the authenticated backend stream. */
+/** 登入使用者的對話內容由後端完成回答後儲存。 */
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -238,48 +238,17 @@ export function useChat() {
     setLoading(true);
     setStreamingMessageId(assistantId);
 
-    let frame: number | null = null;
-    let pendingText = '';
-    let pendingStatus: string | undefined;
-    const flush = () => {
-      frame = null;
-      if (!current() || (!pendingText && pendingStatus === undefined)) return;
-      const textChunk = pendingText;
-      const status = pendingStatus;
-      pendingText = '';
-      pendingStatus = undefined;
-      update((message) => ({ content: textChunk ? message.content + textChunk : message.content, streamStatus: status ?? message.streamStatus }));
-    };
-    const schedule = () => { if (frame === null) frame = window.requestAnimationFrame(flush); };
     try {
-      const result = await ragAskStream({ query: text, history }, {
-        onStatus: (status) => { if (current()) { pendingStatus = status; schedule(); } },
-        onText: (chunk) => { if (current()) { answer += chunk; pendingText += chunk; schedule(); } },
-        onDashboard: (result) => {
-          if (!current()) return;
-          dashboard = result.dashboard;
-          actions = result.actions;
-          update(() => ({ dashboard, actions }));
-        },
-        onDone: (result) => {
-          if (!current()) return;
-          completed = true;
-          actions = result.actions;
-          dashboard = result.dashboard ?? dashboard;
-          sources = result.sources ?? [];
-          if (frame !== null) window.cancelAnimationFrame(frame);
-          frame = null;
-          pendingText = '';
-          pendingStatus = undefined;
-          if (!selectedId) completedHistory.current = appendCompletedChatTurn(history, text, answer);
-          update(() => ({ content: answer, streamStatus: undefined, status: 'completed', actions, dashboard, sources,
-            ...(selectedId && result.serverId ? { serverId: result.serverId, feedback: null } : {}) }));
-        },
-      }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
-      if (frame !== null) { window.cancelAnimationFrame(frame); flush(); }
+      const result = await ragAsk({ query: text, history }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
       if (!current()) return;
-      update(() => ({ content: answer.trim() ? answer : '（無回覆內容）', streamStatus: undefined,
-        status: result.completed ? 'completed' : 'interrupted', actions, dashboard, sources }));
+      completed = true;
+      answer = result.answer;
+      actions = result.actions;
+      dashboard = result.dashboard;
+      sources = result.sources;
+      if (!selectedId) completedHistory.current = appendCompletedChatTurn(history, text, answer);
+      update(() => ({ content: answer.trim() ? answer : '（無回覆內容）', status: 'completed', actions, dashboard, sources,
+        ...(selectedId && result.serverId ? { serverId: result.serverId, feedback: null } : {}) }));
     } catch (error) {
       if (!current()) return;
       const message = userFacingMessage(error, '請稍後再試。');
@@ -287,7 +256,6 @@ export function useChat() {
         ? `資料已顯示，文字解讀暫時無法取得：${message}` : `抱歉，無法取得回覆：${message}`,
         streamStatus: undefined, status: 'failed', error: message, actions, dashboard, sources }));
     } finally {
-      if (frame !== null) window.cancelAnimationFrame(frame);
       const wasCurrent = current();
       if (activeRef.current?.ctrl === ctrl) activeRef.current = null;
       if (abortRef.current === ctrl) abortRef.current = null;

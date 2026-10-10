@@ -105,6 +105,7 @@ class _SnapshotBudget:
 class ChatAudit:
     def __init__(self, request, *, llm, timeout_seconds):
         self.id = str(uuid4())
+        self._request = request
         self.created_at = utcnow()
         self.started = perf_counter()
         self.user_id = request._user_id
@@ -137,8 +138,7 @@ class ChatAudit:
             "answer_detail": request.answer_detail,
             "error_type": None,
             "reasons": [],
-            # Means the service returned/yielded the terminal response, not a
-            # browser receipt acknowledgment (HTTP/SSE offers no such guarantee).
+            # 記錄服務已完成回覆，不代表瀏覽器已確認收到。
             "publication_completed": False,
         }
 
@@ -265,6 +265,9 @@ class ChatAudit:
         if self._saved or session_factory is None:
             return
         self._saved = True
+        budget = _SnapshotBudget()
+        self.data["planning"] = budget.value(self._request._planning_trace)
+        self.data["evidence"] = budget.value(self._request._evidence_trace)
         self._finish_attempt_time()
         self.data["duration_ms"] = int((perf_counter() - self.started) * 1000)
         if not self.data["publication_completed"] and self.outcome != "error":

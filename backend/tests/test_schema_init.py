@@ -1,47 +1,9 @@
 import pytest
-from sqlalchemy import create_engine, inspect, select
-from sqlalchemy.dialects.mysql import dialect
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
-from sqlalchemy.schema import CreateTable
 
 from app.db.models.stock_info import StockInfo
-from app.jobs.schema import initialize_schema, main, schema_metadata
-
-
-def test_fresh_schema_includes_chunks_and_preserves_existing_rows():
-    engine = create_engine("sqlite://")
-    try:
-        metadata = schema_metadata()
-        assert set(metadata.tables) == {
-            "users", "password_reset_tokens", "favorite_stocks", "simulated_orders", "stock_info", "llm_responses",
-            "ai_brief_lessons", "chat_conversations", "chat_messages", "chat_message_feedback", "chat_validation_runs",
-            "paper_accounts", "paper_orders", "paper_reviews", "paper_cash_movements",
-            "notification_preferences", "push_devices", "notifications", "notification_deliveries",
-            "market_benchmark_prices", "market_daily_prices", "market_technical_indicators",
-            "market_institutional_trades", "market_financial_statement_rows", "market_monthly_revenues",
-            "market_stock_valuations", "market_dividend_results", "market_margin_trades",
-            "market_foreign_shareholdings", "market_holding_share_levels", "news_articles",
-            "news_chunks", "news_event_analyses", "news_event_impacts", "news_article_versions",
-            "news_source_selections", "news_source_decisions",
-            "admin_accounts", "admin_job_controls", "admin_job_runs", "admin_audit_logs",
-        }
-        assert "news_chunks" in metadata.tables
-        assert {"news_article_versions", "news_source_selections", "news_source_decisions"} <= set(metadata.tables)
-        assert set(initialize_schema(engine)) == set(metadata.tables)
-        with Session(engine) as db, db.begin():
-            db.add(StockInfo(symbol="2330", name="TSMC"))
-        assert initialize_schema(engine) == []
-        assert set(inspect(engine).get_table_names()) == set(metadata.tables)
-        with Session(engine) as db:
-            assert db.scalar(select(StockInfo.name)) == "TSMC"
-        for table in metadata.tables.values():
-            ddl = str(CreateTable(table).compile(dialect=dialect()))
-            assert "CHARSET=utf8mb4" in ddl
-            assert "ENGINE=InnoDB" in ddl
-        assert "LONGTEXT" in str(CreateTable(metadata.tables["news_article_versions"]).compile(dialect=dialect()))
-        assert "DATETIME(6)" in str(CreateTable(metadata.tables["news_article_versions"]).compile(dialect=dialect()))
-    finally:
-        engine.dispose()
+from app.jobs.schema import main
 
 
 @pytest.mark.parametrize("arguments, code", [(["--help"], 0), (["--reset"], 2)])

@@ -7,11 +7,11 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
-from app.core.errors import Conflict
+from app.core.errors import Conflict, ServiceUnavailable
 from app.db.models.conversation import Conversation, ConversationMessage
 from app.db.models.user import User
 from app.features.auth.service import create_access_token
-from app.features.chat.schemas import AskRequest
+from app.features.chat.schemas import AskRequest, AskResponse
 from app.features.conversations.router import get_service
 from app.features.conversations.service import ConversationService, utcnow
 
@@ -31,17 +31,14 @@ class FakeChat:
     def require_enabled(self):
         pass
 
-    async def stream_events(self, request):
+    async def ask(self, request):
         self.requests.append(request)
         try:
-            yield {"type": "dashboard", "dashboard": DASHBOARD, "actions": []}
-            yield {"type": "text", "content": "FindMe [S1]"}
             if self.fail:
-                yield {"type": "error", "message": "Provider unavailable"}
-            else:
-                yield {"type": "done", "answer": "FindMe [S1]", "detected_stocks": ["2330"],
-                       "time_range": None, "sources": [SOURCE], "tokens": {}, "duration_ms": 1,
-                       "current_time": "now", "dashboard": DASHBOARD, "actions": []}
+                raise ServiceUnavailable("Provider unavailable")
+            return AskResponse(answer="FindMe [S1]", detected_stocks=["2330"],
+                time_range=None, sources=[SOURCE], tokens={}, duration_ms=1,
+                current_time="now", dashboard=DASHBOARD, actions=[])
         finally:
             self.closed = True
 
@@ -76,8 +73,8 @@ def test_history_auth_ownership_search_pagination_and_delete(client, service, db
                          json={"query": "First title", "stream": True,
                                "history": [{"role": "user", "content": "Forged history"}]})
     assert result.status_code == 200
-    assert '"type": "done"' in result.text
-    assert result.headers["cache-control"] == "no-cache"
+    assert result.json()["answer"] == "FindMe [S1]"
+    assert result.headers["content-type"].startswith("application/json")
     assert service.chat.requests[0].history == []
     assert service.chat.requests[0]._user_id == owner
     assert service.chat.requests[0]._conversation_id == conversation_id
@@ -86,9 +83,7 @@ def test_history_auth_ownership_search_pagination_and_delete(client, service, db
     assert [message["role"] for message in detail["messages"]] == ["user", "assistant"]
     answer = detail["messages"][1]
     assert answer["status"] == "completed" and answer["sources"][0]["content"] == "Stored evidence"
-    done = next(json.loads(line[6:]) for line in result.text.splitlines() if line.startswith("data: ")
-                and json.loads(line[6:])["type"] == "done")
-    assert done["message_id"] == answer["id"]
+    assert result.json()["message_id"] == answer["id"]
     assert answer["dashboard"]["blocks"][0]["items"][0]["value"] == 100
     for query in (" first ", "findme"):
         assert client.get("/api/conversations", params={"q": query}, headers=headers).json()["items"][0]["id"] == conversation_id
@@ -123,7 +118,7 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
     assert messages[3].status == "failed" and messages[3].error == "Provider unavailable"
 
 
-def test_done_acknowledges_committed_message_before_it_is_delivered(service, db_session, settings):
+def test_response_acknowledges_committed_message_before_it_is_delivered(service, db_session, settings):
     owner, _ = login(db_session, settings)
     conversation_id = service.create(owner).id
     emitted_ids = []
@@ -131,19 +126,16 @@ def test_done_acknowledges_committed_message_before_it_is_delivered(service, db_
     async def run():
         for query in ("First", "Second"):
             turn_id, request = service.begin(owner, conversation_id, AskRequest(query=query))
-            async for event in service.stream_events(conversation_id, turn_id, request):
-                if event["type"] != "done":
-                    assert "message_id" not in event
-                    continue
-                saved = service.get(owner, conversation_id).messages[-1]
-                assert saved.status == "completed" and event["message_id"] == saved.id
-                emitted_ids.append(event["message_id"])
+            response = await service.ask(conversation_id, turn_id, request)
+            saved = service.get(owner, conversation_id).messages[-1]
+            assert saved.status == "completed" and response.message_id == saved.id
+            emitted_ids.append(response.message_id)
 
     asyncio.run(run())
     assert len(emitted_ids) == 2 and emitted_ids[0] != emitted_ids[1]
 
 
-def test_unsaved_or_failed_turn_never_emits_completed_message_id(service, db_session, settings, monkeypatch):
+def test_unsaved_or_failed_turn_never_returns_completed_message_id(service, db_session, settings, monkeypatch):
     from app.features.conversations import repository
 
     owner, _ = login(db_session, settings)
@@ -158,28 +150,26 @@ def test_unsaved_or_failed_turn_never_emits_completed_message_id(service, db_ses
 
     monkeypatch.setattr(repository, "finish", fail_completed)
     turn_id, request = service.begin(owner, conversation_id, AskRequest(query="Unsaved"))
-    received = []
 
     async def run():
         with pytest.raises(RuntimeError, match="Persistence failed"):
-            async for event in service.stream_events(conversation_id, turn_id, request):
-                received.append(event)
+            await service.ask(conversation_id, turn_id, request)
 
     asyncio.run(run())
-    assert all(event["type"] != "done" and "message_id" not in event for event in received)
-    assert service.get(owner, conversation_id).messages[-1].status == "interrupted"
+    assert service.get(owner, conversation_id).messages[-1].status == "failed"
     monkeypatch.setattr(repository, "finish", original_finish)
     service.chat.fail = True
     turn_id, request = service.begin(owner, conversation_id, AskRequest(query="Failed"))
 
     async def failed():
-        return [event async for event in service.stream_events(conversation_id, turn_id, request)]
+        with pytest.raises(ServiceUnavailable):
+            await service.ask(conversation_id, turn_id, request)
 
-    received = asyncio.run(failed())
-    assert received[-1]["type"] == "error" and all("message_id" not in event for event in received)
+    asyncio.run(failed())
+    assert service.get(owner, conversation_id).messages[-1].status == "failed"
 
 
-def test_stale_stream_cannot_acknowledge_another_turn(service, db_session, settings):
+def test_stale_request_cannot_acknowledge_another_turn(service, db_session, settings):
     owner, _ = login(db_session, settings)
     conversation_id = service.create(owner).id
     stale_turn, request = service.begin(owner, conversation_id, AskRequest(query="Stale"))
@@ -189,10 +179,10 @@ def test_stale_stream_cannot_acknowledge_another_turn(service, db_session, setti
     current_turn, _ = service.begin(owner, conversation_id, AskRequest(query="Current"))
 
     async def run():
-        return [event async for event in service.stream_events(conversation_id, stale_turn, request)]
+        with pytest.raises(ServiceUnavailable):
+            await service.ask(conversation_id, stale_turn, request)
 
-    received = asyncio.run(run())
-    assert all(event["type"] != "done" and "message_id" not in event for event in received)
+    asyncio.run(run())
     current_id = service._finish(conversation_id, current_turn, "Current answer", "completed", {})
     messages = service.get(owner, conversation_id).messages
     assert messages[1].status == "interrupted" and messages[-1].id == current_id
@@ -204,7 +194,7 @@ def test_raw_numeric_answer_is_saved_with_dashboard_without_validation_diagnosti
     from app.features.chat import service as chat_module
     from app.features.chat.knowledge import reference_source
     from app.features.chat.service import ChatService
-    from test_chat import FakeModels, FakeRetrieval, events
+    from test_chat import FakeModels, FakeRetrieval
 
     owner, headers = login(db_session, settings)
     personal = reference_source("Personal snapshot", json.dumps({
@@ -234,15 +224,8 @@ def test_raw_numeric_answer_is_saved_with_dashboard_without_validation_diagnosti
     })
 
     # 對話直接保存模型原文，不檢核或修復內容。
-    if stream:
-        result = events(response)
-        assert [event["content"] for event in result if event["type"] == "text"] == [result[-1]["answer"]]
-        displayed = next(event["dashboard"] for event in result if event["type"] == "dashboard")
-        assert displayed["blocks"][0]["items"][0]["value"] == 100
-        answer = result[-1]["answer"]
-    else:
-        assert response.status_code == 200
-        answer = response.json()["answer"]
+    assert response.status_code == 200
+    answer = response.json()["answer"]
     assert answer == models.answer
     assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 1
 
@@ -261,28 +244,6 @@ def test_raw_numeric_answer_is_saved_with_dashboard_without_validation_diagnosti
     for sentinel in ("PRIVATE_METADATA_SENTINEL", "PRIVATE_QUERY_SENTINEL"):
         assert sentinel not in response.text
         assert sentinel not in json.dumps(saved)
-
-
-def test_disconnect_releases_lease_preserves_partial_and_closes_iterator(service, db_session, settings):
-    owner, _ = login(db_session, settings)
-    conversation_id = service.create(owner).id
-    request = AskRequest(query="Interrupted")
-    turn_id, request = service.begin(owner, conversation_id, request)
-    with pytest.raises(Conflict):
-        service.begin(owner, conversation_id, request)
-
-    async def run():
-        events = service.stream_events(conversation_id, turn_id, request)
-        assert (await anext(events))["type"] == "dashboard"
-        assert (await anext(events))["type"] == "text"
-        await events.aclose()
-    asyncio.run(run())
-    message = service.get(owner, conversation_id).messages[-1]
-    assert message.status == "interrupted" and message.content == "FindMe [S1]"
-    assert message.dashboard.title == "Stock" and service.chat.closed
-    new_turn, resumed = service.begin(owner, conversation_id, AskRequest(query="Resume"))
-    assert resumed.history == []
-    service._finish(conversation_id, new_turn, "", "interrupted", {})
 
 
 def test_expired_claim_recovered_and_old_writer_cannot_overwrite(service, db_session, settings):
@@ -312,17 +273,15 @@ def test_cancelled_response_persists_and_closes_upstream(service, db_session, se
 
         async def upstream(request):
             try:
-                yield {"type": "text", "content": "Partial"}
                 received.set()
                 await asyncio.Future()
             finally:
                 closed.append(True)
 
-        service.chat.stream_events = upstream
+        service.chat.ask = upstream
 
         async def consume():
-            async for _ in service.stream_events(conversation_id, turn_id, request):
-                pass
+            await service.ask(conversation_id, turn_id, request)
 
         consumer = asyncio.create_task(consume())
         await received.wait()
@@ -333,7 +292,7 @@ def test_cancelled_response_persists_and_closes_upstream(service, db_session, se
 
     asyncio.run(run())
     message = service.get(owner, conversation_id).messages[-1]
-    assert message.content == "Partial" and message.status == "interrupted"
+    assert message.content == "" and message.status == "interrupted"
     next_turn, request = service.begin(owner, conversation_id, AskRequest(query="Continue"))
     assert request.history == []
     service._finish(conversation_id, next_turn, "", "interrupted", {})

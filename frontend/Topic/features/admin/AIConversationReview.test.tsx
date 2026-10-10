@@ -87,6 +87,21 @@ assert.doesNotMatch(renderedText(direct), /尚未檢核|尚未完成檢核|不�
 assert.doesNotMatch(renderedText(direct), /修復輸出上限|給修復流程的提示/);
 assert.match(detailText, /修復輸出上限/);
 
+assert.match(detailText, /此紀錄沒有保存資料規劃與取得狀態/);
+const planned = renderToStaticMarkup(<AIConversationDetail record={{ ...record,
+  planning: [{ stage: 'plan', status: 'accepted', result: { tasks: [], stocks: [], portfolio_access: null,
+    favorites_access: null }, issue: attack, effective_needs: ['portfolio'] }],
+  evidence: { requested: ['portfolio'], available: ['news'], missing: ['portfolio'], blocked: true, status: 'blocked' },
+}} />);
+assert.match(renderedText(planned), /需求規劃 · accepted/);
+assert.match(renderedText(planned), /執行資料需求模擬帳戶/);
+assert.match(renderedText(planned), /實際取得新聞/);
+assert.match(renderedText(planned), /缺少資料模擬帳戶/);
+assert.match(renderedText(planned), /已阻止生成/);
+assert.ok(renderedText(planned).includes(attack));
+assert.equal(renderedElements(planned, 'script').length, 0);
+assert.equal(renderedElements(planned, 'img').length, 0);
+
 const loading = renderToStaticMarkup(<AIConversationList data={listData} loading error={null} selectedId={null} onSelect={noop} onRetry={noop} onShowAll={noop} />);
 assert.match(loading, /aria-busy="true"/);
 assert.ok(!renderedText(loading).includes(summary.query_preview), 'Old rows are hidden while a new filter or page loads.');

@@ -669,11 +669,11 @@ def _setup(args, need_llm: bool = True) -> tuple:
         if args.provider == "h200":
             client, model_name = make_h200_client()
             if client is None:
-                print("❌ H200 未設定（.env 需 H200_BASE_URL/H200_API_KEY）"); sys.exit(1)
+                print("❌ AI 未設定（.env 需 LLM_BASE_URL/LLM_API_KEY/LLM_MODEL）"); sys.exit(1)
         else:
             client, model_name = make_nim_client()
             if client is None:
-                print("❌ NIM 未設定（.env 需 NVIDIA_API_KEY）"); sys.exit(1)
+                print("❌ AI 未設定（.env 需 LLM_BASE_URL/LLM_API_KEY/LLM_MODEL）"); sys.exit(1)
 
     qdrant_client = embeddings = None
     cases = load_or_build_cases(cases_path, stock_id, args.train_start, args.train_end,

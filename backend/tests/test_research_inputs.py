@@ -62,8 +62,8 @@ def test_research_retrieval_uses_shared_index_and_taipei_cutoff(monkeypatch):
 
 
 def test_research_model_uses_backend_endpoint_and_proxy_policy(monkeypatch):
-    settings = Settings(_env_file=None, ANALYSIS_LLM_API_KEY="test", ANALYSIS_LLM_MODEL="model",
-                        ANALYSIS_LLM_BASE_URL="https://model.example/v1")
+    settings = Settings(_env_file=None, LLM_API_KEY="test", LLM_MODEL="model",
+                        LLM_BASE_URL="https://model.example/v1")
     monkeypatch.setattr(core, "get_settings", lambda: settings)
     captured = {}
     monkeypatch.setattr(core, "OpenAI", lambda **kwargs: captured.update(kwargs) or SimpleNamespace())

@@ -114,18 +114,8 @@ def test_optional_schema_and_streaming_modes(settings, response_format, streamin
         assert body["response_format"]["type"] == response_format
         if response_format == "json_schema":
             assert body["response_format"]["json_schema"]["schema"]["required"] == ["summary"]
-        if not streaming:
-            return httpx.Response(200, json=_completion('{"summary":"complete"}'))
-        assert body["stream"] is True
-        base = {"id": "chat-test", "object": "chat.completion.chunk", "created": 1, "model": "test-model"}
-        chunks = [
-            {**base, "choices": [{"index": 0, "delta": {"role": "assistant", "content": '{"summary":'}, "finish_reason": None}]},
-            {**base, "choices": [{"index": 0, "delta": {"content": '"complete"}'}, "finish_reason": None}]},
-            {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
-            {**base, "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 7, "total_tokens": 107}},
-        ]
-        content = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=content)
+        assert body["stream"] is False
+        return httpx.Response(200, json=_completion('{"summary":"complete"}'))
     result = _generate(settings, handler, LLM_RESPONSE_FORMAT=response_format, LLM_STREAMING=streaming)
     assert result.payload == {"summary": "complete"}
     assert result.metadata["finish_reason"] == "stop"

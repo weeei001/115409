@@ -21,6 +21,32 @@ import { useAIConversationReview } from './useAIConversationReview';
 const numberText = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '—' : value.toLocaleString('zh-TW');
 const durationText = (value: number | null | undefined) => value == null ? '未回報' : `${numberText(value)} ms`;
 const dateText = (value: string) => formatTaipei(value, { hour12: false }, '時間未記錄');
+const needsText = (values: string[]) => values.map((value) => ({ portfolio: '模擬帳戶', favorites: '自選股', market: '行情', news: '新聞', knowledge: '金融知識', help: '操作說明' } as Record<string, string>)[value] ?? value).join('、') || '無';
+
+function PlanningReview({ record }: { record: AdminChatDetail }) {
+  const planning = record.planning ?? [];
+  const evidence = record.evidence;
+  return <section aria-labelledby="ai-review-planning" className="space-y-3 border-t border-border-strong pt-3">
+    <h3 id="ai-review-planning" className="text-sm font-semibold">資料規劃與取得狀態</h3>
+    {!planning.length && !evidence?.status ? <p className="text-sm text-muted-foreground">此紀錄沒有保存資料規劃與取得狀態。</p> : null}
+    {planning.map((entry, index) => <Disclosure key={index} summary={<span className="text-sm">第 {index + 1} 步 · 需求規劃 · <code>{entry.status}</code></span>}>
+      <dl className="space-y-2 pb-3 text-xs leading-6">
+        {entry.result?.tasks.length ? <div><dt className="text-muted-foreground">規劃任務</dt><dd className="font-mono break-words">{entry.result.tasks.join('、')}</dd></div> : null}
+        {entry.result?.portfolio_access ? <div><dt className="text-muted-foreground">帳戶存取判斷</dt><dd>{entry.result.portfolio_access} · 自選股 {entry.result.favorites_access ?? '未記錄'}</dd></div> : null}
+        {entry.effective_needs?.length ? <div><dt className="text-muted-foreground">執行資料需求</dt><dd>{needsText(entry.effective_needs)}</dd></div> : null}
+        {entry.issue || entry.error_type || entry.invalid_fields?.length ? <div><dt className="text-muted-foreground">規劃問題</dt><dd className="break-words">{[entry.issue, entry.error_type, entry.invalid_fields?.join('、')].filter(Boolean).join(' · ')}</dd></div> : null}
+        <div><dt className="text-muted-foreground">模型執行</dt><dd>{durationText(entry.duration_ms)} · 結束標記 {entry.finish_reason ?? '未回報'}</dd></div>
+        {entry.tokens ? <div><dt className="text-muted-foreground">Token</dt><dd><TokenCounts tokens={{ input: entry.tokens.prompt_tokens, output: entry.tokens.completion_tokens, thinking: entry.tokens.reasoning_tokens }} /></dd></div> : null}
+      </dl>
+    </Disclosure>)}
+    {evidence?.status ? <dl className="grid gap-2 border-l-2 border-border-strong pl-3 text-sm leading-6 sm:grid-cols-2">
+      <div><dt className="text-muted-foreground">取得狀態</dt><dd><code>{evidence.status}</code>{evidence.blocked ? ' · 已阻止生成' : ''}</dd></div>
+      <div><dt className="text-muted-foreground">要求資料</dt><dd>{needsText(evidence.requested)}</dd></div>
+      <div><dt className="text-muted-foreground">實際取得</dt><dd>{needsText(evidence.available)}</dd></div>
+      <div><dt className="text-muted-foreground">缺少資料</dt><dd>{needsText(evidence.missing)}</dd></div>
+    </dl> : null}
+  </section>;
+}
 
 function Outcome({ value }: { value: string }) {
   const tone = ['error', 'interrupted'].includes(value) ? 'text-danger'
@@ -113,6 +139,8 @@ export function AIConversationDetail({ record }: { record: AdminChatDetail }) {
       <h3 id="ai-review-query" className="text-sm font-semibold">使用者問題</h3>
       <SnapshotText label="使用者問題原文" text={record.query} truncated={record.query_truncated} originalChars={record.query_original_chars} empty="未保存問題文字。" />
     </section>
+
+    <PlanningReview record={record} />
 
     <section aria-labelledby="ai-review-final" className="space-y-2">
       <h3 id="ai-review-final" className="text-sm font-semibold">最後回覆（伺服器紀錄）</h3>

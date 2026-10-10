@@ -75,8 +75,9 @@ def impact_output(quote):
 
 def test_impact_guard_rejects_foreign_samsung_as_taiwan_company():
     article = SimpleNamespace(title=TITLE, content=FOREIGN_REFERENCE)
-    with pytest.raises(ValueError, match="company target is not explicitly mentioned"):
-        validate_output(impact_output(FOREIGN_REFERENCE), article=article, catalog=CATALOG)
+    checked = validate_output(impact_output(FOREIGN_REFERENCE), article=article, catalog=CATALOG)
+    assert len(checked.events) == 1 and checked.impacts == []
+    assert "company target is not explicitly mentioned" in checked.validation_feedback
 
 
 def test_impact_guard_accepts_explicit_taiwan_samsung():

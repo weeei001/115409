@@ -1,78 +1,77 @@
-@startuml
-skinparam shadowing false
-skinparam node {
-    BackgroundColor White
-    BorderColor Black
-}
-skinparam component {
-    BackgroundColor White
-    BorderColor Black
-}
-left to right direction
+```@startuml
+title 圖 7-1-1 系統佈署圖
 
-' ==========================================
-' 1. 用戶端節點
-' ==========================================
-node "Web Client (使用者裝置)" as web_client <<device>> {
-    component "React UI" as ui <<component>>
+skinparam defaultFontName "標楷體"
+skinparam nodesep 30
+skinparam ranksep 55
+
+node "使用者裝置" <<device>> as client {
+  node "瀏覽器" <<executionEnvironment>> as browser {
+    artifact "前端應用程式" as spa
+  }
 }
 
-' ==========================================
-' 2. 前端與後端伺服器節點 (本機開發 / 雲端)
-' ==========================================
-node "Frontend Server" as frontend_server <<device>> {
-    component "Next.js API Proxy" as frontend_api <<component>>
+cloud "Cloudflare" as cf {
+  component "網站入口" as cfedge
 }
 
-node "Backend Server" as backend_server <<device>> {
-    component "Backend Application" as backend <<component>>
+node "Windows 正式主機" <<device>> as host {
+  node "Docker" <<executionEnvironment>> as docker {
+    node "Tunnel 容器" <<executionEnvironment>> as tunnelc {
+      artifact "cloudflared" as cloudflared
+    }
+    node "反向代理容器" <<executionEnvironment>> as proxyc {
+      artifact "Nginx" as nginx
+    }
+    node "Qdrant 容器" <<executionEnvironment>> as qdrantc {
+      artifact "向量資料庫" as qdrant
+    }
+  }
+  node "Node.js" <<executionEnvironment>> as nodert {
+    artifact "Next.js 前端" as web
+  }
+  node "Python" <<executionEnvironment>> as pyrt {
+    artifact "FastAPI 後端\n內含 RAG 檢索與排程協調器" as api
+    artifact "排程工作程序" as jobs
+  }
+  node "MySQL" <<executionEnvironment>> as mysqlrt {
+    artifact "關聯式資料庫" as mysql
+  }
 }
 
-' ==========================================
-' 3. 資料庫節點
-' ==========================================
-node "Database Server" as db_node <<device>> {
-    component "MySQL Database" as mysql <<component>>
+cloud "AI 服務" as extai {
+  component "語言模型推論服務" as llm
+  component "文字嵌入服務" as embed
 }
 
-' ==========================================
-' 4. RAG 微服務叢集 (Docker Compose)
-' ==========================================
-node "RAG Docker Host" as rag_node <<device>> {
-    component "Cloudflared" as cloudflared <<component>>
-    component "Reverse Proxy" as nginx <<component>>
-    component "RAG Engine" as rag <<component>>
-    component "Vector DB" as qdrant <<component>>
+cloud "第三方服務" as extsvc {
+  component "Google 身分驗證服務" as google
+  component "行動推播服務" as fcm
+  component "郵件服務" as smtp
 }
 
-' ==========================================
-' 5. 雲端外部服務
-' ==========================================
-cloud "External Services" as ext_node <<device>> {
-    component "NVIDIA NIM" as ext_llm <<component>>
-    component "Google OAuth API" as ext_google <<component>>
-    component "TWSE / 鉅亨網" as ext_data <<component>>
+cloud "外部資料來源" as extdata {
+  component "證券市場資料\n證交所、櫃買中心、集保結算所" as market
+  component "財經新聞\n鉅亨網、自由時報" as news
 }
 
-' ==========================================
-' 網路通訊協定與實際連線 (Port / Protocols)
-' ==========================================
-' 前端交互
-web_client --> frontend_server
-web_client --> backend_server
+spa -- cfedge : «HTTPS»
+cfedge -- cloudflared : «Tunnel»
+cloudflared -- nginx : «HTTP»
+nginx -- web : «HTTP»
+nginx -- api : «HTTP»
 
-frontend_server --> backend_server
+api ..> jobs : «啟動»
 
-' 後端依賴與存取
-backend_server --> db_node
+api -- qdrant : «HTTP»
+api -- mysql : «SQL»
+api -- extai : «HTTPS»
+api -- extsvc : «HTTPS»
 
-' RAG Docker 叢集內部架構與通訊
-backend_server --> rag_node
-cloudflared --> nginx
-nginx --> rag
-rag --> qdrant
+jobs -- qdrant : «HTTP»
+jobs -- mysql : «SQL»
+jobs -- extai : «HTTPS»
+jobs -- extsvc : «HTTPS»
+jobs -- extdata : «HTTPS»
 
-' AI 推論與爬蟲連線
-backend_server --> ext_node
-rag_node --> ext_node
-@enduml
+@enduml```

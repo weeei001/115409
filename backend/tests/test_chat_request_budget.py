@@ -43,35 +43,28 @@ def test_preparation_and_answer_share_one_deadline(settings, stream):
 
     async def prepare(request):
         calls.append("prepare")
-        yield "Preparing"
         await asyncio.sleep(0.06)
-        yield prepared_response(), "Evidence", ""
+        return prepared_response(), "Evidence", ""
 
     async def run():
         llm = SimpleNamespace(require_enabled=lambda: None, text=text, stream_text=stream_text)
         service = ChatService(http=None, settings=settings.model_copy(update={"CHAT_REQUEST_TIMEOUT_SECONDS": 0.2}),
                               retrieval=object(), llm=llm)
-        service._prepare_steps = prepare
+        service._prepare = prepare
         request = AskRequest(query="Revenue?", stream=stream)
         async with asyncio.timeout(1):
-            if stream:
-                events = [event async for event in service.stream_events(request)]
-                assert events[-1]["type"] == "error"
-                assert not any(event["type"] in {"text", "done"} for event in events)
-            else:
-                with pytest.raises(UpstreamTimeout):
-                    await service.ask(request)
+            with pytest.raises(UpstreamTimeout):
+                await service.ask(request)
         assert calls == ["prepare", "answer"]
         assert cancelled == [True]
 
     asyncio.run(run())
 
 
-def test_stream_deadline_does_not_cancel_the_task_that_consumed_an_earlier_status(settings):
+def test_preparation_timeout_cancels_pending_work(settings):
     operation_closed = []
 
     async def prepare(request):
-        yield "Preparing"
         try:
             await asyncio.Event().wait()
         finally:
@@ -81,12 +74,9 @@ def test_stream_deadline_does_not_cancel_the_task_that_consumed_an_earlier_statu
         llm = SimpleNamespace(require_enabled=lambda: None)
         service = ChatService(http=None, settings=settings.model_copy(update={"CHAT_REQUEST_TIMEOUT_SECONDS": 0.03}),
                               retrieval=object(), llm=llm)
-        service._prepare_steps = prepare
-        stream = service.stream_events(AskRequest(query="Revenue?", stream=True))
-        assert (await anext(stream))["type"] == "status"
-        event = await asyncio.wait_for(asyncio.create_task(anext(stream)), timeout=1)
-        assert event["type"] == "error" and "時間上限" in event["message"]
-        await stream.aclose()
+        service._prepare = prepare
+        with pytest.raises(UpstreamTimeout):
+            await service.ask(AskRequest(query="Revenue?"))
         assert operation_closed == [True]
         assert asyncio.current_task().cancelling() == 0
 
@@ -100,9 +90,8 @@ def test_duration_includes_preparation_and_short_circuit_responses(monkeypatch, 
     monkeypatch.setattr(chat_module, "perf_counter", lambda: elapsed[0])
 
     async def prepare(request):
-        yield "Preparing"
         elapsed[0] += 2
-        yield prepared_response(), "Evidence" if with_answer else "", ""
+        return prepared_response(), "Evidence" if with_answer else "", ""
 
     async def text(**kwargs):
         elapsed[0] += 1
@@ -115,14 +104,9 @@ def test_duration_includes_preparation_and_short_circuit_responses(monkeypatch, 
     async def run():
         llm = SimpleNamespace(require_enabled=lambda: None, text=text, stream_text=stream_text)
         service = ChatService(http=None, settings=None, retrieval=object(), llm=llm)
-        service._prepare_steps = prepare
+        service._prepare = prepare
         request = AskRequest(query="Revenue?", stream=stream)
-        if stream:
-            events = [event async for event in service.stream_events(request)]
-            assert events[-1]["type"] == "done", events
-            duration = events[-1]["duration_ms"]
-        else:
-            duration = (await service.ask(request)).duration_ms
+        duration = (await service.ask(request)).duration_ms
         assert duration == (3000 if with_answer else 2000)
 
     asyncio.run(run())

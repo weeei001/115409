@@ -1,0 +1,23 @@
+@startuml 提示詞組裝與輸出校正流程圖
+skinparam shadowing false
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBackgroundColor #FFFFFF
+
+start
+:讀取資料庫（行情、籌碼、財務、新聞）;
+:證據組裝：產生帶編號證據目錄
+d_ 日資料／ch_ 籌碼累計／lt_ 長期位置／fd_ 基本面／nw_ 新聞;
+:提示詞組合：系統提示詞＋輸出結構定義＋欄位詞彙表＋少量範例;
+:呼叫大型語言模型（OpenAI 相容端點）;
+:輸出檢核
+① 結構正規化　② 引用過濾
+③ 引文逐字比對　④ 數值一致性（容差 0.1 個百分點）;
+:法遵規則掃描（硬性 7 條／軟性 2 條）
+命中硬性規則者移除該項敘述，並調降分析信心;
+if (尚有通過檢核的項目？) then (是)
+  :呈現分析敘述與可展開的證據;
+else (否)
+  :顯示「本次無法提供」;
+endif
+stop
+@enduml

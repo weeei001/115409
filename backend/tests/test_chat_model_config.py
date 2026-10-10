@@ -4,33 +4,45 @@ import json
 import httpx
 import pytest
 
+from app.core.config import Settings
 from app.features.analysis.service import AnalysisService, build_llm_runtime_config
 from app.features.chat.schemas import AskRequest
 from app.features.chat.service import ChatService
-from test_chat import FakeRetrieval, MODEL_ANSWER
+from app.features.news.impact import ImpactOutput, SYSTEM_PROMPT
+from app.jobs.impact.runner import ImpactBatchRunner
+from test_chat import FakeRetrieval, MODEL_ANSWER, plan_payload
 from test_llm_chat import completion, configured, stream_frame
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_chat_intent_and_answer_use_chat_model_without_changing_analysis(settings, stream, chat_session_factory):
-    settings = configured(settings, LLM_MODEL="analysis-model", LLM_MAX_TOKENS=8192,
-                          LLM_TIMEOUT_SECONDS=900, LLM_MAX_RETRIES=2,
-                          CHAT_LLM_MODEL="fast-chat-model", CHAT_LLM_MAX_TOKENS=2048,
-                          CHAT_LLM_TIMEOUT_SECONDS=45, CHAT_LLM_MAX_RETRIES=0)
+def test_news_analysis_and_chat_share_provider_with_separate_limits(
+        stream, chat_session_factory, tmp_path, monkeypatch):
+    monkeypatch.setenv("STREAM_LLM_API_KEY", "obsolete-stream-key")
+    monkeypatch.setenv("STREAM_LLM_BASE_URL", "https://obsolete-stream.test/v1")
+    monkeypatch.setenv("STREAM_LLM_MODEL", "obsolete-stream-model")
+    monkeypatch.setenv("CHAT_LLM_MODEL", "obsolete-chat-model")
+    settings = Settings(_env_file=None, LLM_API_KEY="shared-test-key",
+                        LLM_BASE_URL="https://chat.test/v1", LLM_MODEL="shared-model",
+                        LLM_MAX_TOKENS=8192, LLM_TIMEOUT_SECONDS=900, LLM_MAX_RETRIES=2,
+                        CHAT_LLM_MAX_TOKENS=2048, CHAT_LLM_TIMEOUT_SECONDS=45, CHAT_LLM_MAX_RETRIES=0)
+    original_config = build_llm_runtime_config(settings, settings.LLM_MODEL)
     calls = []
 
     def provider(request):
         body = json.loads(request.content)
         calls.append(body)
-        if body["model"] == "analysis-model":
+        assert body["model"] == "shared-model"
+        assert str(request.url) == "https://chat.test/v1/chat/completions"
+        assert request.headers["Authorization"] == "Bearer shared-test-key"
+        if len(calls) > 2:
             assert body["max_completion_tokens"] == 8192
             assert request.extensions["timeout"]["read"] == 900
-            return httpx.Response(200, json=completion("Analysis answer"))
-        assert body["model"] == "fast-chat-model"
+            text = "Analysis answer" if len(calls) == 3 else '{"events":[],"impacts":[]}'
+            return httpx.Response(200, json=completion(text))
         assert body["max_completion_tokens"] == 2048
         assert request.extensions["timeout"]["read"] == 45
-        text = ('{"is_finance":true,"stocks":["2330"],"data_needs":["news"]}'
-                if "response_format" in body else "Invalid citation [S99]" if len(calls) == 2 else MODEL_ANSWER)
+        text = (json.dumps(plan_payload({"stocks": ["2330"], "data_needs": ["news"]})) if len(calls) == 1
+                else "Invalid citation [S99]")
         if body.get("stream"):
             first = stream_frame(text).replace(b'"delta": {', b'"delta": {"role": "assistant", ')
             return httpx.Response(200, content=first + stream_frame(finish="stop") + b"data: [DONE]\n\n",
@@ -43,27 +55,24 @@ def test_chat_intent_and_answer_use_chat_model_without_changing_analysis(setting
             assert chat.intent_llm is chat.llm
             assert chat.llm.settings.LLM_MAX_RETRIES == 0
             request = AskRequest(query="台積電", stream=stream)
-            if stream:
-                events = [event async for event in chat.stream_events(request)]
-                assert events[-1]["type"] == "done"
-                assert events[-1]["answer"] == "Invalid citation [S99]"
-                statuses = [event["content"] for event in events if event["type"] == "status"]
-                assert not any("核對" in status for status in statuses)
-            else:
-                assert (await chat.ask(request)).answer == "Invalid citation [S99]"
+            assert (await chat.ask(request)).answer == "Invalid citation [S99]"
             analysis = AnalysisService(db=None, settings=settings, http=http, rag=object())
+            news = ImpactBatchRunner(db_session=None, settings=settings, catalog={}, http=http, work_dir=tmp_path)
             assert analysis.llm.settings is settings
             assert analysis.llm.settings.LLM_MAX_RETRIES == 2
+            assert news.llm.settings.LLM_MAX_RETRIES == 0
             await analysis.llm.text(system_prompt="Analysis", prompt="Evidence")
-            assert settings.LLM_MODEL == "analysis-model"
-            assert build_llm_runtime_config(settings, analysis.llm.model_name) == build_llm_runtime_config(
-                settings.model_copy(update={"CHAT_LLM_MODEL": "different-chat-model"}), analysis.llm.model_name)
+            result = await news.llm.generate(system_prompt=SYSTEM_PROMPT, payload={"title": "測試新聞"},
+                                             schema=ImpactOutput)
+            assert result.payload == {"events": [], "impacts": []}
+            assert settings.LLM_MODEL == "shared-model"
+            assert original_config == build_llm_runtime_config(settings, analysis.llm.model_name)
 
     asyncio.run(run())
-    assert [body["model"] for body in calls] == ["fast-chat-model"] * 2 + ["analysis-model"]
+    assert [body["model"] for body in calls] == ["shared-model"] * 4
 
 
-def test_empty_chat_model_preserves_existing_model_with_separate_limits(settings):
+def test_chat_uses_shared_model_with_default_chat_limits(settings):
     settings = configured(settings)
     service = ChatService(settings=settings, http=None, retrieval=FakeRetrieval())
     assert service.llm.model_name == settings.LLM_MODEL

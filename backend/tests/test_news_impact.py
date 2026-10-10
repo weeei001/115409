@@ -1,6 +1,8 @@
-"""Article event analysis must remain evidence-backed and revision-safe."""
+"""文章事件分析須保留原文依據，並核對目前有效的原文與設定版本。"""
 import asyncio
+from copy import deepcopy
 from datetime import datetime
+import json
 from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
@@ -9,7 +11,7 @@ from app.clients.llm import LlmResult
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.market import company_catalog
-from app.features.news.impact import config_hash, validate_output
+from app.features.news.impact import MAX_EVENTS, MAX_IMPACTS, config_hash, validate_output
 from app.jobs.impact.runner import ImpactBatchRunner
 from app.jobs.impact.migrate import migrate_news_impact
 
@@ -39,19 +41,19 @@ def test_ellipsis_evidence_is_split_only_when_both_quotes_are_exact():
         validate_output(payload, article=article, catalog={})
 
 
-def test_extra_evidence_is_trimmed_only_if_every_quote_is_source_backed():
+def test_long_and_multiple_evidence_quotes_are_preserved_when_source_backed():
     long_quote = "報" * 130
     article = SimpleNamespace(title="測試", content=f"甲乙丙。{long_quote}")
     payload = {"events": [{"key": "e1", "summary": "摘要", "statement_type": "fact", "topics": [],
                            "evidence": [{"field": "content", "quote": quote}
                                         for quote in ("甲", "乙", "丙")]}], "impacts": []}
     result = validate_output(payload, article=article, catalog={})
-    assert [item.quote for item in result.events[0].evidence] == ["甲", "乙"]
+    assert [item.quote for item in result.events[0].evidence] == ["甲", "乙", "丙"]
     payload["events"][0]["evidence"][2]["quote"] = "不存在"
-    with pytest.raises(ValueError, match="at most 2"):
+    with pytest.raises(ValueError, match="exact source quote"):
         validate_output(payload, article=article, catalog={})
     payload["events"][0]["evidence"] = [{"field": "content", "quote": long_quote}]
-    assert validate_output(payload, article=article, catalog={}).events[0].evidence[0].quote == long_quote[:120]
+    assert validate_output(payload, article=article, catalog={}).events[0].evidence[0].quote == long_quote
 
 
 def output():
@@ -66,6 +68,212 @@ def output():
                  "direction": "negative", "importance": "medium", "basis": "inferred",
                  "reason": "產業融資成本可能上升", "evidence": [quote]},
             ]}
+
+
+def expanded_output(event_count):
+    template = output()
+    return {
+        "events": [{**deepcopy(template["events"][0]), "key": f"e{index}"}
+                   for index in range(1, event_count + 1)],
+        "impacts": [{**deepcopy(impact), "event_key": f"e{index}"}
+                    for index in range(1, event_count + 1) for impact in template["impacts"]],
+    }
+
+
+def test_event_capacity_removes_only_overflow_events_and_their_impacts():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = expanded_output(MAX_EVENTS + 1)
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert [event.key for event in checked.events] == [f"e{index}" for index in range(1, MAX_EVENTS + 1)]
+    assert len(checked.impacts) == MAX_EVENTS * 2
+    assert all(impact.event_key != "e7" for impact in checked.impacts)
+    assert "events[6]: event capacity exceeded (6)" in checked.validation_feedback
+    assert "impacts[12].event_key" in checked.validation_feedback
+    assert "impacts[13].event_key" in checked.validation_feedback
+
+
+def test_event_capacity_follows_validation_deduplication_and_tail_conflicts():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = expanded_output(MAX_EVENTS + 1)
+    first = deepcopy(payload["events"][0])
+    invalid = {**deepcopy(first), "key": "invalid"}
+    del invalid["statement_type"]
+    payload["events"] = [invalid, *[deepcopy(first) for _ in range(MAX_EVENTS)],
+                         *payload["events"], {**deepcopy(first), "summary": "Different event"}]
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert [event.key for event in checked.events] == [f"e{index}" for index in range(2, MAX_EVENTS + 2)]
+    assert len(checked.impacts) == MAX_EVENTS * 2
+    assert all(impact.event_key != "e1" for impact in checked.impacts)
+    assert "events[0].statement_type" in checked.validation_feedback
+    assert "conflicting event key" in checked.validation_feedback
+    assert "capacity exceeded" not in checked.validation_feedback
+
+
+@pytest.mark.parametrize("tail_conflict", [False, True])
+def test_impact_capacity_follows_validation_deduplication_and_tail_conflicts(tail_conflict):
+    article = SimpleNamespace(title="台積電升息新聞", content="央行宣布升息一碼")
+    payload = expanded_output(MAX_EVENTS)
+    template = deepcopy(payload["impacts"][0])
+    targets = [("market", "TW"), ("industry", "TWSE:24"),
+               ("industry", "TPEx:24"), ("company", "2330")]
+    valid = [{**deepcopy(template), "event_key": event["key"], "target_type": target_type,
+              "target_id": target_id} for event in payload["events"] for target_type, target_id in targets]
+    payload["impacts"] = [{"event_key": "e1"},
+                          *[deepcopy(valid[0]) for _ in range(MAX_IMPACTS + 1)], *valid]
+    if tail_conflict:
+        payload["impacts"].append({**deepcopy(valid[0]), "direction": "positive"})
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    expected = valid[1:MAX_IMPACTS + 1] if tail_conflict else valid[:MAX_IMPACTS]
+    assert len(checked.events) == MAX_EVENTS and len(checked.impacts) == MAX_IMPACTS
+    assert [impact.model_dump() for impact in checked.impacts] == expected
+    assert "impacts[0].target_type" in checked.validation_feedback
+    assert "impact capacity exceeded (18)" in checked.validation_feedback
+    assert ("conflicting event target" in checked.validation_feedback) is tail_conflict
+
+
+@pytest.mark.parametrize("topics, expected, feedback_path", [
+    (["interest_rates", "unknown", "interest_rates", "ai", None, {}, ["ai"]],
+     ["interest_rates", "ai"], "topics[1]"),
+    (["unknown", 1, None, {}, []], [], "topics[0]"),
+    (["interest_rates"] * 20, ["interest_rates"], None),
+    (None, [], "topics"), ("interest_rates", [], "topics"),
+    ({"ai": True}, [], "topics"), (1, [], "topics"),
+])
+def test_optional_topics_are_cleaned_without_losing_events_or_impacts(topics, expected, feedback_path):
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["events"][0]["topics"] = topics
+    original = deepcopy(payload)
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert payload == original
+    assert len(checked.events) == 1 and checked.events[0].topics == expected
+    assert len(checked.impacts) == 2
+    if feedback_path:
+        assert f"events[0].{feedback_path}" in checked.validation_feedback
+    else:
+        assert checked.validation_feedback is None
+
+
+def test_additional_fields_and_relaxed_text_limits_preserve_payload():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["extra"] = {"note": "ignored"}
+    payload["events"][0].update(key="event-1", summary="Summary " * 30, speaker="Speaker " * 15,
+                                 extra="ignored")
+    payload["events"][0]["evidence"][0]["extra"] = "ignored"
+    for impact in payload["impacts"]:
+        impact.update(event_key="event-1", extra="ignored")
+    original = deepcopy(payload)
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert payload == original
+    assert checked.events[0].key == "event-1" and len(checked.events[0].summary) > 160
+    assert len(checked.events[0].speaker) > 80 and len(checked.impacts) == 2
+    assert "extra" not in json.dumps(checked.model_dump())
+    assert checked.validation_feedback is None
+
+
+def test_invalid_event_removes_only_its_linked_impacts():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    invalid = {**deepcopy(payload["events"][0]), "key": "e2"}
+    del invalid["statement_type"]
+    payload["events"].append(invalid)
+    payload["impacts"].append({**deepcopy(payload["impacts"][0]), "event_key": "e2"})
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert [event.key for event in checked.events] == ["e1"]
+    assert len(checked.impacts) == 2 and all(impact.event_key == "e1" for impact in checked.impacts)
+    assert "events[1].statement_type" in checked.validation_feedback
+    assert "impacts[2].event_key" in checked.validation_feedback
+
+
+@pytest.mark.parametrize("invalid_field", [[], {}])
+def test_malformed_evidence_field_is_removed_without_losing_valid_events(invalid_field):
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["events"].append({**deepcopy(payload["events"][0]), "key": "e2"})
+    payload["events"][0]["evidence"] = [{"field": invalid_field, "quote": article.content}]
+    payload["impacts"][1]["event_key"] = "e2"
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert [event.key for event in checked.events] == ["e2"]
+    assert len(checked.impacts) == 1 and checked.impacts[0].event_key == "e2"
+    assert "events[0].evidence[0].field" in checked.validation_feedback
+
+
+@pytest.mark.parametrize("invalid_fields, error", [
+    ({"target_type": "industry", "target_id": "TWSE:invalid"}, "unknown official industry"),
+    ({"target_type": "company", "target_id": "9999"}, "unknown company stock code"),
+    ({"target_type": "company", "target_id": "2330"}, "not explicitly mentioned"),
+    ({"target_type": "market", "target_id": "US"}, "market target_id must be TW"),
+    ({"event_key": "missing"}, "unknown or invalid event"),
+    ({"direction": "bullish"}, "direction"),
+    ({"evidence": []}, "evidence"),
+    ({"evidence": [{"field": "content", "quote": "不存在"}]}, "exact source quote"),
+    ({"evidence": [{"field": "content", "quote": "  "}]}, "evidence"),
+    ({"reason": "r" * 201}, "reason"),
+])
+def test_invalid_impact_targets_quotes_and_structure_are_removed_locally(invalid_fields, error):
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["impacts"][0].update(invalid_fields)
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert len(checked.events) == 1 and len(checked.impacts) == 1
+    assert checked.impacts[0].target_type == "industry"
+    assert "impacts[0]" in checked.validation_feedback and error in checked.validation_feedback
+
+
+def test_exact_duplicate_events_and_impacts_are_deduplicated():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["events"].append(deepcopy(payload["events"][0]))
+    payload["impacts"].append(deepcopy(payload["impacts"][0]))
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert len(checked.events) == 1 and len(checked.impacts) == 2
+    assert checked.validation_feedback is None
+
+
+def test_conflicting_event_keys_remove_ambiguous_events_and_linked_impacts():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["events"].append({**deepcopy(payload["events"][0]), "summary": "Different event"})
+    payload["events"].append({**deepcopy(payload["events"][0]), "key": "e2"})
+    payload["impacts"].append({**deepcopy(payload["impacts"][0]), "event_key": "e2"})
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert [event.key for event in checked.events] == ["e2"]
+    assert len(checked.impacts) == 1 and checked.impacts[0].event_key == "e2"
+    assert "conflicting event key" in checked.validation_feedback
+
+
+def test_conflicting_impact_targets_remove_only_the_conflicting_group():
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    payload = output()
+    payload["impacts"].append({**deepcopy(payload["impacts"][0]), "direction": "positive"})
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert len(checked.events) == 1 and len(checked.impacts) == 1
+    assert checked.impacts[0].target_type == "industry"
+    assert "impacts[2]: conflicting event target" in checked.validation_feedback
+
+
+def test_evidence_resource_limits_do_not_truncate_or_publish_unsupported_items():
+    from app.features.news.impact import MAX_EVIDENCE_ITEMS, MAX_QUOTE_LENGTH
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼 " + "q" * (MAX_QUOTE_LENGTH + 1))
+    payload = output()
+    payload["events"].append({**deepcopy(payload["events"][0]), "key": "e2",
+        "evidence": [{"field": "content", "quote": "q" * (MAX_QUOTE_LENGTH + 1)}]})
+    payload["impacts"][0]["evidence"] = [{"field": "content", "quote": "q" * length}
+                                          for length in range(1, MAX_EVIDENCE_ITEMS + 2)]
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert [event.key for event in checked.events] == ["e1"]
+    assert len(checked.impacts) == 1 and checked.impacts[0].target_type == "industry"
+    assert "events[1].evidence[0].quote" in checked.validation_feedback
+    assert "impacts[0].evidence" in checked.validation_feedback
+
+
+@pytest.mark.parametrize("payload", [None, {}, {"events": [], "impacts": {}},
+                                          {"events": [], "impacts": [None]}])
+def test_malformed_or_entirely_invalid_output_is_not_accepted_as_empty(payload):
+    article = SimpleNamespace(title="升息新聞", content="央行宣布升息一碼")
+    with pytest.raises(ValueError):
+        validate_output(payload, article=article, catalog=CATALOG)
 
 
 class StubLlm:
@@ -83,6 +291,44 @@ def run(db_session, settings, tmp_path, llm):
     runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
                                llm=llm, execute=True, work_dir=tmp_path)
     return asyncio.run(runner.run(since=datetime(2026, 1, 1)))
+
+
+def test_legitimate_empty_output_is_saved_without_repair(db_session, settings, tmp_path):
+    db_session.add(NewsArticle(article_id="empty-output", title="升息新聞", content="央行宣布升息一碼",
+                               pub_time="2026-09-20 10:00:00"))
+    db_session.commit()
+    llm = StubLlm([{"events": [], "impacts": []}])
+    summary = run(db_session, settings, tmp_path, llm)
+    assert summary["success"] == 1 and summary["api_calls"] == llm.calls == 1
+    record = db_session.get(NewsEventAnalysis, "empty-output")
+    assert record.status == "success" and record.events_json == "[]"
+    assert db_session.query(NewsEventImpact).count() == 0
+
+
+def test_previous_validation_version_is_hidden_and_queued_for_analysis(
+        client, db_session, settings, tmp_path, monkeypatch):
+    from app.features.news import impact as impact_module
+    monkeypatch.setattr(company_catalog, "load_catalog", lambda: CATALOG)
+    article = NewsArticle(article_id="old-contract", title="升息新聞", content="央行宣布升息一碼",
+                          pub_time="2026-09-20 10:00:00")
+    db_session.add(article)
+    db_session.commit()
+    runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
+                               llm=StubLlm([]), execute=True, work_dir=tmp_path)
+    with monkeypatch.context() as previous:
+        previous.setattr(impact_module, "PROMPT_VERSION", "impact-v3")
+        old_hash = config_hash(runner.settings, CATALOG)
+    runner._save(article, impact_module.article_hash(article), "success",
+                 output=validate_output(output(), article=article, catalog=CATALOG))
+    record = db_session.get(NewsEventAnalysis, article.article_id)
+    record.config_hash = old_hash
+    record.prompt_version = "impact-v3"
+    db_session.commit()
+    detail = client.get(f"/news/{article.article_id}").json()["event_analysis"]
+    assert detail["status"] == "pending" and detail["events"] == detail["impacts"] == []
+    assert client.get("/news", params={"scope": "market"}).json()["total"] == 0
+    assert [row.article_id for row, _ in runner.pending(datetime(2026, 1, 1))] == [article.article_id]
+    assert record.status == "success" and db_session.query(NewsEventImpact).count() == 2
 
 
 def test_pending_excludes_simulation_before_limit_without_touching_records(db_session, settings, tmp_path):
@@ -170,17 +416,57 @@ def test_macro_article_is_searchable_without_company_and_stale_analysis_is_hidde
     assert client.get("/news", params={"scope": "market"}).json()["total"] == 0
 
 
-def test_invalid_evidence_fails_without_leaving_impacts(db_session, settings, tmp_path):
+def test_invalid_impact_is_removed_without_discarding_supported_items(db_session, settings, tmp_path):
     settings.LLM_MODEL = "test-model"
     db_session.add(NewsArticle(article_id="invalid", title="升息新聞", content="央行宣布升息一碼",
                                pub_time="2026-09-20 10:00:00"))
     db_session.commit()
     bad = output()
     bad["impacts"][0]["evidence"] = [{"field": "content", "quote": "降息一碼"}]
+    summary = run(db_session, settings, tmp_path, StubLlm([bad]))
+    assert summary["success"] == 1 and summary["api_calls"] == 1
+    assert summary["failure_reasons"] == {}
+    record = db_session.get(NewsEventAnalysis, "invalid")
+    assert record.status == "success" and len(json.loads(record.events_json)) == 1
+    assert db_session.query(NewsEventImpact).one().target_type == "industry"
+    audit = json.loads(next(tmp_path.glob("news_impact_*.jsonl")).read_text(encoding="utf-8"))
+    assert audit["error"] is None
+    assert "impacts[0].evidence[0].quote" in audit["validation_feedback"]
+
+
+def test_capacity_and_topic_cleanup_are_saved_with_audit_without_repair(db_session, settings, tmp_path):
+    db_session.add(NewsArticle(article_id="partial-output", title="升息新聞", content="央行宣布升息一碼",
+                               pub_time="2026-09-20 10:00:00"))
+    db_session.commit()
+    payload = expanded_output(MAX_EVENTS + 1)
+    payload["events"][0]["topics"].append("unknown")
+    llm = StubLlm([payload])
+    summary = run(db_session, settings, tmp_path, llm)
+    assert summary["success"] == 1 and summary["api_calls"] == llm.calls == 1
+    record = db_session.get(NewsEventAnalysis, "partial-output")
+    events = json.loads(record.events_json)
+    assert record.status == "success" and len(events) == MAX_EVENTS
+    assert events[0]["topics"] == ["interest_rates"]
+    impacts = db_session.query(NewsEventImpact).all()
+    assert len(impacts) == MAX_EVENTS * 2
+    assert all(impact.event_key in {event["key"] for event in events} for impact in impacts)
+    audit = json.loads(next(tmp_path.glob("news_impact_*.jsonl")).read_text(encoding="utf-8"))
+    assert audit["error"] is None
+    assert "events[0].topics[1]" in audit["validation_feedback"]
+    assert "events[6]: event capacity exceeded (6)" in audit["validation_feedback"]
+
+
+def test_all_invalid_events_retry_and_fail_without_leaving_impacts(db_session, settings, tmp_path):
+    db_session.add(NewsArticle(article_id="invalid-events", title="升息新聞", content="央行宣布升息一碼",
+                               pub_time="2026-09-20 10:00:00"))
+    db_session.commit()
+    bad = output()
+    bad["events"][0]["evidence"] = [{"field": "content", "quote": "降息一碼"}]
     summary = run(db_session, settings, tmp_path, StubLlm([bad, bad]))
     assert summary["failed"] == 1 and summary["api_calls"] == 2
     assert summary["failure_reasons"] == {"validation_failed": 1}
-    assert db_session.get(NewsEventAnalysis, "invalid").status == "failed"
+    record = db_session.get(NewsEventAnalysis, "invalid-events")
+    assert record.status == "failed" and record.events_json == "[]"
     assert db_session.query(NewsEventImpact).count() == 0
 
 
@@ -245,7 +531,7 @@ def test_recognition_alias_upgrade_invalidates_previous_analysis_config(settings
     assert config_hash(settings, CATALOG) != current
 
 
-def test_mixed_prompt_upgrade_keeps_quote_validation_and_invalidates_old_analysis(settings, monkeypatch):
+def test_mixed_accepts_one_source_quote_and_keeps_quote_validation(settings, monkeypatch):
     from app.features.news import impact
     article = SimpleNamespace(title="政策影響", content="融資成本增加，但資金流入改善。")
     positive = {"field": "content", "quote": "資金流入改善"}
@@ -254,16 +540,18 @@ def test_mixed_prompt_upgrade_keeps_quote_validation_and_invalidates_old_analysi
                            "evidence": [positive, negative]}],
                "impacts": [{"event_key": "e1", "target_type": "market", "target_id": "TW", "direction": "mixed",
                             "importance": "medium", "basis": "inferred", "reason": "成本與流入影響並存",
-                            "evidence": [positive]}]}
-    with pytest.raises(ValueError, match="two distinct source quotes"):
-        validate_output(payload, article=article, catalog={})
+                            "evidence": [{"field": "content", "quote": article.content}]}]}
+    assert validate_output(payload, article=article, catalog={}).impacts[0].direction == "mixed"
     payload["impacts"][0]["evidence"] = [positive, positive]
-    with pytest.raises(ValueError, match="two distinct source quotes"):
-        validate_output(payload, article=article, catalog={})
+    assert len(validate_output(payload, article=article, catalog={}).impacts[0].evidence) == 1
     payload["impacts"][0]["evidence"] = [positive, negative]
     assert validate_output(payload, article=article, catalog={}).impacts[0].direction == "mixed"
+    payload["impacts"][0]["evidence"] = [{"field": "content", "quote": "不存在的正負影響"}]
+    checked = validate_output(payload, article=article, catalog={})
+    assert len(checked.events) == 1 and checked.impacts == []
+    assert "exact source quote" in checked.validation_feedback
     current = config_hash(settings, CATALOG)
-    monkeypatch.setattr(impact, "PROMPT_VERSION", "impact-v1")
+    monkeypatch.setattr(impact, "PROMPT_VERSION", "impact-v2")
     monkeypatch.setattr(impact, "SYSTEM_PROMPT", "\n".join(line for line in impact.SYSTEM_PROMPT.splitlines()
         if not line.startswith("direction=mixed")))
     assert config_hash(settings, CATALOG) != current

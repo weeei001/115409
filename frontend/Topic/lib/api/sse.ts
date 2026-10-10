@@ -1,7 +1,7 @@
 import { genericMessageForStatus, pickDetailMessage } from './errorDetail';
 
 /*
- * 用 fetch 讀 SSE 的共用部分：AI 對話（ragAsk.ts）與 AI 回測串流（backtest.ts）。
+ * 用 fetch 讀 SSE 的共用部分，目前給 AI 回測串流（backtest.ts）用。
  * 不用 EventSource：它帶不了登入標頭，斷線還會自動重連、把整段請求重跑一次。
  */
 
@@ -14,15 +14,11 @@ export async function errorMessageFrom(res: Response): Promise<string> {
   }
 }
 
-/**
- * 一行 SSE 取出 `data: {...}` 的事件；空行、註解行（`:` 開頭）、`[DONE]`、解析不了或沒有 type 的內容都回傳 null。
- * lenient：`data:` 不分大小寫，也接受整行 JSON（/api/ask 的後端可能直接回 AskResponse）。
- */
-export function parseSseEvent<T extends { type: string }>(line: string, { lenient = false } = {}): T | null {
+/** 一行 SSE 取出 `data: {...}` 的事件；空行、註解行（`:` 開頭）、`[DONE]`、解析不了或沒有 type 的內容都回傳 null。 */
+export function parseSseEvent<T extends { type: string }>(line: string): T | null {
   const text = line.replace(/\r$/, '').trim();
-  let json: string | null = null;
-  if (lenient ? text.slice(0, 5).toLowerCase() === 'data:' : text.startsWith('data:')) json = text.slice(5).trim();
-  else if (lenient && (text.startsWith('{') || text.startsWith('['))) json = text;
+  if (!text.startsWith('data:')) return null;
+  const json = text.slice(5).trim();
   if (!json || json === '[DONE]') return null;
   try {
     const event = JSON.parse(json) as T | null;

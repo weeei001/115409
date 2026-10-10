@@ -1,5 +1,6 @@
 import asyncio
 import json
+import ssl
 
 import httpx
 import pytest
@@ -7,7 +8,14 @@ import pytest
 from app.clients import llm as adapter
 from app.clients.llm import LlmClient
 from app.core.errors import ServiceUnavailable, UpstreamTimeout
-from app.features.chat.schemas import Intent
+from app.features.chat.planning import TaskPlan
+from test_chat import plan_payload
+
+
+async def invoke(client, mode):
+    if mode == "generate":
+        return await client.generate(system_prompt="Policy", payload={"query": "TSMC"}, schema=TaskPlan)
+    return await client.text(system_prompt="Policy", prompt="News")
 
 
 def configured(settings, **overrides):
@@ -94,10 +102,11 @@ def test_disabled_provider_stream_setting_still_supports_sse_consumer(settings):
 
 
 @pytest.mark.parametrize("response_format", ["off", "json_object", "json_schema"])
-def test_shared_llm_configuration_keeps_structured_and_plain_invocations_distinct(settings, response_format):
+@pytest.mark.parametrize("configured_streaming", [False, True])
+def test_shared_llm_configuration_keeps_structured_and_plain_invocations_distinct(settings, response_format, configured_streaming):
     calls = []
     llm_settings = configured(settings, LLM_MAX_TOKENS=321, LLM_TEMPERATURE=0,
-        LLM_TIMEOUT_SECONDS=23, LLM_MAX_RETRIES=1, LLM_STREAMING=False, LLM_RESPONSE_FORMAT=response_format)
+        LLM_TIMEOUT_SECONDS=23, LLM_MAX_RETRIES=1, LLM_STREAMING=configured_streaming, LLM_RESPONSE_FORMAT=response_format)
     def handler(request):
         body = json.loads(request.content)
         calls.append(body)
@@ -107,19 +116,21 @@ def test_shared_llm_configuration_keeps_structured_and_plain_invocations_distinc
         assert body["temperature"] == 0 and body["max_completion_tokens"] == 321
         assert request.extensions["timeout"]["read"] == 23
         if len(calls) == 1:
+            assert body.get("stream") is False
             if response_format == "off":
                 assert "response_format" not in body
             else:
                 assert body["response_format"]["type"] == response_format
-            return httpx.Response(200, json=completion('{"is_finance":true,"stocks":["2330"]}'))
+            return httpx.Response(200, json=completion(json.dumps(plan_payload({"stocks": ["2330"], "data_needs": ["news"]}))))
         assert "response_format" not in body
         return httpx.Response(200, json=completion("Answer"))
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
             client = LlmClient(llm_settings, http)
             assert client.settings.LLM_MAX_RETRIES == 1
-            result = await client.generate(system_prompt="Classify", payload={"query": "TSMC"}, schema=Intent)
+            result = await client.generate(system_prompt="Classify", payload={"query": "TSMC"}, schema=TaskPlan)
             assert result.payload["stocks"] == ["2330"]
+            assert result.metadata["finish_reason"] == "stop"
             await client.text(system_prompt="Policy", prompt="News")
     asyncio.run(run())
     assert len(calls) == 2
@@ -210,3 +221,39 @@ def test_stalled_chunk_times_out_before_total_deadline_and_closes_upstream(setti
             await asyncio.sleep(0)
             assert upstream.closed
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("mode", ["generate", "text"])
+@pytest.mark.parametrize("failure", ["status", "auth", "read", "timeout", "format", "certificate"])
+def test_failure_diagnostics_keep_context_codes_without_exposing_details(settings, mode, failure, caplog):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if failure in {"status", "auth"}:
+            return httpx.Response(503 if failure == "status" else 401,
+                                  json={"error": {"message": "private upstream token"}})
+        if failure == "read":
+            raise httpx.ReadError("private upstream token", request=request)
+        if failure == "timeout":
+            raise httpx.ConnectTimeout("private upstream token", request=request)
+        if failure == "certificate":
+            certificate = ssl.SSLCertVerificationError(1, "private certificate metadata")
+            certificate.verify_code = 20
+            try:
+                raise certificate
+            except ssl.SSLCertVerificationError:
+                raise httpx.ConnectError("private upstream token", request=request) from None
+        return httpx.Response(200, content="invalid private body", headers={"Content-Type": "application/json"})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.raises(UpstreamTimeout if failure == "timeout" else ServiceUnavailable):
+                await invoke(LlmClient(configured(settings), http), mode)
+    asyncio.run(run())
+    assert len(calls) == 1
+    if failure == "status":
+        assert '"status_code": 503' in caplog.text
+    if failure == "certificate":
+        assert "SSLCertVerificationError" in caplog.text and '"verify_code": 20' in caplog.text
+    assert not any(value in caplog.text for value in ("private upstream token", "private certificate metadata", "invalid private body"))

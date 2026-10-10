@@ -1,7 +1,7 @@
 /**
  * 錯誤訊息只給一般使用者看：不出現 HTTP 代碼、網址、CORS 這類技術字眼（決議 D13）。
  * 後端回的中文 `detail` 原樣保留（例如「找不到股票 9999 的價格資料」）；
- * 英文、結構化或夾帶技術內容的訊息（FastAPI 預設訊息、422 驗證錯誤、英文欄位名）改用依狀態碼的通用文案。
+ * 英文、無法辨識或夾帶技術內容的訊息（FastAPI 預設訊息、422 驗證錯誤、英文欄位名）改用依狀態碼的通用文案。
  */
 
 const CJK = /[㐀-鿿]/;
@@ -57,6 +57,7 @@ export function pickDetailMessage(data: unknown, status: number): string {
   let message: unknown = d;
   if (Array.isArray(d) && d[0] && typeof d[0] === 'object' && 'msg' in d[0]) message = (d[0] as { msg: unknown }).msg;
   else if (d && typeof d === 'object' && 'msg' in d) message = (d as { msg: unknown }).msg;
+  else if (d && typeof d === 'object' && 'message' in d) message = (d as { message: unknown }).message;
   return typeof message === 'string' && isUserReadable(message) ? message : genericMessageForStatus(status);
 }
 
