@@ -39,6 +39,9 @@ def compile_plan(plan: TaskPlan) -> Intent:
         if requested != (scope in needs):
             raise ValueError(f"{scope} 的存取判斷與任務不一致")
     details = plan.model_dump(exclude={"tasks", "portfolio_access", "favorites_access"})
+    # 明確要求的新聞任務，不得被後續證據檢查略過。
+    if "news_search" in tasks:
+        details["news_strategy"] = "required"
     details["is_finance"] = "non_finance" not in tasks
     return Intent(**details, data_needs=sorted(needs))
 
@@ -67,8 +70,8 @@ async def plan_request(client, *, request, history, current_time, add_usage):
     return None
 
 
-async def _generate(client, schema, prompt, payload, trace, add_usage):
-    entry = {"stage": "plan", "status": "started"}
+async def _generate(client, schema, prompt, payload, trace, add_usage, *, stage="plan"):
+    entry = {"stage": stage, "status": "started"}
     trace.append(entry)
     started = perf_counter()
     try:

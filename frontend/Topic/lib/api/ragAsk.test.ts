@@ -54,6 +54,16 @@ async function check() {
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: '請先登入' }), { status: 401 });
   await assert.rejects(ragAsk({ query: 'Unauthorized' }), (error: Error & { status?: number }) =>
     error.status === 401 && error.message.includes('請先登入'));
+  globalThis.fetch = async () => new Response(JSON.stringify({ detail: {
+    code: 'upstream_model_error', message: '模型服務暫時無法回應，請稍後重試',
+    context: { token: 'fixture-secret-token', upstream: 'http://internal-provider' },
+  } }), { status: 503 });
+  await assert.rejects(ragAsk({ query: 'Model unavailable' }), (error: Error & { status?: number }) => {
+    assert.equal(error.status, 503);
+    assert.equal(error.message, '模型服務暫時無法回應，請稍後重試');
+    assert.doesNotMatch(error.message, /fixture-secret-token|internal-provider|upstream_model_error/);
+    return true;
+  });
   globalThis.fetch = async () => new Response(JSON.stringify({ actions: [] }));
   await assert.rejects(ragAsk({ query: 'Malformed' }), /未回傳完整回答/);
   globalThis.fetch = async () => { throw new TypeError('secret provider URL'); };

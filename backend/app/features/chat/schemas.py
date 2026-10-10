@@ -47,6 +47,8 @@ class IntentDetails(BaseModel):
     forward_outlook: bool = Field(default=False, strict=True)
     news_scope: Literal["selected_stocks", "market_wide"] = "selected_stocks"
     paper_order: PaperOrderIntent = Field(default_factory=PaperOrderIntent)
+    discover_stocks: bool = Field(default=False, strict=True)
+    news_strategy: Literal["required", "auto"] = "required"
 
 
 class Intent(IntentDetails):

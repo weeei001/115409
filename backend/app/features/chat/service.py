@@ -24,6 +24,8 @@ from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
 from .personal_context import read_personal_context, paper_draft, paper_draft_offers
 from .planning import plan_request
+from .data_queries import plan_discovery, plan_news_supplement
+from .stock_discovery import discover_stock_candidates, stock_industries
 from .evidence import assess_evidence
 
 from .prompts import (ANSWER_PROMPT, answer_system_prompt,
@@ -132,6 +134,18 @@ class ChatService:
                     sources.append(comparison)
             return sources
 
+    def _discovery_industries(self):
+        if self.session_factory is None:
+            raise ServiceUnavailable("股票產業名單暫時無法讀取")
+        with self.session_factory() as db:
+            return stock_industries(db)
+
+    def _discover_stocks(self, groups, as_of, limit):
+        if self.session_factory is None:
+            raise ServiceUnavailable("股票候選資料暫時無法讀取")
+        with self.session_factory() as db:
+            return discover_stock_candidates(db, groups, as_of, limit)
+
     async def _prepare(self, request: AskRequest) -> tuple[AskResponse, str, str]:
         now = taipei_now().replace(microsecond=0)
         history = _conversation_history(request)
@@ -196,6 +210,14 @@ class ChatService:
                          if symbol in known_symbols]
             listed = extract_candidate_stocks(None, None, query, None, catalog) if catalog else []
             symbols = list(dict.fromkeys([*supported, *listed]))
+        time_from, time_to = _intent_time_range(intent)
+        if time_to:
+            time_to = min(datetime.fromisoformat(time_to), now).strftime("%Y-%m-%d %H:%M:%S")
+        if time_from and datetime.fromisoformat(time_from) > now:
+            time_from = None
+        user_time_range = bool(time_from or time_to)
+        if user_time_range:
+            response.time_range = {"from": time_from, "to": time_to}
         if scopes and not symbols:
             symbols = personal_symbols
             if len(personal_source.stock_ids) > len(symbols) and needs & {"market", "news"}:
@@ -206,6 +228,57 @@ class ChatService:
                     f"本輪依收藏順序、再接續模擬持股，僅取前 {len(symbols)} 檔分析{analysis_kinds}："
                     + "、".join(symbols)
                     + "。其餘股票尚未比較；可在下一題指定股票代碼。")
+        order_symbols = list(symbols)
+        discovery_note = ""
+        should_discover = ("market" in needs and not request.stock_id and
+                           (intent.discover_stocks or (not symbols and not scopes and "news" in needs)))
+        if should_discover:
+            as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
+            if time_to:
+                cutoff = datetime.fromisoformat(time_to)
+                if cutoff < now and cutoff.time() != datetime.max.time().replace(microsecond=0):
+                    as_of -= timedelta(days=1)
+            result = None
+            try:
+                industries = await asyncio.to_thread(self._discovery_industries)
+                selection = await plan_discovery(
+                    self.intent_llm, request=request, query=query, industries=industries,
+                    add_usage=lambda metadata: _add_usage(response, metadata))
+                if selection is None or (not selection.search_all and not selection.industry_groups):
+                    discovery_note = "目前無法確認要篩選的產業範圍，請指定產業或比較條件。"
+                    request._evidence_trace["status"] = "discovery_unresolved"
+                else:
+                    result = await asyncio.to_thread(
+                        self._discover_stocks, selection.industry_groups, as_of, selection.limit)
+            except (SQLAlchemyError, ServiceUnavailable):
+                discovery_note = "目前無法讀取系統的產業候選股票資料，請稍後重試。"
+                request._evidence_trace["status"] = "discovery_unavailable"
+            if result is None and not symbols and not scopes:
+                response.answer = discovery_note
+                return response, "", ""
+            if result is not None:
+                # 保留使用者明確指定或授權的股票；候選名單不構成建單授權。
+                candidates = [item["symbol"] for item in result["candidates"]]
+                symbols = list(dict.fromkeys([*symbols, *candidates]))
+                if len(symbols) > MAX_COMPARISON_STOCKS:
+                    response.answer = f"加入候選股票後超過單次 {MAX_COMPARISON_STOCKS} 檔的比較上限，請縮小產業或股票範圍。"
+                    return response, "", ""
+                request._planning_trace.append({"stage": "stock_discovery", "status": "completed",
+                                                "result": result})
+                response.sources.append(SourceChunk(
+                    title="系統產業候選股票", source="system_stock_catalog", source_name="系統股票資料庫",
+                    pub_time=as_of.isoformat(), stock_id="", stock_ids=candidates, url="", score=1,
+                    category="stock_discovery", content=json.dumps(result, ensure_ascii=False)))
+                discovery_note = "候選股票依系統產業名單、資料日期與成交量取樣，並非投資排名；請交代各產業涵蓋範圍、未選取及缺少的資料。"
+                if not candidates and not symbols and not scopes:
+                    response.answer = "系統在指定產業及截止日期內沒有找到具有效行情的候選股票，請調整產業或日期範圍。"
+                    for number, source in enumerate(response.sources, 1):
+                        source.citation_id = f"S{number}"
+                    request._evidence_trace["status"] = "discovery_empty"
+                    return response, "", ""
+                if result["missing_groups"]:
+                    discovery_note += " 指定產業未找到候選：" + "、".join(
+                        "/".join(group) for group in result["missing_groups"]) + "；只回答已取得資料的部分。"
         if scopes and not symbols:
             needs.discard("market")
             if intent.news_scope != "market_wide":
@@ -226,7 +299,7 @@ class ChatService:
             if "favorites" in scopes:
                 questions.append("請從我的收藏股票中選出本輪資料足夠的最多三檔比較，說明選取依據與待確認事項。")
         response.actions.extend(ChatFollowUp(label=question, query=question) for question in questions)
-        supported_symbols = [symbol for symbol in symbols if symbol in stock_options]
+        supported_symbols = [symbol for symbol in order_symbols if symbol in stock_options]
         draft = paper_draft(intent.paper_order, supported_symbols, request)
         drafts = [draft] if draft else paper_draft_offers(intent.paper_order, supported_symbols, request)
         if drafts:
@@ -236,37 +309,69 @@ class ChatService:
         if "market" in needs and len(market_symbols) > MAX_COMPARISON_STOCKS:
             response.answer = f"單次最多比較 {MAX_COMPARISON_STOCKS} 檔股票，請縮小本次比較範圍。"
             return response, "", ""
-        if "market" in needs and not symbols and "news" in needs:
-            needs.remove("market")
         if "market" in needs and not symbols:
             response.answer = ("想分析或比較哪幾檔股票？目前可查詢：" +
                                "、".join(f"{name}（{code}）" for code, name in stock_options.items()) + "。"
                                if stock_options else "目前股票服務名單為空，無法查詢行情與基本面。")
             return response, "", ""
 
-        time_from, time_to = _intent_time_range(intent)
-        if time_to:
-            time_to = min(datetime.fromisoformat(time_to), now).strftime("%Y-%m-%d %H:%M:%S")
-        if time_from and datetime.fromisoformat(time_from) > now:
-            time_from = None
-        user_time_range = bool(time_from or time_to)
-        if user_time_range:
-            response.time_range = {"from": time_from, "to": time_to}
         warning = ""
         unavailable = (["股票服務名單暫時無法讀取，無法確認可查詢的股票範圍。"]
                        if not stock_options_available and "help" in needs else [])
         if personal_analysis_note:
             unavailable.append(personal_analysis_note)
+        if discovery_note:
+            unavailable.append(discovery_note)
         if "market" in needs:
             unsupported = [symbol for symbol in symbols if symbol not in market_symbols]
             if unsupported:
                 unavailable.append("以下股票不支援行情與基本面查詢：" + "、".join(unsupported) + "；不能據此完成全體比較。")
+        if "market" in needs and market_symbols:
+            as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
+            start_date = datetime.fromisoformat(time_from).date() if time_from else None
+            # 儲存資料只有日期精度，歷史截止若包含盤中時刻，保守取前一天。
+            if time_to:
+                cutoff = datetime.fromisoformat(time_to)
+                if cutoff < now and cutoff.time() != datetime.max.time().replace(microsecond=0):
+                    as_of -= timedelta(days=1)
+                    unavailable.append("歷史截止時間包含日內時刻；日資料保守取前一天，無法還原盤中行情。")
+            if start_date and start_date > as_of:
+                unavailable.append("指定區間內沒有可採用的完整日資料。")
+            else:
+                try:
+                    market_sources = await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date)
+                    response.sources.extend(market_sources)
+                    missing = [symbol for symbol in market_symbols if not any(
+                        source.stock_id == symbol and source.category == "market_technical" for source in market_sources)]
+                    if missing:
+                        unavailable.append("以下股票缺少指定區間的價量資料：" + "、".join(missing) + "；不能據此完成全體比較。")
+                except (SQLAlchemyError, ServiceUnavailable) as exc:
+                    logging.getLogger(__name__).warning("Chat market source unavailable: %s", type(exc).__name__)
+                    unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
+
+        required_needs = set(intent.data_needs)
+        news_query = query
+        if "news" in needs and intent.news_strategy == "auto":
+            try:
+                supplement = await plan_news_supplement(
+                    self.intent_llm, request=request, query=query, sources=response.sources,
+                    add_usage=lambda metadata: _add_usage(response, metadata))
+            except (ServiceUnavailable, UpstreamTimeout):
+                supplement = None
+            if supplement is not None:
+                if supplement.needed:
+                    news_query = supplement.query
+                else:
+                    needs.discard("news")
+                    required_needs.discard("news")
+            else:
+                unavailable.append("未能完成新聞補查判斷，本輪依原問題查詢相關新聞。")
         news_error = None
         if "news" in needs:
             try:
                 news_end = datetime.fromisoformat(time_to) if time_to else now
                 news_start = time_from or (news_end - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-                found = await self.retrieval.search_question(query,
+                found = await self.retrieval.search_question(news_query,
                     symbols=[] if intent.news_scope == "market_wide" else symbols,
                     time_from=news_start, time_to=news_end.strftime("%Y-%m-%d %H:%M:%S"))
                 if not found.hits:
@@ -288,29 +393,6 @@ class ChatService:
                 news_error = exc
                 unavailable.append("未找到符合問題的新聞。" if exc.status_code == 404 else "新聞服務暫時無法使用。")
 
-        if "market" in needs and market_symbols:
-            as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
-            start_date = datetime.fromisoformat(time_from).date() if time_from else None
-            # Stored rows have day precision, so an intraday historical cutoff uses the previous day.
-            if time_to:
-                cutoff = datetime.fromisoformat(time_to)
-                if cutoff < now and cutoff.time() != datetime.max.time().replace(microsecond=0):
-                    as_of -= timedelta(days=1)
-                    unavailable.append("歷史截止時間包含日內時刻；日資料保守取前一天，無法還原盤中行情。")
-            if start_date and start_date > as_of:
-                unavailable.append("指定區間內沒有可採用的完整日資料。")
-            else:
-                try:
-                    market_sources = await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date)
-                    response.sources.extend(market_sources)
-                    missing = [symbol for symbol in market_symbols if not any(
-                        source.stock_id == symbol and source.category == "market_technical" for source in market_sources)]
-                    if missing:
-                        unavailable.append("以下股票缺少指定區間的價量資料：" + "、".join(missing) + "；不能據此完成全體比較。")
-                except (SQLAlchemyError, ServiceUnavailable) as exc:
-                    logging.getLogger(__name__).warning("Chat market source unavailable: %s", type(exc).__name__)
-                    unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
-
         if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
             unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
         response.sources.extend(collect_knowledge_sources(
@@ -321,7 +403,7 @@ class ChatService:
         if unavailable:
             response.sources.append(reference_source("本次資料取得限制", " ".join(unavailable), category="availability"))
             warning += "\n\n" + " ".join(unavailable)
-        evidence = assess_evidence(set(intent.data_needs), response.sources)
+        evidence = assess_evidence(required_needs, response.sources)
         request._evidence_trace = evidence
         if evidence["blocked"]:
             response.answer = "本次尚未取得所需的帳戶或收藏資料，無法完成這項檢查，請稍後重試。"
