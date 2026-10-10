@@ -3,69 +3,87 @@ left to right direction
 skinparam packageStyle rectangle
 skinparam shadowing false
 
-' 定義左邊的主動參與者
 actor "訪客" as Guest
 actor "會員" as Member
 actor "系統管理員" as Admin
+actor "排程執行器" as Scheduler
 
-' 會員繼承訪客權限
-Guest <|-- Member 
-
-' 定義右邊的被動參與者 (第三方整合服務)
-rectangle "<<service>>\n大型語言模型 API" as LLM
-rectangle "<<service>>\n台灣證券交易所 (TWSE)" as TWSE
-rectangle "<<service>>\n財經新聞數據源" as NewsSource
+Guest <|-- Member
+Member <|-- Admin
 
 rectangle "股海明燈系統" {
-  ' 前台基礎功能
+  ' 訪客：查詢與分析
+  usecase "個股資訊查詢" as UC_Info
+  usecase "證據溯源" as UC_Evidence
+  usecase "股票新聞瀏覽" as UC_News
+  usecase "多股比較" as UC_Compare
+  usecase "AI 對話" as UC_AI
+  usecase "檢索新聞知識庫" as UC_Search
   usecase "會員註冊" as UC_Register
   usecase "會員登入" as UC_Login
   usecase "忘記密碼" as UC_ForgotPwd
-  usecase "股票新聞" as UC_News
-  usecase "個股分析" as UC_Info
-  usecase "基本股票價格查詢" as UC_Price
-  usecase "開關燈(主題切換)" as UC_Theme
-  
-
-
-  ' 前台延伸/輔助功能
-  usecase "檢索新聞知識庫" as UC_Source
-  usecase "模擬下單" as UC_Trade
-  usecase "AI投資顧問" as UC_AI
-  usecase "多股比較" as UC_Compare
-
-  ' 後台管理功能
-  usecase "管理使用者帳號" as UC_ManageUsers
-  usecase "排程自動採集管理" as UC_ManageNews
-  usecase "系統狀態與日誌監控" as UC_MonitorStatus
+  usecase "深淺色主題切換" as UC_Theme
+  ' 會員
+  usecase "對話保存" as UC_SaveChat
+  usecase "收藏股管理" as UC_Favorite
+  usecase "模擬投資" as UC_Trade
+  usecase "決策回顧" as UC_Review
+  usecase "通知設定與接收" as UC_Notify
+  ' 管理員
+  usecase "排程工作控制" as UC_JobControl
+  usecase "系統狀態與執行紀錄監控" as UC_Monitor
+  usecase "管理員權限管理" as UC_ManageAdmin
+  usecase "股票名單維護" as UC_ManageStock
+  ' 排程
+  usecase "每日市場資料採集" as UC_FetchMarket
+  usecase "財經新聞爬取" as UC_Crawl
+  usecase "新聞索引與事件分析" as UC_Index
+  usecase "個股分析預先產生" as UC_Warmup
 }
 
-' 訪客連線
+rectangle "<<service>>\n公開市場資料\n(TWSE／TPEx／MOPS／TDCC)" as Market
+rectangle "<<service>>\n財經新聞來源\n(鉅亨網、自由時報)" as NewsSource
+rectangle "<<service>>\n向量化服務\n(NVIDIA AI Endpoints)" as Embed
+rectangle "<<service>>\n大型語言模型 API" as LLM
+rectangle "<<service>>\n推播服務 (FCM)" as FCM
+
+Guest --> UC_Info
+Guest --> UC_News
+Guest --> UC_Compare
+Guest --> UC_AI
 Guest --> UC_Register
 Guest --> UC_Login
 Guest --> UC_ForgotPwd
-Guest --> UC_Price
-Guest --> UC_News
-Guest --> UC_Info
 Guest --> UC_Theme
 
-' 會員連線
+Member --> UC_SaveChat
+Member --> UC_Favorite
 Member --> UC_Trade
-Member --> UC_AI
-Member --> UC_Compare
+Member --> UC_Review
+Member --> UC_Notify
 
-' 管理員連線
-Admin --> UC_ManageUsers
-Admin --> UC_ManageNews
-Admin --> UC_MonitorStatus
+Admin --> UC_JobControl
+Admin --> UC_Monitor
+Admin --> UC_ManageAdmin
+Admin --> UC_ManageStock
 
-' 包含關係
-UC_AI .> UC_Source : <<include>>
+Scheduler --> UC_FetchMarket
+Scheduler --> UC_Crawl
+Scheduler --> UC_Index
+Scheduler --> UC_Warmup
 
-' 第三方服務連線
-UC_AI --> LLM : 呼叫 API 生成摘要
-UC_Price --> TWSE : 呼叫 OpenAPI 獲取股價
-UC_MonitorStatus --> LLM : 監控 Token 消耗與連線狀態
-UC_ManageNews --> NewsSource : 每日排程自動採集
+UC_Info ..> UC_Evidence : <<include>>
+UC_AI ..> UC_Evidence : <<include>>
+UC_AI ..> UC_Search : <<include>>
+UC_SaveChat ..> UC_AI : <<extend>>
+UC_Review ..> UC_Trade : <<extend>>\n(買進成交後達設定交易日數)
+
+UC_FetchMarket --> Market
+UC_Crawl --> NewsSource
+UC_Index --> Embed
+UC_Search --> Embed
+UC_AI --> LLM
+UC_Warmup --> LLM
+UC_Notify --> FCM
 
 @enduml
