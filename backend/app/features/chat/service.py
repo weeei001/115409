@@ -111,10 +111,7 @@ class ChatService:
         if llm is not None:
             self.llm = llm
         else:
-            stream_llm = settings.stream_llm_overrides
             self.llm = LlmClient(settings.model_copy(update={
-                **stream_llm,
-                "LLM_MODEL": settings.CHAT_LLM_MODEL.strip() or stream_llm["LLM_MODEL"],
                 "LLM_MAX_TOKENS": settings.CHAT_LLM_MAX_TOKENS,
                 "LLM_TIMEOUT_SECONDS": settings.CHAT_LLM_TIMEOUT_SECONDS,
                 "LLM_MAX_RETRIES": settings.CHAT_LLM_MAX_RETRIES,

@@ -15,11 +15,36 @@ from app.jobs import locking, market_history, scheduler
 from app.jobs.impact import cli as impact
 
 
+OBSOLETE_ENVIRONMENT_VALUES = {
+    "ANALYSIS_LLM_API_KEY": "obsolete-analysis-key",
+    "ANALYSIS_LLM_BASE_URL": "https://obsolete-analysis.test/v1",
+    "ANALYSIS_LLM_MODEL": "obsolete-analysis-model",
+    "STREAM_LLM_API_KEY": "obsolete-stream-key",
+    "STREAM_LLM_BASE_URL": "https://obsolete-stream.test/v1",
+    "STREAM_LLM_MODEL": "obsolete-stream-model",
+    "SSE_LLM_API_KEY": "obsolete-sse-key",
+    "SSE_LLM_BASE_URL": "https://obsolete-sse.test/v1",
+    "SSE_LLM_MODEL": "obsolete-sse-model",
+    "CHAT_LLM_MODEL": "obsolete-chat-model",
+    "H200_API_KEY": "obsolete-h200-key",
+    "H200_BASE_URL": "https://obsolete-h200.test/v1",
+    "H200_MODEL": "obsolete-h200-model",
+    "RAG_LLM_API_KEY": "obsolete-rag-key",
+    "RAG_LLM_BASE_URL": "https://obsolete-rag.test/v1",
+    "RAG_LLM_MODEL": "obsolete-rag-model",
+    "NIM_MODEL": "obsolete-nim-model",
+    "NVIDIA_API_KEY": "obsolete-nvidia-key",
+    "MYSQL_HOST": "obsolete-database.test",
+    "MYSQL_PORT": "1234",
+    "MYSQL_USER": "obsolete-user",
+    "MYSQL_PASSWORD": "obsolete-password",
+    "MYSQL_DATABASE": "obsolete-database",
+}
+
+
 @pytest.fixture(autouse=True)
 def isolated_configuration(tmp_path, monkeypatch):
-    names = {*config.Settings.model_fields, "APP_ENV"}
-    names.update(alias for field in config.Settings.model_fields.values()
-                 for alias in getattr(field.validation_alias, "choices", []))
+    names = {*config.Settings.model_fields, *OBSOLETE_ENVIRONMENT_VALUES, "APP_ENV"}
     for name in names:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(config, "BACKEND_DIR", tmp_path)
@@ -34,6 +59,49 @@ def development_file(directory, **overrides):
     fields.update(overrides)
     (directory / ".env.development").write_text(
         "\n".join(f"{name}={value}" for name, value in fields.items()), encoding="utf-8")
+
+
+@pytest.mark.parametrize("source", ["environment", "dotenv"])
+def test_shared_llm_ignores_obsolete_provider_settings(tmp_path, monkeypatch, source):
+    values = {
+        **OBSOLETE_ENVIRONMENT_VALUES,
+        "LLM_API_KEY": "shared-key",
+        "LLM_BASE_URL": "https://shared.test/v1",
+        "LLM_MODEL": "shared-model",
+        "EMBED_API_KEY": "embedding-key",
+    }
+    if source == "environment":
+        for name, value in values.items():
+            monkeypatch.setenv(name, value)
+        settings = config.Settings(_env_file=None)
+    else:
+        path = tmp_path / ".env"
+        path.write_text("\n".join(f"{name}={value}" for name, value in values.items()), encoding="utf-8")
+        settings = config.Settings(_env_file=path)
+
+    assert (settings.LLM_API_KEY, settings.LLM_BASE_URL, settings.LLM_MODEL) == (
+        "shared-key", "https://shared.test/v1", "shared-model")
+    assert settings.EMBED_API_KEY == "embedding-key"
+    for name in ("STREAM_LLM_API_KEY", "STREAM_LLM_BASE_URL", "STREAM_LLM_MODEL", "CHAT_LLM_MODEL"):
+        assert not hasattr(settings, name)
+
+
+@pytest.mark.parametrize("source", ["environment", "dotenv"])
+def test_obsolete_environment_aliases_do_not_supply_missing_settings(tmp_path, monkeypatch, source):
+    if source == "environment":
+        for name, value in OBSOLETE_ENVIRONMENT_VALUES.items():
+            monkeypatch.setenv(name, value)
+        settings = config.Settings(_env_file=None)
+    else:
+        path = tmp_path / ".env"
+        path.write_text("\n".join(f"{name}={value}" for name, value in OBSOLETE_ENVIRONMENT_VALUES.items()),
+                        encoding="utf-8")
+        settings = config.Settings(_env_file=path)
+
+    assert settings.LLM_API_KEY == settings.LLM_MODEL == settings.EMBED_API_KEY == ""
+    assert settings.LLM_BASE_URL == "https://integrate.api.nvidia.com/v1"
+    assert (settings.DATABASE_HOST, settings.DATABASE_PORT, settings.DATABASE_USER,
+            settings.DATABASE_PASSWORD, settings.DATABASE_NAME) == ("localhost", 3306, "root", "", "topic_stock")
 
 
 @pytest.mark.parametrize("environment", [None, "production"])
@@ -86,8 +154,7 @@ def test_development_rejects_unsafe_names_in_files_and_inherited_environment(tmp
     with pytest.raises(ValueError, match=field):
         config.get_settings()
     development_file(tmp_path)
-    alias = {"DATABASE_NAME": "MYSQL_DATABASE", "DATABASE_USER": "MYSQL_USER"}.get(field, field)
-    monkeypatch.setenv(alias, "production_fixture")
+    monkeypatch.setenv(field, "production_fixture")
     with pytest.raises(ValueError, match=field):
         config.get_settings()
 
