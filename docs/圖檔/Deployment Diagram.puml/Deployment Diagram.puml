@@ -1,65 +1,77 @@
-@startuml
+```@startuml
 title 圖 7-1-1 系統佈署圖
 
 skinparam defaultFontName "標楷體"
-skinparam nodesep 35
-skinparam ranksep 60
+skinparam nodesep 30
+skinparam ranksep 55
 
 node "使用者裝置" <<device>> as client {
-  node "網頁瀏覽器" <<execution environment>> as browser {
-    artifact "前端應用程式" as ui
-    artifact "推播服務工作者" as sw
+  node "瀏覽器" <<executionEnvironment>> as browser {
+    artifact "前端應用程式" as spa
   }
 }
 
-node "正式主機" <<device>> as host {
-  node "Node.js 22" <<execution environment>> as nodert {
-    artifact "前端網站" as web
-  }
-  node "Python 3.12 / Uvicorn" <<execution environment>> as pyrt {
-    artifact "應用程式介面服務" as api
-    artifact "排程服務" as jobs
-  }
-  database "MySQL" as mysql
-  database "Qdrant" as qdrant
-  artifact "持續部署代理程式" as runner
+cloud "Cloudflare" as cf {
+  component "網站入口" as cfedge
 }
 
-cloud "外部服務" as ext {
+node "Windows 正式主機" <<device>> as host {
+  node "Docker" <<executionEnvironment>> as docker {
+    node "Tunnel 容器" <<executionEnvironment>> as tunnelc {
+      artifact "cloudflared" as cloudflared
+    }
+    node "反向代理容器" <<executionEnvironment>> as proxyc {
+      artifact "Nginx" as nginx
+    }
+    node "Qdrant 容器" <<executionEnvironment>> as qdrantc {
+      artifact "向量資料庫" as qdrant
+    }
+  }
+  node "Node.js" <<executionEnvironment>> as nodert {
+    artifact "Next.js 前端" as web
+  }
+  node "Python" <<executionEnvironment>> as pyrt {
+    artifact "FastAPI 後端\n內含 RAG 檢索與排程協調器" as api
+    artifact "排程工作程序" as jobs
+  }
+  node "MySQL" <<executionEnvironment>> as mysqlrt {
+    artifact "關聯式資料庫" as mysql
+  }
+}
+
+cloud "AI 服務" as extai {
   component "語言模型推論服務" as llm
   component "文字嵌入服務" as embed
+}
+
+cloud "第三方服務" as extsvc {
   component "Google 身分驗證服務" as google
   component "行動推播服務" as fcm
   component "郵件服務" as smtp
-  component "證券市場資料來源\n（證交所、櫃買中心、集保結算所）" as market
-  component "新聞來源網站\n（鉅亨網、自由時報）" as news
 }
 
-cloud "持續整合與部署平台" as gh {
-  component "GitHub Actions" as ci
+cloud "外部資料來源" as extdata {
+  component "證券市場資料\n證交所、櫃買中心、集保結算所" as market
+  component "財經新聞\n鉅亨網、自由時報" as news
 }
 
-ui --> web : «HTTPS»
-ui --> api : «HTTPS»
-fcm --> sw : «HTTPS»
+spa -- cfedge : «HTTPS»
+cfedge -- cloudflared : «Tunnel»
+cloudflared -- nginx : «HTTP»
+nginx -- web : «HTTP»
+nginx -- api : «HTTP»
 
-api --> mysql : «TCP/IP»
-api --> qdrant : «HTTP»
-api --> llm : «HTTPS»
-api --> embed : «HTTPS»
-api --> google : «HTTPS»
-api --> smtp : «SMTP»
+api ..> jobs : «啟動»
 
-jobs --> mysql : «TCP/IP»
-jobs --> qdrant : «HTTP»
-jobs --> llm : «HTTPS»
-jobs --> embed : «HTTPS»
-jobs --> market : «HTTPS»
-jobs --> news : «HTTPS»
-jobs --> fcm : «HTTPS»
+api -- qdrant : «HTTP»
+api -- mysql : «SQL»
+api -- extai : «HTTPS»
+api -- extsvc : «HTTPS»
 
-ci ..> runner : «HTTPS»
-runner ..> web : «deploy»
-runner ..> api : «deploy»
+jobs -- qdrant : «HTTP»
+jobs -- mysql : «SQL»
+jobs -- extai : «HTTPS»
+jobs -- extsvc : «HTTPS»
+jobs -- extdata : «HTTPS»
 
-@enduml
+@enduml```
