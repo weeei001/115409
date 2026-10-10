@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.clients.llm import LlmResult, LlmTextChunk
+from app.clients.llm import LlmResult
 from app.core.errors import ServiceUnavailable, UpstreamTimeout
 from app.db.models.chat_audit import ChatValidationRun
 from app.db.models.user import User
@@ -36,7 +36,7 @@ def response():
         tokens={"input": 7, "output": 2, "thinking": None}, duration_ms=0, current_time="now")
 
 
-def service(factory, answers=(VALID,), *, timeout=60, text_error=None, stream_error=None):
+def service(factory, answers=(VALID,), *, timeout=60, text_error=None):
     pending = list(answers)
     calls = []
 
@@ -51,24 +51,15 @@ def service(factory, answers=(VALID,), *, timeout=60, text_error=None, stream_er
             return LlmResult({}, answer[0], answer[1])
         return LlmResult({}, answer, METADATA)
 
-    async def stream_text(**kwargs):
-        if stream_error:
-            calls.append("answer")
-            yield LlmTextChunk("Partial private draft", {"prompt_tokens": 10})
-            raise stream_error
-        result = await text(**kwargs)
-        yield LlmTextChunk(result.raw_text, result.metadata)
-
-    llm = SimpleNamespace(require_enabled=lambda: None, text=text, stream_text=stream_text,
+    llm = SimpleNamespace(require_enabled=lambda: None, text=text,
                           model_name="test-model", settings=SimpleNamespace(LLM_MAX_TOKENS=4096))
     chat = ChatService(http=None, settings=None, retrieval=object(), llm=llm, session_factory=factory)
     chat.request_timeout_seconds = timeout
 
     async def prepare(request):
-        yield "Preparing"
-        yield response(), "This private prompt is not persisted.", ""
+        return response(), "This private prompt is not persisted.", ""
 
-    chat._prepare_steps = prepare
+    chat._prepare = prepare
     return chat, calls
 
 
@@ -88,10 +79,6 @@ def test_audits_attempts_evidence_and_final_answer_without_public_leaks(db_sessi
 
     async def run():
         request = AskRequest(query="Explain the report", stream=stream)
-        if stream:
-            events = [event async for event in chat.stream_events(request)]
-            assert events[-1]["type"] == "done"
-            return events[-1]["answer"], json.dumps(events)
         result = await chat.ask(request)
         return result.answer, result.model_dump_json()
 
@@ -119,23 +106,6 @@ def test_audits_attempts_evidence_and_final_answer_without_public_leaks(db_sessi
         assert forbidden not in private
 
 
-def test_provider_error_records_partial_buffer_but_never_publishes_it(db_session):
-    chat, _ = service(sessionmaker(db_session.get_bind()), stream_error=ServiceUnavailable("provider failure"))
-
-    async def run():
-        return [event async for event in chat.stream_events(AskRequest(query="Report", stream=True))]
-
-    events = asyncio.run(run())
-    row = records(db_session)[0]
-    assert events[-1] == {"type": "error", "message": "provider failure"}
-    assert "Partial private draft" not in json.dumps(events)
-    assert row.outcome == "error" and row.data["error_type"] == "ServiceUnavailable"
-    assert row.data["publication_completed"] is False and row.data["final_answer"] == ""
-    assert row.data["attempts"][0]["text"] == "Partial private draft"
-    assert row.data["attempts"][0]["validation"] == "not_checked"
-    assert row.data["tokens"] == {"input": 17, "output": 2, "thinking": None}
-
-
 def test_nonstream_provider_error_is_saved_without_upstream_error_text(db_session):
     chat, _ = service(sessionmaker(db_session.get_bind()), text_error=ServiceUnavailable("secret provider payload"))
     with pytest.raises(ServiceUnavailable):
@@ -152,12 +122,8 @@ def test_timeout_captures_attempt_without_repair_or_private_error_details(db_ses
 
     async def run():
         request = AskRequest(query="Report", stream=stream)
-        if stream:
-            events = [event async for event in chat.stream_events(request)]
-            assert events[-1]["type"] == "error"
-        else:
-            with pytest.raises(UpstreamTimeout):
-                await chat.ask(request)
+        with pytest.raises(UpstreamTimeout):
+            await chat.ask(request)
 
     asyncio.run(run())
     row = records(db_session)[0]
@@ -167,39 +133,16 @@ def test_timeout_captures_attempt_without_repair_or_private_error_details(db_ses
     assert row.data["final_answer"] == ""
 
 
-def test_closing_stream_before_done_does_not_claim_completed_publication(db_session):
-    chat, _ = service(sessionmaker(db_session.get_bind()))
-
-    async def run():
-        stream = chat.stream_events(AskRequest(query="Report", stream=True))
-        async for event in stream:
-            if event["type"] == "text":
-                assert event["content"].startswith(VALID)
-                break
-        await stream.aclose()
-
-    asyncio.run(run())
-    row = records(db_session)[0]
-    assert row.outcome == "interrupted"
-    assert row.data["publication_completed"] is False
-    assert row.data["attempts"][0]["validation"] == "not_checked"
-    assert row.data["final_answer"].startswith(VALID)
-
-
-def test_cancellation_captures_buffered_partial_answer_and_preserves_cancel(db_session):
+def test_cancellation_records_interruption_and_preserves_cancel(db_session):
     chat, _ = service(sessionmaker(db_session.get_bind()))
 
     async def run():
         generated = asyncio.Event()
         async def partial(**kwargs):
-            yield LlmTextChunk("Buffered private partial", {})
             generated.set()
             await asyncio.Event().wait()
-        chat.llm.stream_text = partial
-        async def consume():
-            async for event in chat.stream_events(AskRequest(query="Report", stream=True)):
-                assert event["type"] not in {"text", "done"}
-        task = asyncio.create_task(consume())
+        chat.llm.text = partial
+        task = asyncio.create_task(chat.ask(AskRequest(query="Report")))
         await generated.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -209,7 +152,7 @@ def test_cancellation_captures_buffered_partial_answer_and_preserves_cancel(db_s
     row, = records(db_session)
     assert row.outcome == "interrupted" and row.data["publication_completed"] is False
     assert row.data["final_answer"] == ""
-    assert row.data["attempts"][0]["text"] == "Buffered private partial"
+    assert row.data["attempts"][0]["text"] == ""
     assert row.data["attempts"][0]["validation"] == "not_checked"
 
 

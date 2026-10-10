@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -44,30 +44,20 @@ def news_index_fingerprint(index_version="news-v1", model="nvidia/nemotron-3-emb
 
 
 class Settings(BaseSettings):
-    DATABASE_HOST: str = Field("localhost", validation_alias=AliasChoices("DATABASE_HOST", "MYSQL_HOST"))
-    DATABASE_USER: str = Field("root", validation_alias=AliasChoices("DATABASE_USER", "MYSQL_USER"))
-    DATABASE_PASSWORD: str = Field("", validation_alias=AliasChoices("DATABASE_PASSWORD", "MYSQL_PASSWORD"))
-    DATABASE_NAME: str = Field("topic_stock", validation_alias=AliasChoices("DATABASE_NAME", "MYSQL_DATABASE"))
-    DATABASE_PORT: int = Field(3306, validation_alias=AliasChoices("DATABASE_PORT", "MYSQL_PORT"))
+    DATABASE_HOST: str = "localhost"
+    DATABASE_USER: str = "root"
+    DATABASE_PASSWORD: str = ""
+    DATABASE_NAME: str = "topic_stock"
+    DATABASE_PORT: int = 3306
 
     # Ambient proxy variables are opt-in; use OUTBOUND_HTTP_PROXY for an explicit proxy.
     OUTBOUND_HTTP_TRUST_ENV: bool = False
     OUTBOUND_HTTP_PROXY: str = ""
 
-    # LLM_* remains the internal analysis configuration. ANALYSIS_LLM_* is the
-    # deployment-facing name; the older aliases keep existing deployments working.
-    LLM_API_KEY: str = Field("", validation_alias=AliasChoices(
-        "ANALYSIS_LLM_API_KEY", "LLM_API_KEY", "H200_API_KEY", "RAG_LLM_API_KEY", "NVIDIA_API_KEY"))
-    LLM_BASE_URL: str = Field(
-        "https://integrate.api.nvidia.com/v1",
-        validation_alias=AliasChoices(
-            "ANALYSIS_LLM_BASE_URL", "LLM_BASE_URL", "H200_BASE_URL", "RAG_LLM_BASE_URL"),
-    )
-    LLM_MODEL: str = Field("", validation_alias=AliasChoices(
-        "ANALYSIS_LLM_MODEL", "LLM_MODEL", "H200_MODEL", "RAG_LLM_MODEL", "NIM_MODEL"))
-    STREAM_LLM_API_KEY: str = ""
-    STREAM_LLM_BASE_URL: str = ""
-    STREAM_LLM_MODEL: str = ""
+    # 新聞分析、個股分析與對話 AI 共用 LLM_* 模型、端點及金鑰。
+    LLM_API_KEY: str = ""
+    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    LLM_MODEL: str = ""
     LLM_ENABLE_THINKING: bool | None = None
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 8192
@@ -77,8 +67,7 @@ class Settings(BaseSettings):
     LLM_STREAMING: bool = True
     LLM_STREAM_CHUNK_TIMEOUT_SECONDS: float = 0
     # 單次模型逾時與整輪上限分開；意圖、檢索、初答及唯一一次修復共用整輪時間。
-    # An empty model preserves existing deployments until a chat model is selected.
-    CHAT_LLM_MODEL: str = ""
+    # 對話僅獨立設定 token、逾時與重試上限。
     CHAT_LLM_MAX_TOKENS: int = 8192
     CHAT_LLM_TIMEOUT_SECONDS: float = 60
     CHAT_LLM_MAX_RETRIES: int = 0
@@ -95,7 +84,7 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = "news_chunks"
     QDRANT_TIMEOUT_SECONDS: float = 10
     EMBED_API_URL: str = "https://integrate.api.nvidia.com/v1/embeddings"
-    EMBED_API_KEY: str = Field("", validation_alias=AliasChoices("EMBED_API_KEY", "NVIDIA_API_KEY"))
+    EMBED_API_KEY: str = ""
     EMBED_MODEL: str = "nvidia/nemotron-3-embed-1b"
     EMBED_TIMEOUT_SECONDS: float = 60
     EMBED_TRUNCATE: Literal["NONE", "START", "END"] = "NONE"
@@ -120,20 +109,6 @@ class Settings(BaseSettings):
     def news_index_fingerprint(self) -> str:
         return news_index_fingerprint(self.NEWS_INDEX_VERSION, self.EMBED_MODEL,
                                       self.NEWS_CHUNK_MAX_CHARS, self.NEWS_CHUNK_OVERLAP_CHARS)
-
-    @property
-    def stream_llm_overrides(self) -> dict[str, str]:
-        """Resolve the optional stream provider, falling back to analysis LLM."""
-        stream = {
-            "LLM_API_KEY": self.STREAM_LLM_API_KEY.strip(),
-            "LLM_BASE_URL": self.STREAM_LLM_BASE_URL.strip(),
-            "LLM_MODEL": self.STREAM_LLM_MODEL.strip(),
-        }
-        return stream if all(stream.values()) else {
-            "LLM_API_KEY": self.LLM_API_KEY,
-            "LLM_BASE_URL": self.LLM_BASE_URL,
-            "LLM_MODEL": self.LLM_MODEL,
-        }
 
     APP_NAME: str = "FastAPI MySQL Application"
     APP_VERSION: str = "1.0.0"

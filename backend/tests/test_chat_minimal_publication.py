@@ -78,11 +78,6 @@ def test_comparison_conclusions_are_not_rewritten(db_session, monkeypatch, strea
 
     async def run():
         request = AskRequest(query="比較這些股票", stream=stream)
-        if stream:
-            events = [event async for event in chat.stream_events(request)]
-            assert events[-1]["type"] == "done"
-            assert len([event for event in events if event["type"] == "text"]) == 1
-            return events[-1]["answer"]
         return (await chat.ask(request)).answer
 
     answer = asyncio.run(run())

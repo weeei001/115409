@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -147,6 +148,38 @@ def _text_metadata(message) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
+def _exception_chain(exc: BaseException, *, include_context: bool = False) -> list[BaseException]:
+    """限定追蹤數量並排除循環；診斷可另外納入例外處理期間的上下文。"""
+    chain, pending, seen = [], [exc], set()
+    while pending and len(chain) < 8:
+        current = pending.pop(0)
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        chain.append(current)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if include_context and current.__context__ is not None:
+            pending.append(current.__context__)
+    return chain
+
+
+def _log_model_failure(exc: BaseException) -> None:
+    """僅記錄例外類別與數值代碼，不輸出訊息、網址、憑證或回應內容。"""
+    diagnostics = []
+    for cause in _exception_chain(exc, include_context=True):
+        item = {"type": type(cause).__name__}
+        for field in ("errno", "status_code", "verify_code"):
+            value = getattr(cause, field, None)
+            if type(value) is int:
+                item[field] = value
+        diagnostics.append(item)
+    logging.getLogger(__name__).warning(
+        "Model request failed: %s",
+        json.dumps(diagnostics, ensure_ascii=True),
+    )
+
+
 class LlmClient:
     def __init__(self, settings: Any, http: httpx.AsyncClient | None = None):
         self.settings = settings
@@ -184,7 +217,9 @@ class LlmClient:
                        schema: type[BaseModel], examples: list[tuple[str, str]] = ()) -> LlmResult:
         settings = self.settings
         method = "json_schema" if settings.LLM_RESPONSE_FORMAT == "json_schema" else "json_mode"
-        model = self._model()
+        # 結構化結果必須完整解析；部分供應商的串流會合併出重複的結束標記。
+        # 分類使用非串流，回答文字仍由 stream_text 即時串流。
+        model = self._model(streaming=False)
         structured = (model.with_structured_output(schema, method=method, include_raw=True)
                       if settings.LLM_RESPONSE_FORMAT != "off" else None)
         messages = [SystemMessage(content=system_prompt + "\nReturn a JSON object matching this schema:\n" + json.dumps(schema.model_json_schema(), ensure_ascii=False))]
@@ -211,6 +246,7 @@ class LlmClient:
         except (TimeoutError, httpx.TimeoutException, APITimeoutError) as exc:
             raise UpstreamTimeout("分析逾時，請稍後重試") from exc
         except (APIError, httpx.HTTPError, ValueError, IndexError, TypeError) as exc:
+            _log_model_failure(exc)
             code = getattr(exc, "code", None)
             raise ModelUnavailable(
                 {"code": "upstream_model_error", "message": "模型服務暫時無法回應，請稍後重試", "context": {}},
@@ -250,6 +286,7 @@ class LlmClient:
         except (TimeoutError, httpx.TimeoutException, APITimeoutError) as exc:
             raise UpstreamTimeout("LLM service timed out") from exc
         except (APIError, httpx.HTTPError, ValueError, IndexError, TypeError) as exc:
+            _log_model_failure(exc)
             raise ServiceUnavailable("LLM service unavailable") from exc
         cleaner = _ReasoningFilter()
         visible = cleaner.feed(_coerce_llm_text(result.content)) + cleaner.finish()

@@ -40,8 +40,9 @@ def test_impact_validation_rejects_airline_quote_as_shipping_company():
     payload = {"events": [{"key": "e1", "summary": "航空貨運需求成長", "statement_type": "fact", "evidence": [quote]}],
         "impacts": [{"event_key": "e1", "target_type": "company", "target_id": "2603", "direction": "positive",
             "importance": "medium", "basis": "reported", "reason": "需求成長", "evidence": [quote]}]}
-    with pytest.raises(ValueError, match="not explicitly mentioned"):
-        validate_output(payload, article=article, catalog=CATALOG)
+    checked = validate_output(payload, article=article, catalog=CATALOG)
+    assert len(checked.events) == 1 and checked.impacts == []
+    assert "not explicitly mentioned" in checked.validation_feedback
     payload["impacts"][0]["target_id"] = "2618"
     assert validate_output(payload, article=article, catalog=CATALOG).impacts[0].target_id == "2618"
 

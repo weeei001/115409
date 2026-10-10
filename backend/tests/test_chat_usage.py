@@ -8,7 +8,7 @@ from app.clients.llm import LlmClient
 from app.features.chat.schemas import AskRequest, AskResponse, SourceChunk
 from app.features.chat.service import ChatService, _tokens
 from app.features.chat.audit import ChatAudit
-from test_chat import FakeRetrieval, MODEL_ANSWER
+from test_chat import FakeRetrieval, MODEL_ANSWER, plan_payload
 from test_llm_chat import completion, configured, stream_frame
 
 
@@ -71,13 +71,13 @@ def test_provider_reasoning_usage_reaches_chat_response(settings, stream, repair
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("repair", [False, True])
-def test_whole_turn_counts_only_intent_and_initial_answer(settings, chat_session_factory, stream, repair):
+def test_whole_turn_counts_plan_and_initial_answer(settings, chat_session_factory, stream, repair):
     calls = []
 
     def provider(request):
         body = json.loads(request.content)
-        if "response_format" in body:
-            stage, text, usage = "intent", '{"is_finance":true,"stocks":["2330"]}', (11, 3, 2)
+        if "response_format" in body and not calls:
+            stage, text, usage = "intent", json.dumps(plan_payload({"stocks": ["2330"], "data_needs": ["news"]})), (11, 3, 2)
         elif "answer" not in calls:
             stage, text, usage = "answer", "Rejected.[S99]" if repair else MODEL_ANSWER, (50, 12, 5)
         else:
@@ -99,15 +99,9 @@ def test_whole_turn_counts_only_intent_and_initial_answer(settings, chat_session
             service = ChatService(http=http, settings=configured(settings), retrieval=FakeRetrieval(),
                                   session_factory=chat_session_factory)
             request = AskRequest(query="台積電營收", stream=stream)
-            if stream:
-                events = [event async for event in service.stream_events(request)]
-                assert events[-1]["type"] == "done", events
-                tokens = events[-1]["tokens"]
-                assert events[-1]["answer"] == ("Rejected.[S99]" if repair else MODEL_ANSWER)
-            else:
-                response = await service.ask(request)
-                tokens = response.tokens
-                assert response.answer == ("Rejected.[S99]" if repair else MODEL_ANSWER)
+            response = await service.ask(request)
+            tokens = response.tokens
+            assert response.answer == ("Rejected.[S99]" if repair else MODEL_ANSWER)
             assert tokens == {"input": 61, "output": 15, "thinking": 7}
 
     asyncio.run(run())

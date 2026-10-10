@@ -25,8 +25,11 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
             records, reviews = portfolio.get("orders", []), portfolio.get("reviews", [])
             relevant_reviews = [row for row in reviews if row.get("id") in requested_ids or row.get("order_id") in requested_ids]
             relevant_ids = requested_ids | {row["order_id"] for row in relevant_reviews}
+            pending_orders = [row for row in records if row.get("status") == "pending"]
+            historical_orders = [row for row in records if row.get("status") != "pending"]
             selected_orders = [row for row in records if row.get("id") in relevant_ids]
-            selected_orders.extend(row for row in records[:20] if row not in selected_orders)
+            selected_orders.extend(row for row in pending_orders if row not in selected_orders)
+            selected_orders.extend(row for row in historical_orders[:20] if row not in selected_orders)
             selected_reviews = list(relevant_reviews)
             selected_reviews.extend(row for row in reviews if row.get("status") == "due" and row not in selected_reviews)
             selected_reviews.extend(row for row in reviews[:20] if row not in selected_reviews)
@@ -38,10 +41,22 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
             portfolio["fund_movements"] = movements[:20]
             portfolio["context_counts"] = {
                 "orders_total": len(records), "orders_shown": len(selected_orders),
+                "pending_orders_total": len(pending_orders), "pending_orders_shown": len(pending_orders),
+                "historical_orders_total": len(historical_orders),
+                "historical_orders_shown": len(selected_orders) - len(pending_orders),
                 "reviews_total": len(reviews), "reviews_shown": len(selected_reviews),
                 "fund_movements_total": len(movements), "fund_movements_shown": len(movements[:20]),
             }
-            portfolio["context_note"] = "僅提供最近 20 筆委託與資金紀錄、最多 20 筆優先待回顧紀錄及本次指定紀錄；未列出的紀錄不代表不存在。帳戶數字仍由完整帳本計算。"
+            portfolio["context_coverage"] = {
+                "pending_orders": "complete",
+                "historical_orders": "complete" if len(selected_orders) == len(records) else "partial",
+            }
+            portfolio["context_note"] = (
+                "完整提供所有未成交委託，不受歷史紀錄筆數限制。"
+                "歷史委託提供最近 20 筆非未成交紀錄及本次指定紀錄。"
+                "資金紀錄提供最近 20 筆；回顧提供最多 20 筆優先紀錄及本次指定回顧。"
+                "未列出的歷史紀錄不代表不存在。帳戶數字仍由完整帳本計算。"
+            )
             if portfolio.get("initialized") is False:
                 portfolio["setup_note"] = "使用者尚未設定模擬投資預算；零值僅表示尚未建立帳戶，不能解讀為沒有存款或沒有投資能力。請引導使用者至模擬投資頁設定想投入的練習金額。"
             payload["portfolio"] = portfolio
@@ -55,7 +70,7 @@ def read_personal_context(session_factory, user_id, scopes, query=""):
             portfolio["as_of_taipei"] = moment.astimezone(ZoneInfo("Asia/Taipei")).isoformat()
     symbols.extend(row["symbol"] for row in portfolio.get("positions", []) if row.get("symbol"))
     symbols = list(dict.fromkeys(symbols))
-    payload["analysis_limit"] = "Unless stocks are explicitly selected, market/news analysis covers at most the first 3 personal symbols per question, in favorites order followed by remaining portfolio positions. The complete account snapshot remains available for allocation checks."
+    payload["analysis_limit"] = "未明確指定股票時，每題最多分析三檔收藏或持股的行情與新聞，依收藏順序，再接續其餘持股。配置檢查仍使用完整帳戶快照。"
     source = reference_source("本次登入使用者的收藏與模擬投資資料", json.dumps(payload, ensure_ascii=False, default=str), category="personal")
     source.pub_time = portfolio.get("as_of_taipei", "")
     source.stock_ids = symbols

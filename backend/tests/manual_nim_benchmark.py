@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import aclosing
 import json
 from pathlib import Path
 import sys
@@ -74,14 +73,11 @@ class MeasuredLlm(LlmClient):
 
 
 class MeasuredChat(ChatService):
-    async def _prepare_steps(self, request):
+    async def _prepare(self, request):
         started = perf_counter()
-        async with aclosing(super()._prepare_steps(request)) as steps:
-            async for step in steps:
-                if not isinstance(step, str):
-                    self.prepared = step
-                    self.prepare_seconds = perf_counter() - started
-                yield step
+        self.prepared = await super()._prepare(request)
+        self.prepare_seconds = perf_counter() - started
+        return self.prepared
 
 
 def sources_for(case):
@@ -94,19 +90,10 @@ def sources_for(case):
 async def live_case(case, llm, http, settings, factory):
     case_id, query = case
     service = MeasuredChat(http=http, settings=settings, llm=llm, session_factory=factory)
-    result = {"case": case_id, "kind": "live_service", "query": query, "events": []}
+    result = {"case": case_id, "kind": "live_service", "query": query}
     started = perf_counter()
-    async for event in service.stream_events(AskRequest(query=query, stream=True, answer_detail="plain")):
-        elapsed = round(perf_counter() - started, 4)
-        result["events"].append({"type": event["type"], "seconds": elapsed})
-        if event["type"] == "dashboard":
-            result["dashboard_seconds"] = elapsed
-        elif event["type"] == "text":
-            result["first_answer_seconds"] = elapsed
-        elif event["type"] == "done":
-            result.update(ok=True, response=event)
-        elif event["type"] == "error":
-            result.update(ok=False, error=event["message"])
+    response = await service.ask(AskRequest(query=query, answer_detail="plain"))
+    result.update(ok=True, response=response.model_dump(mode="json"))
     result["total_seconds"] = round(perf_counter() - started, 4)
     if hasattr(service, "prepared"):
         response, prompt, warning = service.prepared
@@ -157,7 +144,7 @@ async def run(args):
                   "temperature": settings.LLM_TEMPERATURE, "max_tokens": settings.LLM_MAX_TOKENS,
                   "thinking": False, "provider_streaming": False, "retries": 0,
                   "timeout_seconds": args.timeout, "configured_model": settings.LLM_MODEL,
-                  "measurement": "Backend ChatService through SSE text, excluding browser/network transport.",
+                  "measurement": "Backend ChatService complete response, excluding browser/network transport.",
                   "limits": "Small smoke sample, sequential calls; answers are unvalidated and need manual review. Synthetic cases are not market facts."})
             async with make_http_client(settings) as http:
                 cases = [("live", case) for case in LIVE_CASES] + [("fixed", case) for case in FIXED_CASES]

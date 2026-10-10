@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.models.daily_price import DailyPrice
 from app.features.analysis import repository
-from test_chat import NOW, chat, events
+from test_chat import NOW, chat
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -26,7 +26,7 @@ def test_hon_hai_compact_percent_answer_needs_no_fingerprint_or_model_retry(chat
 
     result = client.post("/api/ask", json={"query": "鴻海的個股走勢如何？", "stream": stream})
     assert result.status_code == 200
-    data = events(result)[-1] if stream else result.json()
+    data = result.json()
     assert data["answer"].startswith(llm.answer)
     market = next(source for source in data["sources"] if source["category"] == "market_technical")
     assert "30526551,0.99" in market["content"]

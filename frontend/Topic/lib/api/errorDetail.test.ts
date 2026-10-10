@@ -16,6 +16,20 @@ assert.equal(pickDetailMessage({ detail: garbled }, 404), genericMessageForStatu
 assert.equal(pickDetailMessage({ detail: '找不到指定的新聞文章' }, 404), '找不到指定的新聞文章');
 assert.equal(userFacingMessage(new Error(garbled), 'fallback'), 'fallback');
 
+// 模型服務的結構化錯誤只顯示可讀訊息，不展開代碼或內部診斷內容。
+const modelMessage = '模型服務暫時無法回應，請稍後重試';
+const modelDetail = {
+  code: 'upstream_model_error', message: modelMessage,
+  context: { token: 'fixture-secret-token', upstream: 'http://internal-provider', trace: 'Traceback' },
+};
+assert.equal(pickDetailMessage({ detail: modelDetail }, 503), modelMessage);
+assert.equal(pickDetailMessage({ detail: { ...modelDetail, msg: '請稍候再試' } }, 503), '請稍候再試');
+for (const message of [null, 123, {}, [], '', 'Model unavailable', garbled,
+  '模型服務錯誤 APIConnectionError', '模型服務錯誤 https://internal-provider']) {
+  assert.equal(pickDetailMessage({ detail: { ...modelDetail, message } }, 503), genericMessageForStatus(503));
+}
+assert.equal(pickDetailMessage({ detail: { code: modelDetail.code, context: modelDetail.context } }, 503), genericMessageForStatus(503));
+
 // Backend details that embed technical content fall back to generic copy (05-D1, 02-F3).
 assert.equal(isUserReadable('start_time 不得晚於 end_time'), false, 'snake_case field names');
 assert.equal(isUserReadable('as_of 格式錯誤，請用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS'), false);
