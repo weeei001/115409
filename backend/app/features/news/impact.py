@@ -12,7 +12,7 @@ from .sentiment import (COMPANY_RECOGNITION_VERSION, clean_text, extract_candida
                         parse_news_pub_time, source_quote_span)
 
 
-PROMPT_VERSION = "impact-v3"
+PROMPT_VERSION = "impact-v4"
 MAX_EVENTS = 6
 MAX_IMPACTS = 18
 MAX_EVIDENCE_ITEMS = 8
@@ -94,8 +94,8 @@ class ImpactOutput(BaseModel):
 class _OutputItems(BaseModel):
     """先確認外層結構，再逐筆保留通過檢核的事件與影響。"""
     model_config = ConfigDict(extra="ignore", strict=True)
-    events: list[object] = Field(max_length=MAX_EVENTS)
-    impacts: list[object] = Field(max_length=MAX_IMPACTS)
+    events: list[object]
+    impacts: list[object]
 
 
 def article_source_hash(title: str | None, content: str | None, pub_time: str | None,
@@ -159,6 +159,22 @@ def _located_feedback(path: str, error: ValueError) -> str:
     return "; ".join(messages)
 
 
+def _normalize_topics(item: object, path: str, issues: list[str]) -> object:
+    if not isinstance(item, dict) or "topics" not in item:
+        return item
+    topics = item["topics"]
+    if not isinstance(topics, list):
+        issues.append(f"{path}.topics: invalid optional topics discarded")
+        return {**item, "topics": []}
+    normalized = []
+    for index, topic in enumerate(topics):
+        if not isinstance(topic, str) or topic not in TOPICS:
+            issues.append(f"{path}.topics[{index}]: unknown or invalid topic discarded")
+        elif topic not in normalized:
+            normalized.append(topic)
+    return {**item, "topics": normalized}
+
+
 def _check_evidence(item: Event | Impact, path: str, article) -> None:
     for index, quote in enumerate(item.evidence):
         if source_quote_span(getattr(article, quote.field), quote.quote) is None:
@@ -170,23 +186,31 @@ def validate_output(payload: object, *, article, catalog: dict[str, dict]) -> Im
     source = {"title": clean_text(article.title), "content": clean_text(article.content)}
     issues = []
     events: dict[str, Event] = {}
+    event_indexes: dict[str, int] = {}
     conflicting_keys = set()
     for index, item in enumerate(items.events):
         path = f"events[{index}]"
         try:
-            event = Event.model_validate(_normalize_evidence(item, source))
+            event = Event.model_validate(_normalize_topics(_normalize_evidence(item, source), path, issues))
             _check_evidence(event, path, article)
             if event.key in conflicting_keys or (event.key in events and event != events[event.key]):
                 events.pop(event.key, None)
                 conflicting_keys.add(event.key)
                 raise ValueError(f"{path}.key: conflicting event key")
             events.setdefault(event.key, event)
+            event_indexes.setdefault(event.key, index)
         except ValueError as exc:
             issues.append(_located_feedback(path, exc))
+
+    # 完整驗證與去重後才套用容量，避免無效項或尾端衝突佔用名額。
+    for key in list(events)[MAX_EVENTS:]:
+        events.pop(key)
+        issues.append(f"events[{event_indexes[key]}]: event capacity exceeded ({MAX_EVENTS})")
 
     industries = {row.get("industry") for row in catalog.values()} - {None, ""}
     mentioned_companies = set(extract_candidate_stocks(None, None, article.title, article.content, catalog))
     impacts: dict[tuple[str, str, str], Impact] = {}
+    impact_indexes: dict[tuple[str, str, str], int] = {}
     conflicting_targets = set()
     for index, item in enumerate(items.impacts):
         path = f"impacts[{index}]"
@@ -208,8 +232,13 @@ def validate_output(payload: object, *, article, catalog: dict[str, dict]) -> Im
                 conflicting_targets.add(pair)
                 raise ValueError(f"{path}: conflicting event target")
             impacts.setdefault(pair, impact)
+            impact_indexes.setdefault(pair, index)
         except ValueError as exc:
             issues.append(_located_feedback(path, exc))
+
+    for pair in list(impacts)[MAX_IMPACTS:]:
+        impacts.pop(pair)
+        issues.append(f"impacts[{impact_indexes[pair]}]: impact capacity exceeded ({MAX_IMPACTS})")
 
     # 有依據的事件可以沒有影響；全數被剔除的事件不能視為合法空分析。
     if (items.events or items.impacts) and not events:
