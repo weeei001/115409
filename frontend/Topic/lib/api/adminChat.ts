@@ -73,6 +73,8 @@ export interface AdminChatSource {
   [key: string]: unknown;
 }
 export interface AdminChatDetail extends AdminChatSummary {
+  planning?: AdminChatPlanning[];
+  evidence?: { requested: string[]; available: string[]; missing: string[]; blocked: boolean | null; status: string | null } | null;
   schema_version: number;
   query: string;
   query_truncated: boolean;
@@ -95,6 +97,19 @@ export interface AdminChatDetail extends AdminChatSummary {
     validation: 'passed';
     removed: Array<{ paragraph?: number | null; reason: string; result: string; units?: number | null }>;
   } | null;
+}
+
+export interface AdminChatPlanning {
+  stage: 'plan';
+  status: string;
+  result?: { tasks: string[]; portfolio_access: string | null; favorites_access: string | null; stocks: string[]; } | null;
+  finish_reason?: string | null;
+  tokens?: { prompt_tokens: number | null; completion_tokens: number | null; reasoning_tokens: number | null };
+  duration_ms?: number | null;
+  invalid_fields?: string[];
+  issue?: string | null;
+  effective_needs?: string[];
+  error_type?: string | null;
 }
 
 export const ADMIN_CHAT_PAGE_SIZE = 20;

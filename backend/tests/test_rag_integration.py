@@ -69,7 +69,12 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
         assert body["model"] == "shared-model"
         assert request.headers["Authorization"] == "Bearer test-llm-key"
         intent = "response_format" in body
-        answer = '{"is_finance":true,"stocks":["2330"]}' if intent else "Public revenue answer.[S1]"
+        answer = "Public revenue answer.[S1]"
+        if intent:
+            from test_chat import plan_payload
+            payload = json.loads(body["messages"][-1]["content"])
+            answer = json.dumps({"approved": True, "reason": "任務涵蓋完整"} if "proposed_plan" in payload
+                                else plan_payload({"stocks": ["2330"], "data_needs": ["news"]}))
         if intent and json.loads(body["messages"][-1]["content"]).get("task", {}).get("type") == "stock_behavior_text_brief":
             answer = json.dumps(brief_payload())
         base = {"id": "test", "created": 1, "model": body["model"]}
@@ -103,10 +108,10 @@ def test_shared_retrieval_and_chat_routes_never_call_legacy_rag(settings, db_ses
                 assert response.json()["sources"][0]["url"] == ""
                 assert [source["category"] for source in response.json()["sources"]] == ["news", "availability"]
                 response = await client.post("/api/ask", json={"query": "TSMC revenue", "stream": True})
-                events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
-                assert events[-1]["type"] == "done", response.text
-                assert "".join(e["content"] for e in events if e["type"] == "text") == expected_answer
-                assert [source["category"] for source in events[-1]["sources"]] == ["news", "availability"]
+                assert response.status_code == 200
+                assert response.headers["content-type"].startswith("application/json")
+                assert response.json()["answer"] == expected_answer
+                assert [source["category"] for source in response.json()["sources"]] == ["news", "availability"]
                 response = await client.post("/analyze/stock-behavior/text-brief", json={
                     "symbol": "2330", "as_of_date": "2026-07-13", "force_refresh": True})
                 assert response.status_code == 200, response.text

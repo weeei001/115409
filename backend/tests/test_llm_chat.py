@@ -7,7 +7,8 @@ import pytest
 from app.clients import llm as adapter
 from app.clients.llm import LlmClient
 from app.core.errors import ServiceUnavailable, UpstreamTimeout
-from app.features.chat.schemas import Intent
+from app.features.chat.planning import TaskPlan
+from test_chat import plan_payload
 
 
 def configured(settings, **overrides):
@@ -94,10 +95,11 @@ def test_disabled_provider_stream_setting_still_supports_sse_consumer(settings):
 
 
 @pytest.mark.parametrize("response_format", ["off", "json_object", "json_schema"])
-def test_shared_llm_configuration_keeps_structured_and_plain_invocations_distinct(settings, response_format):
+@pytest.mark.parametrize("configured_streaming", [False, True])
+def test_shared_llm_configuration_keeps_structured_and_plain_invocations_distinct(settings, response_format, configured_streaming):
     calls = []
     llm_settings = configured(settings, LLM_MAX_TOKENS=321, LLM_TEMPERATURE=0,
-        LLM_TIMEOUT_SECONDS=23, LLM_MAX_RETRIES=1, LLM_STREAMING=False, LLM_RESPONSE_FORMAT=response_format)
+        LLM_TIMEOUT_SECONDS=23, LLM_MAX_RETRIES=1, LLM_STREAMING=configured_streaming, LLM_RESPONSE_FORMAT=response_format)
     def handler(request):
         body = json.loads(request.content)
         calls.append(body)
@@ -107,19 +109,21 @@ def test_shared_llm_configuration_keeps_structured_and_plain_invocations_distinc
         assert body["temperature"] == 0 and body["max_completion_tokens"] == 321
         assert request.extensions["timeout"]["read"] == 23
         if len(calls) == 1:
+            assert body.get("stream") is False
             if response_format == "off":
                 assert "response_format" not in body
             else:
                 assert body["response_format"]["type"] == response_format
-            return httpx.Response(200, json=completion('{"is_finance":true,"stocks":["2330"]}'))
+            return httpx.Response(200, json=completion(json.dumps(plan_payload({"stocks": ["2330"], "data_needs": ["news"]}))))
         assert "response_format" not in body
         return httpx.Response(200, json=completion("Answer"))
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
             client = LlmClient(llm_settings, http)
             assert client.settings.LLM_MAX_RETRIES == 1
-            result = await client.generate(system_prompt="Classify", payload={"query": "TSMC"}, schema=Intent)
+            result = await client.generate(system_prompt="Classify", payload={"query": "TSMC"}, schema=TaskPlan)
             assert result.payload["stocks"] == ["2330"]
+            assert result.metadata["finish_reason"] == "stop"
             await client.text(system_prompt="Policy", prompt="News")
     asyncio.run(run())
     assert len(calls) == 2

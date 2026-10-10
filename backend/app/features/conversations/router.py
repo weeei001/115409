@@ -2,11 +2,9 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.errors import AuthenticationFailed
-from app.core.streaming import encode_sse
 from app.db.models.user import User
 from app.features.auth import service as auth_service
 from app.features.auth.router import Configuration, Database
@@ -72,8 +70,4 @@ def clear_message_rating(conversation_id: UUID, message_id: UUID, user: CurrentU
 async def ask_conversation(conversation_id: UUID, body: AskRequest, user: CurrentUser, service: Service):
     service.chat.require_enabled()
     turn_id, request = service.begin(user.id, str(conversation_id), body)
-    if body.stream:
-        return StreamingResponse(encode_sse(service.stream_events(str(conversation_id), turn_id, request)),
-                                 media_type="text/event-stream",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     return await service.ask(str(conversation_id), turn_id, request)

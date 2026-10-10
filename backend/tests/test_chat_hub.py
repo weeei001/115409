@@ -25,15 +25,13 @@ def test_recommendation_followup_fetches_market_without_appending_disclaimer(hub
         "history": [{"role": "user", "content": "Compare TSMC and Foxconn"}],
     })
     assert response.status_code == 200
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"].startswith(llm.answer)
     assert data["answer"] == llm.answer
     assert INVESTMENT_DISCLAIMER not in data["answer"]
     assert any(source["category"] == "comparison" for source in data["sources"])
     assert any(source["category"] == "market_technical" for source in data["sources"])
     assert retrieval.calls
-    if stream:
-        assert next(event["content"] for event in events(response) if event["type"] == "text") == data["answer"]
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -64,7 +62,7 @@ def test_stock_and_comparison_use_real_database_sources_with_page_actions(hub, s
     llm.intent = {"stocks": symbols, "data_needs": ["market", "knowledge"]}
     llm.answer = "台積電的 K 值從 45 升至 55，D 值為 50。[S1]"
     response = client.post("/api/ask", json={"query": "用 KD 分析" + "、".join(symbols), "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert data["answer"].startswith(llm.answer)
     assert not retrieval.calls
     assert data["detected_stocks"] == symbols
@@ -92,7 +90,7 @@ def test_help_and_concepts_work_without_news_or_market_configuration(chat, query
         raise ServiceUnavailable("News is disabled")
     retrieval.vector.require_enabled = disabled
     service.session_factory = None
-    data = events(client.post("/api/ask", json={"query": query, "stream": True}))[-1]
+    data = client.post("/api/ask", json={"query": query, "stream": True}).json()
     assert data["answer"].startswith(answer)
     assert data["sources"][0]["category"] == category and not retrieval.calls
     if needs == ["help"]:
@@ -171,7 +169,7 @@ def test_history_and_query_boundaries_reject_before_any_model_call(chat, body):
 def test_missing_stock_is_clarified_without_guessing_or_loading_data(chat):
     client, _, llm, retrieval = chat
     llm.intent = {"stocks": [], "data_needs": ["market"]}
-    data = events(client.post("/api/ask", json={"query": "幫我比較兩檔股票", "stream": True}))[-1]
+    data = client.post("/api/ask", json={"query": "幫我比較兩檔股票", "stream": True}).json()
     assert "哪幾檔股票" in data["answer"]
     assert not data["sources"] and not retrieval.calls and len(llm.calls) == 1
 
@@ -226,23 +224,16 @@ def test_router_passes_application_session_factory_to_chat_service():
     assert service.call_args.kwargs["session_factory"] is state.session_factory
 
 
-def test_dashboard_is_ready_before_answer_generation_and_survives_model_failure(hub):
+def test_dashboard_is_prepared_before_answer_generation(hub):
     _, service, llm, _ = hub
     llm.intent = {"stocks": ["2330", "2317"], "data_needs": ["market"],
                   "display_focus": ["price", "comparison"]}
-    llm.error = ServiceUnavailable("Answer generation unavailable")
     async def check():
-        stream = service.stream_events(AskRequest(query="比較台積電與鴻海", stream=True))
-        assert (await anext(stream))["type"] == "status"
-        assert await anext(stream) == {"type": "status", "content": "正在讀取行情、技術指標與基本面資料…"}
-        prepared = await anext(stream)
-        assert prepared["type"] == "dashboard"
-        assert {block["kind"] for block in prepared["dashboard"]["blocks"]} >= {"chart", "table"}
+        prepared, prompt, _ = await service._prepare(AskRequest(query="比較台積電與鴻海"))
+        assert {block.kind for block in prepared.dashboard.blocks} >= {"chart", "table"}
         assert [kind for kind, _ in llm.calls] == ["intent"]
-        rest = [event async for event in stream]
-        assert rest[-1] == {"type": "error", "message": "Answer generation unavailable"}
-        assert not any(event["type"] in {"text", "done"} for event in rest)
-        assert prepared["actions"][-1]["path"] == "/compare"
+        assert prepared.actions[-1].path == "/compare"
+        assert prompt
     asyncio.run(check())
 
 
@@ -254,7 +245,7 @@ def test_model_suggested_questions_are_clickable_followups(hub, stream):
                   "suggested_questions": questions + [questions[0]]}
     llm.answer = "台積電收盤價為 110 元。[S1]"
     response = client.post("/api/ask", json={"query": "Analyze 2330", "stream": stream})
-    data = events(response)[-1] if stream else response.json()
+    data = response.json()
     assert [action for action in data["actions"] if action["type"] == "follow_up"] == [
         {"type": "follow_up", "label": question, "query": question} for question in questions
     ]

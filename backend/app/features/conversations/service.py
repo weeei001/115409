@@ -1,10 +1,10 @@
 import asyncio
 import logging
-from contextlib import aclosing, suppress
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from app.core.errors import Conflict, NotFound, ServiceUnavailable
+from app.core.errors import AppError, Conflict, NotFound, ServiceUnavailable
 from app.db.models.conversation import Conversation, ConversationMessage
 from app.features.chat.schemas import ChatTurn
 
@@ -126,47 +126,28 @@ class ConversationService:
             logging.getLogger(__name__).exception("Conversation lease renewal failed")
             consumer.cancel()
 
-    async def stream_events(self, conversation_id, turn_id, request):
-        content, extra, finished = "", {}, False
+    async def ask(self, conversation_id, turn_id, request):
+        finished = False
         heartbeat = asyncio.create_task(self._heartbeat(conversation_id, turn_id, asyncio.current_task()))
         try:
-            async with aclosing(self.chat.stream_events(request)) as events:
-                async for event in events:
-                    if event["type"] == "text":
-                        content += event.get("content", "")
-                    elif event["type"] == "dashboard":
-                        extra.update({key: event[key] for key in ("dashboard", "actions") if key in event})
-                    elif event["type"] == "done":
-                        content = event.get("answer", content)
-                        extra.update({key: event[key] for key in ("dashboard", "actions", "sources") if key in event})
-                        message_id = self._finish(conversation_id, turn_id, content, "completed", extra)
-                        if not message_id:
-                            return
-                        finished = True
-                        event = {**event, "message_id": message_id}
-                    elif event["type"] == "error":
-                        extra["error"] = event.get("message", "服務暫時無法回應")
-                        finished = bool(self._finish(conversation_id, turn_id, content, "failed", extra))
-                        if not finished:
-                            return
-                    yield event
-                    if finished:
-                        return
+            response = await self.chat.ask(request)
+            extra = response.model_dump(mode="json", include={"dashboard", "actions", "sources"})
+            message_id = self._finish(conversation_id, turn_id, response.answer, "completed", extra)
+            if not message_id:
+                raise ServiceUnavailable("對話回覆中斷，請稍後重試")
+            finished = True
+            return ConversationAskResponse(**response.model_dump(), message_id=message_id)
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, AppError) else "服務暫時無法回應，請稍後重試"
+            message = detail.get("message", "服務暫時無法回應") if isinstance(detail, dict) else str(detail)
+            finished = bool(self._finish(conversation_id, turn_id, "", "failed", {"error": message}))
+            raise
         finally:
             heartbeat.cancel()
-            # Synchronous persistence runs even when the response task is cancelled.
+            # 請求中止時仍結束佔用狀態，避免下一次提問被鎖住。
             try:
                 if not finished:
-                    self._finish(conversation_id, turn_id, content, "interrupted", extra)
+                    self._finish(conversation_id, turn_id, "", "interrupted", {})
             finally:
                 with suppress(asyncio.CancelledError):
                     await heartbeat
-
-    async def ask(self, conversation_id, turn_id, request):
-        async with aclosing(self.stream_events(conversation_id, turn_id, request)) as events:
-            async for event in events:
-                if event["type"] == "done":
-                    return ConversationAskResponse.model_validate(event)
-                if event["type"] == "error":
-                    raise ServiceUnavailable(event["message"])
-        raise ServiceUnavailable("對話回覆中斷，請稍後重試")

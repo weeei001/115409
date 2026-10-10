@@ -13,9 +13,11 @@ class AskRequest(BaseModel):
     _user_id: int | None = PrivateAttr(default=None)
     _conversation_id: str | None = PrivateAttr(default=None)
     _turn_id: str | None = PrivateAttr(default=None)
+    _planning_trace: list[dict] = PrivateAttr(default_factory=list)
+    _evidence_trace: dict = PrivateAttr(default_factory=dict)
     query: str = Field(min_length=1, max_length=6000)
     stock_id: str | None = Field(default=None, pattern=r"^[0-9]{4,6}$")
-    stream: bool = False
+    stream: bool = Field(default=False, description="保留舊請求相容性；回覆一律使用一般 JSON。")
     answer_detail: Literal["plain", "standard", "technical"] = "plain"
     history: list[ChatTurn] = Field(default_factory=list, max_length=8)
 
@@ -34,17 +36,23 @@ class PaperOrderIntent(BaseModel):
     quantity: int | None = Field(default=None, gt=0, le=1000000000, strict=True)
 
 
-class Intent(BaseModel):
+class IntentDetails(BaseModel):
     is_finance: bool = True
     stocks: list[str] = Field(default_factory=list)
     time_from: str | None = None
     time_to: str | None = None
-    data_needs: list[Literal["news", "market", "knowledge", "help", "favorites", "portfolio"]] = Field(default_factory=lambda: ["news"])
     suggested_questions: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=3)
     standalone_query: str | None = Field(default=None, max_length=6000)
     display_focus: list[Literal["price", "technical", "institutional", "fundamental", "comparison", "news"]] = Field(default_factory=list)
     forward_outlook: bool = Field(default=False, strict=True)
+    news_scope: Literal["selected_stocks", "market_wide"] = "selected_stocks"
     paper_order: PaperOrderIntent = Field(default_factory=PaperOrderIntent)
+
+
+class Intent(IntentDetails):
+    """由後端編譯的可執行資料需求，不直接採用呼叫端輸入。"""
+
+    data_needs: list[Literal["news", "market", "knowledge", "help", "favorites", "portfolio"]]
 
 
 class SourceChunk(BaseModel):

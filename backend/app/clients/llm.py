@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -184,7 +185,9 @@ class LlmClient:
                        schema: type[BaseModel], examples: list[tuple[str, str]] = ()) -> LlmResult:
         settings = self.settings
         method = "json_schema" if settings.LLM_RESPONSE_FORMAT == "json_schema" else "json_mode"
-        model = self._model()
+        # 結構化結果必須完整解析；部分供應商的串流會合併出重複的結束標記。
+        # 分類使用非串流，回答文字仍由 stream_text 即時串流。
+        model = self._model(streaming=False)
         structured = (model.with_structured_output(schema, method=method, include_raw=True)
                       if settings.LLM_RESPONSE_FORMAT != "off" else None)
         messages = [SystemMessage(content=system_prompt + "\nReturn a JSON object matching this schema:\n" + json.dumps(schema.model_json_schema(), ensure_ascii=False))]
@@ -211,6 +214,12 @@ class LlmClient:
         except (TimeoutError, httpx.TimeoutException, APITimeoutError) as exc:
             raise UpstreamTimeout("分析逾時，請稍後重試") from exc
         except (APIError, httpx.HTTPError, ValueError, IndexError, TypeError) as exc:
+            # 只記錄例外類別，協助區分連線與回應格式錯誤，不輸出金鑰或請求內容。
+            causes, cause = [], exc
+            while cause is not None and len(causes) < 6:
+                causes.append(type(cause).__name__)
+                cause = cause.__cause__
+            logging.getLogger(__name__).warning("Model request failed: %s", " -> ".join(causes))
             code = getattr(exc, "code", None)
             raise ModelUnavailable(
                 {"code": "upstream_model_error", "message": "模型服務暫時無法回應，請稍後重試", "context": {}},

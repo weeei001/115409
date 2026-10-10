@@ -18,6 +18,40 @@ class ChatReviewTokens(BaseModel):
     thinking: int | None = None
 
 
+class ChatReviewPlanResult(BaseModel):
+    tasks: list[str] = Field(default_factory=list)
+    portfolio_access: str | None = None
+    favorites_access: str | None = None
+    stocks: list[str] = Field(default_factory=list)
+
+
+class ChatReviewPlanTokens(BaseModel):
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    reasoning_tokens: int | None = None
+
+
+class ChatReviewPlanning(BaseModel):
+    stage: Literal["plan"]
+    status: str
+    result: ChatReviewPlanResult | None = None
+    finish_reason: str | None = None
+    tokens: ChatReviewPlanTokens = Field(default_factory=ChatReviewPlanTokens)
+    duration_ms: int | None = None
+    invalid_fields: list[str] = Field(default_factory=list)
+    issue: str | None = None
+    effective_needs: list[str] = Field(default_factory=list)
+    error_type: str | None = None
+
+
+class ChatReviewEvidence(BaseModel):
+    requested: list[str] = Field(default_factory=list)
+    available: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    blocked: bool | None = None
+    status: str | None = None
+
+
 class ChatReviewAttempt(BaseModel):
     number: int
     stage: Literal["initial", "repair"]
@@ -131,3 +165,5 @@ class ChatReviewDetail(ChatReviewSummary):
     answer_detail: str = "plain"
     error_type: str | None = None
     recovery: ChatReviewRecovery | None = None
+    planning: list[ChatReviewPlanning] = Field(default_factory=list)
+    evidence: ChatReviewEvidence | None = None
