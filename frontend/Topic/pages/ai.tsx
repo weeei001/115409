@@ -9,6 +9,7 @@ import { ConversationHistory } from '@/features/ai/ConversationHistory';
 import { ChatArea, type ExampleQuestionGroup } from '@/features/ai/ChatArea';
 import { ChatInput } from '@/features/ai/ChatInput';
 import { useChat } from '@/features/ai/useChat';
+import { AskQuota } from '@/features/pricing/AskQuota';
 import { useHydrated, useIsMobile, useMediaQuery } from '@/lib/hooks/useClientEnv';
 import { parseFlag, serializeFlag, useStoredPreference } from '@/lib/hooks/useStoredPreference';
 import { HISTORY_COLLAPSED_KEY } from '@/features/ai/layout';
@@ -103,6 +104,7 @@ export default function AiPage() {
     signedIn: chat.signedIn, ready: chat.ready, items: chat.conversations, selectedId: chat.conversationId,
     search: chat.search, loading: chat.historyLoading, error: chat.historyError, hasMore: chat.hasMore,
     onSearch: chat.setSearch, onRetry: chat.refreshHistory, onMore: chat.loadMore,
+    deletingId: chat.deletingId, onDelete: (item: { id: string }) => { void chat.removeConversation(item.id); },
   };
   // 抽屜裡選了對話或開新對話就關閉，焦點回到「歷史對話」鈕（見 onCloseAutoFocus）
   const openFromSheet = (id: string) => {
@@ -199,7 +201,7 @@ export default function AiPage() {
                   if (initialPrompt) void router.replace('/ai', undefined, { shallow: true });
                   chat.send(text);
                 }} disabled={chat.loading || !chat.ready}
-                  onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} />
+                  onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} quota={<AskQuota />} />
               }
             />
           </div>

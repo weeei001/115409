@@ -11,6 +11,7 @@ export const PRIMARY_NAV = [
   { path: '/ai', label: 'AI 對話' },
   { path: '/order', label: '模擬投資' },
   { path: '/compare', label: '多股比較' },
+  { path: '/pricing', label: '方案' },
 ] as const;
 
 export function isChatNavigationAction(value: unknown): value is Extract<ChatAction, { type: 'navigate' }> {
@@ -69,6 +70,7 @@ export const ROUTE_PAGE_LABELS: Record<string, string> = {
   '/forgot-password': '忘記密碼',
   '/reset-password': '重設密碼',
   '/me': '個人中心',
+  '/checkout': '結帳',
   '/admin': '管理後台',
   [DISCLAIMER_PATH]: '投資免責聲明',
 };

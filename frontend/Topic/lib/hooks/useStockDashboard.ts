@@ -46,6 +46,23 @@ export type StockLoadErrorKind = 'not-found' | 'retryable';
 export const stockLoadErrorKind = (reason: unknown): StockLoadErrorKind =>
   reason instanceof ApiRequestError && reason.status === 404 ? 'not-found' : 'retryable';
 
+/**
+ * K 線、量能、統計、漲跌這一批圖表請求的錯誤。全部失敗時報第一個錯誤，並跳 toast（照舊）；
+ * 只有 K 線失敗時也要報錯，不然 K 線位置會顯示成「所選日期區間沒有 K 線資料」。
+ * K 線 404 是區間內沒有資料（後端 _require_rows），照舊顯示空狀態，不算錯誤。
+ */
+export function chartLoadError(
+  kma: PromiseSettledResult<unknown>,
+  results: PromiseSettledResult<unknown>[],
+): { message: string; toast: boolean } | null {
+  const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (rejected.length === results.length) return { message: userFacingMessage(rejected[0]?.reason, '圖表資料載入失敗'), toast: true };
+  if (kma.status === 'rejected' && stockLoadErrorKind(kma.reason) !== 'not-found') {
+    return { message: userFacingMessage(kma.reason, 'K 線資料載入失敗'), toast: false };
+  }
+  return null;
+}
+
 /** 個股頁的期間快選，和首頁觀測台同一組（useTerminalData 的 CHART_RANGES）；K 線、法人、指標都跟著同一段期間（04-S3） */
 export const STOCK_RANGE_PRESETS = [
   { key: '3M', label: '3 個月', months: 3 },
@@ -238,11 +255,10 @@ export function useStockDashboard(symbol: string) {
       setPriceChangeData(withChange && change?.status === 'fulfilled' ? change.value as PriceChangeResponse : null);
 
       const results = [kma, vol, stats, volumeHistory, change].filter(Boolean) as PromiseSettledResult<unknown>[];
-      const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-      if (rejected.length === results.length) {
-        const msg = userFacingMessage(rejected[0]?.reason, '圖表資料載入失敗');
-        setChartError(msg);
-        toast.error(msg);
+      const failure = chartLoadError(kma, results);
+      if (failure) {
+        setChartError(failure.message);
+        if (failure.toast) toast.error(failure.message);
       }
     } finally {
       if (id === chartReq.current) setChartLoading(false);

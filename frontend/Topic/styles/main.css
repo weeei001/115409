@@ -93,6 +93,8 @@
   --app-safe-area-top: env(safe-area-inset-top, 0px);
   --app-safe-area-right: env(safe-area-inset-right, 0px);
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  /* 畫面底部被蓋住的高度：手勢區，或首次造訪的風險提示條（RiskNoticeBanner 寫入，已含手勢區） */
+  --app-bottom-inset: max(var(--app-safe-area-bottom), var(--risk-notice-height, 0px));
 }
 
 .dark {

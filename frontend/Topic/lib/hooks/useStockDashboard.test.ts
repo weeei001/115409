@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { stockLoadErrorKind, stockRangePreset } from './useStockDashboard';
+import { chartLoadError, stockLoadErrorKind, stockRangePreset } from './useStockDashboard';
 import { isTaiwanStockCode } from '../utils/stockValidation';
 import { ApiRequestError } from '../api/client';
 import { shiftYmdMonths } from '../utils/date';
@@ -44,3 +44,18 @@ assert.equal(shiftYmdMonths('2026-01-31', 1), '2026-02-28');
 assert.equal(shiftYmdMonths('2026-03-15', -3), '2025-12-15');
 assert.equal(shiftYmdMonths('2026-10-06', -12), '2025-10-06');
 console.log('Stock range preset tests passed!');
+
+// 圖表請求的錯誤：只有 K 線失敗也要報錯（不能說成「沒有 K 線資料」）；K 線 404 是區間沒資料，不算錯誤
+{
+  const ok: PromiseSettledResult<unknown> = { status: 'fulfilled', value: {} };
+  const fail = (reason: unknown): PromiseSettledResult<unknown> => ({ status: 'rejected', reason });
+  const serverDown = fail(new ApiRequestError('伺服器暫時無法處理，請稍後再試。', 500));
+  const noRows = fail(new ApiRequestError('在指定日期範圍內找不到股票 2330 的數據', 404));
+  assert.equal(chartLoadError(ok, [ok, ok, ok, ok]), null);
+  assert.deepEqual(chartLoadError(serverDown, [serverDown, ok, ok, ok]), { message: '伺服器暫時無法處理，請稍後再試。', toast: false });
+  assert.equal(chartLoadError(noRows, [noRows, ok, ok, ok]), null, 'An empty range keeps the empty state');
+  assert.equal(chartLoadError(ok, [ok, serverDown, serverDown, ok]), null, 'Other panels handle their own missing data');
+  assert.deepEqual(chartLoadError(serverDown, [serverDown, serverDown, serverDown, serverDown]), { message: '伺服器暫時無法處理，請稍後再試。', toast: true });
+  assert.equal(chartLoadError(fail(new Error('boom')), [fail(new Error('boom')), ok, ok, ok])?.message, 'K 線資料載入失敗');
+}
+console.log('Chart load error tests passed!');

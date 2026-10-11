@@ -5,6 +5,10 @@ import { LightEntry } from '@/components/common/LightEntry';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
+import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { QuotaNotice } from '@/features/pricing/QuotaNotice';
+import { favoritesLimitText, limitStatus } from '@/features/pricing/quota';
+import { PLAN_LIMITS, formatCount } from '@/features/pricing/plans';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { shiftYmdMonths, toYmdLocal } from '@/lib/utils/date';
 import { fetchFavoriteQuotes, favoriteLabel, latestQuoteDate, toastRemoved, type FavoriteQuote } from './favoriteFeedback';
@@ -49,6 +53,9 @@ function useFavoriteQuotes(symbols: string[]) {
  */
 export function FavoriteList() {
   const { status, items, loadError, reload, remove, add, isPending } = useFavorites();
+  // 方案的收藏上限（展示）：只提示、不擋
+  const { planId } = useCurrentPlan();
+  const quota = limitStatus(items.length, PLAN_LIMITS[planId].favorites);
   // 只抓後端確認過的收藏（加入中的那筆還沒有名稱，回應後就會進來）
   const savedSymbols = useMemo(() => items.filter((item) => item.created_at).map((item) => item.symbol).sort(), [items]);
   const quotes = useFavoriteQuotes(status === 'ready' ? savedSymbols : []);
@@ -123,6 +130,11 @@ export function FavoriteList() {
           // 資料日只寫一次；和多數不同的那幾檔才在列上另外標（和首頁觀測清單同一種做法）
           <p className="border-b px-4 py-2 text-[13px] text-muted-foreground sm:px-5">收盤 <span className="font-mono tabular-nums">{commonDate}</span> · 非即時</p>
         ) : null}
+        {quota.reached && quota.limit != null ? (
+          <div className="border-b p-4 sm:px-5">
+            <QuotaNotice>{favoritesLimitText(quota.used, quota.limit, planId)}</QuotaNotice>
+          </div>
+        ) : null}
         <ul className="divide-y">
         {items.map(({ symbol, name, created_at }) => {
           const label = favoriteLabel(symbol, name);
@@ -187,7 +199,13 @@ export function FavoriteList() {
         // 燈質記號：讀取中 Q、讀取失敗熄燈、讀到了 F（空清單也是讀到了）
         <span className="inline-flex items-center gap-1.5">
           <LightGlyph state={status === 'error' ? 'error' : status === 'ready' ? 'ready' : 'loading'} />
-          {status === 'ready' ? `共 ${items.length} 檔` : status === 'error' ? '載入失敗' : '載入中'}
+          {status === 'ready'
+            ? quota.limit == null
+              ? `共 ${formatCount(items.length)} 檔`
+              : items.length > quota.limit
+                ? `已收藏 ${formatCount(items.length)} 檔（上限 ${formatCount(quota.limit)} 檔）`
+                : `已收藏 ${formatCount(items.length)}／${formatCount(quota.limit)} 檔`
+            : status === 'error' ? '載入失敗' : '載入中'}
         </span>
       }
     >

@@ -9,6 +9,7 @@ import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/c
 import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { FormError, PASSWORD_MIN_LENGTH, PasswordField, SubmitButton } from '@/features/auth/AuthForm';
+import { CurrentPlanPanel } from '@/features/pricing/CurrentPlanPanel';
 import { authChangePassword, authMe } from '@/lib/api/auth';
 import { ApiRequestError } from '@/lib/api/client';
 import { clearAuth, getStoredUser, getToken, updateStoredUser } from '@/lib/auth/storage';
@@ -193,7 +194,7 @@ export default function MePage() {
   const head = (
     <Head>
       <title>股海明燈｜個人中心</title>
-      <meta name="description" content="檢視帳號資訊、變更密碼與管理登入狀態。" />
+      <meta name="description" content="檢視帳號資訊與目前方案、變更密碼與管理登入狀態。" />
     </Head>
   );
   const header = <SiteHeader title="個人中心" subtitle="帳號資訊與安全設定" />;
@@ -233,61 +234,67 @@ export default function MePage() {
       {head}
       {header}
       <main aria-label="個人中心" className={pageClass}>
-        {/* 手機依序：帳號資料 → 變更密碼；桌機左右並排。收藏股在獨立的 /favorites 頁 */}
+        {/* 手機依序：帳號資料 → 目前方案 → 變更密碼；桌機左欄是帳號資料與目前方案、右欄變更密碼。收藏股在獨立的 /favorites 頁 */}
         <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
-          <AnimatedSection className="min-w-0 lg:col-span-5">
-            <Ledger
-              title="帳號資料"
-              stamp={
-                <span className="inline-flex items-center gap-1.5">
-                  <LightGlyph state={profileState} />
-                  {profileState === 'loading' ? '更新中' : profileState === 'error' ? '無法更新，顯示上次資料' : '已更新'}
-                </span>
-              }
-            >
-              <LedgerPanel>
-                <div className="mb-4 flex items-center gap-3">
-                  <span className="flex size-11 shrink-0 items-center justify-center border text-muted-foreground" aria-hidden>
-                    <UserRound size={20} />
+          <div className="flex min-w-0 flex-col gap-10 lg:col-span-5">
+            <AnimatedSection className="min-w-0">
+              <Ledger
+                title="帳號資料"
+                stamp={
+                  <span className="inline-flex items-center gap-1.5">
+                    <LightGlyph state={profileState} />
+                    {profileState === 'loading' ? '更新中' : profileState === 'error' ? '無法更新，顯示上次資料' : '已更新'}
                   </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-semibold">{user?.display_name?.trim() || '使用者'}</p>
-                    <p className="truncate font-mono text-xs text-muted-foreground">{user?.email ?? '—'}</p>
+                }
+              >
+                <LedgerPanel>
+                  <div className="mb-4 flex items-center gap-3">
+                    <span className="flex size-11 shrink-0 items-center justify-center border text-muted-foreground" aria-hidden>
+                      <UserRound size={20} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold">{user?.display_name?.trim() || '使用者'}</p>
+                      <p className="truncate font-mono text-xs text-muted-foreground">{user?.email ?? '—'}</p>
+                    </div>
                   </div>
-                </div>
-                {/* 帳號資料是一張有線的定義表 */}
-                <dl className="grid gap-px border-y bg-border text-sm">
-                  <div className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
-                    <dt className="text-muted-foreground">電子郵件</dt>
-                    <dd className="min-w-0 font-mono text-[13.5px] break-all">{user?.email ?? '—'}</dd>
-                  </div>
-                  <div className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
-                    <dt className="text-muted-foreground">顯示名稱</dt>
-                    <dd className="min-w-0 break-all">{user?.display_name?.trim() ? user.display_name : <span className="text-muted-foreground">未設定</span>}</dd>
-                  </div>
-                </dl>
+                  {/* 帳號資料是一張有線的定義表 */}
+                  <dl className="grid gap-px border-y bg-border text-sm">
+                    <div className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
+                      <dt className="text-muted-foreground">電子郵件</dt>
+                      <dd className="min-w-0 font-mono text-[13.5px] break-all">{user?.email ?? '—'}</dd>
+                    </div>
+                    <div className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
+                      <dt className="text-muted-foreground">顯示名稱</dt>
+                      <dd className="min-w-0 break-all">{user?.display_name?.trim() ? user.display_name : <span className="text-muted-foreground">未設定</span>}</dd>
+                    </div>
+                  </dl>
 
-                {error ? (
-                  <div className="mt-4">
-                    <Notice tone="danger">{error}</Notice>
+                  {error ? (
+                    <div className="mt-4">
+                      <Notice tone="danger">{error}</Notice>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Button type="button" variant="outline" disabled={refreshing} aria-busy={refreshing || undefined} onClick={() => void handleRefresh()}>
+                      <RefreshCw size={18} aria-hidden />
+                      {refreshing ? '更新中…' : '重新整理資料'}
+                    </Button>
+                    <Button type="button" variant="destructive" onClick={handleLogout}>
+                      <LogOut size={18} aria-hidden />
+                      登出
+                    </Button>
                   </div>
-                ) : null}
+                </LedgerPanel>
+              </Ledger>
+            </AnimatedSection>
 
-                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Button type="button" variant="outline" disabled={refreshing} aria-busy={refreshing || undefined} onClick={() => void handleRefresh()}>
-                    <RefreshCw size={18} aria-hidden />
-                    {refreshing ? '更新中…' : '重新整理資料'}
-                  </Button>
-                  <Button type="button" variant="destructive" onClick={handleLogout}>
-                    <LogOut size={18} aria-hidden />
-                    登出
-                  </Button>
-                </div>
-              </LedgerPanel>
-            </Ledger>
-          </AnimatedSection>
+            <AnimatedSection delay={0.05} className="min-w-0">
+              <CurrentPlanPanel />
+            </AnimatedSection>
+          </div>
 
-          <AnimatedSection delay={0.05} className="min-w-0 lg:col-span-7">
+          <AnimatedSection delay={0.1} className="min-w-0 lg:col-span-7">
             <Ledger aria-labelledby="me-password-heading" title={<span id="me-password-heading">變更密碼</span>}>
               <LedgerPanel>
                 <p className="mb-4 text-xs leading-relaxed text-muted-foreground">

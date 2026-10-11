@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import type { Brief, EvidenceItem, TextBriefResponse } from '../types/textBrief';
-import type { AIUsageSummary } from '../types/api';
+import type { AIFeatureUsage, AIUsageSummary } from '../types/api';
 import { buildEvidenceIndex } from './textBriefEvidence';
 import { briefProvenance } from './provenance';
 import { citationLabels, reportAppendix } from './report';
-import { avgTokensText, costNote, latencyText, retryText, tokenSplitText, usdText } from './usage';
+import { avgTokensText, costNote, featureCallsText, featureLabel, featureUsageNote, latencyText, retryText, tokenSplitText, usdText } from './usage';
 
 const CATALOG: EvidenceItem[] = [
   { id: 'd_01', field: 'daily_timeline', date: '2026-09-02', value: { close: 100, chg_pct: 1.2 } },
@@ -82,6 +82,24 @@ const evidence = buildEvidenceIndex(CATALOG, '2026-09-03');
   assert.equal(avgTokensText(empty), '--');
   assert.equal(tokenSplitText(empty), '還沒有 token 紀錄');
   assert.equal(retryText(empty), '沒有重試紀錄');
+  assert.match(costNote(usage), /AI 對話與新聞事件判讀見「各功能的模型呼叫」/);
+
+  // 各功能的模型呼叫（ai_usage_logs）
+  const chat: AIFeatureUsage = {
+    feature: 'chat', requests: 120, calls: 342, failed_calls: 3, measured_requests: 117,
+    avg_prompt_tokens: 18000.4, avg_completion_tokens: 1450.2, avg_cost_usd: 0.00534, total_cost_usd: 0.6248,
+  };
+  assert.equal(featureLabel('chat'), 'AI 對話與小燈');
+  assert.equal(featureLabel('news_impact'), '新聞事件判讀');
+  assert.equal(featureLabel('future_feature'), 'future_feature', 'unknown codes are shown as they are');
+  assert.equal(featureCallsText(chat), '342 次 · 失敗 3（每次請求 2.9 次）');
+  assert.equal(featureCallsText({ ...chat, failed_calls: 0, requests: 0, calls: 0 }), '0 次');
+  assert.equal(avgTokensText(chat), '19,451');
+  assert.equal(tokenSplitText(chat), '輸入 18,000 · 輸出 1,450');
+  const note = featureUsageNote({ ...usage, features: [chat, { ...chat, feature: 'analysis', measured_requests: 120, requests: 120 }] });
+  assert.match(note, /（AI 對話與小燈 120 次中有 117 次）。/);
+  assert.doesNotMatch(note, /AI 摘要 120 次/, 'fully measured features are not listed');
+  assert.match(featureUsageNote({ ...usage, features: undefined }), /^同一次提問.*計算。失敗或中斷/);
 }
 
-console.log('Brief report passed: provenance rows, cited-only appendix, usage and cost copy.');
+console.log('Brief report passed: provenance rows, cited-only appendix, usage and cost copy, per-feature model calls.');

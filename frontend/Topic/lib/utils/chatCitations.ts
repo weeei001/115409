@@ -1,18 +1,19 @@
+import { AI_CHAT_NOTICE } from '../disclaimers';
 import type { ChatSource } from '../types/chat';
 
 export const CHAT_CITATION_PATTERN = '(?:[Ss][0-9][0-9A-Za-z_-]*|S[-_][0-9]+|S[a-z])';
 export const CHAT_CITATION_RE = new RegExp(`\\[\\*{0,3}(${CHAT_CITATION_PATTERN})\\*{0,3}\\]`, 'g');
 
 /**
- * 後端在推薦類問題的回覆尾端附加的免責句（backend chat/prompts.py INVESTMENT_DISCLAIMER）。
- * 隱藏舊版固定文案，不補上其他制式說明。
- * 舊對話已經存了這句，後端改字後新舊兩版都要列在這裡，才剝得乾淨。只比對完整字串，不猜相近的句子。
+ * 舊版後端附在回覆尾端的免責句。後端已不再附加（投資提醒改由輸入框下方固定一行顯示，決議 J1-3），
+ * 但舊對話已經存了這些句子，所以仍要剝掉；不補上其他制式說明。只比對完整字串，不猜相近的句子。
  */
 export const BACKEND_CHAT_DISCLAIMERS: readonly string[] = [
+  // 推薦類問題的回覆尾端
   '投資建議僅供參考，不保證獲利；請依自身財務狀況與風險承受能力審慎評估，投資有賺有賠。',
   // P0-8 批改字後的版本：放在【引用來源】之前（【資料限制】之後）
   '以上為資料整理，不是投資建議；投資前請依自身狀況評估風險。',
-  // 讀到模擬帳戶資料的那一輪改用這句（backend chat/prompts.py PAPER_PORTFOLIO_DISCLAIMER），位置相同
+  // 讀到模擬帳戶資料的那一輪改用這句，位置相同
   '以上為模擬帳戶的練習安排，不是投資建議；模擬結果不代表真實報酬。',
 ];
 
@@ -58,14 +59,17 @@ export function relabelCitations(text: string, labels: ReadonlyMap<string, strin
   });
 }
 
-/** 複製畫面上的正文與引用來源標題，不附加制式說明。 */
+/**
+ * 複製畫面上的正文與引用來源標題，最後附上輸入框下方那一行 AI 免責句：
+ * 畫面上的提醒不會跟著文字被貼到別處（商業模式 7.1 的轉載風險）。
+ */
 export function chatCopyText(content: string, sources: readonly ChatSource[]): string {
   const body = chatAnswerBody(content);
   const labels = citationLabels(body, sources);
   const titles = new Map(sources.map((source) => [source.citation_id, source.title]));
   const cited = [...new Set([...body.matchAll(CHAT_CITATION_RE)].map((match) => match[1]))].filter((id) => titles.has(id));
   const sourceLines = cited.map((id) => `[${labels.get(id)}] ${titles.get(id)}`);
-  return [relabelCitations(body, labels), sourceLines.length ? `引用來源\n${sourceLines.join('\n')}` : '']
+  return [relabelCitations(body, labels), sourceLines.length ? `引用來源\n${sourceLines.join('\n')}` : '', AI_CHAT_NOTICE]
     .filter(Boolean).join('\n\n');
 }
 

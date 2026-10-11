@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, create, type ReactTestRenderer, type ReactTestInstance } from 'react-test-renderer';
 import type { InternalAxiosRequestConfig } from 'axios';
-import apiClient from '@/lib/api/client';
+import apiClient, { ApiRequestError } from '@/lib/api/client';
 import { useStockDashboard, type UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { HistoryTable, PriceChangeTable, StatisticsPanel, VolumeTable } from './PriceTables';
 
@@ -25,6 +25,7 @@ const held: Array<() => void> = [];
 const requests: InternalAxiosRequestConfig[] = [];
 let holdStart: string | null = null;
 let failTechnical = false;
+let failCandles = false;
 
 const responseData = (config: InternalAxiosRequestConfig): unknown => {
   const url = config.url ?? '';
@@ -60,7 +61,10 @@ apiClient.defaults.adapter = (config) => {
     const finish = () => {
       const rangeEndpoint = /\/(chart\/[^/]+|statistics)$/.test(config.url ?? '');
       if (config.params?.start_date > '2026-10-02' && rangeEndpoint) {
-        reject(new Error('所選日期區間沒有資料'));
+        // 後端的 _require_rows：區間內沒有行情回 404
+        reject(new ApiRequestError('在指定日期範圍內找不到股票 2330 的數據', 404));
+      } else if (failCandles && (config.url ?? '').endsWith('/chart/candlestick-ma')) {
+        reject(new ApiRequestError('伺服器暫時無法處理，請稍後再試。', 500));
       } else if (failTechnical && (config.url ?? '').endsWith('/technical-indicators')) {
         reject(new Error('技術指標暫時無法取得'));
       } else {
@@ -106,6 +110,7 @@ async function main() {
     // Empty ranges must drop every range-specific result, including after drawer reopen.
     await act(async () => { current().setStartDate('2026-10-03'); current().setEndDate('2026-10-03'); await flush(); });
     assert.equal(current().priceChart, null);
+    assert.equal(current().chartError, null, 'An empty range (404) is the empty state, not an error');
     assert.equal(current().volumeData, null);
     assert.equal(current().priceChangeData, null);
     assert.equal(current().statistics, null);
@@ -181,7 +186,19 @@ async function main() {
     await act(async () => { current().reloadChips(); await flush(); });
     assert.equal(current().indicatorsError, null);
     assert.ok(current().indicators);
-    console.log('PricePanel range, race, drawer and pagination regressions passed');
+
+    // 只有 K 線（/chart/candlestick-ma）失敗：K 線位置要報錯（不是「沒有 K 線資料」），量能與統計照常
+    failCandles = true;
+    await act(async () => { current().reloadCharts(); await flush(); });
+    assert.equal(current().priceChart, null);
+    assert.equal(current().chartError, '伺服器暫時無法處理，請稍後再試。');
+    assert.ok(current().volumeData);
+    assert.ok(current().statistics);
+    failCandles = false;
+    await act(async () => { current().reloadCharts(); await flush(); });
+    assert.equal(current().chartError, null);
+    assert.ok(current().priceChart);
+    console.log('PricePanel range, race, drawer, pagination and K-line-only failure regressions passed');
   } finally {
     await act(async () => { renderer?.unmount(); });
     apiClient.defaults.adapter = previousAdapter;

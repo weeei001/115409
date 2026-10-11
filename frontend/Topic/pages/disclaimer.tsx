@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { Notice } from '@/components/common/Notice';
 import { INVESTMENT_RISK_NOTICE } from '@/lib/disclaimers';
+import { AI_FREE_NOTE, PAID_SCOPE_NOTE, PRICING_DEMO_DISCLAIMER } from '@/features/pricing/plans';
 
 /** 聲明內容有實質修改時更新這個日期 */
-const LAST_UPDATED = '2026-10-10';
+const LAST_UPDATED = '2026-10-11';
 
 const SECTIONS: Array<{ id: string; title: string; paragraphs: ReactNode[] }> = [
   {
@@ -41,15 +42,27 @@ const SECTIONS: Array<{ id: string; title: string; paragraphs: ReactNode[] }> = 
     ],
   },
   {
+    id: 'plans',
+    title: '五、付費方案的範圍',
+    paragraphs: [
+      PAID_SCOPE_NOTE,
+      AI_FREE_NOTE,
+      <>
+        {PRICING_DEMO_DISCLAIMER}
+        <Link href="/pricing" className="ml-1 underline underline-offset-4 hover:text-foreground">查看方案</Link>
+      </>,
+    ],
+  },
+  {
     id: 'systemic',
-    title: '五、系統性風險',
+    title: '六、系統性風險',
     paragraphs: [
       '地緣政治衝突、重大政策變動或國際政經事件，可能讓整體市場在短時間內劇烈波動，這類風險無法靠分散投資消除。本站資料不是即時資料，無法即時反映突發事件。',
     ],
   },
   {
     id: 'liability',
-    title: '六、投資風險與責任歸屬',
+    title: '七、投資風險與責任歸屬',
     paragraphs: [
       '證券投資有賺有賠，可能損失全部本金。你應依自身的財務狀況、投資目標與風險承受度獨立判斷，並自行承擔投資決策的損益。',
       '本站及製作團隊對於你依本站內容所做的任何投資決策及其損益，不負任何責任。',
@@ -57,7 +70,7 @@ const SECTIONS: Array<{ id: string; title: string; paragraphs: ReactNode[] }> = 
   },
   {
     id: 'update',
-    title: '七、聲明更新',
+    title: '八、聲明更新',
     paragraphs: ['本聲明可能隨服務調整而更新，更新後會公告在本頁。'],
   },
 ];

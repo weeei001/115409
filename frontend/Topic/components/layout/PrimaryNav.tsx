@@ -9,7 +9,8 @@ import { cn } from '@/lib/cn';
 
 /**
  * 頁首的主導覽（lg 以上顯示；手機用主選單抽屜）。目前頁用粗線標示，不用燈色。
- * 6 個項目加頁首搜尋在 1024 寬會擠到換行：標籤不換行，lg 的左右內距收窄，xl 再放寬
+ * 7 個項目加頁首搜尋在 1024～1319 寬很擠：標籤不換行，左右內距 lg 收到 6px、xl 放寬到 8px；
+ * 子頁頁首的搜尋框另外收到 w-48（placeholder 不截字的最小寬度）
  */
 export function PrimaryNav({ className }: { className?: string }) {
   const router = useRouter();
@@ -24,7 +25,7 @@ export function PrimaryNav({ className }: { className?: string }) {
             href={item.path}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'flex h-14 items-center border-b-2 px-2 text-sm whitespace-nowrap transition-colors duration-(--dur-flash) xl:px-3',
+              'flex h-14 items-center border-b-2 px-1.5 text-sm whitespace-nowrap transition-colors duration-(--dur-flash) xl:px-2',
               active ? 'border-border-strong font-medium text-foreground dark:border-foreground' : 'border-transparent text-subtle hover:text-foreground',
             )}
           >

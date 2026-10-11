@@ -180,7 +180,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
       <div>
         <div className="flex items-baseline justify-between gap-3">
           <span className={cn(numeral, 'text-2xl font-semibold tracking-tight')}>{fmtNum(board.close)}</span>
-          <span className={cn(numeral, 'text-sm whitespace-nowrap', valueToneText(board.change))}>
+          <span className={cn(numeral, 'text-sm whitespace-nowrap', valueToneText(board.change, 2))}>
             {signedText(board.change)}
             {board.changePercent != null ? `（${signedText(board.changePercent, 2, '%')}）` : ''}
           </span>
@@ -315,7 +315,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                   </div>
                   <div className="flex items-baseline gap-3">
                     <span className={cn(numeral, 'text-[clamp(30px,3vw,40px)] leading-none font-semibold tracking-tight')}>{fmtPrice(q?.close)}</span>
-                    <span className={cn(numeral, 'text-sm', valueToneText(q?.change))}>
+                    <span className={cn(numeral, 'text-sm', valueToneText(q?.change, 2))}>
                       {signedText(q?.change)}
                       {changePercent != null ? `（${signedText(changePercent, 2, '%')}）` : ''}
                     </span>
@@ -487,6 +487,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
           <NextStep href="/ai">AI 對話：用一句話問個股、比較或技術指標</NextStep>
           <NextStep href="/compare">多股比較：把幾檔股票放在同一張圖上，看報酬、風險與相關性</NextStep>
           <NextStep href="/order">模擬投資：登入後用虛擬資金練習買賣，日後回顧當初的理由</NextStep>
+          <NextStep href="/pricing">方案：AI 投資分析全部免費，付費只差在用量和工具</NextStep>
         </Ledger>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-4">

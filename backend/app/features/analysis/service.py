@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.clients.llm import LlmClient
 from app.clients.usage import tracked_client
 from app.db.engine import make_session_factory
-from app.features.retrieval.service import RetrievalService
+from app.features.retrieval.service import RISK_QUERY, RISK_SOURCE_LIMIT, RetrievalService
 from app.features.retrieval.common import TAIPEI
 from app.core.errors import AppError, ServiceUnavailable
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
@@ -76,6 +76,8 @@ def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
             "stream_chunk_timeout_seconds": settings.LLM_STREAM_CHUNK_TIMEOUT_SECONDS,
             "llm_base_url": settings.LLM_BASE_URL,
             "retrieval": {"embedding_model": settings.EMBED_MODEL,
+                          "operating_risk": {"query": RISK_QUERY, "source_limit": RISK_SOURCE_LIMIT,
+                                             "policy": "stock-filtered-reserved-quarter-v1"},
                           "index_version": getattr(settings, "NEWS_INDEX_VERSION", ""),
                           "index_fingerprint": getattr(settings, "news_index_fingerprint", None),
                           "collection": settings.QDRANT_COLLECTION,
@@ -272,7 +274,8 @@ class AnalysisService:
             self.llm.require_enabled()
         rows = await _db_work(repository.collect_rows, self.db, symbol=symbol, as_of=as_of, lessons=lessons)
         rag = await self.rag.collect(symbol=symbol, as_of=as_of,
-                                     max_events=gate.RAG_DEFAULT_MAX_NEWS_EVENTS, enforce_window=True)
+                                     max_events=gate.RAG_DEFAULT_MAX_NEWS_EVENTS, enforce_window=True,
+                                     include_operating_risks=True)
         sources = await _db_work(repository.attach_article_ids, self.db, rag.news_sources)
         excluded_sources = [source for source in sources if contains_simulation(source)]
         sources = [source for source in sources if not contains_simulation(source)]

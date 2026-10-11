@@ -24,12 +24,15 @@ export interface JourneyDecision {
   reason: PosterReason | null;
 }
 
-/** 低功耗裝置：4 核以下、記憶體 4GB 以下、省流量模式、Android WebView 或 Capacitor 殼 */
+/**
+ * 低功耗裝置：4 核以下、記憶體 4GB 以下、省流量模式、其他 App 內建的 Android WebView（LINE、Facebook 等）。
+ * 自家 Capacitor App 一律不算（決議 L1-1：App 也跑 3D；場景程式打包在 App 裡，不耗流量）。
+ */
 export function isLowPower(env: JourneyEnv): boolean {
+  if (env.capacitor) return false;
   if (typeof env.hardwareConcurrency === 'number' && env.hardwareConcurrency > 0 && env.hardwareConcurrency <= 4) return true;
   if (typeof env.deviceMemory === 'number' && env.deviceMemory > 0 && env.deviceMemory <= 4) return true;
   if (env.saveData) return true;
-  if (env.capacitor) return true;
   if (env.userAgent && env.userAgent.includes('; wv)')) return true;
   return false;
 }

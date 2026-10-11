@@ -47,7 +47,7 @@ function rangeGroup(priceChart: PriceChartData | null): Group {
     dates: firstDate && lastDate ? `${firstDate} → ${lastDate}` : undefined,
     cells: [
       // 個股頁預設畫面唯一的區間漲跌幅：標籤直接寫出實際筆數（K 線載入的交易日數）
-      { label: candles.length ? `近 ${candles.length} 個交易日漲跌幅` : '區間漲跌幅', value: pct == null || !Number.isFinite(pct) ? '--' : signedText(pct, 2, '%'), tone: getValueTone(pct) },
+      { label: candles.length ? `近 ${candles.length} 個交易日漲跌幅` : '區間漲跌幅', value: pct == null || !Number.isFinite(pct) ? '--' : signedText(pct, 2, '%'), tone: getValueTone(pct, 2) },
       { label: '區間最高', value: highs.length ? Math.max(...highs).toFixed(2) : '--', tone: 'neutral' },
       { label: '區間最低', value: lows.length ? Math.min(...lows).toFixed(2) : '--', tone: 'neutral' },
     ],

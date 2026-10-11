@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import {
   compareLineOption,
+  defaultValueAxisLabel,
   escapeHtml,
   institutionalFlowOption,
   institutionalTooltipLots,
@@ -97,6 +98,25 @@ assert.equal(escapeHtml(undefined), '');
   assert.equal(fmt(kd.series, 'D', 65.54), '65.5', 'K and D must use the same precision');
   assert.equal(fmt(macdOption.series, 'MACD 柱', 0.23456), '0.235');
   assert.equal(fmt(macdOption.series, 'DIF', 1.23456), '1.23');
+  // 負號一律 U+2212（DESIGN.md 第 7 節）：tooltip、沒給 formatter 的數值軸（MACD）都一樣
+  assert.equal(fmt(macdOption.series, 'MACD 柱', -0.23456), '−0.235');
+  const macdAxis = (macdOption as unknown as { yAxis: { axisLabel: { formatter: (v: number) => string } } }).yAxis.axisLabel.formatter;
+  assert.equal(macdAxis(-0.5), '−0.5');
+  assert.equal(macdAxis(12_345), '12,345', 'thousands separators like the ECharts default');
+  assert.equal(defaultValueAxisLabel(-1_234.5), '−1,234.5');
 }
 
-console.log('Stock chart tooltip tests passed: lot arithmetic, page-period rows, HTML escaping, indicator precision.');
+// 多股比較累積報酬與風險報酬散點：負值也用 U+2212
+{
+  type Formatter = (params: unknown) => string;
+  const series = { dates: ['2026-07-01'], values: { A: [-3.21] } } as never;
+  const compare = compareLineOption(series, ['A'], { A: '#000' }, 'cumulativeReturn', false) as unknown as {
+    yAxis: { axisLabel: { formatter: (v: number) => string } }; tooltip: { formatter: Formatter };
+  };
+  assert.equal(compare.yAxis.axisLabel.formatter(-5), '−5.0%');
+  assert.match(compare.tooltip.formatter([{ seriesName: 'A', value: -3.21, color: '#000', axisValue: '2026-07-01' }]), /−3\.21%/);
+  const scatter = riskReturnScatterOption([{ symbol: 'A', x: 20, y: -5, color: '#000' }], false) as { tooltip: { formatter: Formatter } };
+  assert.match(scatter.tooltip.formatter({ name: 'A', value: [20, -5] }), /區間漲跌幅：−5\.00%/);
+}
+
+console.log('Stock chart tooltip tests passed: lot arithmetic, page-period rows, HTML escaping, indicator precision, U+2212 minus.');

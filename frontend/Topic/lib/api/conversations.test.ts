@@ -3,7 +3,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import apiClient from './client';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { createConversation, getConversation, listConversations, parseSavedMessages } from './conversations';
+import { createConversation, deleteConversation, getConversation, listConversations, parseSavedMessages } from './conversations';
 import { getToken, setAuth } from '../auth/storage';
 import { ChatArea } from '../../features/ai/ChatArea';
 
@@ -16,7 +16,7 @@ async function main() {
   setAuth('fixture-token', user);
   const summary = { id: 'one', title: 'Question', updated_at: '2026-10-02T00:00:00Z' };
   const detail = { ...summary, messages: [] };
-  let mode: 'list' | 'create' | 'get' | 'stored' | 'stale401' | 'current401' = 'list';
+  let mode: 'list' | 'create' | 'get' | 'delete' | 'stored' | 'stale401' | 'current401' = 'list';
   apiClient.defaults.adapter = async (config) => {
     assert.equal(config.headers.Authorization, 'Bearer fixture-token');
     if (mode === 'stale401' || mode === 'current401') {
@@ -28,7 +28,7 @@ async function main() {
       assert.deepEqual(config.params, { q: 'answer text', offset: 30, limit: 30 });
     } else {
       assert.equal(config.url, mode === 'create' ? '/api/conversations' : '/api/conversations/one');
-      assert.equal(config.method, mode === 'create' ? 'post' : 'get');
+      assert.equal(config.method, mode === 'create' ? 'post' : mode === 'delete' ? 'delete' : 'get');
     }
     const data = mode === 'list' ? { items: [summary], has_more: true } : mode === 'stored' ? { ...summary, messages: legacyMessages } : detail;
     return { data, status: 200, statusText: 'OK', headers: new AxiosHeaders(), config };
@@ -38,6 +38,8 @@ async function main() {
   assert.deepEqual(await createConversation(), detail);
   mode = 'get';
   assert.deepEqual(await getConversation('one'), detail);
+  mode = 'delete';
+  assert.equal(await deleteConversation('one'), undefined);
   // P2-034：歷史訊息和串流同一套驗證。openapi 的選填欄位（source_ids、description、unit、date）缺了要補預設值，
   // 不合格的面板、來源、動作丟掉，不能讓整個 /ai 頁崩潰
   const legacyMessages = [

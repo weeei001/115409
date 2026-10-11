@@ -7,7 +7,7 @@ import { SiteHeader } from './SiteHeader';
 import { SiteFooter } from './SiteFooter';
 import { Breadcrumbs } from './Breadcrumbs';
 import { LightGlyph } from '../common/Ledger';
-import { isChatNavigationAction, isNavPathActive } from '../../lib/nav';
+import { breadcrumbsForPath, isChatNavigationAction, isNavPathActive } from '../../lib/nav';
 import { bulkSearchTarget, compareHref, parseCompareQuery } from '../../lib/utils/compareQuery';
 
 const router = (pathname: string) => ({
@@ -49,6 +49,15 @@ const render = (node: React.ReactElement, path = '/favorites') =>
   assert.ok(html.includes('收盤日載入中 · 非即時'));
   assert.ok(html.includes('加權指數（不含息）') && !html.includes('TWSE'));
   assert.ok(!render(<SiteFooter />, '/stock/2330').includes('aria-current="page"'), 'Pages outside the footer nav mark nothing');
+}
+
+// 方案頁入口：主導覽、選單抽屜、頁尾都來自 PRIMARY_NAV，麵包屑沿用同一個標籤
+{
+  const footer = render(<SiteFooter />, '/pricing');
+  assert.equal(footer.match(/<a[^>]*aria-current="page"[^>]*>([^<]*)<\/a>/)?.[1], '方案');
+  const header = render(<SiteHeader title="方案" />, '/pricing');
+  assert.match(header.match(/<nav aria-label="主導覽"[\s\S]*?<\/nav>/)?.[0] ?? '', /<a[^>]*href="\/pricing"[^>]*>方案<\/a>/);
+  assert.deepEqual(breadcrumbsForPath('/pricing'), [{ label: '首頁', href: '/' }, { label: '方案' }]);
 }
 
 assert.equal(isNavPathActive('/', '/'), true);

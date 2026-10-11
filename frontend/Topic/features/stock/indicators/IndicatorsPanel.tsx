@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import type { EChartsOption } from '@/lib/charts/echarts';
 import type { TechnicalDay } from '@/lib/types/view';
 import { bollOption, kdOption, plottedSpan, plottedSpanText, rsiMacdOptions } from '@/lib/charts/adapters';
-import { fmtPrice, signedText } from '@/lib/utils/format';
+import { fmtPrice, signedText, uMinus } from '@/lib/utils/format';
 import { fmtIndicator, kdSignal, MACD_DECIMALS, macdSignal, rsiSignal, rsiZone, type SignalTone } from '@/lib/utils/indicatorSignals';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { EChart } from '@/components/charts/EChart';
@@ -90,7 +90,7 @@ function buildIndicators(rows: TechnicalDay[], isDark: boolean): Indicator[] {
       reading: macd.value != null ? `柱 ${signedText(macd.value, MACD_DECIMALS)}` : null,
       verdict: macd.value != null ? macd.label : null,
       tone: macd.tone,
-      note: `${latest.macd_dif != null && dea != null ? `DIF ${latest.macd_dif.toFixed(2)}、DEA ${dea.toFixed(2)}；` : ''}柱為正值偏多、負值偏空。`,
+      note: `${latest.macd_dif != null && dea != null ? `DIF ${uMinus(latest.macd_dif.toFixed(2))}、DEA ${uMinus(dea.toFixed(2))}；` : ''}柱為正值偏多、負值偏空。`,
     },
     {
       key: 'kd',

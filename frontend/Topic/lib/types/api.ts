@@ -542,7 +542,25 @@ export interface SignalCheckResponse {
   method_note: string;
 }
 
-/** openapi: GET /admin/ai-usage → AIUsageSummary（AI 摘要的 token、產生時間與估算成本） */
+/** openapi: AIFeatureUsage（ai_usage_logs 依功能彙整的模型呼叫用量） */
+export interface AIFeatureUsage {
+  /** chat（AI 對話與小燈）、analysis（AI 摘要）、news_impact（新聞事件判讀）；其他代號照原樣 */
+  feature: string;
+  /** 請求數：同一次提問或同一份分析裡的多次模型呼叫算一次 */
+  requests: number;
+  calls: number;
+  /** 失敗或中斷的呼叫，也可能已經計費 */
+  failed_calls: number;
+  /** 每次呼叫都有回報 token 的請求數；平均與成本只用這些計算 */
+  measured_requests: number;
+  /** 以下都是「每次請求」 */
+  avg_prompt_tokens?: number | null;
+  avg_completion_tokens?: number | null;
+  avg_cost_usd?: number | null;
+  total_cost_usd?: number | null;
+}
+
+/** openapi: GET /admin/ai-usage → AIUsageSummary（AI 摘要的 token、產生時間與估算成本，以及各功能的模型呼叫用量） */
 export interface AIUsageSummary {
   days: number;
   /** 期間內產生的摘要份數，含沒有通過檢查、未產出內容的 */
@@ -560,4 +578,6 @@ export interface AIUsageSummary {
   output_price_per_m: number;
   avg_cost_usd?: number | null;
   total_cost_usd?: number | null;
+  /** 舊版後端沒有這個欄位，畫面當成空清單 */
+  features?: AIFeatureUsage[];
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ChevronDown, LogIn, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
+import { ChevronDown, LogIn, PanelLeftClose, PanelLeftOpen, Plus, Trash2 } from 'lucide-react';
 import type { ConversationSummary } from '@/lib/api/conversations';
 import { Button } from '@/components/ui/button';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
@@ -23,6 +23,10 @@ interface Props {
   onNew: () => void;
   onRetry: () => void;
   onMore: () => void;
+  /** 每列尾端的刪除鈕；按下並在確認框按「確定」後才呼叫 */
+  onDelete?: (item: ConversationSummary) => void;
+  /** 正在刪除的那一則：所有刪除鈕停用，那一列標 aria-busy */
+  deletingId?: string | null;
   /**
    * panel：lg 以上的左欄（預設）。sheet：放在手機的歷史對話抽屜裡，清單填滿抽屜高度，
    * 標題列右側留位置給抽屜的關閉鈕，搜尋框換一個 id（避免和隱藏中的左欄重複）。
@@ -56,6 +60,28 @@ export function ConversationHistory(props: Props) {
   const toggle = () => {
     refocus.current = true;
     props.onToggleCollapsed?.();
+  };
+  /** 刪掉一列後焦點移到同一個位置的下一列（刪的是最後一列就往上一列，清單空了就到搜尋框），鍵盤使用者不會掉回頁首 */
+  const listRef = useRef<HTMLUListElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const deletedRow = useRef<{ id: string; index: number } | null>(null);
+  useEffect(() => {
+    const pending = deletedRow.current;
+    if (!pending) return;
+    if (props.items.some((item) => item.id === pending.id)) {
+      // 已經不在刪除中、那一列還在＝刪除失敗：不移焦點
+      if (props.deletingId !== pending.id) deletedRow.current = null;
+      return;
+    }
+    deletedRow.current = null;
+    const rows = listRef.current?.querySelectorAll<HTMLButtonElement>('[data-conversation-open]') ?? [];
+    (rows[Math.min(pending.index, rows.length - 1)] ?? searchRef.current)?.focus();
+  }, [props.items, props.deletingId]);
+  const remove = (item: ConversationSummary, index: number) => {
+    if (props.deletingId) return;
+    if (!window.confirm(`刪除「${item.title || '新對話'}」？對話內容與回饋會一併刪除，無法復原。`)) return;
+    deletedRow.current = { id: item.id, index };
+    props.onDelete?.(item);
   };
   /* 燈質記號：清單讀取中 Q、已載入 F、失敗熄燈；訪客沒有清單就不放 */
   const glyph = !props.ready ? <LightGlyph state="loading" /> : props.signedIn
@@ -126,7 +152,7 @@ export function ConversationHistory(props: Props) {
       ) : <>
         <div className="border-b p-3">
           <label htmlFor={searchId} className="sr-only">搜尋歷史對話標題與內容</label>
-          <input id={searchId} type="search" value={props.search} maxLength={200}
+          <input ref={searchRef} id={searchId} type="search" value={props.search} maxLength={200}
             onChange={(event) => props.onSearch(event.target.value)} placeholder="搜尋標題與對話內容"
             className={inputClass} />
         </div>
@@ -139,16 +165,26 @@ export function ConversationHistory(props: Props) {
         ) : null}
         <div className={cn('overflow-y-auto', sheet ? 'min-h-0 flex-1 overscroll-y-contain' : 'max-h-72 overscroll-y-contain lg:max-h-none lg:min-h-0 lg:flex-1')} aria-busy={props.loading}>
           {props.items.length ? (
-            <ul className="divide-y border-b">
-              {props.items.map((item) => {
+            <ul ref={listRef} className="divide-y border-b">
+              {props.items.map((item, index) => {
                 const selected = item.id === props.selectedId;
-                return <li key={item.id}>
-                  <button type="button" onClick={() => props.onOpen(item.id)} aria-current={selected ? 'true' : undefined}
+                const title = item.title || '新對話';
+                // 刪除鈕疊在列尾（不放進開啟鈕裡，避免巢狀互動元素）；開啟鈕右側留位置，hover 與選取的底色仍是整列
+                return <li key={item.id} className="relative" aria-busy={props.deletingId === item.id || undefined}>
+                  <button type="button" data-conversation-open onClick={() => props.onOpen(item.id)} aria-current={selected ? 'true' : undefined}
                     data-selected={selected ? 'true' : undefined}
-                    className="lamp-row flex min-h-14 w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left focus-lamp-inset">
+                    className={cn('lamp-row flex min-h-14 w-full flex-col items-start gap-0.5 py-2.5 pl-4 text-left focus-lamp-inset', props.onDelete ? 'pr-14' : 'pr-4')}>
                     <time dateTime={item.updated_at} className="characteristic">{formatUpdatedAt(item.updated_at)}</time>
-                    <span className={cn('line-clamp-2 text-sm break-words', selected ? 'font-medium text-foreground' : 'text-subtle')}>{item.title || '新對話'}</span>
+                    <span className={cn('line-clamp-2 text-sm break-words', selected ? 'font-medium text-foreground' : 'text-subtle')}>{title}</span>
                   </button>
+                  {/* 刪除中用 aria-disabled 而不是 disabled：按下的那顆停用會讓焦點掉回頁首，刪除失敗時鍵盤使用者就找不到位置 */}
+                  {props.onDelete ? (
+                    <Button type="button" variant="ghost" size="icon" onClick={() => remove(item, index)} aria-disabled={props.deletingId ? true : undefined}
+                      aria-label={`刪除對話：${title}`} title="刪除對話"
+                      className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-lamp-inset aria-disabled:opacity-50">
+                      <Trash2 className="size-[18px]" aria-hidden />
+                    </Button>
+                  ) : null}
                 </li>;
               })}
             </ul>

@@ -33,6 +33,9 @@ _MARKET_CONTEXT = (
     "關稅", "川普", "貿易戰", "出口管制", "地緣", "匯率", "新台幣", "國安基金",
 )
 
+RISK_QUERY = "能源供應 油氣 電力 航運中斷 運輸成本 地緣政治 衝突 制裁 出口管制 供應鏈 原物料 零組件 交期 營運風險"
+RISK_SOURCE_LIMIT = 4
+
 
 def _time_bound(value: str | None, field: str) -> datetime | None:
     if not value:
@@ -347,12 +350,43 @@ class RetrievalService:
             group_shared_facts([source.model_dump() for source in picked.values()], self.catalog)],
             no_recent_news=no_recent_news or not picked)
 
+    async def _risk_sources(self, *, symbol: str, start: datetime, end: datetime,
+                            max_events: int) -> list[dict]:
+        name, company = self._stock_descriptor(symbol)
+        industry = company.get("industry_name") or company.get("industry") or ""
+        vector = await self.vector.embed_query(f"{name} {symbol} {industry} {RISK_QUERY}")
+        hits = await self._query(vector, symbols=[symbol], start=start, end=end,
+                                 limit=max(40, max_events * 4))
+        sources, seen = [], set()
+        for hit in hits:
+            payload = hit.get("payload") or {}
+            title = str(payload.get("title") or "")
+            identity = article_identity(payload)
+            if not title.strip() or any(word in title for word in _QUOTE_NOISE) or identity in seen:
+                continue
+            seen.add(identity)
+            sources.append(NewsSource(
+                id=str(payload.get("chunk_id") or hit.get("id") or ""), title=title,
+                summary=str(payload.get("page_content") or ""), timestamp=str(payload["pub_time"]),
+                url=str(payload.get("url") or ""), publisher=get_source_name(payload.get("source")),
+                kind="general", retrieval_branch="operating_risk", **source_provenance(payload)).model_dump())
+            if len(sources) >= min(RISK_SOURCE_LIMIT, max(1, max_events // 4)):
+                break
+        return sources
+
     async def collect(self, *, symbol: str, lookback_days: int = 60, max_events: int = 50,
-                      as_of: date | None = None, enforce_window: bool = False) -> RagResult:
+                      as_of: date | None = None, enforce_window: bool = False,
+                      include_operating_risks: bool = False) -> RagResult:
         cutoff = as_of or datetime.now(TAIPEI).date()
+        risk_sources = []
         try:
+            end = datetime.combine(cutoff, time.max, TAIPEI) if as_of else datetime.now(TAIPEI)
             response = await self.analyze(RetrievalRequest(symbols=[symbol], lookback_days=lookback_days, max_events=max_events,
-                as_of=datetime.combine(cutoff, time.max, TAIPEI).isoformat() if as_of else None))
+                as_of=end.isoformat()))
+            if include_operating_risks:
+                risk_sources = await self._risk_sources(symbol=symbol,
+                    start=end - timedelta(days=max(1, min(lookback_days, 120))), end=end,
+                    max_events=max_events)
         except AppError as exc:
             detail = exc.detail if isinstance(exc.detail, dict) else {}
             reason = "timeout" if exc.status_code == 504 else detail.get("code", "upstream_error")
@@ -371,8 +405,17 @@ class RetrievalService:
             item.update(url=source.url or None,
                         publisher=source.publisher or None)
             sources.append(item)
-            if len(sources) >= max_events:
-                break
+        # Reserve a bounded share before date sorting can displace in-window risks.
+        guidance_ids = {source["id"] for source in sources if source["kind"] == "guidance"}
+        for source in risk_sources:
+            if source["id"] in guidance_ids:
+                source["kind"] = "guidance"
+        risk_ids = {source["id"] for source in risk_sources}
+        risk_articles = {article_identity(source) for source in risk_sources}
+        sources = risk_sources + [source for source in sources if source["id"] not in risk_ids
+            and (article_identity(source) not in risk_articles or source["kind"] == "guidance")]
+        sources = sources[:max_events]
+        sources.sort(key=lambda source: parse_timestamp(source["timestamp"]), reverse=True)
         sources = group_shared_facts(sources, self.catalog)
         return RagResult(sources, response.no_recent_news, "degraded" if response.no_recent_news else "available",
                          "no_recent_news" if response.no_recent_news else None)

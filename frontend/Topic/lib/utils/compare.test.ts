@@ -223,18 +223,18 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.equal(tones(nearZero).strongestMomentum, 'neutral');
 }
 
-// fmtPercent 先四捨五入再決定正負號；fmtAmount 負值也依絕對值縮放
+// fmtPercent 先四捨五入再決定正負號；fmtAmount 負值也依絕對值縮放；負號一律 U+2212
 {
   assert.equal(fmtPercent(-0.004), '0.00%');
   assert.equal(fmtPercent(0.004, { sign: true }), '0.00%');
   assert.equal(fmtPercent(-0.0004, { fromRatio: true, decimals: 1 }), '0.0%');
   assert.equal(fmtPercent(0.005, { sign: true }), '+0.01%');
-  assert.equal(fmtPercent(-0.006), '-0.01%');
+  assert.equal(fmtPercent(-0.006), '−0.01%');
   assert.equal(fmtPercent(3.456, { sign: true }), '+3.46%');
   assert.equal(fmtAmount(5e8), '5.00 億元');
-  assert.equal(fmtAmount(-5e8), '-5.00 億元');
-  assert.equal(fmtAmount(-12_345), '-1.23 萬元');
-  assert.equal(fmtAmount(-12.34), '-12 元');
+  assert.equal(fmtAmount(-5e8), '−5.00 億元');
+  assert.equal(fmtAmount(-12_345), '−1.23 萬元');
+  assert.equal(fmtAmount(-12.34), '−12 元');
 }
 
 // Unsorted histories align endpoints once; charts, metrics, and leaders agree.

@@ -17,6 +17,10 @@ export async function listConversations(q: string, offset = 0, signal?: AbortSig
 export async function createConversation(signal?: AbortSignal): Promise<Conversation> {
   return (await apiClient.post('/api/conversations', {}, { signal })).data;
 }
+/** openapi: DELETE /api/conversations/{conversation_id} → 204；訊息與回饋一併刪除 */
+export async function deleteConversation(id: string, signal?: AbortSignal): Promise<void> {
+  await apiClient.delete(`/api/conversations/${encodeURIComponent(id)}`, { signal });
+}
 const MESSAGE_STATUSES = new Set(['streaming', 'completed', 'failed', 'interrupted']);
 const optionalText = (value: unknown) => (typeof value === 'string' ? value : null);
 

@@ -25,7 +25,7 @@ function PeriodCell({ stats, compare }: { stats: SignalPeriodStats; compare: boo
   const thin = thinReason(stats);
   return (
     <div className={cn('space-y-0.5 text-[13px] leading-relaxed', thin && 'text-muted-foreground')}>
-      <p>平均 <span className={cn('font-mono font-semibold tabular-nums', !thin && valueToneText(stats.avg_return_pct ?? 0))}>{signedText(stats.avg_return_pct, 2, '%')}</span></p>
+      <p>平均 <span className={cn('font-mono font-semibold tabular-nums', !thin && valueToneText(stats.avg_return_pct ?? 0, 2))}>{signedText(stats.avg_return_pct, 2, '%')}</span></p>
       {compare ? <p className="text-subtle">{peersGapText(stats)}<span className="whitespace-nowrap">{marginText(stats)}</span></p> : null}
       <p className="text-subtle">
         上漲 {rateText(stats.up_rate)}

@@ -33,7 +33,7 @@ export function StockHero({ dashboard, onOpenDetail }: Props) {
   const change = latest.change ?? 0;
   const prevClose = close - change;
   const changePct = prevClose > 0 ? (change / prevClose) * 100 : null;
-  const tone = getValueTone(latest.change);
+  const tone = getValueTone(latest.change, 2);
   const TrendIcon = tone === 'up' ? TrendingUp : tone === 'down' ? TrendingDown : Minus;
   const activeMa = MA_KEYS.filter((key) => maPeriods.split(',').includes(key.slice(2))) as MaKey[];
   // 燈質：K 線讀取中＝Q、已載入＝F、讀取失敗且沒有舊資料＝熄燈

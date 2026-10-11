@@ -4,6 +4,17 @@ import { Dialog } from 'radix-ui';
 import type { ChatMessage } from '../../lib/types/chat';
 import { assistantContext, selectionQuestion } from './context';
 import { AssistantPanel, fullChatHref } from './AssistantPanel';
+import { homeTerminalReached } from './AssistantDock';
+
+// 首頁：觀測台到了小燈才出現（視窗高 914）
+assert.equal(homeTerminalReached(false, false, 1681, 914), false, 'journey start: terminal far below');
+assert.equal(homeTerminalReached(false, false, 300, 914), true, 'terminal in the upper half');
+assert.equal(homeTerminalReached(false, false, undefined, 914), false, 'no terminal yet');
+// 3D 旅程最後一個舞台高：觀測台釘在舞台底下，量到 109 但看不到
+assert.equal(homeTerminalReached(false, true, 109, 914), false, 'pinned under the stage: still journeying');
+// 交接完成（舞台溶掉）就算到了；捲過終點後觀測台不再釘住，也一樣
+assert.equal(homeTerminalReached(true, true, 109, 914), true);
+assert.equal(homeTerminalReached(true, false, -400, 914), true);
 
 // 個股頁：問題寫出代號與名稱，提供「回答只看這檔」
 const stock = assistantContext('/stock/[id]', '2330', '台積電');
