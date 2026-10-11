@@ -72,7 +72,7 @@ class ImpactBatchRunner:
     def __init__(self, *, db_session, settings, catalog, http=None, llm=None,
                  limit=100, max_cost_usd=0.50, execute=False, work_dir: Path):
         self.db = db_session
-        self.session_factory = make_session_factory(db_session.get_bind())
+        self.session_factory = make_session_factory(db_session.get_bind()) if db_session is not None else None
         # 本機驗證需要原始 JSON，才能針對格式錯誤的目標或引文進行修復。
         self.settings = settings.model_copy(update={"LLM_MAX_RETRIES": 0, "LLM_STREAMING": False,
                                             "LLM_RESPONSE_FORMAT": "off"})
