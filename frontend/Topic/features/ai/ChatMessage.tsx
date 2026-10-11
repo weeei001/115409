@@ -88,7 +88,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
 
   const handleCopy = async () => {
     try {
-      // 複製畫面上的正文與來源標題，引用編號和畫面一致。
+      // 複製畫面上的正文與來源標題（引用編號和畫面一致），最後附 AI 免責句。
       await navigator.clipboard.writeText(chatCopyText(message.content, sources));
       setCopied(true);
       toast.success('已複製回覆');

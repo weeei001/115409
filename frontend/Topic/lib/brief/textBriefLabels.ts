@@ -57,10 +57,11 @@ export function forwardViewLabel(view: ForwardView): string {
 /** 語意色調；各頁再自行對應到自己的樣式 */
 export type BriefTone = 'ok' | 'warn' | 'bad' | 'info' | 'plain';
 
+/** 立場只有偏多、偏空上漲跌色；多空交雜是方向判讀，不是警告，和新聞的「正負並存」一樣中性（DESIGN.md 第 7 節） */
 export const STANCE_TONE: Record<string, BriefTone> = {
   bullish: 'ok',
   mildly_bullish: 'ok',
-  mixed: 'warn',
+  mixed: 'plain',
   neutral: 'plain',
   mildly_bearish: 'bad',
   bearish: 'bad',

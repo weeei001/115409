@@ -15,7 +15,7 @@ import { aiBacktestOption, BACKTEST_GROUP_COLORS } from '@/lib/charts/adapters';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import type { AIBacktestResult, BacktestGroupResult, BacktestPreset } from '@/lib/types/api';
 import { shiftYmdMonths, toYmdLocal } from '@/lib/utils/date';
-import { rateText, signedText } from '@/lib/utils/format';
+import { rateText, signedText, uMinus } from '@/lib/utils/format';
 import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
 import { valueToneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
@@ -25,12 +25,12 @@ function GroupPanel({ group, result, className }: { group: BacktestGroupResult; 
   const { buyAndHold, market } = baselineReturns(result);
   return (
     <LedgerPanel className={className} title={<span className="inline-flex items-center gap-2"><span aria-hidden className="inline-block h-0.5 w-3.5" style={{ background: BACKTEST_GROUP_COLORS[group.key] }} />{group.label}</span>}>
-      <p className={cn(figureClass, valueToneText(group.total_return_pct))}>{signedText(group.total_return_pct, 2, '%')}</p>
+      <p className={cn(figureClass, valueToneText(group.total_return_pct, 2))}>{signedText(group.total_return_pct, 2, '%')}</p>
       <p className="mt-1 text-[13px] text-muted-foreground">扣成本後總報酬</p>
       <ul className="mt-3 space-y-0.5 text-[13px] leading-relaxed text-subtle">
         <li>{returnGapText(group.total_return_pct, buyAndHold, '買進持有')}</li>
         <li>{returnGapText(group.total_return_pct, market, '加權指數')}</li>
-        <li>最大回撤 {group.max_drawdown_pct.toFixed(2)}% · 平均持股 {rateText(group.avg_exposure)}</li>
+        <li>最大回撤 {uMinus(group.max_drawdown_pct.toFixed(2))}% · 平均持股 {rateText(group.avg_exposure)}</li>
         <li>成交 {group.trades} 次 · 成本 {Math.round(group.costs_paid).toLocaleString('zh-TW')} 元</li>
         <li>方向判斷 {group.directional_calls} 次 · 命中 {rateText(group.hit_rate)} · 相對大盤 {rateText(group.beat_market_rate)}</li>
         {group.failed_calls ? <li className="text-danger">模型 {group.failed_calls} 次沒有回傳可用的判斷，那幾次持股不變</li> : null}

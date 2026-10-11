@@ -161,10 +161,11 @@ function askCell(id: PlanId): PlanCell {
     : quota(`會員${period} ${formatCount(member)} 次`, `訪客${period} ${formatCount(guest)} 次，對話不保存`);
 }
 
-function favoritesCell(id: PlanId): PlanCell {
+/** 不限檔數的方案附上系統目前收錄的股票檔數（/stocks/info 的筆數，管理員可以新增）；還沒讀到就不寫數字 */
+function favoritesCell(id: PlanId, stockCount: number | null): PlanCell {
   const limit = PLAN_LIMITS[id].favorites;
   if (limit != null) return quota(`${formatCount(limit)} 檔`);
-  return quota('不限', id === 'plus' ? '目前系統涵蓋 40 檔' : undefined);
+  return quota('不限', id === 'plus' && stockCount ? `目前系統涵蓋 ${formatCount(stockCount)} 檔` : undefined);
 }
 
 const compareCell = (id: PlanId): PlanCell =>
@@ -172,8 +173,8 @@ const compareCell = (id: PlanId): PlanCell =>
 
 const alertRulesCell = (id: PlanId): PlanCell => (PLAN_LIMITS[id].alertRules ? quota(`${formatCount(PLAN_LIMITS[id].alertRules)} 條`) : no);
 
-/** 方案比較表（商業模式第 4 節），依「差別屬於」分三組 */
-export const COMPARISON_GROUPS: ComparisonGroup[] = [
+/** 方案比較表（商業模式第 4 節），依「差別屬於」分三組；stockCount 是系統目前收錄的股票檔數 */
+export const comparisonGroups = (stockCount: number | null): ComparisonGroup[] => [
   {
     id: 'same',
     title: '所有方案都一樣',
@@ -197,7 +198,7 @@ export const COMPARISON_GROUPS: ComparisonGroup[] = [
     rows: [
       { feature: 'AI 對話與小燈提問次數', cells: perPlan(askCell) },
       { feature: '歷史對話保存', cells: { free: quota('最近 30 天'), plus: quota('不限'), pro: quota('不限') } },
-      { feature: '收藏股檔數', cells: perPlan(favoritesCell) },
+      { feature: '收藏股檔數', cells: perPlan((id) => favoritesCell(id, stockCount)) },
       { feature: '多股比較同時檔數', cells: perPlan(compareCell) },
       {
         feature: '規則型歷史回測：用標準訊號設定進出場，不含 AI 判讀',
@@ -240,6 +241,18 @@ export const PLANNED_NOTIFICATION_FEATURES: Array<{ id: string; title: string; d
   { id: 'alert-rules', title: '自訂提醒規則', description: '自訂價位、指標訊號、法人連續買賣的提醒。進階版 5 條、專業版 30 條。', minPlan: 'plus' },
   { id: 'channels', title: 'Email、LINE 通知', description: '收藏股摘要與提醒也送到 Email 或 LINE。', minPlan: 'pro' },
 ];
+
+/** 方案頁的「桌面小燈」介紹（商業模式 F39、第 8 節 #14，錨點 /pricing#desktop）；還沒有桌面版 */
+export const DESKTOP_MASCOT = {
+  anchor: 'desktop',
+  minPlan: 'plus' as PlanId,
+  summary: '把網站右下角的站內助手小燈做成常駐在電腦桌面的版本，不用打開網頁，也能直接問小燈。',
+  points: [
+    '和 AI 對話頁用同一套問答，提問次數計入方案的 AI 提問額度。',
+    '和站內小燈一樣，表情與動作只跟著對話狀態，不跟行情漲跌，也不提供買賣建議。',
+    '目前還沒有桌面版；網站上的小燈在所有方案都能使用。',
+  ],
+};
 
 /** 方案頁頂端的聲明（商業模式第 7.3 節） */
 export const PRICING_DEMO_NOTICE =

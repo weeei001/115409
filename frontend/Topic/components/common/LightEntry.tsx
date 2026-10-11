@@ -38,7 +38,7 @@ export interface LightEntryProps {
  * 漲跌依數值正負上色（DESIGN.md 第 7 節），並且一律帶正負號，不只靠顏色。
  */
 export function LightEntry({ symbol, name, close, change, changePercent, date, meta, hideQuote, selected, leading, extra, trailing, onSelect, href, label, className, tabIndex }: LightEntryProps) {
-  const tone = toneText(getValueTone(change));
+  const tone = toneText(getValueTone(change, 2));
   const body = (
     <>
       {leading}

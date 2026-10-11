@@ -42,7 +42,7 @@ import { useCurrentPlan } from '@/features/pricing/demoPlan';
 import { QuotaNotice } from '@/features/pricing/QuotaNotice';
 import { compareLimitText } from '@/features/pricing/quota';
 import { PLAN_LIMITS } from '@/features/pricing/plans';
-import { COMPARE_FROM_PARAM, COMPARE_SYMBOLS_PARAM, COMPARE_TO_PARAM, compareHref, parseCompareQuery } from '@/lib/utils/compareQuery';
+import { COMPARE_FROM_PARAM, COMPARE_SYMBOLS_PARAM, COMPARE_TO_PARAM, COMPARE_URL_MAX_SYMBOLS, compareHref, parseCompareQuery } from '@/lib/utils/compareQuery';
 import { STOCK_SEARCH_BULK_HINT_COMPARE } from '@/components/common/StockSearch';
 
 /** 載入＝燈質 Q：有線的空白列（DESIGN.md 第 10 節） */
@@ -203,6 +203,7 @@ export default function ComparePage() {
                 <span className="inline-flex items-center gap-1.5">
                   <LightGlyph state={pickerState} />
                   {pickerState === 'loading' ? '股票清單讀取中 · ' : noSymbols ? '目前沒有可比較的股票 · ' : ''}已選 {c.selected.length} 檔
+                  {c.selected.length >= COMPARE_URL_MAX_SYMBOLS ? '（已達上限）' : null}
                 </span>
               }
               actions={c.selected.length > 0 ? (
@@ -261,7 +262,6 @@ export default function ComparePage() {
                     {c.error}
                   </Notice>
                 ) : null}
-                {c.metadataWarning ? <Notice tone="warning">{c.metadataWarning}</Notice> : null}
                 {c.metricsError ? (
                   <Notice
                     tone="danger"

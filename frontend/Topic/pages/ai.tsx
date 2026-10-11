@@ -104,6 +104,7 @@ export default function AiPage() {
     signedIn: chat.signedIn, ready: chat.ready, items: chat.conversations, selectedId: chat.conversationId,
     search: chat.search, loading: chat.historyLoading, error: chat.historyError, hasMore: chat.hasMore,
     onSearch: chat.setSearch, onRetry: chat.refreshHistory, onMore: chat.loadMore,
+    deletingId: chat.deletingId, onDelete: (item: { id: string }) => { void chat.removeConversation(item.id); },
   };
   // 抽屜裡選了對話或開新對話就關閉，焦點回到「歷史對話」鈕（見 onCloseAutoFocus）
   const openFromSheet = (id: string) => {

@@ -1,7 +1,7 @@
 # 股海明燈商業模式
 
 > 用途：專題報告與系統展示，不會真的上線收費。系統裡的方案頁只依這份文件製作。
-> 盤點日：2026-10-11（分支 `victor`，commit `0b4ad8f`；F27 依 main `a4e3cc2` 移除 AI 對話檢核後更新）。網路資料的查核日也是 2026-10-11。
+> 盤點日：2026-10-11（分支 `victor`，commit `0b4ad8f`；F27 依 main `a4e3cc2` 移除 AI 對話檢核後更新；2026-10-12 依程式審查修正更新 F15、F27、第 1 節成本事實與 7.1、7.3）。網路資料的查核日也是 2026-10-11。
 
 ## 既定方向（沿用，不重新討論）
 
@@ -55,7 +55,7 @@
 | F12 | AI 判斷回顧：第 5、20、40 個交易日的命中率，含基準對照 | `/stock/[id]` | `BE/features/analysis/track_record.py` | 完成 | `FE/features/brief/AITrackRecordCard.tsx`、`BE/features/analysis/track_record.py` |
 | F13 | AI 分析報告：列印、存成 PDF | `/stock/[id]/report` | `BE/features/analysis` | 完成 | `FE/pages/stock/[id]/report.tsx`、`FE/features/brief/BriefReport.tsx:196-200` |
 | F14 | AI 對話：引用來源、資料面板、追問、範例問題 | `/ai` | `BE/features/chat`、`BE/features/conversations` | 完成 | `FE/pages/ai.tsx`、`FE/features/ai/useChat.ts`、`FE/lib/api/ragAsk.ts`、`BE/features/chat/service.py` |
-| F15 | 歷史對話：保存、搜尋、回答回饋 | `/ai` | `BE/features/conversations` | 部分完成：後端有刪除對話的端點，前端沒有刪除功能 | `FE/features/ai/ConversationHistory.tsx`、`FE/lib/api/conversations.ts`、`BE/features/conversations/router.py` |
+| F15 | 歷史對話：保存、搜尋、刪除、回答回饋 | `/ai` | `BE/features/conversations` | 完成 | `FE/features/ai/ConversationHistory.tsx`、`FE/lib/api/conversations.ts`、`BE/features/conversations/router.py` |
 | F16 | 小燈站內助手：對話面板、「這頁怎麼看」導覽、選取文字後「問小燈」 | 全站（`/ai` 除外） | `BE/features/chat` | 完成 | `FE/features/assistant/AssistantDock.tsx`、`FE/features/assistant/AssistantPanel.tsx`、`FE/features/assistant/tours.ts` |
 | F17 | 在對話中建立模擬單草稿（使用者確認後才送出） | `/ai`、小燈 | `BE/features/chat/personal_context.py`、`BE/features/paper_portfolio` | 完成 | `FE/features/order/PaperOrderDraft.tsx`、`FE/features/ai/ChatMessage.tsx`、`BE/features/chat/personal_context.py` |
 | F18 | 收藏股（目前沒有數量上限） | `/favorites`、各頁星號 | `BE/features/favorites` | 完成 | `FE/pages/favorites.tsx`、`FE/features/favorites/FavoriteList.tsx`、`BE/features/favorites/service.py` |
@@ -67,7 +67,7 @@
 | F24 | 個人中心：帳號資料、變更密碼 | `/me` | `BE/features/auth` | 完成 | `FE/pages/me.tsx` |
 | F25 | 投資免責聲明與首次造訪的風險提示 | `/disclaimer`、全站 | — | 完成 | `FE/pages/disclaimer.tsx`、`FE/components/layout/RiskNoticeBanner.tsx` |
 | F26 | 管理後台：工作排程、執行紀錄、股票管理、操作紀錄、管理員 | `/admin` | `BE/features/admin`、`BE/features/audit`、`BE/jobs/runtime.py` | 完成 | `FE/pages/admin.tsx`、`FE/features/admin/StockManagement.tsx`、`BE/features/admin/router.py` |
-| F27 | 後台 AI 成效：全站命中率、AI 摘要用量與估算成本、對話回饋 | `/admin` | `BE/features/admin`（`ai_usage.py`、`ai_feedback.py`） | 完成 | `FE/features/admin/AIEffectivenessPanel.tsx`、`BE/features/admin/ai_usage.py` |
+| F27 | 後台 AI 成效：全站命中率、AI 摘要用量與估算成本、各功能（含 AI 對話）的模型呼叫用量、對話回饋 | `/admin` | `BE/features/admin`（`ai_usage.py`、`ai_feedback.py`） | 完成 | `FE/features/admin/AIEffectivenessPanel.tsx`、`BE/features/admin/ai_usage.py` |
 | F28 | 後台訊號檢驗：18 個標準的技術、籌碼、營收、估值訊號 | `/admin` | `BE/features/signals` | 完成 | `FE/features/admin/SignalCheckPanel.tsx`、`BE/features/signals/detection.py:29-48` |
 | F29 | 後台 AI 回測：純規則、AI、AI 加訊號三組比較 | `/admin` | `BE/features/backtest` | 完成：只有管理員能用 | `FE/features/admin/AIBacktestPanel.tsx`、`BE/features/backtest/service.py`、`BE/features/admin/router.py` |
 | F30 | 每日資料排程：行情、法人、融資融券、基本面、集保、新聞爬蟲、新聞向量化、事件判讀、AI 摘要預熱 | 後台「工作排程」 | `BE/jobs/` | 完成 | `BE/jobs/scheduler.py`、`BE/jobs/runtime.py`、`BE/core/config.py:121-126` |
@@ -81,13 +81,13 @@
 | F38 | 自訂提醒規則：自訂價位、指標訊號、法人連續買賣 | 沒有 | 沒有 | 規劃中 | `BE/db/models/notification.py:12-23`（每人只有一筆固定偏好，沒有規則表） |
 | F39 | 桌面小燈（桌面常駐版） | 沒有 | 沒有 | 規劃中 | `FE/package.json`（沒有 Electron 或 Tauri）、`FE/public/`（沒有 PWA manifest） |
 
-**統計：** 共 39 項。完成 26 項，部分完成 6 項（F06、F15、F19、F20、F31、F32），規劃中 7 項（F33–F39）。
+**統計：** 共 39 項。完成 27 項，部分完成 5 項（F06、F19、F20、F31、F32），規劃中 7 項（F33–F39）。
 
 **和成本有關的實作事實**（第 6 節會用到）：
 - AI 投資分析（F11）由每日排程對每檔支援股預先產生一份，所有使用者共用，前端只讀快取（`FE/lib/hooks/useStockTextBrief.ts`，`cache_only: true`）。所以看分析的人再多，LLM 成本也不會增加。
 - 支援股範圍是 40 檔（`BE/jobs/market/stock_info.py:14-20`），管理員可以從上市櫃名錄新增。
 - 新聞事件判讀每輪最多 100 篇，成本上限 0.50 美元（`BE/core/config.py:125-126`）。
-- AI 對話（F14、F16）每問一次約呼叫模型 2–5 次，沒有快取。用量會寫進 `ai_usage_logs` 表（`BE/db/models/ai_usage.py`），但目前沒有端點讀這張表。
+- AI 對話（F14、F16）每問一次約呼叫模型 2–5 次，沒有快取。用量會寫進 `ai_usage_logs` 表（`BE/db/models/ai_usage.py`），後台 AI 成效的「各功能的模型呼叫」依功能列出請求數、每次請求的平均 token 與估算成本（`BE/features/admin/ai_usage.py`）。後台 AI 回測與 AI 摘要的過往檢討不寫這張表。
 
 ---
 
@@ -324,8 +324,7 @@
 
 | 落差 | 證據 |
 |---|---|
-| AI 對話的系統提示允許「選股推薦與有條件的買賣看法」，也會寫「建議投入可用資金X元」 | `BE/features/chat/prompts.py:107-109`、`BE/features/chat/prompts.py:138-140` |
-| 對話的投資提醒常數 `INVESTMENT_DISCLAIMER` 有定義，但後端沒有地方附加 | `BE/features/chat/prompts.py:98` |
+| AI 對話的系統提示允許「選股推薦與有條件的買賣看法」，也會寫「建議投入可用資金X元」 | `BE/features/chat/prompts.py:106-108`、`BE/features/chat/prompts.py:137-139` |
 | 合規規則（目標價、操作指令、保證用語等）已寫好，但正式 AI 摘要流程標示為只做結構驗證，沒有套用這些規則 | `BE/features/analysis/compliance.py`、`BE/features/analysis/service.py:63,67` |
 | 趨勢預測端點會輸出目標價和 1–5 的信心分數，不需登入，前端沒有使用 | `BE/features/analysis/prediction.py:15-49` |
 
@@ -358,7 +357,8 @@
 - `/disclaimer` 七節聲明（`FE/pages/disclaimer.tsx`）。
 - 首次造訪的風險提示條（`FE/components/layout/RiskNoticeBanner.tsx`）。
 - AI 摘要附固定免責文字（`BE/features/analysis/validation.py:39-44`）。
-- AI 對話輸入框下方的固定提醒（`FE/features/ai/ChatInput.tsx`）。
+- AI 對話輸入框下方的固定提醒（`FE/features/ai/ChatInput.tsx`）。後端不在回覆裡附加投資提醒，對話提示也照實告訴模型「投資提醒由網站介面固定顯示」（`BE/features/chat/prompts.py:114`）。
+- 複製 AI 回覆時，最後附上同一句提醒（`FE/lib/utils/chatCitations.ts` 的 `chatCopyText`）。
 
 **要補的內容：**
 - 方案頁和結帳示意頁要寫明：

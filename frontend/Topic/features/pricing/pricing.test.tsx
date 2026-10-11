@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
 import type { NextRouter } from 'next/router';
-import { COMPARISON_GROUPS, PAYMENT_UNAVAILABLE, PLANS, PRICING_DEMO_NOTICE, formatTwd, planById, yearlyInMonths, yearlyPerMonth, type PlanCell } from './plans';
+import { comparisonGroups, DESKTOP_MASCOT, PAYMENT_UNAVAILABLE, PLANS, PRICING_DEMO_NOTICE, formatTwd, planById, yearlyInMonths, yearlyPerMonth, type PlanCell } from './plans';
 import { askQuota, askReachedText, askUsageText, compareLimitText, favoritesLimitText, limitStatus, msUntilTaipeiMidnight, readAskUsage, recordAskUsage } from './quota';
 import { demoRenewalDate, parseCurrentPlan, readDemoSubscription, taipeiToday, writeDemoSubscription, type DemoSubscription } from './demoPlan';
 import { REVENUE_SCENARIOS, payersToCover, scenarioAssumptions, simulateMonthlyRevenue, unitEconomics } from './revenue';
@@ -51,16 +51,18 @@ const FORBIDDEN_COPY = /投資顧問|明牌|勝率|保證獲利/;
 
 // 比較表的額度由 PLAN_LIMITS 產生，方案卡的重點寫的是同一組數字
 {
-  const quantity = COMPARISON_GROUPS.find((group) => group.id === 'quantity')!;
-  const cellText = (feature: string) => {
-    const row = quantity.rows.find((item) => item.feature === feature)!;
+  const quantityRows = (stockCount: number | null) => comparisonGroups(stockCount).find((group) => group.id === 'quantity')!.rows;
+  const cellText = (feature: string, stockCount: number | null = 42) => {
+    const row = quantityRows(stockCount).find((item) => item.feature === feature)!;
     return PLANS.map((plan) => {
       const cell: PlanCell = row.cells[plan.id];
       return cell.kind === 'quota' ? [cell.text, cell.note ?? ''].join('|') : cell.kind;
     });
   };
   assert.deepEqual(cellText('AI 對話與小燈提問次數'), ['會員每日 5 次|訪客每日 3 次，對話不保存', '每月 300 次|', '每月 1,000 次|']);
-  assert.deepEqual(cellText('收藏股檔數'), ['10 檔|', '不限|目前系統涵蓋 40 檔', '不限|']);
+  // 收錄檔數來自 /stocks/info（管理員可新增），不是寫死的 40；還沒讀到就不寫數字
+  assert.deepEqual(cellText('收藏股檔數'), ['10 檔|', '不限|目前系統涵蓋 42 檔', '不限|']);
+  assert.deepEqual(cellText('收藏股檔數', null), ['10 檔|', '不限|', '不限|']);
   assert.deepEqual(cellText('多股比較同時檔數'), ['5 檔|', '30 檔|系統上限', '30 檔|']);
   const highlights = (id: 'free' | 'plus' | 'pro') => planById(id).highlights.map((item) => item.text).join('；');
   assert.match(highlights('free'), /會員每日 5 次、訪客每日 3 次/);
@@ -104,7 +106,10 @@ const FORBIDDEN_COPY = /投資顧問|明牌|勝率|保證獲利/;
   assert.equal(limitStatus(99, null).reached, false, 'unlimited never reaches');
   assert.match(favoritesLimitText(10, 10, 'free'), /^已達到免費版的 10 檔收藏上限（目前 10 檔）。展示期間不限制/);
   assert.match(favoritesLimitText(11, 10, 'free'), /^已超過/);
-  assert.match(compareLimitText(7, 5, 'free'), /免費版一次比較 5 檔，目前選了 7 檔。.*進階版起可以比到 30 檔/);
+  assert.match(compareLimitText(7, 5, 'free'), /免費版一次比較 5 檔，目前選了 7 檔。.*進階版起可以比到 30 檔。$/);
+  // 進階版、專業版已經是系統上限：不寫「進階版起…」，不然選到 31 檔時提示會自相矛盾
+  assert.doesNotMatch(compareLimitText(31, 30, 'plus'), /進階版起/);
+  assert.match(compareLimitText(31, 30, 'pro'), /^專業版一次比較 30 檔，目前選了 31 檔。展示期間不限制，仍可照常比較。$/);
 }
 
 // 展示方案：依帳號分開記，訪客不能開通，壞掉的資料當成免費版
@@ -177,6 +182,13 @@ const FORBIDDEN_COPY = /投資顧問|明牌|勝率|保證獲利/;
   assert.equal(html.match(/<h1[\s>]/g)?.length, 1);
   assert.doesNotMatch(html, UP_DOWN);
   assert.doesNotMatch(html, FORBIDDEN_COPY);
+  // 商業模式第 8 節 #14：/pricing#desktop 的桌面小燈介紹，標規劃中與進階版起
+  const desktop = /<section[^>]*id="desktop"[^>]*>([\s\S]*?)<\/section>/.exec(html)?.[1] ?? '';
+  assert.match(desktop, /桌面小燈/);
+  assert.match(desktop, /規劃中/);
+  assert.match(desktop, /進階版起/);
+  assert.ok(desktop.includes(DESKTOP_MASCOT.summary));
+  assert.ok(html.indexOf('id="desktop"') > html.indexOf('pricing-compare-heading'), 'after the comparison table');
 }
 
 // 結帳示意頁：伺服器端一律先畫「讀取中」（不讀查詢字串），hydration 才不會和瀏覽器端不一致

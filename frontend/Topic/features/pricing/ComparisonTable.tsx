@@ -1,6 +1,7 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { Check, Minus } from 'lucide-react';
-import { COMPARISON_GROUPS, PLANS, type BillingPeriod, type PlanCell, type PlanId } from './plans';
+import { useStockInfos } from '@/lib/hooks/useStockInfos';
+import { comparisonGroups, PLANS, type BillingPeriod, type PlanCell, type PlanId } from './plans';
 import { PlannedBadge } from './PlanBadges';
 import { planPriceText } from './PlanCards';
 
@@ -44,6 +45,10 @@ function CellValue({ cell }: { cell: PlanCell }) {
  * 375 寬不必橫向捲動。改了 display 的表格元素明確標 ARIA role，表格語意才不會被瀏覽器丟掉。
  */
 export function ComparisonTable({ billing, currentPlanId }: { billing: BillingPeriod; currentPlanId: PlanId }) {
+  // 系統收錄的股票檔數（/stocks/info，有 30 秒去重快取）；讀不到時「不限」後面不寫數字
+  const stocks = useStockInfos();
+  const stockCount = stocks.data?.length || null;
+  const groups = useMemo(() => comparisonGroups(stockCount), [stockCount]);
   return (
     <div className="min-w-0 bg-card">
       <p className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-4 py-3 text-[13px] text-muted-foreground sm:px-5">
@@ -85,7 +90,7 @@ export function ComparisonTable({ billing, currentPlanId }: { billing: BillingPe
             })}
           </tr>
         </thead>
-        {COMPARISON_GROUPS.map((group) => (
+        {groups.map((group) => (
           <tbody key={group.id} role="rowgroup" className="block md:table-row-group">
             <tr role="row" className="block border-b md:table-row">
               <th

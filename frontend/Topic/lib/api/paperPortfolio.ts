@@ -1,6 +1,7 @@
 import apiClient from './client';
 import { getToken } from '../auth/storage';
 import { formatTaipei } from '../utils/date';
+import { uMinus } from '../utils/format';
 
 export interface PaperDraft {
   symbol: string;
@@ -159,7 +160,7 @@ export function positionReturnPct(position: Pick<PaperPosition, 'quantity' | 'av
 /** 金額欄位：有數字才接「元」，缺值只寫「等待行情」（P2-124） */
 export const paperMoneyWithUnit = (value: number | null | undefined) => (value == null ? '等待行情' : `${paperMoney(value)} 元`);
 
-export const paperMoney = (value: number | null | undefined) => value == null ? '等待行情' : value.toLocaleString('zh-TW', { maximumFractionDigits: 2 });
+export const paperMoney = (value: number | null | undefined) => value == null ? '等待行情' : uMinus(value.toLocaleString('zh-TW', { maximumFractionDigits: 2 }));
 export const paperStatus = (status: PaperOrder['status']) => ({ pending: '待成交', filled: '已成交', cancelled: '已取消' })[status];
 export const paperDateTime = (value: string | null | undefined) => formatTaipei(value, { hour12: false }, '尚未更新');
 export function paperDiscussion(symbol: string, orderId?: string) {

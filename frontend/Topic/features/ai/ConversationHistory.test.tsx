@@ -25,4 +25,15 @@ assert.match(renderToStaticMarkup(<ConversationHistory {...props} onToggleCollap
 const sheet = renderToStaticMarkup(<ConversationHistory {...props} variant="sheet" collapsed onToggleCollapsed={noop} />);
 assert.match(sheet, /for="conversation-search-sheet"/);
 assert.doesNotMatch(sheet, /收合歷史對話|展開歷史對話/);
-console.log('Conversation history UI passed: selection, search label, escaped titles, pagination, empty/error/guest states.');
+// 刪除鈕：有 onDelete 才出現，在開啟鈕外面（不巢狀），名稱帶對話標題；刪除中全部停用、那一列標 aria-busy
+assert.doesNotMatch(html, /刪除對話/);
+const deletable = renderToStaticMarkup(<ConversationHistory {...props} onDelete={noop} />);
+assert.match(deletable, /aria-label="刪除對話：&lt;script&gt;literal&lt;\/script&gt;"/);
+assert.doesNotMatch(deletable, /<button[^>]*data-conversation-open[^>]*>(?:(?!<\/button>).)*刪除對話/);
+assert.doesNotMatch(deletable, /aria-busy="true"/);
+const deleting = renderToStaticMarkup(<ConversationHistory {...props} onDelete={noop} deletingId="one" />);
+assert.match(deleting, /<li[^>]*aria-busy="true"/);
+// 刪除中用 aria-disabled（不是 disabled），按下的那顆保住焦點
+assert.match(deleting, /aria-disabled="true"[^>]*aria-label="刪除對話：/);
+assert.doesNotMatch(deleting, /disabled=""[^>]*aria-label="刪除對話：/);
+console.log('Conversation history UI passed: selection, search label, escaped titles, pagination, empty/error/guest states, delete buttons.');

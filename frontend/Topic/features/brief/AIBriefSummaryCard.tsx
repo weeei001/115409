@@ -205,10 +205,9 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
     items: Claim[],
     total: number,
     fallback: string,
-    accentClass = 'text-muted-foreground'
   ) => (
     <div className="min-w-0">
-      <Caption className={accentClass}>{title}</Caption>
+      <Caption>{title}</Caption>
       {items.length ? (
         <ul className="mt-1.5 space-y-2">
           {items.map((item) => (
@@ -315,8 +314,9 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
       >
         <div className="space-y-5 p-4 sm:p-5">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {factorBlock('正面因素', positives, b.positive_factors?.length ?? 0, '本次未提供正面因素判讀。', 'text-up-emphasis')}
-            {factorBlock('負面因素', negatives, b.negative_factors?.length ?? 0, '本次未提供負面因素內容（不代表沒有負面因素）。', 'text-warning')}
+            {/* 標題是欄位名稱，不是數值方向：不上漲跌色、也不借用警告色，和完整分析的標題一樣中性（DESIGN.md 第 7 節） */}
+            {factorBlock('正面因素', positives, b.positive_factors?.length ?? 0, '本次未提供正面因素判讀。')}
+            {factorBlock('負面因素', negatives, b.negative_factors?.length ?? 0, '本次未提供負面因素內容（不代表沒有負面因素）。')}
           </div>
           <div className="grid grid-cols-1 gap-5 border-t pt-5 sm:grid-cols-2">
             {factorBlock('主要分歧', divergence, divergences.length, '本次未提供主要分歧，並不代表沒有矛盾。')}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { SiteHeader } from '@/components/layout/SiteHeader';
@@ -9,10 +9,12 @@ import { Notice } from '@/components/common/Notice';
 import { textLinkClass } from '@/components/ui/button';
 import { BillingToggle, PlanCard } from '@/features/pricing/PlanCards';
 import { ComparisonTable } from '@/features/pricing/ComparisonTable';
+import { MinPlanBadge, PlannedBadge } from '@/features/pricing/PlanBadges';
 import { useCurrentPlan } from '@/features/pricing/demoPlan';
 import {
   DEFAULT_BILLING,
   DEMO_TAG,
+  DESKTOP_MASCOT,
   PLANS,
   PRICING_DEMO_NOTICE,
   PRICING_FAQ,
@@ -26,7 +28,7 @@ import { DISCLAIMER_PATH, INVESTMENT_RISK_NOTICE } from '@/lib/disclaimers';
 
 /**
  * 方案頁：純前端靜態展示（後端沒有方案或額度 API），資料只來自 features/pricing/plans.ts。
- * 順序：專題展示聲明 → 方案卡（含月繳／年繳切換）→ 比較表 → 常見問題與付費範圍的免責文字。
+ * 順序：專題展示聲明 → 方案卡（含月繳／年繳切換）→ 比較表 → 桌面小燈（規劃中，#desktop）→ 常見問題與付費範圍的免責文字。
  */
 export default function PricingPage() {
   const [billing, setBilling] = useState<BillingPeriod>(DEFAULT_BILLING);
@@ -63,6 +65,26 @@ export default function PricingPage() {
           <AnimatedSection delay={0.05} className="min-w-0">
             <Ledger aria-labelledby="pricing-compare-heading" title={<span id="pricing-compare-heading">方案比較</span>}>
               <ComparisonTable billing={billing} currentPlanId={current.planId} />
+            </Ledger>
+          </AnimatedSection>
+
+          {/* /pricing#desktop：規劃中的桌面小燈；scroll-mt 讓錨點捲到頁首下方 */}
+          <AnimatedSection delay={0.05} className="min-w-0">
+            <Ledger
+              id={DESKTOP_MASCOT.anchor}
+              aria-labelledby="pricing-desktop-heading"
+              title={<span id="pricing-desktop-heading">桌面小燈</span>}
+              actions={<span className="flex items-center gap-2"><PlannedBadge /><MinPlanBadge planId={DESKTOP_MASCOT.minPlan} /></span>}
+              className="scroll-mt-24"
+            >
+              <LedgerPanel>
+                <p className="max-w-[68ch] text-[15px] leading-[1.8] text-pretty">{DESKTOP_MASCOT.summary}</p>
+                <ul className="mt-3 max-w-[68ch] list-disc space-y-1.5 pl-5 text-[15px] leading-[1.8] marker:text-muted-foreground">
+                  {DESKTOP_MASCOT.points.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+              </LedgerPanel>
             </Ledger>
           </AnimatedSection>
 

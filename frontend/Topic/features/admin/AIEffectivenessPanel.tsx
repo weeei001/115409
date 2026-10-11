@@ -1,20 +1,68 @@
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { figureClass, Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
+import { cellClass, figureClass, headCellClass, Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { fetchAIFeedbackSummary, fetchAITrackRecord, fetchAIUsageSummary } from '@/lib/api/aiEffectiveness';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { hasEnoughSamples, hitRateSummary, hitRateText, HORIZON_LABEL, relativeSummary } from '@/lib/brief/trackRecord';
-import { avgTokensText, costNote, latencyText, retryText, tokenSplitText, usdText } from '@/lib/brief/usage';
+import { avgTokensText, costNote, featureCallsText, featureLabel, featureUsageNote, latencyText, retryText, tokenSplitText, usdText } from '@/lib/brief/usage';
 import type { AIFeedbackSummary, AITrackRecordResponse, AIUsageSummary } from '@/lib/types/api';
 import { formatTaipei } from '@/lib/utils/date';
-import { fmtPercent } from '@/lib/utils/format';
+import { fmtNum, fmtPercent } from '@/lib/utils/format';
 import { cn } from '@/lib/cn';
 
+const numCell = cn(cellClass, 'text-right font-mono text-[13.5px] tabular-nums');
+
+/** ai_usage_logs 依功能彙整的模型呼叫：AI 對話（含小燈）、AI 摘要、新聞事件判讀 */
+export function FeatureUsageLedger({ usage }: { usage: AIUsageSummary }) {
+  const features = usage.features ?? [];
+  return (
+    <Ledger aria-labelledby="ai-feature-usage-heading" title={<span id="ai-feature-usage-heading">各功能的模型呼叫</span>} stamp={`近 ${usage.days} 天`}>
+      {!features.length ? (
+        <LedgerPanel><EmptyState className="py-4">近 {usage.days} 天沒有模型呼叫紀錄。</EmptyState></LedgerPanel>
+      ) : <>
+        <LedgerPanel padded={false}>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <caption className="sr-only">各功能的請求數、模型呼叫次數、每次請求的平均 token 與估算成本（美元）</caption>
+              <thead className="border-b border-border-strong bg-muted">
+                <tr>
+                  <th scope="col" className={headCellClass}>功能</th>
+                  {['請求', '模型呼叫', '每次請求平均 token', '每次請求估算成本', '期間合計'].map((heading) => (
+                    <th key={heading} scope="col" className={cn(headCellClass, 'text-right')}>{heading}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {features.map((feature) => (
+                  <tr key={feature.feature} className="border-b last:border-b-0">
+                    <th scope="row" className={cn(cellClass, 'font-medium')}>{featureLabel(feature.feature)}</th>
+                    <td className={numCell}>{fmtNum(feature.requests)} 次</td>
+                    <td className={numCell}>{featureCallsText(feature)}</td>
+                    <td className={numCell}>
+                      {avgTokensText(feature)}
+                      <span className="block text-[12px] text-muted-foreground">{tokenSplitText(feature)}</span>
+                    </td>
+                    <td className={numCell}>{usdText(feature.avg_cost_usd)}</td>
+                    <td className={numCell}>{usdText(feature.total_cost_usd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </LedgerPanel>
+        <LedgerPanel>
+          <p className="text-[13px] leading-relaxed text-muted-foreground">{featureUsageNote(usage)}</p>
+        </LedgerPanel>
+      </>}
+    </Ledger>
+  );
+}
+
 /**
- * AI 成效：全站 AI 摘要的命中率（對照每次都猜漲與大盤）、使用者對 AI 對話的回饋，以及摘要的用量與估算成本。
- * 三份資料各自載入，一份失敗不影響其他。
+ * AI 成效：全站 AI 摘要的命中率（對照每次都猜漲與大盤）、使用者對 AI 對話的回饋、摘要的用量與估算成本，
+ * 以及各功能（AI 對話、AI 摘要、新聞事件判讀）的模型呼叫用量。三份資料各自載入，一份失敗不影響其他。
  */
 export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error: unknown) => boolean }) {
   const [track, setTrack] = useState<AITrackRecordResponse | null>(null);
@@ -90,6 +138,9 @@ export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error:
             </LedgerPanel>
           </>}
       </Ledger>
+
+      {/* 和上一張共用同一份用量資料：載入中、失敗都只在上一張說明 */}
+      {usage ? <FeatureUsageLedger usage={usage} /> : null}
 
       <Ledger
         title="AI 對話回饋"

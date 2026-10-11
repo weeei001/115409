@@ -3,7 +3,7 @@ import { userFacingMessage } from '@/lib/api/errorDetail';
 import { appendCompletedChatTurn, ragAsk, type RagHistoryMessage } from '@/lib/api/ragAsk';
 import { AUTH_CHANGE_EVENT, getStoredUser, getToken, isAuthSessionBoundary } from '@/lib/auth/storage';
 import { toast } from 'sonner';
-import { createConversation, getConversation, listConversations, type ConversationSummary } from '@/lib/api/conversations';
+import { createConversation, deleteConversation, getConversation, listConversations, type ConversationSummary } from '@/lib/api/conversations';
 import { rateChatMessage } from '@/lib/api/aiEffectiveness';
 import type { ChatAction, ChatMessage, ChatSource } from '@/lib/types/chat';
 import type { ChatDashboard } from '@/lib/types/chatDashboard';
@@ -35,6 +35,8 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  /** 正在刪除的對話；同一時間只刪一則 */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const listRequest = useRef<AbortController | null>(null);
   const conversationRef = useRef<string | null>(null);
@@ -275,6 +277,28 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
     }
   }, [changeMessages, resetAccount, interrupt]);
 
+  /**
+   * 刪除一則歷史對話（訊息與回饋一併刪除）。成功後才從清單拿掉；刪的是正在看的那一則時，畫面回到新對話，
+   * 還在等的回覆也一起停掉。清單只在本地移除：之後「載入更多」用剩下的筆數當 offset，剛好接上後端位移後的下一頁。
+   */
+  const removeConversation = useCallback(async (id: string) => {
+    if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
+    const owner = ownerRef.current;
+    if (!owner || owner === 'guest') return;
+    setDeletingId(id);
+    try {
+      await deleteConversation(id);
+      if (sessionOwner() !== owner || ownerRef.current !== owner) return;
+      setConversations((previous) => previous.filter((item) => item.id !== id));
+      if (conversationRef.current === id) clear();
+      toast.success('已刪除對話');
+    } catch (error) {
+      if (sessionOwner() === owner && ownerRef.current === owner) toast.error(userFacingMessage(error, '對話沒有刪除，請稍後再試。'));
+    } finally {
+      setDeletingId((current) => (current === id ? null : current));
+    }
+  }, [clear, resetAccount]);
+
   /** 有幫助／沒幫助；再按一次同一顆取消。先更新畫面，送不出去再還原 */
   const rate = useCallback(async (messageId: string, rating: 'up' | 'down' | null) => {
     if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
@@ -297,7 +321,7 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
   }, [changeMessages, resetAccount]);
 
   return { messages, rate, loading, ready, notice, stopNotice, streamingMessageId, signedIn,
-    conversations, conversationId, search, setSearch, historyLoading, historyError, hasMore,
+    conversations, conversationId, search, setSearch, historyLoading, historyError, hasMore, deletingId, removeConversation,
     refreshHistory: () => setRevision((value) => value + 1),
     loadMore: () => fetchHistory(conversations.length), send, newConversation, openConversation, stop };
 }

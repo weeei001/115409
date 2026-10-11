@@ -11,7 +11,6 @@ from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.chat.router import get_service
 from app.features.chat.schemas import AskRequest
 from test_chat import NOW, chat, events, published_answer
-from app.features.chat.prompts import INVESTMENT_DISCLAIMER
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -27,8 +26,8 @@ def test_recommendation_followup_fetches_market_without_appending_disclaimer(hub
     assert response.status_code == 200
     data = response.json()
     assert data["answer"].startswith(llm.answer)
+    # The answer is published as written; the investment notice is shown by the site, not appended here.
     assert data["answer"] == llm.answer
-    assert INVESTMENT_DISCLAIMER not in data["answer"]
     assert any(source["category"] == "comparison" for source in data["sources"])
     assert any(source["category"] == "market_technical" for source in data["sources"])
     assert retrieval.calls

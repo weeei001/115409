@@ -15,7 +15,7 @@ import { tabListClass, tabTriggerActiveClass, tabTriggerClass } from '@/componen
 import type { BenchmarkHistoryResponse } from '@/lib/api/benchmark';
 import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
 import { getChartPalette } from '@/lib/charts/theme';
-import { fmtPercent } from '@/lib/utils/format';
+import { fmtPercent, signedText, uMinus } from '@/lib/utils/format';
 
 /** 大盤基準在比較資料裡的代號（lib/utils/compareBenchmark 併入的 benchmark.id） */
 const BENCHMARK_ID = 'TAIEX';
@@ -80,7 +80,7 @@ function ModeTabs({ mode, onModeChange }: { mode: CompareChartMode; onModeChange
 function soundingValue(mode: CompareChartMode, v: number): string {
   if (mode === 'price') return v.toFixed(2);
   if (mode === 'index100') return v.toFixed(1);
-  return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+  return signedText(v, 1, '%');
 }
 
 /** 繪圖區左上角相對圖廓外框：圖廓內距＋內框 1px 邊線＋內框 8px 內距（p-2） */
@@ -297,7 +297,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
               <td>{series.dates[lastIndex] ?? '—'}</td>
               {chartSymbols.map((sym) => {
                 const v = series.values[sym]?.[lastIndex];
-                return <td key={sym}>{typeof v === 'number' ? v.toFixed(2) : '—'}</td>;
+                return <td key={sym}>{typeof v === 'number' ? uMinus(v.toFixed(2)) : '—'}</td>;
               })}
             </tr>
           </tbody>

@@ -58,6 +58,11 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
   assert.ok(html.includes('<span class="whitespace-nowrap">負面 3</span>'));
   assert.ok(!/風險 \d+ 項/.test(plain), '摘要不能再把負面因素叫「風險 n 項」');
   assert.ok(plain.includes('負面因素'));
+  // 區塊標題是欄位名稱：不上漲跌色、也不借用警告色（DESIGN.md 第 7 節）
+  for (const title of ['正面因素', '負面因素']) {
+    assert.match(html, new RegExp(`<h4 class="[^"]*text-muted-foreground[^"]*">${title}</h4>`), title);
+  }
+  assert.doesNotMatch(html, /<h4 class="[^"]*(?:text-up|text-down|text-warning)[^"]*">(?:正面|負面)因素/);
   assert.ok(plain.includes('另有 1 項，見完整分析。'));
 
   // 面向分級：情境風險，沒有資料時不能寫成「沒有列出風險」
@@ -145,6 +150,11 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
   assert.ok(!text(high).includes('僅供參考，') && !text(high).includes('方向判讀僅供參考'));
   // 信心低的立場標籤用較小字級；信心高照常
   assert.ok(low.includes('text-[13px]') && /class="[^"]*text-sm[^"]*"[^>]*>(?:<svg[\s\S]*?<\/svg>)?溫和偏多/.test(high));
+  // 多空交雜是方向判讀，不是警告：和中性一樣不上狀態色
+  const mixed = render({ ...BRIEF, overall_stance: 'mixed' } as Brief);
+  const mixedBadge = /class="([^"]*)"[^>]*>(?:<svg[\s\S]*?<\/svg>)?多空交雜/.exec(mixed)?.[1] ?? '';
+  assert.ok(mixedBadge, 'the mixed stance badge is rendered');
+  assert.doesNotMatch(mixedBadge, /warning|text-up|text-down/);
 }
 
 /* ── 後端 status：limited 要提示內容有刪減並指向「分析限制」；verified 不提示 ── */

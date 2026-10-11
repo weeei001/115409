@@ -1,13 +1,15 @@
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+/* 這一檔輸出的負數一律用 U+2212（DESIGN.md 第 7 節），toFixed、toLocaleString 給的半形 - 都要換掉（uMinus） */
+
 export function fmtPrice(v: string | number | null | undefined, fallback = '--'): string {
   if (v == null || v === '') return fallback;
   const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(2) : fallback;
+  return Number.isFinite(n) ? uMinus(n.toFixed(2)) : fallback;
 }
 
 export function fmtNum(v: number | null | undefined, fallback = '--'): string {
-  return isNum(v) ? v.toLocaleString('zh-TW') : fallback;
+  return isNum(v) ? uMinus(v.toLocaleString('zh-TW')) : fallback;
 }
 
 /*
@@ -15,17 +17,27 @@ export function fmtNum(v: number | null | undefined, fallback = '--'): string {
  */
 const MINUS = '−';
 
-/** 已格式化的數字字串：把開頭的半形 - 換成 U+2212（fmtPercent、fmtAmount、toFixed 這類輸出用） */
+/** 已格式化的數字字串：把開頭的半形 - 換成 U+2212（自己用 toFixed、toLocaleString 時套用；這一檔的 fmt* 已經處理過，重複套用也沒關係） */
 export const uMinus = (text: string): string => text.replace(/^-/, MINUS);
 
 /** 依 value 的正負替已格式化的絕對值加上正負號；value 是 0 就不帶號 */
 export const withSign = (value: number, abs: string): string =>
   value > 0 ? `+${abs}` : value < 0 ? `${MINUS}${abs}` : abs;
 
+/**
+ * 四捨五入到畫面顯示的位數。正負號與漲跌色都要用這個值判斷（決議 c7、D13 C3）：
+ * −0.004 顯示成「0.00」時不帶號、不上色，不會出現「−0.00%」。
+ */
+export const roundTo = (value: number, decimals: number): number => {
+  const rounded = Number(value.toFixed(decimals));
+  return rounded === 0 ? 0 : rounded;
+};
+
 /** 帶正負號的漲跌；負號用 U+2212，和數字等寬。百分比 signedText(v, 2, '%')、百分點 signedText(v, 2, ' 個百分點') */
 export function signedText(value: number | null | undefined, decimals = 2, suffix = ''): string {
   if (value == null || !Number.isFinite(value)) return '--';
-  return `${withSign(value, Math.abs(value).toFixed(decimals))}${suffix}`;
+  const shown = roundTo(value, decimals);
+  return `${withSign(shown, Math.abs(shown).toFixed(decimals))}${suffix}`;
 }
 
 /** 百分點差距寫成一句：「比任一天進場高 0.42 個百分點」「和加權指數相同」；gap 由呼叫端先四捨五入，缺值時回傳 missing */
@@ -68,11 +80,11 @@ export function fmtVolume(val: number | null | undefined, fallback = '--'): stri
   return `${lotsNumber(val)} 張`;
 }
 
-/** 金額：億元／萬元／元；負值依絕對值縮放，前面加半形 -（要 U+2212 由呼叫端套 uMinus） */
+/** 金額：億元／萬元／元；負值依絕對值縮放，前面加 U+2212 */
 export function fmtAmount(val: number | null | undefined, fallback = '--'): string {
   if (!isNum(val)) return fallback;
   const abs = Math.abs(val);
-  const sign = val < 0 ? '-' : '';
+  const sign = val < 0 ? MINUS : '';
   if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(2)} 億元`;
   if (abs >= 1e4) return `${sign}${(abs / 1e4).toFixed(2)} 萬元`;
   return `${sign}${Math.round(abs).toLocaleString('zh-TW')} 元`;
@@ -111,10 +123,10 @@ export function lots(value: number | null | undefined, fallback = '--'): string 
 export function fmtLotsAxisLabel(lots: number): string {
   if (!Number.isFinite(lots)) return '';
   const abs = Math.abs(lots);
-  const sign = lots < 0 ? '-' : '';
+  const sign = lots < 0 ? MINUS : '';
   if (abs >= 1e8) return `${sign}${Number((abs / 1e8).toFixed(1))}億`;
   if (abs >= 1e4) return `${sign}${Number((abs / 1e4).toFixed(1))}萬`;
-  return String(Number(lots.toFixed(1)));
+  return uMinus(String(Number(lots.toFixed(1))));
 }
 
 /**
@@ -130,10 +142,10 @@ export function fmtPercent(
   if (!isNum(v)) return fallback;
   const value = fromRatio ? v * 100 : v;
   const text = value.toFixed(decimals);
-  // 先四捨五入再決定正負號：顯示成 0 的值不寫「-0.00%」也不寫「+0.00%」
+  // 先四捨五入再決定正負號：顯示成 0 的值不寫「−0.00%」也不寫「+0.00%」；負號一律 U+2212
   if (Number(text) === 0) return `${(0).toFixed(decimals)}%`;
   const prefix = sign && value > 0 ? '+' : '';
-  return `${prefix}${text}%`;
+  return `${prefix}${uMinus(text)}%`;
 }
 
 /** 比例（0–1）→ 整數百分比：命中率、上漲比例這類讀數，0.5712 →「57%」 */

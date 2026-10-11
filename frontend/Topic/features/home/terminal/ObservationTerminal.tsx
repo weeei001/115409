@@ -180,7 +180,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
       <div>
         <div className="flex items-baseline justify-between gap-3">
           <span className={cn(numeral, 'text-2xl font-semibold tracking-tight')}>{fmtNum(board.close)}</span>
-          <span className={cn(numeral, 'text-sm whitespace-nowrap', valueToneText(board.change))}>
+          <span className={cn(numeral, 'text-sm whitespace-nowrap', valueToneText(board.change, 2))}>
             {signedText(board.change)}
             {board.changePercent != null ? `（${signedText(board.changePercent, 2, '%')}）` : ''}
           </span>
@@ -315,7 +315,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
                   </div>
                   <div className="flex items-baseline gap-3">
                     <span className={cn(numeral, 'text-[clamp(30px,3vw,40px)] leading-none font-semibold tracking-tight')}>{fmtPrice(q?.close)}</span>
-                    <span className={cn(numeral, 'text-sm', valueToneText(q?.change))}>
+                    <span className={cn(numeral, 'text-sm', valueToneText(q?.change, 2))}>
                       {signedText(q?.change)}
                       {changePercent != null ? `（${signedText(changePercent, 2, '%')}）` : ''}
                     </span>

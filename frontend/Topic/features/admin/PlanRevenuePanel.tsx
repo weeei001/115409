@@ -4,6 +4,7 @@ import { Ledger, LedgerPanel, cellClass, headCellClass } from '@/components/comm
 import { Notice } from '@/components/common/Notice';
 import { textLinkClass } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
+import { uMinus } from '@/lib/utils/format';
 import { formatCount, planById } from '@/features/pricing/plans';
 import {
   BASE_ASSUMPTIONS,
@@ -18,7 +19,7 @@ import {
 /** 行情授權最壞情況：盤後網頁報價，註冊會員未滿 20 萬戶時每月 5 萬元（商業模式 7.2，[待查證]） */
 const MARKET_DATA_LICENSE_TWD = 50_000;
 
-const money = (value: number, digits = 0): string => value.toLocaleString('zh-TW', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const money = (value: number, digits = 0): string => uMinus(value.toLocaleString('zh-TW', { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 const percent = (ratio: number): string => `${money(ratio * 100)}%`;
 const numCell = cn(cellClass, 'text-right font-mono text-[13.5px] tabular-nums');
 

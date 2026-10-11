@@ -61,7 +61,7 @@ export function VolumeTable({ data }: { data: VolumeAnalysisResponse | null }) {
               <td className={td}>{fmtVolume(row.volume)}</td>
               <td className={td}>{fmtAmount(row.amount)}</td>
               <td className={td}>{fmtPrice(row.close)}</td>
-              <td className={cn(td, valueToneText(row.change))}>{signedText(row.change)}</td>
+              <td className={cn(td, valueToneText(row.change, 2))}>{signedText(row.change)}</td>
             </tr>
           ))}
         </tbody>
@@ -90,8 +90,8 @@ export function PriceChangeTable({ data }: { data: PriceChangeResponse | null })
             <tr key={row.date} className="border-t">
               <td className={tdDate}>{row.date}</td>
               <td className={td}>{fmtPrice(row.close)}</td>
-              <td className={cn(td, valueToneText(row.change))}>{signedText(row.change)}</td>
-              <td className={cn(td, valueToneText(row.change_percent))}>{signedText(row.change_percent, 2, '%')}</td>
+              <td className={cn(td, valueToneText(row.change, 2))}>{signedText(row.change)}</td>
+              <td className={cn(td, valueToneText(row.change_percent, 2))}>{signedText(row.change_percent, 2, '%')}</td>
             </tr>
           ))}
         </tbody>
@@ -169,7 +169,7 @@ export function HistoryTable({ data, loading = false, error, page, pageSize, onP
               <td className="px-4 py-2.5 text-right font-mono tabular-nums">{fmtPrice(row.high)}</td>
               <td className="px-4 py-2.5 text-right font-mono tabular-nums">{fmtPrice(row.low)}</td>
               <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums">{fmtPrice(row.close)}</td>
-              <td className={cn('px-4 py-2.5 text-right font-mono tabular-nums', valueToneText(row.change))}>{signedText(row.change)}</td>
+              <td className={cn('px-4 py-2.5 text-right font-mono tabular-nums', valueToneText(row.change, 2))}>{signedText(row.change)}</td>
               <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">{lots(row.volume_shares)}</td>
               <td className="px-4 py-2.5 text-right font-mono text-muted-foreground tabular-nums">
                 {row.amount != null ? `${(row.amount / 1e8).toFixed(2)} 億元` : '--'}

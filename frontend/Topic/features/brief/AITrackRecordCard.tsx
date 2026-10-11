@@ -30,14 +30,14 @@ function RecentRow({ item }: { item: TrackRecordItem }) {
             <dd>
               {outcome.stance ? (STANCE[outcome.stance] ?? outcome.stance) : '--'}
               {outcome.return_pct != null ? (
-                <span className={cn('ml-1.5 font-mono tabular-nums', valueToneText(outcome.return_pct))}>
+                <span className={cn('ml-1.5 font-mono tabular-nums', valueToneText(outcome.return_pct, 2))}>
                   {signedText(outcome.return_pct, 2, '%')}
                 </span>
               ) : null}
               {outcome.benchmark_return_pct != null ? (
                 <span className="ml-1 text-muted-foreground">
                   （大盤{' '}
-                  <span className={cn('font-mono tabular-nums', valueToneText(outcome.benchmark_return_pct))}>
+                  <span className={cn('font-mono tabular-nums', valueToneText(outcome.benchmark_return_pct, 2))}>
                     {signedText(outcome.benchmark_return_pct, 2, '%')}
                   </span>
                   ）

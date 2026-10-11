@@ -3,7 +3,7 @@ import type { AIBacktestResult, ChipsVolumeData } from '../types/api';
 import type { InstitutionalDay, TechnicalDay } from '../types/view';
 import type { CompareChartMode } from '../types/compare';
 import type { CompareChartSeries } from '../utils/compare';
-import { LESS_THAN_ONE_LOT, fmtInstitutionalShares, fmtLotsAxisLabel, isUnderOneLot, lotsNumber, sharesToLots, withSign } from '../utils/format';
+import { LESS_THAN_ONE_LOT, fmtInstitutionalShares, fmtLotsAxisLabel, isUnderOneLot, lotsNumber, sharesToLots, uMinus, withSign } from '../utils/format';
 import { AI_SERIES_PALETTE, getChartPalette, getInstitutionColors, getMaColors, type ChartPalette } from './theme';
 
 /** 自訂 tooltip 是 HTML 字串（ECharts renderMode 'html' 會當 innerHTML）：拼進去的 API 值一律先跳脫（02-F5） */
@@ -101,12 +101,19 @@ export function baseAxis(palette: ChartPalette, dates: string[]) {
   };
 }
 
+/**
+ * 數值軸沒給 formatter 時的刻度：和 ECharts 預設一樣加千分位，但負號用 U+2212（MACD、AI 對話的資料面板這類會有負值的軸）。
+ * 傳進來的是刻度值，ECharts 已依刻度間距取整，不會出現浮點誤差的長尾。
+ */
+export const defaultValueAxisLabel = (value: number): string =>
+  Number.isFinite(Number(value)) ? uMinus(Number(value).toLocaleString('en-US', { maximumFractionDigits: 6 })) : '';
+
 /** 數值軸：等寬刻度、極淡的橫格線、不畫軸線；extra.axisLabel 會併入而不是整個取代 */
 export function valueAxis(palette: ChartPalette, extra?: Record<string, unknown>) {
   const { axisLabel, nameTextStyle, ...rest } = (extra ?? {}) as { axisLabel?: Record<string, unknown>; nameTextStyle?: Record<string, unknown> } & Record<string, unknown>;
   return {
     type: 'value' as const,
-    axisLabel: tickLabel(palette, axisLabel),
+    axisLabel: tickLabel(palette, { formatter: defaultValueAxisLabel, ...axisLabel }),
     axisLine: { show: false },
     axisTick: { show: false },
     splitLine: { lineStyle: { color: palette.gridSubtle } },
@@ -343,7 +350,7 @@ function indicatorBase(
 }
 
 const fixedTooltip = (digits: number) => ({
-  valueFormatter: (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : '--'),
+  valueFormatter: (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? uMinus(v.toFixed(digits)) : '--'),
 });
 /** RSI、KD 1 位，MACD 柱 3 位（和 lib/utils/indicatorSignals 的 fmtIndicator、MACD_DECIMALS 一致） */
 const indicatorTooltip = fixedTooltip(1);
@@ -435,7 +442,7 @@ type SeriesTooltipItem = { seriesName?: string; value?: unknown; color?: unknown
 const COMPARE_MODE_FORMAT: Record<CompareChartMode, { axis: (v: number) => string; tooltip: (v: number, name: string) => string }> = {
   price: { axis: (v) => priceAxisLabel(v), tooltip: (v, name) => `${name}：${priceTooltipValue(v)} 元` },
   index100: { axis: (v) => v.toFixed(1), tooltip: (v, name) => `${name}（指數）：${v.toFixed(2)}` },
-  cumulativeReturn: { axis: (v) => `${v.toFixed(1)}%`, tooltip: (v, name) => `${name}（區間漲跌幅）：${v.toFixed(2)}%` },
+  cumulativeReturn: { axis: (v) => `${uMinus(v.toFixed(1))}%`, tooltip: (v, name) => `${name}（區間漲跌幅）：${uMinus(v.toFixed(2))}%` },
 };
 
 /** 多股比較主圖：報價／指數化／累積報酬%；圖例在圖表外自己畫（可切換、全顯示、全隱藏） */
@@ -524,7 +531,7 @@ export function riskReturnScatterOption(points: RiskReturnPoint[], isDark: boole
   });
   const shaded = { color: palette.gridSubtle };
   const clear = { color: 'transparent' };
-  const pct = (v: number) => `${Number(v).toFixed(1)}%`;
+  const pct = (v: number) => `${uMinus(Number(v).toFixed(1))}%`;
   return {
     animation: false,
     grid: chartGrid({ left: 2, right: 10, top: QUADRANT_ABOVE + 6, bottom: QUADRANT_BELOW - 6 }),
@@ -534,7 +541,7 @@ export function riskReturnScatterOption(points: RiskReturnPoint[], isDark: boole
       formatter: (params: unknown) => {
         const p = params as { name?: string; value?: [number, number] };
         if (!Array.isArray(p.value)) return '';
-        return `<b>${escapeHtml(p.name)}</b><br/>年化波動度：${p.value[0].toFixed(2)}%<br/>區間漲跌幅：${p.value[1].toFixed(2)}%`;
+        return `<b>${escapeHtml(p.name)}</b><br/>年化波動度：${p.value[0].toFixed(2)}%<br/>區間漲跌幅：${uMinus(p.value[1].toFixed(2))}%`;
       },
     }),
     xAxis: {
@@ -610,7 +617,7 @@ export function institutionalCompareOption(
 /** AI 回測三組的線色：類別色、不帶漲跌意義；兩條基準用墨色與參考線色的虛線 */
 export const BACKTEST_GROUP_COLORS = { rule: AI_SERIES_PALETTE[2], ai_plain: AI_SERIES_PALETTE[1], ai_signals: AI_SERIES_PALETTE[0] } as const;
 
-const moneyAxisLabel = (value: number) => (Math.abs(value) >= 10_000 ? `${Math.round(value / 10_000)} 萬` : String(Math.round(value)));
+const moneyAxisLabel = (value: number) => uMinus(Math.abs(value) >= 10_000 ? `${Math.round(value / 10_000)} 萬` : String(Math.round(value)));
 
 /** AI 回測的資產曲線：三組加買進持有、加權指數（換算成同樣的起始資金）；用內建圖例切換 */
 export function aiBacktestOption(result: AIBacktestResult, isDark: boolean): EChartsOption | null {

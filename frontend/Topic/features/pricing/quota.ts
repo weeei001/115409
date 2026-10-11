@@ -161,7 +161,8 @@ export function favoritesLimitText(used: number, limit: number, planId: PlanId):
   return `${used > limit ? '已超過' : '已達到'}${planById(planId).name}的 ${formatCount(limit)} 檔收藏上限（目前 ${formatCount(used)} 檔）。${QUOTA_NOT_ENFORCED}，仍可繼續加入；${upgradeTarget()}收藏不限檔數。`;
 }
 
-/** 多股比較超過同時檔數時的說明（只提示、不擋） */
+/** 多股比較超過同時檔數時的說明（只提示、不擋）；已經比進階版的檔數少不了時，不再寫「進階版起…」 */
 export function compareLimitText(selected: number, limit: number, planId: PlanId): string {
-  return `${planById(planId).name}一次比較 ${formatCount(limit)} 檔，目前選了 ${formatCount(selected)} 檔。${QUOTA_NOT_ENFORCED}，仍可照常比較；${upgradeTarget()}可以比到 ${formatCount(PLAN_LIMITS.plus.compare)} 檔。`;
+  const upgrade = limit < PLAN_LIMITS.plus.compare ? `；${upgradeTarget()}可以比到 ${formatCount(PLAN_LIMITS.plus.compare)} 檔` : '';
+  return `${planById(planId).name}一次比較 ${formatCount(limit)} 檔，目前選了 ${formatCount(selected)} 檔。${QUOTA_NOT_ENFORCED}，仍可照常比較${upgrade}。`;
 }

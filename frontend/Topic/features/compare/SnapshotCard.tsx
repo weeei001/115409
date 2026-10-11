@@ -29,7 +29,7 @@ function windowCloses(data: MultiStockResponse, symbol: string): { closes: numbe
  */
 export function SnapshotCard({ symbol, color, stockInfos, data, returnPct }: Props) {
   const { closes, missing } = useMemo(() => windowCloses(data, symbol), [data, symbol]);
-  const tone = getValueTone(returnPct);
+  const tone = getValueTone(returnPct, 2);
   const name = stockInfos[symbol]?.name?.trim() || '';
   const lastClose = closes.length ? closes[closes.length - 1] : null;
   // 期間標示和主圖一樣以整段交易日計；缺收盤的日子在線上直接連過去，另外寫出天數
@@ -50,7 +50,7 @@ export function SnapshotCard({ symbol, color, stockInfos, data, returnPct }: Pro
           <span className="block font-medium">{fmtPrice(lastClose)}</span>
           <span className="block text-xs">
             <span className="font-sans text-muted-foreground">區間漲跌幅 </span>
-            <span className={valueToneText(returnPct)}>{signedText(returnPct, 2, '%')}</span>
+            <span className={valueToneText(returnPct, 2)}>{signedText(returnPct, 2, '%')}</span>
           </span>
         </p>
       </header>
