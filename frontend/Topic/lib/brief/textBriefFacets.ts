@@ -167,7 +167,7 @@ function chipsFacet(items: EvidenceItem[]): Facet {
 
 /**
  * 情境風險＝`brief.risks`（附觸發條件的風險），和「負面因素」（`negative_factors`）是兩回事。
- * 空的時候可能是 AI 沒列，也可能是後端檢查把它刪了，所以不能寫成「沒有風險」。
+ * An empty list does not establish that no risks exist.
  */
 function riskFacet(brief: Brief | null | undefined): Facet {
   const rule = '這一格是 AI 列出的情境風險項數，不是量化評分。';
@@ -178,7 +178,7 @@ function riskFacet(brief: Brief | null | undefined): Facet {
       label: '情境風險',
       tone: 'unknown',
       levelLabel: '未列出',
-      basis: '本次未列出或未通過檢查（不代表沒有風險）',
+      basis: '本次未提供情境風險內容（不代表沒有風險）',
       rule,
       evidenceIds: [],
     };

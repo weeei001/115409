@@ -196,6 +196,22 @@ def saved_brief(row: LlmResponse) -> StockBehaviorTextBriefResponse | None:
             view = getattr(response.brief.forward_views, horizon)
             if f"forward_views.{horizon}" in removed and view.stance == "uncertain":
                 view.validation_status = "rejected"
+    # Legacy snapshots contain placeholders in place of discarded model text.
+    # Keep their provenance, but do not present obsolete checks as current failures.
+    for horizon in ("short_1_5", "swing_6_20", "medium_21_40"):
+        view = getattr(response.brief.forward_views, horizon)
+        if view.validation_status == "rejected":
+            view.reason = "此快照未保留該期間展望，請更新分析。"
+            view.invalidation = "此快照未提供失效條件。"
+    def legacy_note(text: str) -> str:
+        if config.get("content_validation") is False:
+            return text
+        if any(marker in text for marker in ("未通過", "通過檢查", "通過內容檢查")):
+            return "此快照部分內容未保留，可於更新分析後查看。"
+        return text
+    response.limitations = list(dict.fromkeys(legacy_note(text) for text in response.limitations))
+    response.brief.limitations = list(dict.fromkeys(legacy_note(text) for text in response.brief.limitations))
+    response.brief.confidence_reason = legacy_note(response.brief.confidence_reason)
     response.cached = True
     return response
 
