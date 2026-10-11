@@ -145,7 +145,7 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.deepEqual(toCompareChartSeries(data, 'price').values.A, [50, 60]);
 }
 
-// 股票代表色：依清單順序、6 檔不撞色、不是漲跌色（決議 c76）
+// 股票代表色：依清單順序、6 檔不撞色、不是漲跌色
 {
   const palette = getChartPalette(false);
   const colors = buildSymbolColorMap(['2454', '2330', '2317', '2881', '2408', '2615']);
@@ -180,7 +180,7 @@ assert.deepEqual(Object.values(buildMetricsRow('X', null, null)).slice(1), Array
   assert.equal(indicatorSignals.rsiSignal(75, { labelPrefix: 'RSI ' }).label, 'RSI 超買');
 }
 
-// 類別冠軍：有方向的指標依正負上色，波動與相關性、缺值維持中性（決議 D13）
+// 類別冠軍：有方向的指標依正負上色，波動與相關性、缺值維持中性
 {
   const metric = (symbol: string, totalReturnPct: number, volatilityPct: number): CompareMetricsRow => ({
     symbol, totalReturnPct, volatilityPct, maxDrawdownPct: null, winRatePct: null,

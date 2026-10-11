@@ -8,7 +8,7 @@ interface Params {
   symbol: string;
 }
 
-/** 讀取後端已存好的分析（cache_only）。不帶 as_of_date，跟著後端最新的資料（決議 D9） */
+/** 讀取後端已存好的分析（cache_only）。不帶 as_of_date，跟著後端最新的資料 */
 export function useStockTextBrief({ symbol }: Params) {
   const requestSeq = useRef(0);
   const lastKeyRef = useRef<string | null>(null);

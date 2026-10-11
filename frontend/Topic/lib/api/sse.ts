@@ -5,7 +5,7 @@ import { genericMessageForStatus, pickDetailMessage } from './errorDetail';
  * 不用 EventSource：它帶不了登入標頭，斷線還會自動重連、把整段請求重跑一次。
  */
 
-/** 非 2xx 回應的錯誤訊息：與 axios client 同一套規則，中文 detail 原樣，其餘依狀態碼給通用文案（決議 D13） */
+/** 非 2xx 回應的錯誤訊息：與 axios client 同一套規則，中文 detail 原樣，其餘依狀態碼給通用文案 */
 export async function errorMessageFrom(res: Response): Promise<string> {
   try {
     return pickDetailMessage(JSON.parse(await res.text()), res.status);

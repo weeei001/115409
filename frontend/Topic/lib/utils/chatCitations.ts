@@ -5,7 +5,7 @@ export const CHAT_CITATION_PATTERN = '(?:[Ss][0-9][0-9A-Za-z_-]*|S[-_][0-9]+|S[a
 export const CHAT_CITATION_RE = new RegExp(`\\[\\*{0,3}(${CHAT_CITATION_PATTERN})\\*{0,3}\\]`, 'g');
 
 /**
- * 舊版後端附在回覆尾端的免責句。後端已不再附加（投資提醒改由輸入框下方固定一行顯示，決議 J1-3），
+ * 舊版後端附在回覆尾端的免責句。後端已不再附加（投資提醒改由輸入框下方固定一行顯示），
  * 但舊對話已經存了這些句子，所以仍要剝掉；不補上其他制式說明。只比對完整字串，不猜相近的句子。
  */
 export const BACKEND_CHAT_DISCLAIMERS: readonly string[] = [

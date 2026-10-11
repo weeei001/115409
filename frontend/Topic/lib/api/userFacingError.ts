@@ -1,6 +1,6 @@
 import { ApiRequestError } from './client';
 
-/** 個股 AI 分析：把 API／網路錯誤轉成給使用者看的繁中說明，不含技術細節（決議 D13） */
+/** 個股 AI 分析：把 API／網路錯誤轉成給使用者看的繁中說明，不含技術細節 */
 export function formatAdvisorError(err: unknown): string {
   if (err instanceof ApiRequestError) {
     if (err.status === 404) return 'AI 分析暫時無法取得，請稍後再試。';

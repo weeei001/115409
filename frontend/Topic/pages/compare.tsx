@@ -139,7 +139,7 @@ export default function ComparePage() {
   const viewModel = metrics?.viewModel ?? null;
   const symbols = result?.symbols ?? [];
   const colors = useMemo(() => buildSymbolColorMap(symbols), [symbols]);
-  // 已選清單依目前順序取色，和按下「開始比較」後各圖表的顏色一致（決議 c76）
+  // 已選清單依目前順序取色，和按下「開始比較」後各圖表的顏色一致
   const selectedColors = useMemo(() => buildSymbolColorMap(c.selected), [c.selected]);
   const alignedChart = useMemo(() => result?.chart ? alignComparePrices(result.chart) : null, [result?.chart]);
   const benchmarkComparison = useMemo(() => buildBenchmarkComparison(result?.chart ?? null, metrics?.benchmark ?? null), [result?.chart, metrics?.benchmark]);

@@ -1,7 +1,7 @@
 import type { ValueTone } from './tone';
 
 /**
- * 技術指標的判讀標籤。RSI 的超買／超賣不是漲跌方向，用 warning 表示（決議 D8-c8）；
+ * 技術指標的判讀標籤。RSI 的超買／超賣不是漲跌方向，用 warning 表示；
  * MACD 柱與 K／D 相對位置有方向性，才用漲跌色。
  */
 export type SignalTone = ValueTone | 'warning';
@@ -57,7 +57,7 @@ export function macdSignal(hist: number | null | undefined): Signal {
   return { label: '中性', tone: 'neutral', value };
 }
 
-/** K 與 D 的相對位置（是狀態，不是交叉事件，決議 D9-c24） */
+/** K 與 D 的相對位置（是狀態，不是交叉事件） */
 export function kdSignal(k: number | null | undefined, d: number | null | undefined): Signal {
   const kv = finite(k);
   const dv = finite(d);

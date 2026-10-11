@@ -86,7 +86,7 @@ export function useStockDashboard(symbol: string) {
   const defaults = getDefaultDateRange();
   const [startDate, setStartDateValue] = useState(defaults.start);
   const [endDate, setEndDateValue] = useState(defaults.end);
-  /** 資料最後一天：區間預設與 AI 卡片的日期標示用，不跟著圖表結束日變動（AI 簡報請求已不帶 as_of_date，見決議 D9） */
+  /** 資料最後一天：區間預設與 AI 卡片的日期標示用，不跟著圖表結束日變動（AI 簡報請求不帶 as_of_date） */
   const [baseDate, setBaseDate] = useState<string | null>(null);
   const [maPeriods, setMaPeriods] = useState(DEFAULT_MA_PERIODS);
   const [showPriceChange, setShowPriceChange] = useState(false);
@@ -265,7 +265,7 @@ export function useStockDashboard(symbol: string) {
     }
   }, []);
 
-  /** 籌碼與指標：三支有型別的端點各自成功就各自顯示，失敗的那一支各自記錯誤（決議 D3） */
+  /** 籌碼與指標：三支有型別的端點各自成功就各自顯示，失敗的那一支各自記錯誤 */
   const loadChips = useCallback(async (sym: string, sd: string, ed: string) => {
     const id = ++chipsReq.current;
     setInstitutionalError(null);

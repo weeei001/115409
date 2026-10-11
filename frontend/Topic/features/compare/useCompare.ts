@@ -33,7 +33,7 @@ export interface CompareMetrics {
   benchmark: BenchmarkHistoryResponse | null;
 }
 
-/** 一次「開始比較」的結果；各區塊一律用這裡的 symbols，不用目前的已選清單（決議 D9-c16） */
+/** 一次「開始比較」的結果；各區塊一律用這裡的 symbols，不用目前的已選清單 */
 export interface CompareResult {
   symbols: string[];
   startDate: string;
@@ -201,7 +201,7 @@ export function useCompare() {
   const removeSymbol = useCallback((sym: string) => setSelected((prev) => prev.filter((s) => s !== sym)), []);
 
   const clearAll = useCallback(() => {
-    // 取消進行中的比較：之後回來的資料一律丟掉（決議 c75）
+    // 取消進行中的比較：之後回來的資料一律丟掉
     seqRef.current += 1;
     setChartLoading(false);
     setMetricsLoading(false);

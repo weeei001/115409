@@ -259,7 +259,7 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chi
     if (error) return <ErrorNotice message={error} onRetry={actions.onRetry} />;
     switch (key) {
       case 'flow':
-        // 只用 ECharts 內建的可點圖例（決議 c61）
+        // 只用 ECharts 內建的可點圖例
         return flow ? <EChart title="三大法人每日買賣超（張）" option={flow} height={280} /> : empty('尚無法人買賣超資料');
       case 'cumulative':
         return cumulative ? <EChart title="法人累積買賣超（張）" option={cumulative} height={260} /> : empty('尚無累積買賣超資料');

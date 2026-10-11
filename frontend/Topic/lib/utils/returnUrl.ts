@@ -3,7 +3,7 @@ const PARSE_BASE = 'http://return-url.local';
 /**
  * 只接受站內路徑，回傳 `pathname+search+hash`；其餘回 null。
  * 控制字元與 `\` 一律拒絕：瀏覽器解析 URL 時會刪掉 tab／換行、把 `\` 當 `/`，
- * `/\t/evil.example` 會變成 `//evil.example` 導到外站（上線前稽核 A1，決議 D13）。
+ * `/\t/evil.example` 會變成 `//evil.example` 導到外站。
  * 解析時會吃掉點區段（`/..//evil.example`、`/%2e%2e//evil.example` 的 pathname 是 `//evil.example`），
  * 所以組好結果後再檢查一次：不能是 `//` 開頭，用同一個 base 再解析也要留在站內（02-F2）。
  */

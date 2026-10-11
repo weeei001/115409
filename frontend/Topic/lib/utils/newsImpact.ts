@@ -61,7 +61,7 @@ export const TOPIC_LABELS: Record<string, string> = {
   company_operations: '企業營運', capital_markets: '資本市場',
 };
 
-/** 正向用漲色、負向用跌色，其餘中性（DESIGN.md 第 7 節、決議 D8） */
+/** 正向用漲色、負向用跌色，其餘中性（DESIGN.md 第 7 節） */
 export const DIRECTION_TONE: Record<NewsImpactDirection, BadgeTone> = {
   positive: 'up',
   negative: 'down',

@@ -35,7 +35,7 @@ export default function App({ Component, pageProps }: AppProps) {
           <title>{DEFAULT_TITLE}</title>
           <meta name="description" content={DEFAULT_DESCRIPTION} />
           <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-          {/* og 用 property，Next 不會自動去重；加 key 讓各頁的同名標籤蓋掉預設（決議 c56） */}
+          {/* og 用 property，Next 不會自動去重；加 key 讓各頁的同名標籤蓋掉預設 */}
           <meta property="og:type" content="website" key="og:type" />
           <meta property="og:site_name" content="股海明燈" />
           <meta property="og:title" content={DEFAULT_TITLE} key="og:title" />

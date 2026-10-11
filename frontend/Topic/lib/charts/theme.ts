@@ -64,7 +64,7 @@ export function getChartPalette(isDark: boolean): ChartPalette {
 }
 
 /**
- * 均線色：避開漲跌的紅綠（決議 D8），也避開燈色（金色只當光用）。
+ * 均線色：避開漲跌的紅綠，也避開燈色（金色只當光用）。
  * MA5 藍、MA10 紫、MA20 青、MA60 褐、MA120 灰藍。
  */
 export function getMaColors(isDark: boolean) {
@@ -91,13 +91,13 @@ const AI_EXCLUDED = new Set(['#f97316', '#d97706', '#a16207', '#92400e', '#db277
 export const AI_SERIES_PALETTE = SERIES_PALETTE.filter((color) => !AI_EXCLUDED.has(color));
 
 /**
- * 多股比較的股票代表色：依比較清單的順序取（最多 6 檔，決議 c76），同一次比較保證不撞色。
+ * 多股比較的股票代表色：依比較清單的順序取（最多 6 檔），同一次比較保證不撞色。
  * 藍、紫、青、洋紅、褐、灰藍：避開漲跌的紅綠，也避開接近燈色的橘與琥珀；亮度取中間值，晨海與夜海都看得清楚。
  */
 export const COMPARE_SYMBOL_COLORS = ['#3b82f6', '#a855f7', '#06a3c4', '#e0559a', '#a47148', '#7d8ea3'] as const;
 
 /**
- * 相關係數色階：負相關藍 → 0 中性灰 → 正相關橘，避開紅綠（決議 D8-c9）。
+ * 相關係數色階：負相關藍 → 0 中性灰 → 正相關橘，避開紅綠。
  * 格子與圖例都用這個函式，色階才會一致；文字固定用 palette.text（兩端顏色都已確認對比 ≥ 4.5）。
  */
 const CORRELATION_STOPS = {

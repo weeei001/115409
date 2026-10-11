@@ -107,7 +107,7 @@ function relativeText(close: number, ma20: number | null, ma60: number | null): 
   return close > target ? `收盤站上 ${name}` : `收盤跌破 ${name}`;
 }
 
-/** 決議 c41：多頭／空頭排列的用詞 */
+/** 多頭／空頭排列的用詞 */
 function trendText(close: number | null, ma20: number | null, ma60: number | null): string {
   if (close === null || ma20 === null || ma60 === null) return '資料不足';
   if (close > ma20 && ma20 > ma60) return '偏多（多頭排列）';
@@ -322,7 +322,7 @@ export function PriceChart({
       );
     }
     volumeRef.current.setData(toVolumeHistogramData(data.candles, data.volume, palette));
-    // 決議 c14：可視範圍直接貼合資料，不再固定「今天往前 6 個月」
+    // 可視範圍直接貼合資料，顯示整個所選區間
     const timeScale = chartRef.current?.timeScale();
     timeScale?.fitContent();
     // 窄螢幕：預設只看最後 40 根，K 棒較寬；使用者仍可左右拖曳、雙指縮放看全部

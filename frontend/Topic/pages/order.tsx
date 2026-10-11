@@ -29,7 +29,7 @@ const defRow = 'flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 g
 
 /**
  * 損益：依正負上色並帶正負號（紅漲綠跌）；缺行情時寫「等待行情」。
- * 金額最多顯示兩位小數（paperMoney），正負號與顏色也用四捨五入到兩位的值，顯示成 0 時不帶號、不上色（決議 c7）
+ * 金額最多顯示兩位小數（paperMoney），正負號與顏色也用四捨五入到兩位的值，顯示成 0 時不帶號、不上色
  */
 function Pnl({ value, className }: { value: number | null; className?: string }) {
   const shown = value == null ? null : roundTo(value, 2);

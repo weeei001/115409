@@ -14,7 +14,7 @@ interface Props {
 interface Cell {
   label: string;
   value: string;
-  /** 只有有正負方向的數值才上漲跌色（決議 D8） */
+  /** 只有有正負方向的數值才上漲跌色 */
   tone: ValueTone;
 }
 

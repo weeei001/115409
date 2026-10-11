@@ -23,7 +23,7 @@ interface NoticeProps {
 }
 
 /**
- * 錯誤／警告／成功／提示訊息框（航船布告）。狀態色與漲跌色分開（決議 D8），一律帶圖示；不做動畫。
+ * 錯誤／警告／成功／提示訊息框（航船布告）。狀態色與漲跌色分開，一律帶圖示；不做動畫。
  * 錯誤＝熄燈：圖示是熄掉的燈。
  */
 export function Notice({ tone = 'info', children, action, className, role }: NoticeProps) {

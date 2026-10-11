@@ -2,7 +2,7 @@
  * `POST /analyze/stock-behavior/text-brief`（schema `text-first-v1`）的回應型別。
  *
  * evidence_catalog 的額外欄位（period、kind、yoy_pct…）在 openapi 只以 additionalProperties 允許、沒有命名，
- * 依後端 analysis/evidence.py 保留（決議 D5）。
+ * 依後端 analysis/evidence.py 保留（openapi 未列）。
  *
  * 後端隨時可能多回欄位，所以這裡只把畫面真正會讀到的部分寫死，
  * 其餘一律 optional，避免多一個欄位就整頁編不過。

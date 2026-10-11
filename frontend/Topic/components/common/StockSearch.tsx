@@ -101,7 +101,7 @@ export function StockSearch({ symbols, stockInfos = [], onSelect, onBulkSelect, 
     if (combobox.handleNavigationKey(e)) return;
     if (e.key === 'Enter') {
       e.preventDefault();
-      // 用方向鍵反白了某一項就送出那一項，不送輸入文字（決議 D9-c15）
+      // 用方向鍵反白了某一項就送出那一項，不送輸入文字
       if (open && activeIndex >= 0 && activeIndex < filtered.length) return selectItem(filtered[activeIndex].symbol);
       if (query.trim()) return commitInput(query);
       if (!open || filtered.length === 0) return;

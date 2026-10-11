@@ -46,7 +46,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   const returnUrl = router.isReady ? safeReturnUrl(router.query.returnUrl) : null;
-  // 有 returnUrl 時，「立即註冊」也帶上（決議 D9-c19）
+  // 有 returnUrl 時，「立即註冊」也帶上
   const registerHref = useMemo(() => (returnUrl ? `/register?returnUrl=${encodeURIComponent(returnUrl)}` : '/register'), [returnUrl]);
 
   const redirectAfterLogin = useCallback(() => router.push(returnUrl ?? '/'), [router, returnUrl]);

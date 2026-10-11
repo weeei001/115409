@@ -134,7 +134,7 @@ export default function StockDetailPage() {
   const router = useRouter();
   const raw = (Array.isArray(router.query.id) ? router.query.id[0] : router.query.id) || '';
   const symbol = raw.trim();
-  // 舊連結相容：16～64 位十六進位字串視為新聞 id（決議 c51 保留）
+  // 舊連結相容：16～64 位十六進位字串視為新聞 id
   const isArticleId = symbol.length > 8 && /^[a-fA-F0-9]{16,64}$/.test(symbol);
 
   useEffect(() => {

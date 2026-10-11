@@ -250,7 +250,7 @@ export function AuthField({ id, label, icon: Icon, row, className, ...input }: F
 interface PasswordFieldProps extends Omit<FieldProps, 'type'> {
   shown: boolean;
   onToggle: () => void;
-  /** 切換鈕的無障礙名稱：[顯示時, 隱藏時]（決議 c79） */
+  /** 切換鈕的無障礙名稱：[顯示時, 隱藏時] */
   toggleLabels: [string, string];
 }
 

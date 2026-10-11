@@ -1,7 +1,7 @@
 /**
  * 後端回應型別，欄位與型別照 openapi.json `components/schemas` 抄寫。
  * Decimal 欄位在 openapi 是 string，這裡維持 string，轉數字交給 lib/mappers。
- * 標「openapi 未列」的地方是經過確認、依後端實作保留的欄位（見 docs/PARITY.md 決議 D5）。
+ * 標「openapi 未列」的地方是 openapi 沒寫、依後端實作保留的欄位或形狀，註解寫明依據的後端檔案或函式。
  */
 
 // ── Market ──
@@ -257,7 +257,7 @@ export interface PaginatedNewsResponse {
 }
 
 /**
- * GET /news/industries：openapi 的回應 schema 是空的，形狀依後端 `news/service.py` 的 `industries()`（openapi 未列，決議 D5）。
+ * GET /news/industries：openapi 的回應 schema 是空的，形狀依後端 `news/service.py` 的 `industries()`（openapi 未列）。
  * id 是新聞 `industry` 參數要的代碼（例如 TWSE:24）；name 是「上市 · 半導體業」這種含市場前綴的名稱。
  */
 export interface NewsIndustry {
@@ -288,7 +288,7 @@ export interface MessageResponse {
   message: string;
 }
 
-// ── Favorites（決議 F1：已從 production openapi 同步，端點與 schema 與原手寫版本相同） ──
+// ── Favorites ──
 
 export interface FavoriteStockResponse {
   symbol: string;

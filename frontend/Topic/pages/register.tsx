@@ -38,15 +38,15 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
 
   const returnUrl = router.isReady ? safeReturnUrl(router.query.returnUrl) : null;
-  // 「返回登入」也帶上 returnUrl（決議 c78）
+  // 「返回登入」也帶上 returnUrl
   const loginHref = returnUrl ? `/login?returnUrl=${encodeURIComponent(returnUrl)}` : '/login';
-  // 註冊成功（含 Google）依 returnUrl 導向，沒有才回首頁（決議 D9-c19）
+  // 註冊成功（含 Google）依 returnUrl 導向，沒有才回首頁
   const redirectAfterAuth = useCallback(() => router.push(returnUrl ?? '/'), [router, returnUrl]);
 
   const validate = (): string | null => {
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
-    // 姓名選填（決議 D9-c19）
+    // 姓名選填
     if (!normalizedEmail || !password || !confirmPassword) return '請填寫所有欄位';
     if (normalizedName.length > 255) return '顯示名稱長度過長';
     if (normalizedEmail.length > 254) return '電子郵件長度過長';

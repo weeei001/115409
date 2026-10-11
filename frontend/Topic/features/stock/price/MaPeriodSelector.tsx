@@ -2,7 +2,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 const PRESETS = ['5', '10', '20', '60'] as const;
 
-/** 移動平均週期（決議 D9-c10）；至少保留一個，值以逗號串接送給 candlestick-ma */
+/** 移動平均週期；至少保留一個，值以逗號串接送給 candlestick-ma */
 export function MaPeriodSelector({ value, onChange, disabled }: { value: string; onChange: (maPeriods: string) => void; disabled?: boolean }) {
   const selected = value.split(',').map((s) => s.trim()).filter((s) => (PRESETS as readonly string[]).includes(s));
   return (

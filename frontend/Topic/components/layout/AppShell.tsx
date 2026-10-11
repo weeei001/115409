@@ -31,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* 「跳至主要內容」的落點在各頁頁首之後（MainContentAnchor），不是這一層：這一層包住了頁首（03-F6） */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* 減少動態只改動畫參數，不換掉這一層：reduce 在掛載後才從 false 變成 true，換結構會讓整頁在載入後重掛一次（首頁 LCP 慢約 0.9 秒）。
-            不在 AnimatePresence 設 initial={false}：它會讓底下所有 motion 元件在首次載入時略過進場動畫（決議 c65）。
+            不在 AnimatePresence 設 initial={false}：它會讓底下所有 motion 元件在首次載入時略過進場動畫。
             只放在這個 motion.div 上不會往下傳（animate 不是 variant 名稱，子元件沿用上層 context） */}
         <AnimatePresence mode="wait" onExitComplete={onExitComplete}>
           <motion.div
@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* 浮動（fixed）的提示條與按鈕任何一頁都不印，免得蓋在紙本內容上 */}
       <div className="print:hidden">
         <RiskNoticeBanner />
-        {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕（決議 c69）；首頁旅程有自己的進度列與「回到海面」 */}
+        {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕；首頁旅程有自己的進度列與「回到海面」 */}
         {router.pathname === '/ai' || router.pathname === '/' ? null : <ScrollToTop />}
       </div>
       {/* 站內助手小燈：放在換頁動畫外面，換頁時對話還在；面板用 portal，自己標 print:hidden */}
