@@ -32,12 +32,15 @@ def map_rows(rows: object, symbols: set[str]) -> list[dict]:
         try:
             day = datetime.strptime(str(row["\ufeff資料日期"]), "%Y%m%d").date().isoformat()
             level = int(row["持股分級"])
-            people = int(str(row["人數"]).replace(",", ""))
+            raw_people = str(row["人數"] if row["人數"] is not None else "").replace(",", "").strip()
+            people = int(raw_people) if raw_people else None
             shares = int(str(row["股數"]).replace(",", ""))
             percent = Decimal(str(row["占集保庫存數比例%"]).replace(",", ""))
         except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
             raise ValueError("Invalid TDCC shareholding fields") from exc
-        if not 1 <= level <= len(LEVELS) or people < 0 or shares < 0 or not percent.is_finite() or percent < 0:
+        if (not 1 <= level <= len(LEVELS) or not percent.is_finite()
+                or people is not None and people < 0
+                or level != 16 and (people is None or shares < 0 or percent < 0)):
             raise ValueError("Invalid TDCC shareholding values")
         key = (day, symbol, level)
         if key in seen:

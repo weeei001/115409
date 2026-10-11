@@ -44,7 +44,7 @@ def summary(db: Session, days: int) -> AIFeedbackSummary:
         ChatMessageFeedback.updated_at >= cutoff).group_by(ChatMessageFeedback.rating)).all())
     helpful, unhelpful = counts.get("up", 0), counts.get("down", 0)
     rated = helpful + unhelpful
-    rows = db.execute(select(ChatMessageFeedback.message_id, ChatMessageFeedback.conversation_id,
+    rows = db.execute(select(ChatMessageFeedback.message_id, ConversationMessage.conversation_id,
                              ChatMessageFeedback.updated_at, ConversationMessage.content)
                       .join(ConversationMessage, ConversationMessage.id == ChatMessageFeedback.message_id)
                       .where(ChatMessageFeedback.rating == "down", ChatMessageFeedback.updated_at >= cutoff)

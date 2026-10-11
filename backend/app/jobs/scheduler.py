@@ -35,7 +35,7 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
                  impact_since: date | None = None, source_enabled=None) -> int:
     run = run or run_worker
     commands = []
-    source_enabled = source_enabled or (lambda name: True)
+    source_enabled = source_enabled or (lambda name: name != "ltn")
     if job == "pipeline":
         job = "all"
     if job == "all":
@@ -47,11 +47,21 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
             raise ValueError("Stock backfill requires a symbol")
         commands.append(["stock-backfill", "--symbol", symbols])
     if job in {"market", "all"}:
+        today = datetime.now(TAIPEI).date()
+        previous_month = today.replace(day=1) - timedelta(days=1)
+        revenue_start = (previous_month.replace(day=1) - timedelta(days=1)).replace(day=1)
+        supplemental_symbols = ["--stocks", symbols] if symbols else []
         commands.append(["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()])
         commands.extend([
             ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
              "--start", start.isoformat(), "--out", str(output)],
             ["market-import", "--input-dir", str(output)],
+            ["market-supplemental-backfill", *supplemental_symbols,
+             "--start", max(start, revenue_start).isoformat(), "--end", today.isoformat(),
+             "--datasets", "monthly_revenue", "--out", str(output / "revenue_report.json")],
+            ["market-supplemental-backfill", *supplemental_symbols,
+             "--start", max(start, today - timedelta(days=400)).isoformat(), "--end", today.isoformat(),
+             "--datasets", "financial_metrics", "--out", str(output / "financial_metrics_report.json")],
             ["paper-reconcile", "--execute"],
         ])
     if job == "cnyes" or job == "all" and source_enabled("cnyes"):
@@ -100,8 +110,9 @@ class Scheduler:
     def tick(self, now: datetime):
         # One scheduled run owns the entire dependency chain.
         if now >= self.next_market and self.enabled("pipeline"):
-            self.next_market = next_daily(now, self.market_at)
             self.run("pipeline")
+            # A failed dispatch must remain due so the runtime can retry it.
+            self.next_market = next_daily(now, self.market_at)
 
 
 def main(argv: list[str] | None = None) -> int:

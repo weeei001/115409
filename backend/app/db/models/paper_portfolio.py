@@ -49,7 +49,6 @@ class PaperReview(Base):
     __tablename__ = 'paper_reviews'
     id = Column(String(36), primary_key=True)
     order_id = Column(String(36), ForeignKey('paper_orders.id', ondelete='CASCADE'), nullable=False, unique=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     status = Column(String(16), nullable=False, default='due')
     due_date = Column(Date, nullable=False)
     reviewed_at = Column(DateTime)

@@ -51,6 +51,26 @@ def test_import_transaction_rolls_back_earlier_table_on_later_bad_csv(tmp_path, 
     assert db_session.scalars(select(DailyPrice)).all() == []
 
 
+def test_import_skips_halt_placeholder_without_overwriting_real_price(tmp_path, db_session):
+    columns = [column.name for column in DailyPrice.__table__.columns]
+    halted = {**dict.fromkeys(columns, "0"), "date": "2024-01-02", "symbol": "2330"}
+    traded = {**halted, "date": "2024-01-01", "close": "100", "volume_shares": "1000"}
+    write_csv(tmp_path / "2330_price_volume.csv", [traded, halted, {**halted, "date": traded["date"]}])
+    with db_session.begin():
+        counts = import_csv.import_symbol(db_session, tmp_path, "2330", ["price_volume"])
+    assert counts["price_volume"] == 1
+    assert db_session.get(DailyPrice, (date(2024, 1, 2), "2330")) is None
+    assert db_session.get(DailyPrice, (date(2024, 1, 1), "2330")).close == Decimal("100.00")
+
+
+@pytest.mark.parametrize("field", ["open", "high", "low", "close", "volume_shares", "amount", "trades"])
+@pytest.mark.parametrize("value", ["1", ""])
+def test_price_filter_requires_every_price_and_activity_field_to_be_zero(field, value):
+    row = {**dict.fromkeys([column.name for column in DailyPrice.__table__.columns], "0"),
+           "date": "2024-01-01", "symbol": "2330", field: value}
+    assert len(import_csv.normalized_rows(DailyPrice, [row], "2330")) == 1
+
+
 def test_import_cli_returns_nonzero_and_disposes_engine_on_bad_data(tmp_path, db_session, settings, monkeypatch):
     engine = db_session.bind
     write_csv(tmp_path / "2330_price_volume.csv", [{"bad": "format"}])

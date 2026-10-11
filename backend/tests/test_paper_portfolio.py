@@ -457,3 +457,61 @@ def test_user_facing_rule_text_is_plain_chinese(db_session, owner):
     assert '證券交易稅 0.3%（賣出時）' in note and '計算到小數 2 位' in note and '未計入股息與除權息' in note
     for phrase in ('賣出稅', '四捨五入至分', '公司行動'):
         assert phrase not in note
+
+
+def test_audit_records_only_committed_user_mutations(db_session, owner):
+    from sqlalchemy import select
+    from app.db.models.audit import AuditLog
+
+    row = buy(db_session, owner)
+    assert buy(db_session, owner)['id'] == row['id']
+    with pytest.raises(Conflict):
+        buy(db_session, owner, budget=5000)
+    service.cancel_order(db_session, owner, row['id'], now=at(1))
+    service.cancel_order(db_session, owner, row['id'], now=at(1))
+    logs = list(db_session.scalars(select(AuditLog).order_by(AuditLog.id)))
+    assert [log.action for log in logs] == [
+        'paper.account.create', 'paper.order.create', 'paper.order.cancel']
+    assert all(log.actor_id == owner and log.actor_email == 'paper@example.com' for log in logs)
+    assert all(log.status == 'succeeded' for log in logs)
+
+
+def test_review_owner_is_derived_from_order_and_completion_is_idempotent(db_session, owner):
+    from sqlalchemy import select
+    from app.db.models.audit import AuditLog
+
+    buy(db_session, owner, review_after_days=1)
+    market(db_session, 2, 100)
+    market(db_session, 3, 105)
+    service.reconcile(db_session, owner, at(3))
+    review = service.snapshot(db_session, owner, at(3))['reviews'][0]
+    other = User(email='other-paper@example.com', password_hash='unused')
+    db_session.add(other)
+    db_session.commit()
+    service.create_fund_movement(db_session, other.id,
+                                 FundCreate(client_request_id='initial', kind='initial', amount=1000), now=at(3))
+    assert service.snapshot(db_session, other.id, at(3))['reviews'] == []
+    with pytest.raises(NotFound):
+        service.acknowledge_review(db_session, other.id, review['id'], now=at(3))
+    service.acknowledge_review(db_session, owner, review['id'], now=at(3))
+    service.acknowledge_review(db_session, owner, review['id'], now=at(4))
+    logs = list(db_session.scalars(select(AuditLog).where(AuditLog.action == 'paper.review.complete')))
+    assert len(logs) == 1 and logs[0].actor_id == owner and logs[0].target == review['id']
+
+
+def test_audit_and_cash_mutation_share_transaction(db_session, owner, monkeypatch):
+    from sqlalchemy import select
+    from app.db.models.audit import AuditLog
+
+    original = service.audit
+
+    def failing_audit(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError('audit failure')
+
+    monkeypatch.setattr(service, 'audit', failing_audit)
+    with pytest.raises(RuntimeError, match='audit failure'):
+        service.create_fund_movement(db_session, owner,
+                                     FundCreate(client_request_id='initial', kind='initial', amount=1000), now=at(1))
+    assert not service.snapshot(db_session, owner, at(1))['initialized']
+    assert list(db_session.scalars(select(AuditLog))) == []

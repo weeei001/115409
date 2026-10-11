@@ -3,25 +3,22 @@ import apiClient from './client';
 import { fetchNewsDetail, fetchNewsIndustries } from './news';
 
 async function check() {
-  const requests: Array<{ url?: string; stock?: string; revision_id?: string }> = [];
+  const requests: Array<{ url?: string; stock?: string }> = [];
   apiClient.defaults.adapter = async (config) => {
     requests.push({ url: config.url, ...config.params });
-    return { data: { article_id: 'a', content: config.params.revision_id ?? 'current' },
+    return { data: { article_id: 'a', content: 'current' },
       status: 200, statusText: 'OK', headers: {}, config };
   };
-  const revision = 'a'.repeat(64);
-  const other = 'b'.repeat(64);
-  const [first, duplicate, second, current] = await Promise.all([
-    fetchNewsDetail('a', '2330', revision), fetchNewsDetail('a', '2330', revision),
-    fetchNewsDetail('a', '2330', other), fetchNewsDetail('a'),
+  const [first, duplicate, current] = await Promise.all([
+    fetchNewsDetail('a', '2330'), fetchNewsDetail('a', '2330'), fetchNewsDetail('a'),
   ]);
-  assert.equal(first.content, revision);
-  assert.equal(duplicate.content, revision);
-  assert.equal(second.content, other);
+  assert.equal(first.content, 'current');
+  assert.equal(duplicate.content, 'current');
   assert.equal(current.content, 'current');
-  assert.equal(requests.length, 3);
-  assert.deepEqual(requests[0], { url: '/news/a', stock: '2330', revision_id: revision });
-  console.log('News revision requests preserve query identity and dedupe only identical versions.');
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0], { url: '/news/a', stock: '2330' });
+  assert.deepEqual(requests[1], { url: '/news/a' });
+  console.log('News requests fetch current articles and dedupe identical stock queries.');
 
   // /news/industries: openapi has no response schema, so malformed items are dropped; the list is cached.
   let industryCalls = 0;

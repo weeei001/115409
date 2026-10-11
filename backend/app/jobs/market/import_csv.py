@@ -85,10 +85,16 @@ def convert(value, column):
 def normalized_rows(model, rows: list[dict], symbol: str) -> list[dict]:
     columns = list(model.__table__.columns)
     keys = [column.name for column in model.__table__.primary_key]
+    required_keys = [column.name for column in model.__table__.primary_key if column.default is None]
     unique = {}
     for raw in rows:
         item = {column.name: convert(raw.get(column.name), column) for column in columns}
-        if item.get("symbol") != symbol or not all(item[key] is not None for key in keys):
+        if (item.get("symbol") != symbol or not all(item[key] is not None for key in keys)
+                or any(item[key] == "" for key in required_keys)):
+            raise ValueError(f"Invalid primary key or mismatched symbol in {model.__tablename__}")
+        # Exchange halt-day placeholders are not observed trading prices.
+        if model is DailyPrice and all(item[field] == 0 for field in (
+                "open", "high", "low", "close", "volume_shares", "amount", "trades")):
             continue
         unique[tuple(item[key] for key in keys)] = item
     return [unique[key] for key in sorted(unique)]
@@ -140,6 +146,8 @@ def import_symbol(db: Session, input_dir: Path, symbol: str,
             raise ValueError(f"Missing market CSV: {path.name}")
         rows = read_rows(path, ["date", "symbol"] if datasets is not None
                          else [column.name for column in model.__table__.columns])
+        if datasets is not None and not rows:
+            raise ValueError(f"Declared market CSV contains no rows: {path.name}")
         counts[suffix] = upsert_rows(db, model, normalized_rows(model, rows, symbol))
     if datasets is None:
         counts["technical"] = import_technical_csv(db, input_dir / f"{symbol}_price_volume.csv",

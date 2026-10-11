@@ -11,15 +11,17 @@ from uuid import uuid4
 from sqlalchemy import delete, func, or_, select
 
 from app.clients.llm import LlmClient, token_cost
+from app.clients.usage import tracked_client
+from app.db.engine import make_session_factory
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from app.features.news.eligibility import contains_simulation
 from app.features.news.versions import source_states
 from app.features.news.impact import (ImpactOutput, PROMPT_VERSION, SYSTEM_PROMPT, TOPICS, article_hash,
                                       config_hash, validate_output)
-from app.features.news.sentiment import (TAIPEI_TZ, clean_text, extract_candidate_stocks,
-                                         analysis_content_window, estimate_token_count)
+from app.features.news.text import (TAIPEI_TZ, clean_text, extract_candidate_stocks,
+                                         analysis_content_window, estimate_token_count, parse_news_pub_time)
 
 
 MAX_INPUT_TOKENS = 8000
@@ -70,6 +72,7 @@ class ImpactBatchRunner:
     def __init__(self, *, db_session, settings, catalog, http=None, llm=None,
                  limit=100, max_cost_usd=0.50, execute=False, work_dir: Path):
         self.db = db_session
+        self.session_factory = make_session_factory(db_session.get_bind()) if db_session is not None else None
         # 本機驗證需要原始 JSON，才能針對格式錯誤的目標或引文進行修復。
         self.settings = settings.model_copy(update={"LLM_MAX_RETRIES": 0, "LLM_STREAMING": False,
                                             "LLM_RESPONSE_FORMAT": "off"})
@@ -81,9 +84,9 @@ class ImpactBatchRunner:
         self.execute = execute
         self.work_dir = work_dir
         self.run_id = f"{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:8]}"
-        self.budget = Decimal(str(max_cost_usd))
+        self.budget = Decimal(str(max_cost_usd)) if max_cost_usd is not None else None
         self.reserved = token_cost(MAX_INPUT_TOKENS, self.settings.LLM_MAX_TOKENS, self.settings)
-        if (limit < 1 or not self.budget.is_finite() or self.budget < 0
+        if (limit < 1 or (self.budget is not None and (not self.budget.is_finite() or self.budget < 0))
                 or self.reserved is None or not self.reserved.is_finite() or self.reserved < 0):
             raise ValueError("Invalid news impact budget or limit")
         self.spent = Decimal(0)
@@ -112,7 +115,6 @@ class ImpactBatchRunner:
                 continue
             published = article.created_at
             if article.pub_time:
-                from app.features.news.sentiment import parse_news_pub_time
                 parsed, _ = parse_news_pub_time(article.pub_time)
                 published = parsed.replace(tzinfo=None) if parsed else published
             if published and published < since:
@@ -126,6 +128,10 @@ class ImpactBatchRunner:
                 if previous.status == "failed" and previous.analyzed_at and now - previous.analyzed_at < RETRY_DELAY:
                     continue
             selected.append((article, current_hash))
+        # Publication time, not ingestion time, determines newest-first dispatch.
+        selected.sort(key=lambda item: (
+            parse_news_pub_time(item[0].pub_time)[0] or datetime.min.replace(tzinfo=TAIPEI_TZ),
+            item[0].article_id), reverse=True)
         self.counts["pending"] = len(selected)
         return selected[:self.limit]
 
@@ -147,9 +153,11 @@ class ImpactBatchRunner:
         record.estimated_cost_usd = (usage or {}).get("estimated_cost_usd")
         self.db.add(record)
         self.db.execute(delete(NewsEventImpact).where(NewsEventImpact.article_id == article.article_id))
+        self.db.execute(delete(NewsEventTopic).where(NewsEventTopic.article_id == article.article_id))
         article.analysis_input_hash = input_hash
         if output:
-            events = {event.key: event for event in output.events}
+            self.db.add_all(NewsEventTopic(article_id=article.article_id, event_key=event.key, topic=topic)
+                            for event in output.events for topic in set(event.topics))
             for impact in output.impacts:
                 self.db.add(NewsEventImpact(
                     article_id=article.article_id, event_key=impact.event_key,
@@ -157,7 +165,6 @@ class ImpactBatchRunner:
                     direction=impact.direction, importance=impact.importance, basis=impact.basis,
                     reason=impact.reason,
                     evidence=json.dumps([quote.model_dump(mode="json") for quote in impact.evidence], ensure_ascii=False),
-                    topics="," + ",".join(events[impact.event_key].topics) + ",",
                 ))
         try:
             self.db.commit()
@@ -193,6 +200,7 @@ class ImpactBatchRunner:
             "topics": TOPICS,
         }
         last_error, last_usage = None, {}
+        llm = tracked_client(self.llm, self.session_factory, "news_impact", str(uuid4()))
         for attempt in (1, 2):
             reserved = self.reserved
             if attempt == 2:
@@ -201,7 +209,7 @@ class ImpactBatchRunner:
                     ensure_ascii=False)
                 reserved = token_cost(MAX_INPUT_TOKENS + estimate_token_count(repair_context + REPAIR_PROMPT),
                                       self.settings.LLM_MAX_TOKENS, self.settings)
-            if self.spent + reserved > self.budget:
+            if self.budget is not None and self.spent + reserved > self.budget:
                 self.stopped_reason = "budget_exhausted"
                 if attempt == 1:
                     return
@@ -210,7 +218,7 @@ class ImpactBatchRunner:
             result, error = None, None
             self.counts["api_calls"] += 1
             try:
-                result = await self.llm.generate(system_prompt=SYSTEM_PROMPT + ("\n" + REPAIR_PROMPT if attempt == 2 else ""),
+                result = await llm.generate(system_prompt=SYSTEM_PROMPT + ("\n" + REPAIR_PROMPT if attempt == 2 else ""),
                                                  payload=payload, schema=ImpactOutput)
             except AppError as exc:
                 error = _error_code(exc)

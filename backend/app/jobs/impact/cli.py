@@ -10,7 +10,7 @@ from app.core.config import get_settings, state_directory
 from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.features.market.company_catalog import load_catalog
-from app.features.news.sentiment import TAIPEI_TZ
+from app.features.news.text import TAIPEI_TZ
 from app.jobs.diagnostics import report_failure
 from app.jobs.locking import worker_lock
 from .migrate import migrate_news_impact
@@ -25,7 +25,10 @@ def main(argv: list[str] | None = None) -> int:
     window.add_argument("--backfill-days", type=int, default=30)
     window.add_argument("--since", type=date.fromisoformat,
                         help="Fixed Taiwan-local publication start date; overrides the default 30-day window")
-    parser.add_argument("--max-cost-usd", type=float, default=0.50)
+    budget = parser.add_mutually_exclusive_group()
+    budget.add_argument("--max-cost-usd", type=float, default=0.50)
+    budget.add_argument("--no-cost-limit", action="store_true",
+                        help="Explicitly disable the estimated cost limit for this run")
     parser.add_argument("--model")
     parser.add_argument("--work-dir", type=Path, default=state_directory())
     args = parser.parse_args(argv)
@@ -56,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
                         async with make_http_client(settings) as http:
                             phase = "analysis"
                             runner = ImpactBatchRunner(db_session=db, settings=settings, catalog=catalog, http=http,
-                                limit=args.limit, max_cost_usd=args.max_cost_usd,
+                                limit=args.limit, max_cost_usd=None if args.no_cost_limit else args.max_cost_usd,
                                 execute=args.execute, work_dir=args.work_dir)
                             since = (datetime.combine(args.since, time.min) if args.since else
                                      datetime.now(TAIPEI_TZ).replace(tzinfo=None) - timedelta(days=args.backfill_days))

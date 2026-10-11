@@ -232,18 +232,7 @@ export interface NewsEventAnalysis {
   analyzed_at?: string | null;
 }
 
-export interface NewsSourceState {
-  eligible: boolean;
-  status: 'active' | 'untracked' | 'conflict' | 'superseded' | 'historical';
-  canonical_key?: string;
-  canonical_url?: string;
-  revision_id?: string | null;
-  observed_at?: string | null;
-  limitation?: string;
-}
-
 export interface News {
-  source_state?: NewsSourceState;
   target_industries?: string[];
   article_id: string;
   source: string | null;

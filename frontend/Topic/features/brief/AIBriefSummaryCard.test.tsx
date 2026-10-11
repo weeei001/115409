@@ -12,6 +12,7 @@ import { EvidenceDetail } from './EvidenceDetail';
 import { restoreFocus } from './EvidencePanel';
 import { resolveEvidenceItem } from '../../lib/brief/textBriefEvidence';
 import { renderedText } from '../../lib/testing/markup';
+import { forwardViewLabel } from '../../lib/brief/textBriefLabels';
 
 const text = (html: string) => renderedText(html);
 
@@ -22,7 +23,7 @@ const CATALOG: EvidenceItem[] = [
 
 const claim = (id: string, body: string) => ({ id, claim_type: 'observation', text: body, evidence_ids: ['fd_06'] });
 
-/** 2330 的情況：負面因素 3 項、情境風險 0 項（被檢查刪掉或 AI 沒列） */
+/** Three negative factors with no scenario risk entries. */
 const BRIEF = {
   overall_stance: 'neutral',
   confidence: 'low',
@@ -61,7 +62,7 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
 
   // 面向分級：情境風險，沒有資料時不能寫成「沒有列出風險」
   assert.ok(plain.includes('情境風險'));
-  assert.ok(plain.includes('本次未列出或未通過檢查（不代表沒有風險）'));
+  assert.ok(plain.includes('本次未提供情境風險內容（不代表沒有風險）'));
   assert.ok(!plain.includes('沒有列出風險項目'));
 
   // 評價：有本益比、沒有百分位時要講缺的是百分位，不提內部的「證據目錄」
@@ -81,7 +82,7 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
   );
   assert.ok(plain.includes(`AI 依公開資料整理，${AI_RESEARCH_ONLY}投資前請自行評估風險。`));
   assert.ok(!plain.includes('不代表保證獲利'));
-  assert.ok(plain.includes('系統只檢查格式、引用和部分數字，沒有驗證推論是否正確。'));
+  assert.ok(plain.includes('分析由 AI 依提供的資料產生，推論與數字仍可能有誤。'));
   assert.ok(!plain.includes('語義'));
   assert.ok(!/；\s/.test(plain), `全形分號後不能接半形空格：${plain}`);
   assert.ok(!plain.includes('證據目錄'));
@@ -148,8 +149,8 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
 
 /* ── 後端 status：limited 要提示內容有刪減並指向「分析限制」；verified 不提示 ── */
 {
-  const note = '部分內容沒有通過系統檢查或缺少資料，已移除或留空';
-  const limits = ['下列段落沒有通過檢查的依據，已留空：風險。'];
+  const note = '部分分析內容缺漏，未提供的段落已留空';
+  const limits = ['下列段落未提供內容：風險。'];
   const card = (status: string) => text(renderToStaticMarkup(React.createElement(AIBriefSummaryCard, {
     symbol: '2330', brief: briefResult({ brief: BRIEF, status, limitations: limits }), onOpenDetail: () => {},
   })));
@@ -163,3 +164,13 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
 }
 
 console.log('AI brief summary card / panel copy tests passed');
+
+// Legacy rejected snapshots lack the removed content; do not invent a stance.
+{
+  assert.equal(forwardViewLabel({
+    stance: 'bullish', validation_status: 'rejected', reason: '', invalidation: '',
+  }), '暫無分析內容');
+  assert.equal(forwardViewLabel({
+    stance: 'bullish', reason: 'Demand increased', invalidation: 'Demand weakens',
+  }), '偏多');
+}

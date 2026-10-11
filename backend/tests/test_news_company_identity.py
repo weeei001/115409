@@ -7,7 +7,7 @@ import pytest
 
 from app.features.news import impact as impact_module
 from app.features.news.impact import validate_output
-from app.features.news.sentiment import company_mentions, extract_candidate_stocks
+from app.features.news.text import company_mentions, extract_candidate_stocks
 from app.features.retrieval.impact_metadata import current_analysis
 
 
@@ -108,7 +108,7 @@ def test_legacy_samsung_tags_cannot_override_unresolved_foreign_names(reference)
     f"{FOREIGN_REFERENCE}；三星(5007)公布螺絲產品營收。",
 ])
 def test_read_guard_keeps_explicit_local_company_metadata(reference):
-    from app.features.news.sentiment import safe_stock_metadata
+    from app.features.news.text import safe_stock_metadata
     assert safe_stock_metadata("5007", "5007.TW,2330", TITLE, reference, CATALOG) == {
         "stock_id": "5007", "tags": "5007.TW,2330"}
 
@@ -117,8 +117,6 @@ def test_api_hides_legacy_foreign_company_tags_and_stale_impacts_without_writing
         client, db_session, settings, monkeypatch):
     from app.db.models.news_article import NewsArticle
     from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
-    from app.db.models.news_version import NewsArticleVersion
-    from app.features.news.versions import record_version
     monkeypatch.setattr("app.features.market.company_catalog.load_catalog", lambda: CATALOG)
     article = NewsArticle(article_id="legacy-samsung", title=TITLE, content=FOREIGN_REFERENCE,
         content_kind="full", pub_time="2026-10-05 14:00:00", stock_id="5007", tags="005930-KR,5007.TW,2330")
@@ -132,8 +130,7 @@ def test_api_hides_legacy_foreign_company_tags_and_stale_impacts_without_writing
         status="success", events_json=json.dumps(impact_output(FOREIGN_REFERENCE)["events"])))
     db_session.add(NewsEventImpact(article_id=article.article_id, event_key="e1", target_type="company",
         target_id="5007", direction="positive", importance="medium", basis="inferred",
-        reason="Old wrong target", evidence=json.dumps([{"field": "content", "quote": FOREIGN_REFERENCE}]), topics=",ai,"))
-    revision_id = record_version(db_session, article, observed_at=datetime(2026, 10, 5, 15))
+        reason="Old wrong target", evidence=json.dumps([{"field": "content", "quote": FOREIGN_REFERENCE}])))
     db_session.commit()
 
     response = client.get(f"/news/{article.article_id}")
@@ -144,10 +141,5 @@ def test_api_hides_legacy_foreign_company_tags_and_stale_impacts_without_writing
     listed = client.get("/news").json()["items"][0]
     assert listed["stock_id"] is None and listed["tags"] == "005930-KR,2330"
     assert client.get("/news", params={"stock": "5007", "relation": "direct"}).json()["total"] == 0
-    historical = client.get(f"/news/{article.article_id}", params={"revision_id": revision_id}).json()
-    assert historical["stock_id"] is None and historical["tags"] == "005930-KR,2330"
-    assert historical["content"] == FOREIGN_REFERENCE and historical["source_state"]["status"] == "historical"
-    saved = json.loads(db_session.get(NewsArticleVersion, revision_id).snapshot_json)
-    assert saved["stock_id"] == "5007" and saved["tags"] == "005930-KR,5007.TW,2330"
     assert article.stock_id == "5007" and article.tags == "005930-KR,5007.TW,2330"
     assert not db_session.new and not db_session.dirty and not db_session.deleted

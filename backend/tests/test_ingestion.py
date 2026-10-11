@@ -10,7 +10,6 @@ from sqlalchemy.schema import CreateTable
 
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDecision
 from app.jobs.ingestion import cli, repository
 from app.db.models.news_chunk import chunk_metadata
 from app.features.retrieval.chunking import article_chunks, embedding_text, split_spans, split_text
@@ -23,8 +22,6 @@ def ingestion_db():
     with engine.begin() as connection:
         connection.execute(CreateTable(NewsArticle.__table__))
     chunk_metadata.create_all(engine)
-    for model in (NewsArticleVersion, NewsSourceSelection, NewsSourceDecision):
-        model.__table__.create(engine)
     yield engine, sessionmaker(engine, expire_on_commit=False)
     engine.dispose()
 
@@ -165,29 +162,15 @@ def test_simulation_is_excluded_from_chunking_and_existing_chunk_vectorization(i
     assert writer.existing == real_ids
 
 
-@pytest.mark.parametrize("status", ["conflict", "superseded"])
-def test_source_selection_blocks_chunking_and_existing_chunk_vectorization(ingestion_db, status):
-    from app.features.news.versions import set_selection, source_identity
+def test_latest_sources_chunk_and_vectorize_without_selection_tables(ingestion_db):
     _, factory = ingestion_db
-    excluded, active = _article("excluded"), _article("active")
-    if status == "superseded":
-        active["url"] = excluded["url"]
-    _seed(factory, [excluded, active])
-    with factory() as db:
-        key, canonical = source_identity(excluded)
-        set_selection(db, key, canonical, "active" if status == "superseded" else None,
-                      "active" if status == "superseded" else "conflict", "Fixed source review")
-        db.commit()
+    _seed(factory, [_article("first"), _article("second")])
     result = chunk_news(factory)
-    assert result.skipped == 1 and result.written == 1
-    assert [row["article_id"] for row in _stored(factory)] == ["active"]
-    with factory() as db:
-        repository.insert_article_chunks(db, article_chunks(excluded))
-        db.commit()
+    assert result.written == 2
     writer = FakeWriter()
     result = asyncio.run(vectorize_news(factory, writer, retry_delay=0))
-    assert result.skipped == 1 and result.written == 1
-    assert {chunk["article_id"] for chunk in writer.written} == {"active"}
+    assert result.written == 2
+    assert {chunk["article_id"] for chunk in writer.written} == {"first", "second"}
 
 
 def test_chunk_dry_run_respects_limit_and_keeps_database_empty(ingestion_db):
@@ -232,6 +215,29 @@ class FakeWriter:
     async def delete_stale_article_chunks(self, article_id, index_version, ids):
         assert set(ids).issubset(self.existing)
         self.deleted.append((article_id, index_version, ids))
+
+
+def test_new_model_version_preserves_old_chunks_and_excludes_other_sources(ingestion_db):
+    _, factory = ingestion_db
+    _seed(factory, [_article("cnyes"), {**_article("ltn"), "source": "ltn"}])
+    chunk_news(factory)
+    old = {row["chunk_id"] for row in _stored(factory)}
+    refused = chunk_news(factory, embedding_model="openai/text-embedding-3-small")
+    assert refused.failed == 2 and refused.written == 0
+    assert {row["chunk_id"] for row in _stored(factory)} == old
+    report = chunk_news(factory, index_version="openai-v2", sources=["cnyes"],
+                        embedding_model="openai/text-embedding-3-small")
+    assert report.written == 1
+    assert old.issubset({row["chunk_id"] for row in _stored(factory)})
+    writer = FakeWriter(accept_timeout=True)
+    report = asyncio.run(vectorize_news(factory, writer, sources=["cnyes"],
+                                       index_version="openai-v2", retry_delay=0))
+    assert report.written == 1 and report.failed == 0 and report.retries == 1
+    assert {row["article_id"] for row in writer.written} == {"cnyes"}
+    resumed = asyncio.run(vectorize_news(factory, writer, sources=["cnyes"],
+                                        index_version="openai-v2", retry_delay=0))
+    assert resumed.written == 0 and resumed.skipped == 1
+    assert len(writer.embedding_calls) == 1
 
 
 def test_vectorization_completes_whole_article_before_cleanup_and_resumes(ingestion_db):

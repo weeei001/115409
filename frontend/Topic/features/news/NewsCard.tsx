@@ -98,14 +98,10 @@ const textLink = cn('inline-flex min-h-11 items-center gap-1 rounded-sm outline-
 /** 新聞列（航船布告）：燈質列寫時間與來源，下方是標題、事件影響、摘要；列與列之間用細線分隔 */
 export const NewsCard = memo(function NewsCard({ news, targetStock, relation = 'direct', returnTo, onNavigate, layout = 'stack' }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const sourceStatus = news.source_state?.status;
-  const sourceLabel = sourceStatus === 'conflict' ? '來源有多個版本，尚未確認哪一版有效'
-    : sourceStatus === 'superseded' ? '來源已更新，這是舊版本'
-      : sourceStatus === 'historical' ? '這是舊版本的原文' : null;
-  const noAnalysis = !sourceLabel && news.event_analysis?.status !== 'success';
+  const noAnalysis = news.event_analysis?.status !== 'success';
   const stocks = Array.from(
     new Set([
-      ...(!sourceLabel && news.event_analysis?.status === 'success'
+      ...(news.event_analysis?.status === 'success'
         ? news.event_analysis.impacts.filter((impact) => impact.target_type === 'company').map((impact) => impact.target_id)
         : []),
       ...parseRelatedStocks(news),
@@ -114,15 +110,13 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
   const hasContent = Boolean(news.content?.trim());
   const originUrl = safeHttpUrl(news.url);
   const panelId = `news-content-${news.article_id}`;
-  const impacts = sourceLabel ? [] : visibleImpacts(news, targetStock, relation);
+  const impacts = visibleImpacts(news, targetStock, relation);
   const groups = groupImpactsByTarget(impacts);
-  const allGroups = sourceLabel ? [] : groupImpactsByTarget(visibleImpacts(news));
+  const allGroups = groupImpactsByTarget(visibleImpacts(news));
   const baseHref = newsHref(news.article_id, targetStock);
-  const versionHref = sourceStatus === 'historical' && /^[0-9a-f]{64}$/.test(news.source_state?.revision_id ?? '')
-    ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}revision_id=${news.source_state!.revision_id}` : baseHref;
-  const href = returnTo ? `${versionHref}${versionHref.includes('?') ? '&' : '?'}returnTo=${encodeURIComponent(returnTo)}` : versionHref;
+  const href = returnTo ? `${baseHref}${baseHref.includes('?') ? '&' : '?'}returnTo=${encodeURIComponent(returnTo)}` : baseHref;
   // 有分析時直接跳到新聞頁的分析區（手機版分析在全文之後）
-  const actionHref = sourceLabel || noAnalysis ? href : `${href}#analysis`;
+  const actionHref = noAnalysis ? href : `${href}#analysis`;
   // 來源只顯示對照得到的中文名稱，對照不到就不寫（不顯示後端代碼）
   const meta = [news.pub_time ? formatTime(news.pub_time) : null, newsSourceName(news.source)].filter(Boolean).join(' · ');
 
@@ -135,7 +129,6 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
           <span className="line-clamp-2">{news.title}</span>
         </Link>
       </h3>
-      {sourceLabel ? <p className="mt-1 text-xs font-medium text-muted-foreground">{sourceLabel}；這個版本不顯示 AI 影響分析。</p> : null}
       {news.event_analysis?.content_truncated ? (
         <p className="mt-1 text-xs text-muted-foreground">分析僅使用部分內文，可能未涵蓋後段資訊。</p>
       ) : null}
@@ -152,7 +145,7 @@ export const NewsCard = memo(function NewsCard({ news, targetStock, relation = '
     // 每個動作只有一個入口，而且都有文字：站內用 → 、展開用 ⌄、離站才用外連圖示
     <div className="flex flex-wrap items-center gap-x-5 text-xs">
       <Link href={actionHref} onNavigate={onNavigate} className={cn(textLink, 'font-medium text-foreground')}>
-        {sourceLabel ? '查看原文與版本狀態' : noAnalysis ? '查看內文' : '查看事件影響分析'}
+        {noAnalysis ? '查看內文' : '查看事件影響分析'}
         <ArrowRight size={13} className="text-muted-foreground" aria-hidden />
       </Link>
       {hasContent ? (

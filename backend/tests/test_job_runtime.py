@@ -5,6 +5,7 @@ import time
 
 import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.errors import AppError
@@ -36,6 +37,81 @@ def wait_until(predicate):
     while not predicate():
         assert time.monotonic() < deadline, "Runtime did not reach the expected state"
         time.sleep(0.01)
+
+
+@pytest.mark.parametrize("existing_pause", [None, False, True])
+def test_ltn_is_disabled_by_default_without_overriding_explicit_controls(
+        tmp_path, settings, monkeypatch, existing_pause):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    if existing_pause is not None:
+        with factory() as db:
+            db.add(AdminJobControl(job_name="ltn", paused=existing_pause))
+            db.commit()
+
+    @contextmanager
+    def lock(name):
+        yield
+
+    monkeypatch.setattr(runtime, "worker_lock", lock)
+    jobs.start()
+    try:
+        wait_until(lambda: jobs.status == "running")
+        with factory() as db:
+            assert db.get(AdminJobControl, "ltn").paused is (existing_pause is not False)
+        assert jobs._enabled("ltn") is (existing_pause is False)
+        assert jobs._enabled("cnyes")
+    finally:
+        jobs.stop()
+        engine.dispose()
+
+
+def test_scheduler_retries_database_failure_before_queueing(tmp_path, settings, monkeypatch):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    attempts, calls = [], []
+
+    def session_factory():
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise SQLAlchemyError("Temporary database failure")
+        return factory()
+
+    jobs.session_factory = session_factory
+    monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: calls.append(name) or 0)
+    deadline = datetime.now(runtime.TAIPEI)
+    jobs.scheduler.next_market = deadline
+    try:
+        with pytest.raises(SQLAlchemyError):
+            jobs.scheduler.tick(deadline)
+        assert jobs.scheduler.next_market == deadline
+        jobs.scheduler.tick(deadline + timedelta(seconds=5))
+        jobs.scheduler.tick(deadline + timedelta(seconds=6))
+        assert calls == ["pipeline"]
+        with factory() as db:
+            runs = list(db.scalars(select(AdminJobRun)))
+            assert len(runs) == 1 and runs[0].status == "succeeded"
+    finally:
+        engine.dispose()
+
+
+def test_durably_queued_schedule_is_not_redispatched_on_execution_error(tmp_path, settings, monkeypatch):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    calls = []
+
+    def execute(run_id):
+        calls.append(run_id)
+        raise SQLAlchemyError("Could not record worker result")
+
+    monkeypatch.setattr(jobs, "_execute", execute)
+    deadline = datetime.now(runtime.TAIPEI)
+    jobs.scheduler.next_market = deadline
+    try:
+        with pytest.raises(SQLAlchemyError):
+            jobs.scheduler.tick(deadline)
+        jobs.scheduler.tick(deadline + timedelta(seconds=5))
+        assert len(calls) == 1
+        assert jobs.scheduler.next_market > deadline
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize("result,paused,existing,stopped", [
@@ -477,7 +553,8 @@ def test_pipeline_owns_all_stages_in_one_run_and_keeps_partial_failures(tmp_path
         with factory() as db:
             run_id = service.perform_job(db, db.get(User, user_id), jobs, "pipeline", "run", None)["run_id"]
         assert jobs._execute(run_id) == 3
-        assert calls == ["market-backfill", "market-fetch", "market-import", "paper-reconcile",
+        assert calls == ["market-backfill", "market-fetch", "market-import", "market-supplemental-backfill",
+            "market-supplemental-backfill", "paper-reconcile",
             "crawl-cnyes", "migrate-news-impact-schema", "news-ingest", "news-impact-batch",
             "news-impact-sync", "cache-warmup"]
         with factory() as db:

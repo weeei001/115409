@@ -36,7 +36,7 @@ export function costNote(usage: AIUsageSummary): string {
   return [
     `以設定的單價估算：輸入每百萬 token US$${priceText(usage.input_price_per_m)}、輸出 US$${priceText(usage.output_price_per_m)}。`,
     usage.measured < usage.briefs ? `${usage.briefs} 份中有 ${usage.measured} 份有 token 紀錄，平均與成本只用這些計算。` : '',
-    usage.unavailable ? `其中 ${usage.unavailable} 份沒有通過檢查、沒有產出內容，但一樣呼叫過模型。` : '',
+    usage.unavailable ? `其中 ${usage.unavailable} 份沒有產出內容，但一樣呼叫過模型。` : '',
     '未含 AI 對話、新聞影響分析、判斷檢討與後台 AI 回測的呼叫；自架模型的實際花費是主機費用，這裡是用 token 換算的參考值。',
   ].join('');
 }

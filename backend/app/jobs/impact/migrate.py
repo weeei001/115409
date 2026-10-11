@@ -4,6 +4,7 @@ from sqlalchemy import inspect, select, text
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.news.impact import article_source_hash
+from app.jobs.schema_adjust import migrate_event_topics
 
 
 def migrate_news_impact(engine) -> dict[str, int]:
@@ -26,6 +27,7 @@ def migrate_news_impact(engine) -> dict[str, int]:
     NewsEventImpact.__table__.create(engine, checkfirst=True)
     updated = 0
     with engine.begin() as connection:
+        migrate_event_topics(connection)
         rows = connection.execute(select(NewsArticle.article_id, NewsArticle.title, NewsArticle.content,
                                         NewsArticle.pub_time, NewsArticle.content_kind,
                                         NewsArticle.analysis_input_hash)

@@ -216,7 +216,7 @@ const AS_OF = '2026-09-03';
   );
   // 缺資料時要寫出缺什麼，不提內部的「證據目錄」；情境風險空的時候不能說成沒有風險
   assert.ok(unknown.every((facet) => !facet.basis.includes('證據目錄')));
-  assert.equal(unknown.find((facet) => facet.key === 'risk')!.basis, '本次未列出或未通過檢查（不代表沒有風險）');
+  assert.equal(unknown.find((facet) => facet.key === 'risk')!.basis, '本次未提供情境風險內容（不代表沒有風險）');
   assert.equal(
     buildFacets([{ id: 'fd_06', field: 'per', value: 28.98 }]).find((facet) => facet.key === 'valuation')!.basis,
     '缺少近一年百分位，無法分級'
@@ -245,17 +245,15 @@ const AS_OF = '2026-09-03';
 {
   const source: EvidenceItem = {
     id: 'nw_saved', field: 'news', value: 'Saved article', article_id: 'article-123', url: 'https://example.com/original',
-    source_state: { eligible: true, status: 'active', revision_id: 'a'.repeat(64) },
   };
   const resolved = resolveEvidenceItem(source);
   assert.equal(resolved.url, source.url);
-  assert.equal(resolved.savedVersionUrl, `/news/article-123?revision_id=${'a'.repeat(64)}`);
+  assert.equal(resolved.articleUrl, '/news/article-123');
   const html = renderToStaticMarkup(React.createElement(EvidenceDetail, { item: resolved, usedBy: [] }));
   assert.ok(html.includes('href="https://example.com/original"'));
-  assert.ok(html.includes(`href="/news/article-123?revision_id=${'a'.repeat(64)}"`));
-  assert.equal(resolveEvidenceItem({ ...source, source_state: undefined }).savedVersionUrl, null);
-  assert.equal(resolveEvidenceItem({ ...source, article_id: '../other' }).savedVersionUrl, null);
-  assert.equal(resolveEvidenceItem({ ...source, source_state: { eligible: true, status: 'active', revision_id: 'invalid' } }).savedVersionUrl, null);
+  assert.ok(html.includes('href="/news/article-123"'));
+  assert.equal(resolveEvidenceItem({ ...source }).articleUrl, '/news/article-123');
+  assert.equal(resolveEvidenceItem({ ...source, article_id: '../other' }).articleUrl, null);
 }
 
 console.log('textBrief evidence / claims / facets tests passed');
@@ -268,7 +266,7 @@ console.log('textBrief evidence / claims / facets tests passed');
   const empty = {} as Brief;
   const scenario = renderToStaticMarkup(React.createElement(ScenarioTab, { brief: empty }));
   const points = renderToStaticMarkup(React.createElement(KeyPointsTab, { brief: empty }));
-  assert.ok(scenario.includes('沒有通過檢查的依據'));
+  assert.ok(scenario.includes('暫無分析內容'));
   assert.ok(scenario.includes('這不代表沒有風險'));
   assert.ok(scenario.includes('觀察點判讀'));
   assert.ok(points.includes('這不代表沒有風險'));

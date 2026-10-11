@@ -7,7 +7,6 @@ from app.db.models.daily_price import DailyPrice
 from app.db.models.favorite_stock import FavoriteStock
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
-from app.db.models.news_version import NewsArticleVersion, NewsSourceSelection
 from app.db.models.notification import Notification, NotificationPreference
 from app.db.models.user import User
 from app.features.notifications.engine import generate_notifications
@@ -144,19 +143,6 @@ def test_news_respects_enable_time_and_favorite_time(db_session):
     pref.news_enabled_at = BASELINE
     favorite = db_session.scalar(select(FavoriteStock))
     favorite.created_at = NOW.replace(tzinfo=None) - timedelta(minutes=15)
-    db_session.commit()
-    assert generate_notifications(db_session, NOW, impact_config_hash="current-config") == 0
-
-
-def test_news_excludes_conflicted_source(db_session):
-    seed(db_session, major_news=True)
-    article(db_session)
-    db_session.add_all([
-        NewsArticleVersion(revision_id="revision", article_id="article", source_key="source", content_hash="hash",
-                           snapshot_json="{}", recorded_at=BASELINE),
-        NewsSourceSelection(source_key="source", canonical_url="https://example.com/news", status="conflict",
-                            selected_article_id=None, reason="Conflicting evidence", observed_at=BASELINE),
-    ])
     db_session.commit()
     assert generate_notifications(db_session, NOW, impact_config_hash="current-config") == 0
 

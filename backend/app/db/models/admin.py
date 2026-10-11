@@ -1,7 +1,7 @@
-"""Environment-local administrator membership, job state and audit records."""
+"""Environment-local administrator membership, job state."""
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 
 from app.db.base import Base
 
@@ -39,13 +39,5 @@ class AdminJobRun(Base):
     error = Column(Text, nullable=True)
 
 
-class AdminAuditLog(Base):
-    __tablename__ = "admin_audit_logs"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    actor_email = Column(String(255), nullable=True)
-    action = Column(String(80), nullable=False)
-    target = Column(String(255), nullable=False)
-    status = Column(String(20), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=utc_now, index=True)
-    details = Column(JSON, nullable=True)
+# Compatibility import for existing callers.
+from app.db.models.audit import AuditLog as AdminAuditLog

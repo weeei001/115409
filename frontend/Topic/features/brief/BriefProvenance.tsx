@@ -15,6 +15,6 @@ export const BriefProvenance: React.FC<{ data: TextBriefResponse; evidence: Evid
         </div>
       ))}
     </dl>
-    <p className="mt-2 text-muted-foreground">系統只檢查格式、引用和部分數字，沒有驗證推論是否正確。</p>
+    <p className="mt-2 text-muted-foreground">分析由 AI 依提供的資料產生，推論與數字仍可能有誤。</p>
   </section>
 );
