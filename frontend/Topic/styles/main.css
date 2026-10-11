@@ -436,18 +436,17 @@
 }
 /* 旅程舞台（首頁 3D 版面）：觀測台疊在它底下、交接最後一段被釘在舞台上緣。
    交接尾聲（data-handed-off，h ≥ 0.95，三塊畫面已經對齊觀測台三欄；而且觀測台正釘在底下，data-pinned）或捲到終點（data-past）時溶掉，露出觀測台；捲回來再溶回來。
-   用一段固定時間溶接、不跟著捲動拖：場景畫的清單與圖表跟觀測台的內容不同，停在半透明會兩層字疊在一起 */
+   用一段固定時間溶接、不跟著捲動拖：場景畫的清單與圖表跟觀測台的內容不同，停在半透明會兩層字疊在一起。
+   減少動態也跑 3D（決議 N1-1），一樣要溶掉；過渡時間被下面的 reduced motion 規則壓到幾乎為 0 */
 [data-journey-stage] {
   transition:
     opacity var(--dur-sweep) var(--ease-swell),
     visibility var(--dur-sweep);
 }
-@media (prefers-reduced-motion: no-preference) {
-  :root[data-handed-off] [data-journey-stage][data-pinned],
-  [data-journey-stage][data-past] {
-    opacity: 0;
-    visibility: hidden;
-  }
+:root[data-handed-off] [data-journey-stage][data-pinned],
+[data-journey-stage][data-past] {
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* 可點的列：hover 只換淺色底；左側 2px 燈色標線只給選取（data-selected、aria-current="page"、aria-selected），

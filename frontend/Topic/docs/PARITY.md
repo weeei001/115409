@@ -372,7 +372,7 @@
 
 | # | 內容 | 位置 |
 |---|---|---|
-| L1-1 | 自家 Capacitor App 不套用低功耗條件（核心數、記憶體、`saveData`、WebView UA），一律跑 3D；減少動態與沒有 WebGL2 仍改用海報。其他 App 內建的 Android WebView（LINE、Facebook 等）維持低功耗判定 | features/home/journey/journeyMode.ts, features/home/journey/journeyMode.test.ts, DESIGN.md 第 11 節 |
+| L1-1 | 自家 Capacitor App 不套用低功耗條件（核心數、記憶體、`saveData`、WebView UA），一律跑 3D；減少動態與沒有 WebGL2 仍改用海報。其他 App 內建的 Android WebView（LINE、Facebook 等）維持低功耗判定〔現況：N1-1 起所有裝置一律跑 3D，低功耗與減少動態都不再降級〕 | features/home/journey/journeyMode.ts, features/home/journey/journeyMode.test.ts, DESIGN.md 第 11 節 |
 | L1-2 | 風險提示條顯示時把自己的高度（含手勢區）寫進 `--risk-notice-height`；`--app-bottom-inset` 取手勢區與提示條的較大值，首頁旅程貼底的文案（手機各章、桌機首屏）改用它閃開 | components/layout/RiskNoticeBanner.tsx, styles/main.css, features/home/journey/BeaconJourney.tsx, DESIGN.md 第 9 節 |
 | L1-3 | 改成 App 跑 3D 後發現：小燈在 3D 旅程後半就出現（手機約從一半進度起）。原因是最後一個舞台高觀測台被釘在舞台底下（`data-pinned`），量到的位置在視窗上方。改成釘住但還沒交接時不算到了，並在 `data-handed-off` 變化時重量（相機平滑落後捲動，停手後才交接完成）。網頁版 3D 也有同樣的問題，一併修正 | features/assistant/AssistantDock.tsx（`homeTerminalReached`）, features/assistant/assistant.test.tsx, DESIGN.md 第 12 節 |
 | L1-4 | App 深色主題時狀態列的時間與圖示仍是深色（系統列預設跟系統深淺色，不跟網站主題），疊在深色頁首上看不見。改成在 App 裡依網站主題呼叫 `SystemBars.setStyle`（深色主題用 `Dark`＝深底淺色圖示），切換主題時即時更新；`capacitor.config.ts` 維持預設，啟動到網頁接手前跟系統深淺色 | components/layout/ThemeColorMeta.tsx, components/layout/ThemeColorMeta.test.ts（`test:home`）, DESIGN.md 第 9 節 |
@@ -399,3 +399,13 @@
 | M1-14 | 後台股票管理每一列「加入股票」都是燈色主要按鈕；目錄載入失敗用 warning | 加入股票改成 outline（和「回補近兩年」一樣）；載入失敗改成 `Notice tone="danger"`，重新載入放在 Notice 的 action（拿掉外層重複的 `role="alert"`） | features/admin/StockManagement.tsx |
 | M1-15 | 多股比較另外抓 `/stocks/symbols`（後端直接從行情表取代號），和全站用的 `/stocks/info`（`stock_info` 且有行情）是兩份清單 | 比較頁只用 `/stocks/info`：可選清單、已載入狀態、載入失敗的錯誤與重試都改跟著它；拿掉「公司與產業資料載入失敗」那則警告（清單只剩一份，讀不到就是錯誤）。前端的 `fetchSymbols` 因此沒人用，已刪除；後端 `/stocks/symbols` 端點仍保留，前端不再呼叫 | features/compare/useCompare.ts, pages/compare.tsx, lib/api/stock.ts |
 | M1-16 | 多處負值用半形「-」（DESIGN.md 第 7 節規定 U+2212）：`fmtPercent` 直接用 `toFixed` 的輸出，只有部分呼叫端記得包 `uMinus` | 改在共用函式處理：`fmtPercent`、`fmtAmount`、`fmtNum`、`fmtPrice`、`fmtLotsAxisLabel` 一律輸出 U+2212（既有的 `uMinus(...)` 包裝重複套用也沒關係，保留不動）；圖表 `valueAxis` 沒給 formatter 時用 `defaultValueAxisLabel`（千分位同 ECharts 預設、負號 U+2212），累積報酬、風險報酬散點、指標 tooltip、金額軸也改用 U+2212；其餘自己用 `toFixed` 顯示可能為負的地方（AI 對話圖表 tooltip、相關係數文案、比較圖、MACD 的 DIF／DEA、回測最大回撤、模擬投資金額、營收試算）套 `uMinus`。順手補上 AI 回測總報酬的色調位數（M1-12 漏掉的一處）。渲染首頁、個股、多股比較、模擬投資、收藏等頁掃描頁面文字，沒有剩下半形負號 | lib/utils/format.ts, lib/charts/adapters.ts, lib/api/paperPortfolio.ts, features/ai/ChatDashboard.tsx, features/compare/analysisFindings.ts, features/compare/ComparisonChart.tsx, features/stock/indicators/IndicatorsPanel.tsx, features/admin/AIBacktestPanel.tsx, features/admin/PlanRevenuePanel.tsx, DESIGN.md 第 7 節, lib/utils/lots.test.ts, lib/charts/stockChartTooltips.test.ts, lib/utils/compare.test.ts, lib/brief/textBriefEvidence.test.ts |
+
+### 首頁旅程一律 3D（N1，2026-10-12）
+
+檢查首頁旅程時發現：減少動態的使用者每次載入，整頁都會在 hydration 後重掛一次（AppShell 依減少動態換掉外層結構），首屏 LCP 慢約 0.9 秒（375 寬、CPU 降速 4 倍）。修好之後，使用者決定首頁旅程所有人都看 3D，不要圖版式的海報版面，只保留負責首屏的那張海報。
+
+| # | 內容 | 位置 |
+|---|---|---|
+| N1-1 | 首頁旅程一律跑 3D：拿掉減少動態與低功耗（核心數、記憶體、`saveData`、App 內建的 WebView）的降級條件，也拿掉海報版面（三張圖版、看板、黏住的進度列）。只有不支援 WebGL2 或場景出錯時只留首屏（海報＋文案，不顯示「從頭看起」），往下直接是觀測台。舞台的溶接不再限定 `prefers-reduced-motion: no-preference`。舞台底下各章的海報與 `public/beacon` 的圖檔照舊（場景還沒載入、context 掉了時墊底；登入、註冊頁也用第 3、4 張） | features/home/journey/BeaconJourney.tsx, features/home/journey/journeyMode.ts, features/home/journey/boardFormat.ts, features/home/journey/journeyMode.test.ts, styles/main.css, DESIGN.md 第 10、11 節 |
+| N1-2 | AppShell 不再依減少動態換掉外層結構（`reduce ? children : <AnimatePresence>…`）：`usePrefersReducedMotion` 掛載後才從 false 變成 true，換結構會讓整頁重掛。改成一律包 `AnimatePresence`＋`motion.div`，減少動態時進場與離場都是 0 秒；上一頁還原捲動位置一律等 `onExitComplete` | components/layout/AppShell.tsx, DESIGN.md 第 10 節 |
+| N1-3 | 3D 版面捲到燈塔、窗一帶後離開首頁，console 出現未捕捉的 `TypeError`（three 釋放點光源陰影貼圖時讀不到 framebuffer）。原因是 BeaconScene 卸載後固定 600ms 呼叫 `renderer.dispose()`，而場景的 `dispose()` 由 R3F 排程，主執行緒忙時更晚才跑。改成計時器裡先釋放場景、再釋放 renderer；場景的 `dispose()` 重複呼叫不做事 | features/home/journey/BeaconScene.tsx, features/home/journey/scene/buildBeacon.ts, DESIGN.md 第 11 節 |

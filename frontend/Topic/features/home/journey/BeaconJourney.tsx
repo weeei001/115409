@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn';
 import { toneText } from '@/lib/utils/tone';
 import { useCanHoverTilt, useHtmlDarkClass, useIsMobile } from '@/lib/hooks/useClientEnv';
 import type { BeaconJourneyProps } from './types';
-import { CLOSE_DATA_NOTE, boardFigures, countsText, monitorFigures } from './boardFormat';
+import { CLOSE_DATA_NOTE, boardFigures } from './boardFormat';
 import {
   CAPTION_HIDE_BELOW,
   CHAPTERS,
@@ -26,7 +26,7 @@ import {
   type MeasuredTerminal,
 } from './journeyMath';
 import { clearHandoff, pinTerminal } from './handoffVar';
-import { decideJourneyMode, probeWebGL2, readJourneyEnv, type JourneyMode, type PosterReason } from './journeyMode';
+import { probeWebGL2, type JourneyMode } from './journeyMode';
 import type { SparkLine, WatchItem } from './scene/screens';
 import { DAWN_CAPTION_TINT } from './scene/theme';
 
@@ -36,9 +36,8 @@ import { DAWN_CAPTION_TINT } from './scene/theme';
  * 這個檔案是首屏就載入的外殼，不 import three：
  * - 首屏是海報 <img> 加真正的 DOM 文字，LCP 不等 WebGL。
  * - 3D 場景（BeaconScene）在閒置後才用 next/dynamic 載入，第一格畫好再花 1250ms 淡入。
- * - 減少動態、沒有 WebGL、低功耗裝置：不載場景，改成「海圖圖版」：首屏之後是三張各自成格的圖版
- *   （有線的章節標題列、固定比例加細框的圖、圖旁或圖下的正文）。最後一張依序是：章名與標題 → 裁在三台螢幕上的圖
- *   → 每欄一行真實資料的「看板」（觀測台同一組三欄）→「進入觀測台」，往下就是觀測台。
+ * - 一律跑 3D（減少動態、低功耗裝置也是，決議 N1-1）。只有不支援 WebGL2、或場景出錯時不載場景：
+ *   只留首屏（海報＋文案），往下直接是觀測台。
  *
  * 3D 版面的舞台黏在頁首下方，高度是「視窗 − 頁首」，所以畫面與文案永遠落在看得到的範圍。
  * 每一段文案都放在該段構圖的留白處，底下是一片沒有邊緣的柔和襯底（不是方框）：
@@ -52,12 +51,8 @@ import { DAWN_CAPTION_TINT } from './scene/theme';
 
 const BeaconScene = dynamic(() => import('./BeaconScene').then((m) => m.BeaconScene), { ssr: false, loading: () => null });
 
-type Mode = 'pending' | JourneyMode;
-
 /** 3D 版面：第幾段文案底下墊第幾張海報（場景還沒接手、或 context 掉了才看得到）。窗用窗那張，桌前與交接都用螢幕那張 */
 const POSTER_OF_CHAPTER = [0, 1, 2, 3, 3] as const;
-/** 海報版面：首屏與三張圖版各算第幾段（決定 rail 亮哪一站：海面、燈塔、窗前、觀測台） */
-const CHAPTER_OF_PLATE = [0, 1, 2, 4] as const;
 const POSTER_COUNT = 4;
 
 /** 跟頁首內容對齊的左緣、右緣（頁面容器 max-w-[1320px] lg:px-10） */
@@ -66,8 +61,8 @@ const GUTTER_R = 'lg:mr-[max(2.5rem,calc((100%-1320px)/2+2.5rem))]';
 /** 手機：文案欄用滿整個欄寬（左右各 16px），底部閃開手勢區與首次造訪的風險提示條 */
 const MOBILE_BOTTOM = 'self-end mx-4 mb-[calc(1rem+var(--app-bottom-inset))]';
 
-/** 第 2–5 段文案共用：疊在場景上、捲到之前不顯示；海報版面整個不輸出（圖版裡有自己的一份） */
-const CAPTION = 'relative z-20 col-start-1 row-start-1 invisible opacity-0 in-data-[mode=poster]:hidden motion-reduce:hidden';
+/** 第 2–5 段文案共用：疊在場景上、捲到之前不顯示；只有首屏海報時（不支援 WebGL2）整個不輸出 */
+const CAPTION = 'relative z-20 col-start-1 row-start-1 invisible opacity-0 in-data-[mode=poster]:hidden';
 
 /**
  * 3D 版面每段文案在畫面上的位置（lg 以上），依各段鏡頭構圖的留白決定：
@@ -96,9 +91,6 @@ const HEADING_CHAPTER =
 /** 交接那一行：跟觀測台的「觀測台」標題同一個字級與行高（clamp(28px,3.3vw,46px)、1.22），一行排完 */
 const HEADING_HANDOFF =
   'font-serif text-[clamp(25px,7.2vw,34px)] leading-[1.22] font-black tracking-[0.02em] whitespace-nowrap text-foreground lg:text-[clamp(28px,3.3vw,46px)]';
-/** 圖版正文欄比較窄（四欄），標題小一號 */
-const HEADING_PLATE =
-  'font-serif text-[clamp(25px,7.2vw,34px)] leading-[1.24] font-black tracking-[0.02em] text-balance text-foreground [word-break:keep-all] lg:text-[clamp(28px,2.5vw,36px)]';
 const BODY = 'mt-3 max-w-[34em] text-[15px] leading-[1.75] text-foreground lg:text-[17px]';
 
 const ease = (t: number) => t * t * (3 - 2 * t);
@@ -322,30 +314,14 @@ class SceneBoundary extends React.Component<{ onError: () => void; children: Rea
   }
 }
 
-/** 直式的窄螢幕：首屏用 720×1440 的直幅海報，圖版用 720×900（4:5）的那張 */
+/** 直式的窄螢幕：首屏用 720×1440 的直幅海報，其他章用 720×900 的那張 */
 const PORTRAIT_MEDIA = '(max-width: 1023px) and (orientation: portrait)';
 
 /**
- * sync：海報版面時同步解碼——圖已經載好，畫面要畫到它時就一定畫出來，
- * 不會在整頁擷取或快速捲動時先露出一塊佔位色（async 解碼偶爾會趕不上那一格）。
+ * sync：只有首屏海報時（不支援 WebGL2）同步解碼——圖已經載好，畫面要畫到它時就一定畫出來，
+ * 不會先露出一塊佔位色（async 解碼偶爾會趕不上那一格）。
  */
-function PosterImage({
-  n,
-  theme,
-  eager,
-  sync,
-  position,
-  zoom = false,
-}: {
-  n: number;
-  theme: 'night' | 'dawn';
-  eager: boolean;
-  sync: boolean;
-  /** object-position（也當放大的中心） */
-  position?: string;
-  /** 橫幅的圖再放大一點，裁在三台螢幕上（手機直式的那張本來就是中間螢幕的特寫，不放大） */
-  zoom?: boolean;
-}) {
+function PosterImage({ n, theme, eager, sync }: { n: number; theme: 'night' | 'dawn'; eager: boolean; sync: boolean }) {
   return (
     <>
       <source media={PORTRAIT_MEDIA} srcSet={`/beacon/poster-${theme}-${n}-m.webp`} width={720} height={n === 1 ? 1440 : 900} />
@@ -357,8 +333,7 @@ function PosterImage({
         decoding={sync ? 'sync' : 'async'}
         loading={eager ? 'eager' : 'lazy'}
         fetchPriority={n === 1 ? 'high' : eager ? 'auto' : 'low'}
-        className={cn('absolute inset-0 size-full object-cover', zoom && 'scale-[1.38] max-lg:portrait:scale-100')}
-        style={position ? { objectPosition: position, transformOrigin: position } : undefined}
+        className="absolute inset-0 size-full object-cover"
       />
     </>
   );
@@ -392,7 +367,7 @@ function Poster({ index, show, eager, isDark }: { index: number; show: boolean; 
   );
 }
 
-/* ---------- 文案（3D 版面與海報圖版共用；夜班、晨班同一份） ---------- */
+/* ---------- 文案（夜班、晨班同一份） ---------- */
 
 function TowerHeading() {
   return (
@@ -440,117 +415,9 @@ function HandoffHeading() {
 }
 const HANDOFF_BODY = '想看哪一檔，直接搜尋代號或公司名稱。';
 
-/* ---------- 海報圖版的看板：觀測台同一組三欄（左觀測清單、中報價、右加權指數），每欄只有一行真實資料 ---------- */
-
-const FIG = 'font-mono tabular-nums';
-const BOARD_CELL = 'flex min-h-11 min-w-0 items-baseline justify-between gap-x-2 bg-card px-4 py-2.5';
-const BOARD_LABEL = 'shrink-0 text-[13px] font-medium tracking-[0.04em] text-muted-foreground';
-
-type BoardProps = Pick<BeaconJourneyProps, 'board' | 'monitor' | 'stockCount' | 'industryCount'>;
-
-/**
- * 海報版面最後的看板：一行的讀數條，欄寬跟觀測台一樣（300px | 1fr | 320px，1px 分隔線），手機的順序也一樣
- * （報價、觀測清單、加權指數）。每欄只寫一行：檔數與產業數；選中那一檔的收盤與單日漲跌；加權指數的收盤與漲跌。
- * 細節（開高低、K 線、法人）交給緊接在下面的觀測台，這裡不再排一次。
- */
-function MarketBoard({ board, monitor, stockCount, industryCount }: BoardProps) {
-  const b = boardFigures(board);
-  const m = monitorFigures(monitor);
-  const counts = countsText(stockCount, industryCount);
-  const waiting = <span className="text-[13px] text-muted-foreground">讀取中…</span>;
-  return (
-    <div data-board>
-      <div className="flex items-baseline justify-between gap-3 border-b border-border-strong pb-2">
-        <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">看板</h3>
-        <span className="characteristic">{b ? `收盤 ${b.date} · 非即時` : '收盤日載入中 · 非即時'}</span>
-      </div>
-      <dl className="grid gap-px border-x border-b bg-border lg:grid-cols-[300px_minmax(0,1fr)_320px]">
-        <div className={cn(BOARD_CELL, 'order-2 lg:order-none')}>
-          <dt className={BOARD_LABEL}>觀測清單</dt>
-          <dd className={cn(FIG, 'truncate text-sm')}>{counts ?? waiting}</dd>
-        </div>
-        <div className={cn(BOARD_CELL, 'order-1 lg:order-none')}>
-          <dt className={cn(BOARD_LABEL, 'text-foreground')}>
-            {m ? (
-              <>
-                <span className="font-bold">{m.name}</span> <span className={cn(FIG, 'text-muted-foreground')}>{m.symbol}</span>
-              </>
-            ) : (
-              '報價'
-            )}
-          </dt>
-          <dd className={cn(FIG, 'flex min-w-0 items-baseline gap-x-2 text-sm whitespace-nowrap')}>
-            {m ? (
-              <>
-                <span className="font-semibold">{m.close}</span>
-                {m.change ? <span className={cn('truncate text-[13px]', toneText(m.tone))}>{m.change}</span> : null}
-              </>
-            ) : (
-              waiting
-            )}
-          </dd>
-        </div>
-        <div className={cn(BOARD_CELL, 'order-3 lg:order-none')}>
-          <dt className={BOARD_LABEL}>加權指數</dt>
-          <dd className={cn(FIG, 'flex min-w-0 items-baseline gap-x-2 text-sm whitespace-nowrap')}>
-            {b ? (
-              <>
-                <span className="font-semibold">{b.close}</span>
-                {b.change ? <span className={cn('truncate text-[13px]', toneText(b.tone))}>{b.change}</span> : null}
-              </>
-            ) : (
-              waiting
-            )}
-          </dd>
-        </div>
-      </dl>
-    </div>
-  );
-}
-
-/* ---------- 海報圖版 ---------- */
-
-interface PlateProps {
-  /** 第幾張海報（2–3） */
-  n: 2 | 3;
-  /** 章節標題列：站名 */
-  stop: string;
-  /** 標題列右側的燈質列（只放真實資料或燈質本身） */
-  stamp?: React.ReactNode;
-  /** 寬螢幕時圖放右邊、字放左邊 */
-  flip?: boolean;
-  isDark: boolean;
-  plateRef: (el: HTMLElement | null) => void;
-  children: React.ReactNode;
-}
-
-/** 一張圖版：有線的標題列、固定比例加細框的圖、圖旁（lg 8／4 欄）或圖下（手機）的正文 */
-function Plate({ n, stop, stamp, flip = false, isDark, plateRef, children }: PlateProps) {
-  return (
-    <article ref={plateRef} className="grid grid-cols-1 gap-y-5 lg:grid-cols-12 lg:gap-x-10 lg:gap-y-6">
-      <div className="flex items-end justify-between gap-4 border-b border-border-strong pb-2 lg:col-span-12 lg:row-start-1">
-        <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">{stop}</p>
-        {stamp ? <p className="characteristic">{stamp}</p> : null}
-      </div>
-      <figure
-        className={cn(
-          'relative aspect-video self-start overflow-hidden border border-border-strong bg-secondary max-lg:portrait:aspect-[4/5] lg:col-span-8 lg:row-start-2',
-          flip ? 'lg:col-start-5' : 'lg:col-start-1',
-        )}
-      >
-        <picture key={isDark ? 'night' : 'dawn'}>
-          <PosterImage n={n} theme={isDark ? 'night' : 'dawn'} eager sync />
-        </picture>
-      </figure>
-      <div className={cn('min-w-0 lg:col-span-4 lg:row-start-2 lg:self-end', flip ? 'lg:col-start-1' : 'lg:col-start-9')}>{children}</div>
-    </article>
-  );
-}
-
 /* ---------- 章節進度 ---------- */
 
 interface RailProps {
-  variant: 'scene' | 'poster';
   rail: number;
   /** 目前在第幾段（0–4）：晨班 rail 底下的襯底跟著這一段的畫面取色 */
   chapter: number;
@@ -559,31 +426,52 @@ interface RailProps {
 }
 
 /**
- * 3D 版面（桌機）：右上角一條細線上的四個刻度，四個站名都寫出來——其他站是安靜的 12px，目前那一站 13px 粗體、刻度是燈色；
+ * 桌機：右上角一條細線上的四個刻度，四個站名都寫出來——其他站是安靜的 12px，目前那一站 13px 粗體、刻度是燈色；
  * 沒有底板（底下只有一片跟文案一樣看不到邊的柔和襯底），位置與尺寸固定（換章節時不會跳動）。
  * 四個都是 44px 高的真按鈕，目前那一個有 aria-current。
- * 手機兩種版面都是一條滿寬的實心列（舞台頂端、或黏在頁首下方），寫著「2／4 燈塔」。
- * 海報版面（桌機）：首屏之後一條滿寬的實心列，黏在頁首下方（bg-card、下緣一條線）。
+ * 手機：舞台頂端一條滿寬的實心列，寫著「2／4 燈塔」。
  */
-function Rail({ variant, rail, chapter, onGo, navRef }: RailProps) {
-  const scene = variant === 'scene';
-  const buttons = RAIL.map((stop, i) => {
-    const on = rail === i;
-    return (
-      <button
-        key={stop.label}
-        type="button"
-        aria-current={on ? 'step' : undefined}
-        data-selected={on ? 'true' : undefined}
-        onClick={() => onGo(i)}
-        className={cn(
-          'group flex size-11 shrink-0 items-center justify-center text-[13px] tracking-[0.12em]',
-          scene ? 'lg:h-11 lg:w-full lg:justify-end lg:gap-3' : 'lg:lamp-row lg:h-11 lg:w-auto lg:justify-start lg:gap-3 lg:px-4',
-          on ? 'font-bold text-foreground' : 'font-normal text-muted-foreground',
-        )}
-      >
-        {scene ? (
-          <>
+function Rail({ rail, chapter, onGo, navRef }: RailProps) {
+  return (
+    <nav
+      ref={navRef}
+      aria-label="旅程進度"
+      className={cn(
+        'relative z-30 col-start-1 row-start-1 flex items-center self-start',
+        'max-lg:w-full max-lg:justify-self-stretch max-lg:border-b max-lg:bg-card max-lg:px-2',
+        'opacity-[var(--rail-o,1)] [visibility:var(--rail-v,visible)] lg:mt-4 lg:w-32 lg:flex-col lg:items-stretch lg:justify-self-end',
+        // 站名、刻度與細線的顏色：一般是前景色；晨班在天空上的兩章是淺色（--rail-sky），夜班一律前景色
+        'lg:[--rail-ink:var(--rail-sky,var(--foreground))] dark:lg:[--rail-ink:var(--foreground)]',
+        GUTTER_R,
+      )}
+      style={chapter < RAIL_SKY_CHAPTERS ? ({ '--rail-sky': 'var(--background)' } as React.CSSProperties) : undefined}
+    >
+      {/* 桌機：四個站名都寫出來（目前那一站粗一號），底下一片跟文案一樣、看不到邊的柔和襯底（不是方框），一條貫穿四個刻度的細線 */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -top-28 -z-10 hidden h-[620px] dark:lg:block"
+        style={{ ...RAIL_SCRIM_NIGHT, ...RAIL_SCRIM_BOX, opacity: `calc(var(--scrim-k, 1) * ${RAIL_NIGHT_OPACITY[chapter]})` }}
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -top-28 -z-10 h-[620px] max-lg:hidden dark:hidden"
+        style={{ ...railDawnStyle(RAIL_DAWN[chapter].tint, RAIL_DAWN[chapter].opacity), ...RAIL_SCRIM_BOX }}
+      />
+      <span aria-hidden className="pointer-events-none absolute top-[22px] right-[10.5px] bottom-[22px] w-px bg-(--rail-ink) opacity-70 max-lg:hidden" />
+      {RAIL.map((stop, i) => {
+        const on = rail === i;
+        return (
+          <button
+            key={stop.label}
+            type="button"
+            aria-current={on ? 'step' : undefined}
+            data-selected={on ? 'true' : undefined}
+            onClick={() => onGo(i)}
+            className={cn(
+              'group flex size-11 shrink-0 items-center justify-center text-[13px] tracking-[0.12em] lg:h-11 lg:w-full lg:justify-end lg:gap-3',
+              on ? 'font-bold text-foreground' : 'font-normal text-muted-foreground',
+            )}
+          >
             <span
               className={cn(
                 'max-lg:sr-only lg:transition-colors lg:duration-(--dur-flash)',
@@ -601,69 +489,15 @@ function Rail({ variant, rail, chapter, onGo, navRef }: RailProps) {
                 )}
               />
             </span>
-          </>
-        ) : (
-          <>
-            <span
-              aria-hidden
-              className={cn(
-                'block h-0.5 shrink-0 transition-[width,background-color] duration-(--dur-sweep) ease-flash',
-                on ? 'w-5 bg-brand lg:bg-foreground' : i < rail ? 'w-3 bg-foreground' : 'w-3 bg-muted-foreground',
-              )}
-            />
-            <span className="max-lg:sr-only">{stop.label}</span>
-          </>
-        )}
-      </button>
-    );
-  });
-  const where = (
-    <p aria-hidden className="ml-auto pr-2 text-[13px] whitespace-nowrap text-foreground lg:hidden">
-      <span className="font-mono tabular-nums">
-        {rail + 1}／{RAIL.length}
-      </span>{' '}
-      <span className="font-bold tracking-[0.12em]">{RAIL[rail].label}</span>
-    </p>
-  );
-  if (scene) {
-    return (
-      <nav
-        ref={navRef}
-        aria-label="旅程進度"
-        className={cn(
-          'relative z-30 col-start-1 row-start-1 flex items-center self-start',
-          'max-lg:w-full max-lg:justify-self-stretch max-lg:border-b max-lg:bg-card max-lg:px-2',
-          'opacity-[var(--rail-o,1)] [visibility:var(--rail-v,visible)] lg:mt-4 lg:w-32 lg:flex-col lg:items-stretch lg:justify-self-end',
-          // 站名、刻度與細線的顏色：一般是前景色；晨班在天空上的兩章是淺色（--rail-sky），夜班一律前景色
-          'lg:[--rail-ink:var(--rail-sky,var(--foreground))] dark:lg:[--rail-ink:var(--foreground)]',
-          GUTTER_R,
-          'motion-reduce:hidden',
-        )}
-        style={chapter < RAIL_SKY_CHAPTERS ? ({ '--rail-sky': 'var(--background)' } as React.CSSProperties) : undefined}
-      >
-        {/* 桌機：四個站名都寫出來（目前那一站粗一號），底下一片跟文案一樣、看不到邊的柔和襯底（不是方框），一條貫穿四個刻度的細線 */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -top-28 -z-10 hidden h-[620px] dark:lg:block"
-          style={{ ...RAIL_SCRIM_NIGHT, ...RAIL_SCRIM_BOX, opacity: `calc(var(--scrim-k, 1) * ${RAIL_NIGHT_OPACITY[chapter]})` }}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -top-28 -z-10 h-[620px] max-lg:hidden dark:hidden"
-          style={{ ...railDawnStyle(RAIL_DAWN[chapter].tint, RAIL_DAWN[chapter].opacity), ...RAIL_SCRIM_BOX }}
-        />
-        <span aria-hidden className="pointer-events-none absolute top-[22px] right-[10.5px] bottom-[22px] w-px bg-(--rail-ink) opacity-70 max-lg:hidden" />
-        {buttons}
-        {where}
-      </nav>
-    );
-  }
-  return (
-    <nav ref={navRef} aria-label="旅程進度" className="sticky top-[var(--app-header-height)] z-30 border-b bg-card">
-      <div className="mx-auto flex h-11 max-w-[1320px] items-center px-2 sm:px-4 lg:px-10">
-        {buttons}
-        {where}
-      </div>
+          </button>
+        );
+      })}
+      <p aria-hidden className="ml-auto pr-2 text-[13px] whitespace-nowrap text-foreground lg:hidden">
+        <span className="font-mono tabular-nums">
+          {rail + 1}／{RAIL.length}
+        </span>{' '}
+        <span className="font-bold tracking-[0.12em]">{RAIL[rail].label}</span>
+      </p>
     </nav>
   );
 }
@@ -770,8 +604,7 @@ function useTerminalShape(terminalId: string, enabled: boolean, isDark: boolean)
 }
 
 export function BeaconJourney({ terminalId, stockCount, industryCount, board, monitor }: BeaconJourneyProps) {
-  const [mode, setMode] = useState<Mode>('pending');
-  const [reason, setReason] = useState<PosterReason | null>(null);
+  const [mode, setMode] = useState<JourneyMode>('scene');
   const [loadScene, setLoadScene] = useState(false);
   // context 掉過一次就不再重載（避免一直建了又掉）
   const [sceneBlocked, setSceneBlocked] = useState(false);
@@ -791,36 +624,18 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
 
   const trackRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  /** rail（桌機在交接終點淡出，讓出觀測台的右欄） */
   const railRef = useRef<HTMLElement>(null);
-  /** 3D 版面的 rail（桌機在交接終點淡出，讓出觀測台的右欄） */
-  const sceneRailRef = useRef<HTMLElement>(null);
   const captionRefs = useRef<(HTMLDivElement | null)[]>([]);
-  /** 3D 版面：舞台裡的四格海報；海報版面：[首屏那格, 三張圖版] */
-  const posterRefs = useRef<(HTMLElement | null)[]>([]);
-  const plateRefs = useRef<(HTMLElement | null)[]>([]);
   const metrics = useRef({ top: 0, height: 0, viewport: 0 });
   const progress = useMotionValue(0);
   const chapterRef = useRef(0);
 
-  const sceneLayout = mode !== 'poster';
+  const sceneLayout = mode === 'scene';
   const rail = CHAPTERS[chapter].rail;
   const posterActive = POSTER_OF_CHAPTER[chapter];
 
-  // 判斷模式：減少動態、低功耗先決定；WebGL 等閒置時再測
-  useEffect(() => {
-    const decide = () => {
-      const d = decideJourneyMode(readJourneyEnv(window));
-      setMode((prev) => (prev === 'poster' && d.mode === 'scene' ? prev : d.mode));
-      setReason((prev) => d.reason ?? prev);
-      if (d.mode === 'poster') setLoadScene(false);
-    };
-    decide();
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    mq.addEventListener('change', decide);
-    return () => mq.removeEventListener('change', decide);
-  }, []);
-
-  // 閒置後才測 WebGL、載入場景
+  // 閒置後才測 WebGL2、載入場景（不支援就只留首屏海報）
   useEffect(() => {
     if (mode !== 'scene' || loadScene || sceneBlocked) return;
     let cancelled = false;
@@ -828,7 +643,6 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
       if (cancelled) return;
       if (!probeWebGL2(document)) {
         setMode('poster');
-        setReason('no-webgl');
         return;
       }
       setLoadScene(true);
@@ -848,7 +662,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
     };
   }, [mode, loadScene, sceneBlocked]);
 
-  // 捲動 → 進度（只在 3D 版面；海報版面另外算目前在哪張圖版）
+  // 捲動 → 進度（只在 3D 版面）
   const measure = useCallback(() => {
     const track = trackRef.current;
     const stage = stageRef.current;
@@ -924,7 +738,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
         el.style.pointerEvents = shown ? '' : 'none';
       });
       // rail 在交接的前段淡出（三欄升到 rail 的高度以前就不見；終點那一格跟觀測台的開頭一模一樣，不留東西）
-      const nav = sceneRailRef.current;
+      const nav = railRef.current;
       if (nav) {
         const r = railFade(p);
         nav.style.setProperty('--rail-o', r.toFixed(3));
@@ -933,7 +747,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
       // 交接段的襯底跟著房間一起溶掉（終點只剩頁面底色）
       const k = (1 - handoffRoom(h)).toFixed(3);
       captionRefs.current[4]?.style.setProperty('--scrim-k', k);
-      sceneRailRef.current?.style.setProperty('--scrim-k', k);
+      railRef.current?.style.setProperty('--scrim-k', k);
       setChapterIndex(chapterIndex(p));
     },
     [setChapterIndex],
@@ -946,7 +760,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
     if (sceneLayout) applyCaptions(progress.get());
   }, [isDark, sceneLayout, applyCaptions, progress]);
 
-  // 換版面時：3D 版面依目前進度套樣式；海報版面清掉 inline style，並依捲動位置算目前在哪張圖版
+  // 換版面時：3D 版面依目前進度套樣式；只剩首屏海報時清掉 inline style
   useEffect(() => {
     if (sceneLayout) {
       applyCaptions(progress.get());
@@ -959,19 +773,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
       el.style.visibility = '';
       el.style.pointerEvents = '';
     });
-    const update = () => {
-      const mid = window.innerHeight * 0.5;
-      const cells = [posterRefs.current[0], ...plateRefs.current];
-      let idx = 0;
-      cells.forEach((el, i) => {
-        if (el && el.getBoundingClientRect().top <= mid) idx = i;
-      });
-      setChapterIndex(CHAPTER_OF_PLATE[idx] ?? 0);
-    };
-    update();
-    window.addEventListener('scroll', update, { passive: true });
-    return () => window.removeEventListener('scroll', update);
-  }, [sceneLayout, applyCaptions, progress, setChapterIndex]);
+  }, [sceneLayout, applyCaptions, progress]);
 
   // 3D 版面：記下走過最遠的海報（場景還沒接手時才需要它們）
   useEffect(() => {
@@ -1016,10 +818,9 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
     setSceneReady(false);
     setLoadScene(false);
     setMode('poster');
-    setReason('no-webgl');
   }, []);
 
-  // --handoff 只屬於正在跑的 3D 交接：海報版面（減少動態、沒有 WebGL、低功耗）、換頁、卸載時一定拿掉，
+  // --handoff 只屬於正在跑的 3D 交接：只剩首屏海報（沒有 WebGL2、場景出錯）、換頁、卸載時一定拿掉，
   // 觀測台與其他頁面不會停在半透明（場景自己在卸載、loop 停下時也會拿掉）
   useEffect(() => {
     if (mode !== 'scene') clearHandoff();
@@ -1042,29 +843,21 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
     window.scrollTo({ top: Math.max(0, top), behavior: scrollBehavior() });
   }, [terminalId]);
 
-  /** 3D 版面捲到進度 p；海報版面捲到第 plate 格（0 是首屏，1–3 是圖版，停在黏住的進度列下方） */
+  /** 捲到進度 p */
   const goToProgress = useCallback(
-    (p: number, plate: number) => {
-      if (sceneLayout) {
-        measure();
-        const m = metrics.current;
-        window.scrollTo({ top: scrollYForProgress(p, m.top, m.height, m.viewport), behavior: scrollBehavior() });
-        return;
-      }
-      const el = plate === 0 ? posterRefs.current[0] : plateRefs.current[plate - 1];
-      if (!el) return;
-      const bar = plate === 0 ? 0 : (railRef.current?.offsetHeight ?? 44) + 16;
-      const top = el.getBoundingClientRect().top + window.scrollY - headerOffset() - bar;
-      window.scrollTo({ top: Math.max(0, top), behavior: scrollBehavior() });
+    (p: number) => {
+      measure();
+      const m = metrics.current;
+      window.scrollTo({ top: scrollYForProgress(p, m.top, m.height, m.viewport), behavior: scrollBehavior() });
     },
-    [sceneLayout, measure],
+    [measure],
   );
 
-  // rail 第 i 站：前三站對應首屏與前兩張圖版（3D 版面是對應的進度），最後一站直接到觀測台
+  // rail 第 i 站：前三站捲到對應的進度，最後一站直接到觀測台
   const goToStop = (i: number) => {
     const target = RAIL[i]?.target;
     if (target == null) goToTerminal();
-    else goToProgress(target, i);
+    else goToProgress(target);
   };
 
   // 首屏就看得到加權指數與收盤日（P2-079、04-H1）；漲跌用紅漲綠跌
@@ -1085,8 +878,8 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
   const posterCell = (i: number) =>
     cn(
       'relative z-0 col-start-1 row-start-1 self-stretch overflow-hidden bg-secondary transition-opacity duration-(--dur-beam) ease-swell',
-      i > 0 && 'in-data-[mode=poster]:hidden motion-reduce:hidden',
-      i === 0 && 'in-data-[mode=poster]:opacity-100 motion-reduce:opacity-100',
+      i > 0 && 'in-data-[mode=poster]:hidden',
+      i === 0 && 'in-data-[mode=poster]:opacity-100',
       posterActive === i ? 'opacity-100' : 'opacity-0',
       postersHidden && 'invisible',
     );
@@ -1095,24 +888,24 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
   return (
     // 3D 版面：底下的觀測台往上疊一個舞台高（負的下邊距），終點那一格舞台正好蓋在觀測台開頭上（三塊螢幕對齊觀測台三欄）；
     // 交接尾聲（data-handed-off）或走到終點（data-past）就溶掉舞台，露出真的觀測台，捲回來時舞台在同一個位置接回去，不會一上一下出現兩份。
-    // 這時整個區塊不接受指標（疊在觀測台上方的透明部分不能擋住點擊），只有舞台接受
+    // 這時整個區塊不接受指標（疊在觀測台上方的透明部分不能擋住點擊），只有舞台接受。
+    // 不支援 WebGL2（data-mode="poster"）：只剩首屏一個視窗高，往下直接是觀測台
     <section
       data-mode={mode}
       aria-label="從海面登上燈塔"
-      className={cn('relative z-10', sceneLayout && 'pointer-events-none motion-safe:mb-[calc(var(--app-header-height)-100dvh)]')}
+      className={cn('relative z-10', sceneLayout && 'pointer-events-none mb-[calc(var(--app-header-height)-100dvh)]')}
     >
-      <div ref={trackRef} className="relative h-[440vh] max-lg:h-[260svh] motion-reduce:h-auto! in-data-[mode=poster]:h-auto!">
+      <div ref={trackRef} className="relative h-[440vh] max-lg:h-[260svh] in-data-[mode=poster]:h-auto!">
         <div
           ref={stageRef}
           data-journey-stage
           className={cn(
             'pointer-events-auto sticky top-[var(--app-header-height)] isolate grid h-[calc(100dvh-var(--app-header-height))] grid-cols-1 grid-rows-1 overflow-clip bg-background',
-            'motion-reduce:static motion-reduce:h-[calc(100svh-var(--app-header-height))]',
             'in-data-[mode=poster]:static in-data-[mode=poster]:h-[calc(100svh-var(--app-header-height))]',
           )}
         >
           {Array.from({ length: POSTER_COUNT }, (_, i) => (
-            <div key={i} ref={(el) => void (posterRefs.current[i] = el)} aria-hidden className={posterCell(i)}>
+            <div key={i} aria-hidden className={posterCell(i)}>
               <Poster index={i} show={posterShown(i)} eager={mode === 'poster'} isDark={isDark} />
             </div>
           ))}
@@ -1141,16 +934,18 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
             </p>
             <p className={cn(BODY, 'max-lg:mt-2')}>收盤後的台股，一次看清楚。</p>
             <div className="mt-4 flex flex-wrap gap-3 lg:mt-5">
-              <Button type="button" onClick={() => goToStop(1)}>
-                從頭看起
-                <ArrowDown aria-hidden />
-              </Button>
+              {sceneLayout && (
+                <Button type="button" onClick={() => goToStop(1)}>
+                  從頭看起
+                  <ArrowDown aria-hidden />
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={goToTerminal}>
                 直接看行情
                 <ArrowRight aria-hidden />
               </Button>
             </div>
-            {reason === 'no-webgl' && <p className="mt-3 text-[13px] leading-relaxed text-foreground">這台裝置無法啟用 3D 場景，已改用靜態畫面。</p>}
+            {!sceneLayout && <p className="mt-3 text-[13px] leading-relaxed text-foreground">這台裝置無法啟用 3D 場景，已改用靜態畫面。</p>}
           </div>
 
           {/* 第二段：燈塔（左上的天空） */}
@@ -1212,7 +1007,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
             <div
               aria-hidden
               data-ready={sceneReady ? 'true' : 'false'}
-              className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-(--dur-eclipse) ease-swell data-[ready=true]:opacity-100 motion-reduce:hidden"
+              className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-(--dur-eclipse) ease-swell data-[ready=true]:opacity-100"
             >
               {loadScene && (
                 <SceneBoundary onError={onSceneError}>
@@ -1237,61 +1032,10 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
             </div>
           )}
 
-          {sceneLayout && <Rail variant="scene" rail={rail} chapter={chapter} onGo={goToStop} navRef={sceneRailRef} />}
+          {sceneLayout && <Rail rail={rail} chapter={chapter} onGo={goToStop} navRef={railRef} />}
         </div>
       </div>
 
-      {/* 海報版面：首屏之後的圖版。進度列黏在頁首下方，圖版之間是帳頁的間距；最後的看板直接接上觀測台 */}
-      {mode === 'poster' && (
-        <div className="relative bg-background">
-          <Rail variant="poster" rail={rail} chapter={chapter} onGo={goToStop} navRef={railRef} />
-          <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-10 px-4 pt-10 sm:px-6 lg:gap-16 lg:px-10 lg:pt-16">
-            <Plate n={2} stop="燈塔" isDark={isDark} plateRef={(el) => void (plateRefs.current[0] = el)}>
-              <h2 className={HEADING_PLATE}>
-                <TowerHeading />
-              </h2>
-              <p className={BODY}>
-                <TowerBody />
-              </p>
-            </Plate>
-            <Plate n={3} stop="窗前" flip isDark={isDark} plateRef={(el) => void (plateRefs.current[1] = el)}>
-              <h2 className={HEADING_PLATE}>
-                <WindowHeading />
-              </h2>
-              <p className={BODY}>{WINDOW_BODY}</p>
-            </Plate>
-            {/* 最後一張：章名與標題 → 裁在三台螢幕上的圖 → 一行一欄的看板（真實資料） → 「進入觀測台」，往下就是觀測台 */}
-            <article ref={(el) => void (plateRefs.current[2] = el)} className="grid grid-cols-1 gap-y-5 lg:gap-y-6">
-              <div className="flex items-end justify-between gap-4 border-b border-border-strong pb-2">
-                <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">觀測台</p>
-              </div>
-              <div className="min-w-0">
-                <h2 className={HEADING_PLATE}>
-                  <DeskHeading />
-                </h2>
-                <p className={BODY}>{DESK_BODY}</p>
-              </div>
-              <figure className="relative aspect-[1240/420] overflow-hidden border border-border-strong bg-secondary max-lg:portrait:aspect-[4/5]">
-                <picture key={isDark ? 'night' : 'dawn'}>
-                  {/* 第四張海報裡三台螢幕在畫面下方約 62–80%（上方是看板與海圖）：放大的中心壓低，裁在三台螢幕上 */}
-                  <PosterImage n={4} theme={isDark ? 'night' : 'dawn'} eager sync position="50% 82%" zoom />
-                </picture>
-              </figure>
-              <MarketBoard board={board} monitor={monitor} stockCount={stockCount} industryCount={industryCount} />
-              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-                <p className="text-[15px] leading-[1.75] text-foreground lg:text-[17px]">
-                  <HandoffHeading />
-                  {HANDOFF_BODY}
-                </p>
-                <Button type="button" onClick={goToTerminal}>
-                  進入觀測台
-                  <ArrowDown aria-hidden />
-                </Button>
-              </div>
-            </article>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

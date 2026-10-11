@@ -91,12 +91,14 @@ interface WorldProps {
   poster: { p: number; t: number } | null;
   /** loop 是不是在跑（false 時外層已經拿掉 --handoff，這裡不能再寫回去） */
   activeRef: React.RefObject<boolean>;
+  /** 目前建好的場景：BeaconScene 釋放 renderer 前要先釋放它 */
+  worldOut: React.RefObject<BeaconWorld | null>;
   onReady: () => void;
   onPark: (parked: boolean) => void;
   onLost: () => void;
 }
 
-function World({ progress, low, canHover, data, handoff, poster, activeRef, onReady, onPark, onLost }: WorldProps) {
+function World({ progress, low, canHover, data, handoff, poster, activeRef, worldOut, onReady, onPark, onLost }: WorldProps) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const width = useThree((s) => s.size.width);
@@ -135,16 +137,18 @@ function World({ progress, low, canHover, data, handoff, poster, activeRef, onRe
     w.applyLook(s.dawn);
     w.settleLook();
     worldRef.current = w;
+    worldOut.current = w;
     setWorld(w);
     const probeHost = window as Window & { __beaconProbe?: () => FaceProbe };
     if (probeEnabled()) probeHost.__beaconProbe = () => w.probe();
     return () => {
       if (probeHost.__beaconProbe) delete probeHost.__beaconProbe;
       worldRef.current = null;
+      if (worldOut.current === w) worldOut.current = null;
       setWorld(null);
       w.dispose();
     };
-  }, [gl, camera, low]);
+  }, [gl, camera, low, worldOut]);
 
   // 尺寸變了：調整 render target 與構圖
   useEffect(() => {
@@ -301,15 +305,23 @@ export function BeaconScene({
     if (!running) clearHandoff();
   }, [running]);
 
-  // R3F 卸載時只會 forceContextLoss，不會 dispose renderer：等它收完（500ms）再釋放；--handoff 也一起拿掉
+  // R3F 卸載時只會 forceContextLoss，不會 dispose renderer：等它收完（500ms）再釋放；--handoff 也一起拿掉。
+  // 場景樹的卸載（World 的 cleanup 裡的 world.dispose()）由 R3F 排程，主執行緒忙時會晚於這個計時器。
+  // renderer.dispose() 會清掉它對各個 render target 的記錄，之後才釋放點光源的陰影貼圖就會拋錯：一定先釋放場景
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
+  const worldOut = useRef<BeaconWorld | null>(null);
   useEffect(
     () => () => {
       activeRef.current = false;
       clearHandoff();
       const gl = glRef.current;
       glRef.current = null;
-      if (gl) window.setTimeout(() => gl.dispose(), 600);
+      if (gl)
+        window.setTimeout(() => {
+          worldOut.current?.dispose();
+          worldOut.current = null;
+          gl.dispose();
+        }, 600);
     },
     [],
   );
@@ -335,6 +347,7 @@ export function BeaconScene({
         handoff={poster ? null : handoff}
         poster={poster}
         activeRef={activeRef}
+        worldOut={worldOut}
         onReady={onReady}
         onPark={setParked}
         onLost={onLost}
