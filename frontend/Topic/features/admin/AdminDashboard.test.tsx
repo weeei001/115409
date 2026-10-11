@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { adminLoginHref, AdminAuditResult, AdminJobAlertSummary, AdminJobs, AdminRunHistory } from '../../pages/admin';
 import { AdminRunDiagnostics } from './RunDiagnostics';
+import { FeatureUsageLedger } from './AIEffectivenessPanel';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
 
 const job: AdminJob = {
@@ -208,3 +209,18 @@ assert.match(backfillMarkup, /label for="stock-backfill-symbol"/);
 assert.match(backfillMarkup, /disabled=""[^>]*aria-label="立即執行個股市場資料回補"/);
 assert.equal(adminRunScope({ job_name: 'stock-backfill', symbol: '2330' }), '股票 2330');
 assert.equal(canRetryAdminRun({ ...run, job_name: 'stock-backfill', symbol: '2330' }, [backfillJob]), true);
+
+// 各功能的模型呼叫（ai_usage_logs）：依後端給的順序列出；沒有紀錄時是空狀態
+const usageBase = {
+  days: 30, briefs: 0, unavailable: 0, measured: 0, input_price_per_m: 0.2, output_price_per_m: 1.2,
+};
+const featureMarkup = renderToStaticMarkup(<FeatureUsageLedger usage={{ ...usageBase, features: [
+  { feature: 'chat', requests: 2, calls: 4, failed_calls: 1, measured_requests: 1, avg_prompt_tokens: 10000, avg_completion_tokens: 1000, avg_cost_usd: 0.0032, total_cost_usd: 0.0032 },
+  { feature: 'news_impact', requests: 1, calls: 1, failed_calls: 0, measured_requests: 1, avg_prompt_tokens: 3000, avg_completion_tokens: 500, avg_cost_usd: 0.0012, total_cost_usd: 0.0012 },
+] }} />);
+assert.deepEqual(renderedElements(featureMarkup, 'th').filter((cell) => cell.attribs.scope === 'row').map((cell) => renderedText(cell)), ['AI 對話與小燈', '新聞事件判讀']);
+assert.match(featureMarkup, /4 次 · 失敗 1（每次請求 2\.0 次）/);
+assert.match(featureMarkup, /US\$0\.0032/);
+assert.match(featureMarkup, /AI 對話與小燈 2 次中有 1 次/);
+assert.match(renderToStaticMarkup(<FeatureUsageLedger usage={usageBase} />), /近 30 天沒有模型呼叫紀錄/);
+console.log('AI usage by feature passed: feature labels, calls per request, estimated cost, partial measurement note, empty state.');

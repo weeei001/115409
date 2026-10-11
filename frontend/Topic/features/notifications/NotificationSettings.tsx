@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Bell, CalendarDays, Newspaper, RefreshCw, TrendingUp } from 'lucide-react';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
-import { Ledger, LedgerPanel, LightGlyph } from '@/components/common/Ledger';
+import { Ledger, LedgerPanel, LightGlyph, NextStep } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { fieldLabelClass, inputClass } from '@/components/ui/input';
@@ -14,6 +14,9 @@ import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { authAccountSnapshot, useAuthAccount } from '@/lib/auth/account';
 import { formatTaipei } from '@/lib/utils/date';
+import { MinPlanBadge, PlannedBadge } from '@/features/pricing/PlanBadges';
+import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { PLANNED_NOTIFICATION_FEATURES, PLANS, PUSH_MIN_PLAN, QUOTA_NOT_ENFORCED, planById } from '@/features/pricing/plans';
 
 /** 標籤下方的輸入框（全站同一套外觀，見 components/ui/input） */
 const fieldInput = cn('mt-1.5', inputClass);
@@ -75,6 +78,9 @@ function AccountNotificationSettings({ account }: { account: string }) {
   /** 最近一次載入或儲存成功的偏好；和目前的表單不同就標「尚未儲存」 */
   const [savedPrefs, setSavedPrefs] = useState('');
   const [revision, setRevision] = useState(0);
+  const { planId } = useCurrentPlan();
+  /** 推播規劃為進階版起；目前方案還沒到時說明展示期間照樣可用 */
+  const belowPushPlan = PLANS.findIndex((plan) => plan.id === planId) < PLANS.findIndex((plan) => plan.id === PUSH_MIN_PLAN);
   useEffect(() => {
     let active = true;
     setEnabled(deviceEnabled());
@@ -167,10 +173,11 @@ function AccountNotificationSettings({ account }: { account: string }) {
       </AnimatedSection>
 
       <AnimatedSection delay={0.05} className="min-w-0 space-y-10 lg:col-span-5 lg:space-y-16">
-        <Ledger data-tour="notifications-device" aria-labelledby="device-notifications-heading" title={<span id="device-notifications-heading">此裝置推播</span>} stamp={enabled ? '已啟用' : '未啟用'}>
+        <Ledger data-tour="notifications-device" aria-labelledby="device-notifications-heading" title={<span id="device-notifications-heading">此裝置推播</span>} stamp={<span className="inline-flex items-center gap-2"><MinPlanBadge planId={PUSH_MIN_PLAN} />{enabled ? '已啟用' : '未啟用'}</span>}>
           <LedgerPanel>
             <p className="text-sm leading-relaxed text-subtle">{enabled ? '已啟用，重要消息會推播到此裝置。' : '啟用後，不必開啟網站也能收到提醒。'}</p>
             {!pushConfigured() && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">推播服務尚未設定完成；仍可查看通知紀錄。</p>}
+            {belowPushPlan ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">推播規劃為{planById(PUSH_MIN_PLAN).name}起的工具；{QUOTA_NOT_ENFORCED}，{planById(planId).name}也能啟用。</p> : null}
             <Button variant="outline" className="mt-4 w-full sm:w-auto" disabled={busy || !pushConfigured()} onClick={() => void run('device', async () => {
               if (enabled) await disablePush(); else await enablePush();
               setEnabled(deviceEnabled());
@@ -245,6 +252,23 @@ function AccountNotificationSettings({ account }: { account: string }) {
               <FeedbackLine feedback={feedback} area="prefs" />
             </form>}
           </LedgerPanel>
+        </Ledger>
+
+        {/* 商業模式 F37、F38：還沒有實作的通知功能與它們屬於哪個方案 */}
+        <Ledger aria-labelledby="notification-plans-heading" title={<span id="notification-plans-heading">更多通知方式</span>}>
+          <ul className="divide-y bg-card">
+            {PLANNED_NOTIFICATION_FEATURES.map((item) => (
+              <li key={item.id} className="px-4 py-3.5 sm:px-5">
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
+                  {item.title}
+                  <PlannedBadge />
+                  <MinPlanBadge planId={item.minPlan} />
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</p>
+              </li>
+            ))}
+          </ul>
+          <NextStep href="/pricing">比較各方案的通知工具</NextStep>
         </Ledger>
       </AnimatedSection>
     </div>

@@ -4,10 +4,15 @@
  */
 export type ValueTone = 'up' | 'down' | 'neutral';
 
-/** 數值正負 → tone；0 與缺值都是中性（決議 c7） */
-export function getValueTone(v: number | null | undefined): ValueTone {
-  if (v == null || !Number.isFinite(v) || v === 0) return 'neutral';
-  return v > 0 ? 'up' : 'down';
+/**
+ * 數值正負 → tone；0 與缺值都是中性（決議 c7）。
+ * decimals：畫面上的位數（和 signedText 同一個值）；先四捨五入再判斷，寫成「0.00」的值不上漲跌色。
+ */
+export function getValueTone(v: number | null | undefined, decimals?: number): ValueTone {
+  if (v == null || !Number.isFinite(v)) return 'neutral';
+  const shown = decimals == null ? v : Number(v.toFixed(decimals));
+  if (shown === 0) return 'neutral';
+  return shown > 0 ? 'up' : 'down';
 }
 
 const TEXT: Record<ValueTone, string> = {
@@ -16,10 +21,10 @@ const TEXT: Record<ValueTone, string> = {
   neutral: 'text-subtle',
 };
 
-/** 依數值正負回傳文字色 class；缺值用 muted */
-export function valueToneText(v: number | null | undefined): string {
+/** 依數值正負回傳文字色 class；缺值用 muted。decimals 同 getValueTone */
+export function valueToneText(v: number | null | undefined, decimals?: number): string {
   if (v == null || !Number.isFinite(v)) return 'text-muted-foreground';
-  return TEXT[getValueTone(v)];
+  return TEXT[getValueTone(v, decimals)];
 }
 
 export function toneText(tone: ValueTone): string {

@@ -48,20 +48,6 @@ export async function fetchStockInfos(): Promise<StockInfo[]> {
   );
 }
 
-/** openapi: GET /stocks/symbols → string[]（30 秒快取） */
-export async function fetchSymbols(): Promise<string[]> {
-  return dedupeFetch(
-    'GET /stocks/symbols',
-    async () => {
-      const { data } = await apiClient.get<string[]>('/stocks/symbols');
-      return Array.isArray(data)
-        ? data.filter((s): s is string => typeof s === 'string').map((s) => s.trim().toUpperCase()).filter(Boolean)
-        : [];
-    },
-    30_000,
-  );
-}
-
 /** openapi: GET /stocks/{symbol}/latest */
 export async function fetchLatestPrice(symbol: string, options?: { signal?: AbortSignal }) {
   const { data } = await apiClient.get<DailyPriceResponse>(`/stocks/${stockPathSegment(symbol)}/latest`, { signal: options?.signal });

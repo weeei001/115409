@@ -27,6 +27,7 @@ function QuietHarness() { quiet = useChat({ listHistory: false }); return null; 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const apiRequests: Array<{ method?: string; url?: string }> = [];
 let historyMessages: Array<Record<string, unknown>> = [];
+let deleteFails = false;
 const previousAdapter = apiClient.defaults.adapter;
 const previousFetch = globalThis.fetch;
 apiClient.defaults.adapter = async (config) => {
@@ -36,6 +37,10 @@ apiClient.defaults.adapter = async (config) => {
   else if (config.url === '/api/conversations' && config.method === 'get') data = { items: [], has_more: false };
   else if (config.url === '/api/conversations/conversation' && config.method === 'get') data = { id: 'conversation', messages: historyMessages };
   else if (config.url?.endsWith('/feedback')) data = { message_id: config.url.split('/').at(-2), rating: 'up' };
+  else if (config.url === '/api/conversations/conversation' && config.method === 'delete') {
+    if (deleteFails) throw new Error('Delete failed');
+    data = '';
+  }
   else throw new Error(`Unexpected request: ${config.method} ${config.url}`);
   return { data, config, status: 200, statusText: 'OK', headers: {} };
 };
@@ -115,6 +120,17 @@ async function main() {
     await act(async () => { await state!.openConversation('conversation'); await state!.rate('failed-saved', 'up'); });
     assert.equal(feedbackCount(), ratedBeforeUnsaved, 'A persisted incomplete reply is not rateable');
 
+    // 刪除正在看的對話：失敗時畫面不動；成功後回到新對話
+    deleteFails = true;
+    await act(async () => { await state!.removeConversation('conversation'); });
+    assert.equal(state!.conversationId, 'conversation', 'A failed delete keeps the open conversation');
+    assert.equal(state!.deletingId, null);
+    deleteFails = false;
+    await act(async () => { await state!.removeConversation('conversation'); });
+    assert.equal(state!.conversationId, null);
+    assert.equal(state!.messages.length, 0);
+    assert.equal(apiRequests.filter((request) => request.method === 'delete' && request.url === '/api/conversations/conversation').length, 2);
+
     let deliverOldResponse: (response: Response) => void;
     globalThis.fetch = async () => new Promise<Response>((resolve) => { deliverOldResponse = resolve; });
     await act(async () => { pending = state!.send('Old account'); await flush(); });
@@ -147,7 +163,7 @@ async function main() {
     assert.equal(state!.messages.at(-1)!.status, 'completed');
     assert.equal(state!.messages.at(-1)!.serverId, undefined, 'Guest replies retain completion without persisted metadata');
     assert.equal(state!.conversationId, null);
-    console.log('Chat hook passed: saved IDs, zero completion history fetches, per-turn association, unsaved/interrupted feedback gating and account isolation.');
+    console.log('Chat hook passed: saved IDs, zero completion history fetches, per-turn association, unsaved/interrupted feedback gating, deleting the open conversation and account isolation.');
   } finally {
     await act(async () => { renderer?.unmount(); });
     apiClient.defaults.adapter = previousAdapter;

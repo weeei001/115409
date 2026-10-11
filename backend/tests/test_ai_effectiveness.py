@@ -1,11 +1,13 @@
 """AI effectiveness: text-brief track record against later closes, and chat answer feedback."""
 import json
 from datetime import date, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from app.db.models.ai_usage import AiUsageLog
 from app.db.models.chat_feedback import ChatMessageFeedback
 from app.db.models.daily_price import DailyPrice
 from app.db.models.llm_response import LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse
@@ -175,6 +177,37 @@ def test_admin_sees_brief_tokens_latency_and_estimated_cost(client, db_session, 
     # (1000 × 0.20 + 200 × 1.20) / 1e6 and (800 × 0.20 + 100 × 1.20) / 1e6 at the default prices.
     assert (usage["input_price_per_m"], usage["output_price_per_m"]) == (0.2, 1.2)
     assert usage["avg_cost_usd"] == pytest.approx(0.00036) and usage["total_cost_usd"] == pytest.approx(0.0007)
+    assert usage["features"] == []
     empty = client.get("/admin/ai-usage", headers=admin, params={"days": 1}).json()
     assert empty["briefs"] == 4
     assert client.get("/admin/ai-usage", headers=admin, params={"days": 0}).status_code == 422
+
+
+def call_row(db, feature, request_id, *, tokens, status="completed", age_days=0):
+    prompt, completion = tokens
+    db.add(AiUsageLog(id=str(uuid4()), feature=feature, request_id=request_id, model="model",
+                      input_tokens=prompt, output_tokens=completion, status=status,
+                      created_at=datetime.utcnow() - timedelta(days=age_days)))
+
+
+def test_admin_sees_model_call_usage_by_feature(client, db_session, settings):
+    # One chat question: its intent and answer calls share the request.
+    call_row(db_session, "chat", "q1", tokens=(2000, 100))
+    call_row(db_session, "chat", "q1", tokens=(8000, 900))
+    # The answer call went unreported: the question is counted but left out of the averages.
+    call_row(db_session, "chat", "q2", tokens=(1500, 80))
+    call_row(db_session, "chat", "q2", tokens=(None, None), status="failed")
+    call_row(db_session, "news_impact", "n1", tokens=(3000, 500))
+    call_row(db_session, "analysis", "a1", tokens=(30000, 3000))
+    call_row(db_session, "chat", "old", tokens=(9, 9), age_days=40)
+    db_session.commit()
+    _, admin = credentials(db_session, settings, admin=True)
+
+    features = client.get("/admin/ai-usage", headers=admin).json()["features"]
+    assert [item["feature"] for item in features] == ["chat", "analysis", "news_impact"]
+    chat = features[0]
+    assert (chat["requests"], chat["calls"], chat["failed_calls"], chat["measured_requests"]) == (2, 4, 1, 1)
+    assert (chat["avg_prompt_tokens"], chat["avg_completion_tokens"]) == (10000.0, 1000.0)
+    # (10000 × 0.20 + 1000 × 1.20) / 1e6 at the default prices.
+    assert chat["avg_cost_usd"] == pytest.approx(0.0032) and chat["total_cost_usd"] == pytest.approx(0.0032)
+    assert (features[2]["requests"], features[2]["avg_prompt_tokens"]) == (1, 3000.0)

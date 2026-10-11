@@ -2,7 +2,7 @@ import type { CompareFundamentalsData } from '@/lib/api/compareFundamentals';
 import type { CategoryLeader, CompareQualityMeta, CorrelationMatrix, InstitutionalAggregate } from '@/lib/types/compare';
 import { lowestCorrelationPair } from '@/lib/utils/compare';
 import { buildFundamentalsComparison } from '@/lib/utils/compareFundamentals';
-import { signedShares } from '@/lib/utils/format';
+import { signedShares, uMinus } from '@/lib/utils/format';
 
 /**
  * 「延伸分析」索引表每一列的一句發現。只挑出頁面上已算好的值（類別冠軍、各面板用的同一批彙總），
@@ -75,7 +75,7 @@ export function correlationFinding(
     const [a, b] = symbols;
     const rho = matrix[a]?.[b];
     if (rho == null) return null;
-    return `${a} × ${b} 的 ρ ${rho.toFixed(2)}（有效配對樣本 ${samples[a]?.[b] ?? 0} 筆）`;
+    return `${a} × ${b} 的 ρ ${uMinus(rho.toFixed(2))}（有效配對樣本 ${samples[a]?.[b] ?? 0} 筆）`;
   }
   const ranked: CorrelationMatrix = {};
   const negated: CorrelationMatrix = {};
@@ -91,8 +91,8 @@ export function correlationFinding(
   const lowest = lowestCorrelationPair(symbols, ranked);
   const highestNeg = lowestCorrelationPair(symbols, negated);
   if (!lowest || !highestNeg) return null;
-  const high = `${highestNeg.a} × ${highestNeg.b} ρ ${(-highestNeg.value).toFixed(2)}`;
-  const low = `${lowest.a} × ${lowest.b} ρ ${lowest.value.toFixed(2)}`;
+  const high = `${highestNeg.a} × ${highestNeg.b} ρ ${uMinus((-highestNeg.value).toFixed(2))}`;
+  const low = `${lowest.a} × ${lowest.b} ρ ${uMinus(lowest.value.toFixed(2))}`;
   if (high === low) return `${low}（有效配對樣本 ≥ 20 筆的組合）`;
   return `最高 ${high}、最低 ${low}（只比有效配對樣本 ≥ 20 筆的組合）`;
 }

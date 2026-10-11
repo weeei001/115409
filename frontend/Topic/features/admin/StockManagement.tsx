@@ -43,7 +43,8 @@ export function StockManagement({ checkedAt, disabled, backfillJob, schedulerRun
       <Input id="stock-catalog-query" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：2330 或台積電" maxLength={100} className="min-h-11" />
       {!canBackfill ? <p className="text-xs text-muted-foreground">{!schedulerRunning ? '排程器未運作，目前可加入股票，恢復後即可回補。' : '回補工作執行中、已排入等待，或尚未就緒；完成後即可提交下一檔。'}</p> : null}
       {!catalogAvailable && !loading ? <Notice tone="warning">公司目錄尚未備妥，請先至工作與執行紀錄執行行情更新，再重新載入。現有股票仍可回補。</Notice> : null}
-      {error ? <div role="alert"><Notice tone="warning">{error}</Notice><Button variant="outline" className="mt-2" onClick={() => setAttempt((value) => value + 1)}>重新載入</Button></div> : null}
+      {/* 載入失敗是錯誤（danger，Notice 自帶 role="alert"），不是警告 */}
+      {error ? <Notice tone="danger" action={<Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((value) => value + 1)}>重新載入</Button>}>{error}</Notice> : null}
     </div>
     <div aria-busy={loading}>
       {loading ? <p role="status" className="px-4 pb-4 text-sm text-muted-foreground">載入股票目錄中…</p> : null}
@@ -52,7 +53,8 @@ export function StockManagement({ checkedAt, disabled, backfillJob, schedulerRun
         <ul className="max-h-[36rem] divide-y overflow-y-auto border-t">{stocks.map((stock) => <li key={stock.symbol} className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5">
           <div><p className="text-sm font-medium">{stock.symbol} {stock.name}</p><p className="mt-1 text-xs text-muted-foreground">{[stock.market, stock.industry, stock.supported ? '已加入' : '尚未加入'].filter(Boolean).join(' · ')}</p></div>
           {stock.supported ? <Button variant="outline" className="min-h-11" disabled={disabled || !canBackfill} aria-label={`回補 ${stock.symbol} ${stock.name} 近兩年市場資料`} onClick={() => onBackfill(stock)}>回補近兩年</Button>
-            : <Button className="min-h-11" disabled={disabled} aria-label={`加入 ${stock.symbol} ${stock.name}`} onClick={() => onAdd(stock)}>加入股票</Button>}
+            // 每一列都有一顆：用 outline，不用燈色主要按鈕（一個畫面只放一顆，DESIGN.md 第 6 節）
+            : <Button variant="outline" className="min-h-11" disabled={disabled} aria-label={`加入 ${stock.symbol} ${stock.name}`} onClick={() => onAdd(stock)}>加入股票</Button>}
         </li>)}</ul>
         {!loading && !stocks.length ? <EmptyState>找不到符合條件的股票。</EmptyState> : null}
       </> : null}

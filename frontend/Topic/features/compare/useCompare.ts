@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   fetchInstitutionalTrades,
   fetchMultipleStocks,
-  fetchSymbols,
   fetchTechnicalIndicators,
   fetchVolume,
 } from '@/lib/api/stock';
@@ -17,6 +16,7 @@ import { aggregateInstitutional, alignComparePrices, buildCategoryLeaders, build
 import { getDefaultDateRange } from '@/lib/utils/date';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
 import { applyBulkSelection } from '@/lib/utils/stockSelection';
+import { COMPARE_URL_MAX_SYMBOLS } from '@/lib/utils/compareQuery';
 import { userFacingMessage, withDateRangeHint } from '@/lib/api/errorDetail';
 
 const METRICS_BATCH_SIZE = 3;
@@ -123,15 +123,19 @@ function summarizeSymbols(symbols: string[], limit = 4): string {
 
 export function useCompare() {
   const [defaults] = useState(() => getDefaultDateRange());
-  const [allSymbols, setAllSymbols] = useState<string[]>([]);
-  /** 股票清單已回應；用來分辨「讀取中」和「讀到空清單」 */
-  const [symbolsLoaded, setSymbolsLoaded] = useState(false);
+  /**
+   * 可比較的股票只取 /stocks/info（stock_info 裡、而且有行情的股票，和全站其他頁同一份清單；AGENTS.md「股票名單以 stock_info 為準」）。
+   * 不另外抓 /stocks/symbols：那支直接從行情表取代號，會混進不在 stock_info 的代號，兩份清單的失敗狀態也要分兩套。
+   */
   const stockInfoList = useStockInfos();
+  const allSymbols = useMemo(() => (stockInfoList.data ?? []).map((stock) => stock.symbol), [stockInfoList.data]);
   const stockInfos = useMemo<Record<string, StockInfo>>(
     () => Object.fromEntries((stockInfoList.data ?? []).map((stock) => [stock.symbol, stock])),
     [stockInfoList.data],
   );
-  const metadataWarning = stockInfoList.status === 'error' ? '公司與產業資料載入失敗，仍可使用股票代號比較。' : null;
+  /** 股票清單已回應；用來分辨「讀取中」和「讀到空清單」。重新整理失敗時保留上一次的清單 */
+  const symbolsLoaded = stockInfoList.data != null;
+  const listError = stockInfoList.status === 'error' && !symbolsLoaded ? userFacingMessage(stockInfoList.error, '無法載入股票清單') : null;
   const [selected, setSelected] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
@@ -146,26 +150,13 @@ export function useCompare() {
   const chartCache = useRef(new Map<string, MultiStockResponse>());
   const metricsCache = useRef(new Map<string, CompareMetrics>());
   const seqRef = useRef(0);
-  const [symbolsAttempt, setSymbolsAttempt] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    fetchSymbols()
-      .then((symbols) => {
-        if (!active) return;
-        setAllSymbols(symbols);
-        setSymbolsLoaded(true);
-        setError(null);
-      })
-      .catch((err) => { if (active) setError(userFacingMessage(err, '無法載入股票清單')); });
-    return () => { active = false; };
-  }, [symbolsAttempt]);
 
   /** 股票清單載入失敗後的「重試」 */
+  const { retry: retryStockInfos } = stockInfoList;
   const reloadSymbols = useCallback(() => {
     setError(null);
-    setSymbolsAttempt((n) => n + 1);
-  }, []);
+    retryStockInfos();
+  }, [retryStockInfos]);
 
   const handleBulkSelect = useCallback(
     (input: string) => {
@@ -177,6 +168,8 @@ export function useCompare() {
         input,
         currentSelected: selected,
         allSymbols,
+        // 系統上限（和比較網址可以帶的檔數相同）所有方案都一樣；方案的同時比較檔數只提示、不擋
+        limit: COMPARE_URL_MAX_SYMBOLS,
       });
       if (nextSelected.length !== selected.length) {
         setSelected(nextSelected);
@@ -186,6 +179,7 @@ export function useCompare() {
       const issues: string[] = [];
       if (bulk.duplicates.length > 0) issues.push(`重複略過 ${bulk.duplicates.length} 檔`);
       if (bulk.invalid.length > 0) issues.push(`無效代號 ${bulk.invalid.length} 檔`);
+      if (bulk.overLimit.length > 0) issues.push(`已達 ${COMPARE_URL_MAX_SYMBOLS} 檔上限，${bulk.overLimit.length} 檔沒有加入`);
       if (issues.length > 0) toast.warning(issues.join('；'));
     },
     [allSymbols, symbolsLoaded, selected],
@@ -194,6 +188,10 @@ export function useCompare() {
   const addSymbol = useCallback(
     (sym: string) => {
       if (selected.includes(sym)) return;
+      if (selected.length >= COMPARE_URL_MAX_SYMBOLS) {
+        toast.warning(`一次最多比較 ${COMPARE_URL_MAX_SYMBOLS} 檔，請先移除其他股票再加入。`);
+        return;
+      }
       setSelected((prev) => [...prev, sym]);
       setError(null);
     },
@@ -300,7 +298,6 @@ export function useCompare() {
     allSymbols,
     symbolsLoaded,
     stockInfos,
-    metadataWarning,
     selected,
     startDate,
     endDate,
@@ -310,7 +307,8 @@ export function useCompare() {
     chartLoading,
     metricsLoading,
     metricsProgress,
-    error,
+    // 股票清單讀不到時也走同一個錯誤（頁面依 symbolsLoaded 決定重試的是清單還是比較）
+    error: error ?? listError,
     metricsError,
     warnings,
     handleBulkSelect,

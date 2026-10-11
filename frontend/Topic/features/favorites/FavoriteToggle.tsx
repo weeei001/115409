@@ -7,6 +7,9 @@ import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 import { addedMessage, toastRemoved } from './favoriteFeedback';
+import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { favoritesLimitText } from '@/features/pricing/quota';
+import { PLAN_LIMITS } from '@/features/pricing/plans';
 
 /**
  * 個股頁標題旁的收藏星號：已登入就樂觀切換，未登入帶 returnUrl 導到登入頁。
@@ -15,6 +18,7 @@ import { addedMessage, toastRemoved } from './favoriteFeedback';
 export function FavoriteToggle({ symbol }: { symbol: string }) {
   const router = useRouter();
   const favorites = useFavorites();
+  const { planId } = useCurrentPlan();
   const pressed = favorites.isFavorite(symbol);
   const busy = favorites.isPending(symbol) || favorites.status === 'idle' || favorites.status === 'loading';
 
@@ -26,10 +30,13 @@ export function FavoriteToggle({ symbol }: { symbol: string }) {
     }
     const wasFavorite = pressed;
     const name = favorites.items.find((item) => item.symbol === symbol)?.name;
+    // 加入後的檔數超過方案上限（展示）：成功提示附一句說明，不擋
+    const limit = PLAN_LIMITS[planId].favorites;
+    const nextCount = favorites.items.length + 1;
     void favorites.toggle(symbol).then((ok) => {
       if (!ok) return;
       if (wasFavorite) toastRemoved(symbol, name, favorites.add);
-      else toast.success(addedMessage(symbol, name));
+      else toast.success(addedMessage(symbol, name), limit != null && nextCount > limit ? { description: favoritesLimitText(nextCount, limit, planId) } : undefined);
     });
   };
 

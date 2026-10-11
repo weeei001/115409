@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseChatSources, type ChatSource } from '../../lib/types/chat';
 import { BACKEND_CHAT_DISCLAIMERS, chatAnswerBody, chatCopyText, citationLabels, newsCitationPath, relabelCitations } from '../../lib/utils/chatCitations';
+import { AI_CHAT_NOTICE } from '../../lib/disclaimers';
 const AI_CHAT_DISCLAIMER = 'AI 回覆僅供研究參考，不是投資建議。';
 import { ChatMessage } from './ChatMessage';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
@@ -107,10 +108,11 @@ assert.doesNotMatch(gappedMarkup, /\[S[1-5]\]/);
 // 錨點仍用原始 id
 assert.match(gappedMarkup, /id="chat-source-[^"]*-S5"/);
 
-// 複製畫面上的正文與來源標題，不附加制式說明。
+// 複製畫面上的正文與來源標題，最後附上輸入框下方的 AI 免責句（舊版後端的免責句照樣剝掉）。
 const copied = chatCopyText(`${gappedBody}\n\n【引用來源】\n- [S5] 偽造標題\n\n${backendDisclaimer}`, gapped);
-assert.equal(copied, `先看 [1]，再看 [2] 與 [3]，又提到 [1]。\n\n引用來源\n[1] 來源 5\n[2] 來源 1\n[3] 來源 2`);
-assert.equal(chatCopyText('沒有引用', []), '沒有引用');
+assert.equal(copied, `先看 [1]，再看 [2] 與 [3]，又提到 [1]。\n\n引用來源\n[1] 來源 5\n[2] 來源 1\n[3] 來源 2\n\n${AI_CHAT_NOTICE}`);
+assert.equal(chatCopyText('沒有引用', []), `沒有引用\n\n${AI_CHAT_NOTICE}`);
+assert.equal(chatCopyText(BACKEND_CHAT_DISCLAIMERS[0], []), AI_CHAT_NOTICE, 'an old backend disclaimer is not copied twice');
 console.log('Chat citation SSR passed: trusted mappings, repeated citations, unique source IDs, unavailable IDs, safe literal titles, per-message targets, no fixed disclaimer, backend disclaimer stripped, sequential citation labels, and copy text.');
 
 assert.doesNotMatch(markup, /本輪引用原始資料|<details|<pre/);

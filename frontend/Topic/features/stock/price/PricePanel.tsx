@@ -94,6 +94,9 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
             <LoadingRows label="載入 K 線中…" className="h-[50dvh] max-h-[420px] min-h-[280px] border-y" />
           ) : priceChart ? (
             <PriceChart data={priceChart} activeMa={activeMa} volumeInsight={volumeInsight} frame="plain" />
+          ) : chartError ? (
+            // 錯誤已在上方說明一次（含重試）：這裡只放靜止說明，不把載入失敗說成「沒有資料」
+            <p className="py-16 text-center text-[13px] text-muted-foreground">K 線暫時無法顯示，請用上方的「重試」重新載入。</p>
           ) : (
             <EmptyState
               className="py-16"

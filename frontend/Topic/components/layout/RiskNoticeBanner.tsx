@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,16 +8,33 @@ import { acknowledgeRiskNotice, browserStorage, hasAcknowledgedRiskNotice, RISK_
 /**
  * 首次造訪的投資風險提示：固定在畫面底部，按「我已了解」後不再出現。
  * 不是對話框：不鎖焦點、不擋操作，只蓋住底部一條。伺服器輸出不含它（掛載後才判斷），避免 hydrate 不一致。
+ * 顯示時把自己的高度（含手勢區）寫進 `--risk-notice-height`，貼著畫面底部的內容（首頁首屏的標題與按鈕）用它閃開。
  */
 export function RiskNoticeBanner() {
   const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     setVisible(!hasAcknowledgedRiskNotice(browserStorage()));
   }, []);
+  // layout effect：提示條出現的同一幀就讓開，不會先蓋住一下
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!visible || !el) return;
+    const root = document.documentElement;
+    const sync = () => root.style.setProperty('--risk-notice-height', `${el.offsetHeight}px`);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--risk-notice-height');
+    };
+  }, [visible]);
   if (!visible) return null;
 
   return (
     <section
+      ref={ref}
       aria-labelledby="risk-notice-title"
       className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-warning-border bg-card shadow-raised"
     >

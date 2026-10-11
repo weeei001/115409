@@ -78,7 +78,7 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
           </div>
           <PrimaryNav className="ml-auto" />
           <div className="flex shrink-0 items-center gap-2">
-            <HeaderStockSearch className="hidden w-56 lg:block" />
+            <HeaderStockSearch className="hidden w-48 lg:block" />
             <Button
               ref={searchButtonRef}
               type="button"

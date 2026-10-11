@@ -211,7 +211,7 @@ export function buildChatChartOption(block: DashboardChart, isDark: boolean): Ch
           const items = (Array.isArray(params) ? params : [params]) as Array<{ seriesIndex?: number; dataIndex?: number; seriesName?: string; value?: unknown; axisValue?: string }>;
           const lines = items.map((item) => {
             const raw = plottedSeries[item.seriesIndex ?? -1]?.values[item.dataIndex ?? -1];
-            return `${item.seriesName ?? ''}  ${isFiniteNumber(item.value) ? item.value.toFixed(2) : MISSING}（${formatValue(raw, block.unit)}）`;
+            return `${item.seriesName ?? ''}  ${isFiniteNumber(item.value) ? uMinus(item.value.toFixed(2)) : MISSING}（${formatValue(raw, block.unit)}）`;
           });
           return [items[0]?.axisValue ?? '', ...lines].join('\n');
         },

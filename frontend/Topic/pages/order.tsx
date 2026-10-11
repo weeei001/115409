@@ -17,7 +17,7 @@ import { userFacingMessage } from '@/lib/api/errorDetail';
 import { Badge } from '@/components/ui/badge';
 import { useStockInfos } from '@/lib/hooks/useStockInfos';
 import { useAuthAccount } from '@/lib/auth/account';
-import { signedText, withSign } from '@/lib/utils/format';
+import { roundTo, signedText, withSign } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
@@ -27,13 +27,17 @@ const pageClass = 'mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-
 /** 定義表的一列：左項目、右等寬數字，列與列之間是 1px 線（父層 gap-px bg-border） */
 const defRow = 'flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5';
 
-/** 損益：依正負上色並帶正負號（紅漲綠跌）；缺行情時寫「等待行情」 */
+/**
+ * 損益：依正負上色並帶正負號（紅漲綠跌）；缺行情時寫「等待行情」。
+ * 金額最多顯示兩位小數（paperMoney），正負號與顏色也用四捨五入到兩位的值，顯示成 0 時不帶號、不上色（決議 c7）
+ */
 function Pnl({ value, className }: { value: number | null; className?: string }) {
-  return <span className={cn('font-mono tabular-nums', valueToneText(value), className)}>{value == null ? '等待行情' : withSign(value, paperMoney(Math.abs(value)))}</span>;
+  const shown = value == null ? null : roundTo(value, 2);
+  return <span className={cn('font-mono tabular-nums', valueToneText(shown), className)}>{shown == null ? '等待行情' : withSign(shown, paperMoney(Math.abs(shown)))}</span>;
 }
 
 function Percent({ value }: { value: number | null | undefined }) {
-  return <span className={cn('font-mono tabular-nums', valueToneText(value))}>{value == null ? '等待行情' : signedText(value, 2, '%')}</span>;
+  return <span className={cn('font-mono tabular-nums', valueToneText(value, 2))}>{value == null ? '等待行情' : signedText(value, 2, '%')}</span>;
 }
 
 /** 委託狀態：中性的方框徽章，不用漲跌色也不用燈色 */

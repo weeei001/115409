@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { bulkSearchTarget, compareHref, COMPARE_URL_MAX_SYMBOLS, parseCompareQuery } from './compareQuery';
+import { applyBulkSelection } from './stockSelection';
 
 const known = ['2330', '2317', '2454', '1101'];
 
@@ -37,4 +38,19 @@ assert.equal(bulkSearchTarget('2330, 2317；2454', known), '/compare?s=2330,2317
 assert.equal(bulkSearchTarget('2330 9999', known), '/stock/2330');
 assert.equal(bulkSearchTarget('9999', known), null);
 
-console.log('Compare URL state checks passed.');
+// 已選清單也擋在同一個上限：網址還原時不會被截成另一組股票
+{
+  const almostFull = many.slice(0, COMPARE_URL_MAX_SYMBOLS - 1);
+  const { nextSelected, result } = applyBulkSelection({
+    input: `${many[29]} ${many[30]} ${many[31]} ${many[0]} 9999`, currentSelected: almostFull, allSymbols: many, limit: COMPARE_URL_MAX_SYMBOLS,
+  });
+  assert.equal(nextSelected.length, COMPARE_URL_MAX_SYMBOLS);
+  assert.deepEqual(result.added, [many[29]]);
+  assert.deepEqual(result.overLimit, [many[30], many[31]]);
+  assert.deepEqual(result.duplicates, [many[0]], 'Duplicates are still reported as duplicates when the list is full');
+  assert.deepEqual(result.invalid, ['9999']);
+  assert.deepEqual(parseCompareQuery({ s: nextSelected.join(',') }, many)?.symbols, nextSelected, 'A full list survives the URL round trip');
+  assert.deepEqual(applyBulkSelection({ input: many.join(' '), currentSelected: [], allSymbols: many }).result.overLimit, [], 'Without a limit everything is added');
+}
+
+console.log('Compare URL state checks passed: symbols, dates, URL limit, selection limit.');
