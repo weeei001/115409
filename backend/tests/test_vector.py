@@ -41,6 +41,28 @@ def test_embedding_request_uses_query_input_headers_and_float_vector(settings):
     assert result == [1.0, -0.25, 0.0] and all(type(value) is float for value in result)
 
 
+def test_openrouter_embedding_omits_nvidia_parameters_and_bounds_batches(settings):
+    requests = []
+    def handler(request):
+        body = json.loads(request.content)
+        assert set(body) == {"model", "input", "encoding_format"}
+        assert body["model"] == "openai/text-embedding-3-small"
+        assert sum(len(text.encode("utf-8")) for text in body["input"]) <= 250000
+        requests.append(body)
+        return httpx.Response(200, json={"data": [
+            {"index": index, "embedding": [float(index), 1]} for index in reversed(range(len(body["input"])))]})
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = VectorClient(http, configured(settings, EMBED_API_STYLE="openai",
+                EMBED_MODEL="openai/text-embedding-3-small"))
+            vectors = await client.embed_documents(["字" * 2000] * 50)
+            assert len(vectors) == 50 and vectors[0] == [0.0, 1.0]
+            with pytest.raises(AppError, match="safe token bound"):
+                await client.embed_documents(["字" * 3000])
+    asyncio.run(run())
+    assert [len(body["input"]) for body in requests] == [41, 9]
+
+
 @pytest.mark.parametrize("body", ["{}", '{"data":[]}', '{"data":[{}]}',
     '{"data":[{"embedding":null}]}', '{"data":[{"embedding":[]}]}',
     '{"data":[{"embedding":[true]}]}', '{"data":[{"embedding":["0.1"]}]}',

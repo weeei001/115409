@@ -1,7 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
+import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -13,6 +15,62 @@ from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.jobs import market_history as history
 from app.jobs.market import benchmark, institutional
+
+
+def test_official_request_error_reports_safe_http_status_without_query_parameters():
+    request = httpx.Request("GET", "https://example.test/price?token=do-not-log")
+    response = httpx.Response(429, request=request)
+    cause = httpx.HTTPStatusError("rate limited", request=request, response=response)
+    error = history.OfficialRequestError(str(request.url), cause)
+    assert error.status_code == 429
+    assert "status=429" in str(error)
+    assert "token" not in str(error)
+    assert "do-not-log" not in str(error)
+
+
+def test_historical_price_correction_refreshes_indicators_after_requested_end(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'correction.db'}")
+    Base.metadata.create_all(engine)
+    days = [date(2026, 9, 1) + timedelta(days=index) for index in range(6)]
+    with Session(engine) as db:
+        db.add_all([DailyPrice(date=day, symbol="2330", close=100) for day in days])
+        db.commit()
+        history.recompute(db, "2330")
+    monkeypatch.setattr(history, "get_settings", lambda: None)
+    monkeypatch.setattr(history, "make_engine", lambda settings: engine)
+    monkeypatch.setattr(history, "_load_catalog", lambda: {"2330": {"market": "TWSE"}})
+    monkeypatch.setattr(history, "_twse_prices", lambda *args: [
+        {"date": days[1], "symbol": "2330", "close": "200"}])
+    monkeypatch.setattr(history, "_tpex_prices", lambda *args: [])
+    args = SimpleNamespace(start=days[1], end=days[1], symbols=["2330"], timeout=1,
+                           interval=0, retries=0, skip_benchmark=True, skip_valuations=True,
+                           include_institutional=False, out=tmp_path / "report.json")
+    history.backfill(args)
+    with Session(engine) as db:
+        assert db.get(TechnicalIndicator, (days[-1], "2330")).ma5 == Decimal("120.00")
+    engine.dispose()
+
+
+def test_official_history_resume_skips_verified_completed_symbol(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'resume.db'}")
+    Base.metadata.create_all(engine)
+    day = date(2026, 10, 2)
+    monkeypatch.setattr(history, "get_settings", lambda: None)
+    monkeypatch.setattr(history, "make_engine", lambda settings: engine)
+    monkeypatch.setattr(history, "_load_catalog", lambda: {"2330": {"market": "TWSE"}})
+    monkeypatch.setattr(history, "_twse_prices", lambda *args: [
+        {"date": day, "symbol": "2330", "open": "100", "high": "102", "low": "99", "close": "101"}])
+    monkeypatch.setattr(history, "_tpex_prices", lambda *args: [])
+    args = SimpleNamespace(start=day, end=day, symbols=["2330"], timeout=1, interval=0, retries=0,
+                           skip_benchmark=True, skip_valuations=True, include_institutional=False,
+                           resume=False, out=tmp_path / "history.json")
+    assert history.backfill(args)["coverage"]["daily_prices"]["2330"][2] == 1
+    args.resume = True
+    monkeypatch.setattr(history, "_twse_prices", lambda *args: pytest.fail("Verified symbol was fetched again"))
+    resumed = history.backfill(args)
+    assert resumed["checkpoint"]["completed_symbols"] == ["2330"]
+    assert resumed["datasets"]["daily_prices"] == 1
+    engine.dispose()
 
 
 @pytest.mark.parametrize("market", ["TWSE", "TPEx"])
@@ -80,7 +138,10 @@ def test_official_history_cannot_succeed_without_required_selected_stock_data(tm
                            include_institutional=True, out=tmp_path / "report.json")
     with pytest.raises(ValueError, match="No official"):
         history.backfill(args)
-    assert not args.out.exists()
+    if empty_stage == "prices":
+        assert not args.out.exists()
+    else:
+        assert json.loads(args.out.read_text())["checkpoint"]["completed_symbols"] == ["2330"]
     engine.dispose()
 
 

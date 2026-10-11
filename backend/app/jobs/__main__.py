@@ -11,6 +11,7 @@ COMMANDS = (
     "admin-grant",
     "migrate-admin-schema",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
+    "market-supplemental-backfill", "market-chips-backfill", "verify-news-index",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler",
     "cache-warmup", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
@@ -47,6 +48,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "market-supplemental-backfill":
+        from app.jobs.market.supplemental_history import main as supplement
+        return supplement(argv)
+    if job == "market-chips-backfill":
+        from app.jobs.market.chips_history import main as chips
+        return chips(argv)
+    if job == "verify-news-index":
+        from app.jobs.ingestion.verify import main as verify
+        return verify(argv)
     if job == "stock-backfill":
         from app.jobs.stock_backfill import main as backfill
         return backfill(argv)

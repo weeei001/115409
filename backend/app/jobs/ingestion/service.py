@@ -75,7 +75,7 @@ def chunk_news(session_factory, *, symbols: list[str] = (), start: date | None =
                end: date | None = None, limit: int | None = None, page_size: int = 50,
                dry_run: bool = False, index_version: str = DEFAULT_INDEX_VERSION,
                max_chars: int = CHUNK_SIZE, overlap_chars: int = CHUNK_OVERLAP,
-               embedding_model: str = DEFAULT_EMBED_MODEL) -> IngestionReport:
+               embedding_model: str = DEFAULT_EMBED_MODEL, sources: list[str] = ()) -> IngestionReport:
     _validate_options(page_size, limit, start, end)
     # Validate configuration even when the source table is empty.
     article_chunks({"article_id": ""}, index_version=index_version, max_chars=max_chars,
@@ -85,7 +85,7 @@ def chunk_news(session_factory, *, symbols: list[str] = (), start: date | None =
     while limit is None or report.read < limit:
         size = min(page_size, limit - report.read) if limit is not None else page_size
         page = _read_page(session_factory, repository.pending_articles, after=after, page_size=size,
-                          symbols=symbols, start=start, end=end, index_version=index_version)
+                          symbols=symbols, start=start, end=end, index_version=index_version, sources=sources)
         if not page:
             break
         for article in page:
@@ -104,6 +104,10 @@ def chunk_news(session_factory, *, symbols: list[str] = (), start: date | None =
                 continue
             if article.get("_stored_revision") == chunks[0]["revision"]:
                 report.skipped += 1
+                continue
+            if (article.get("_stored_fingerprint")
+                    and article["_stored_fingerprint"] != chunks[0]["index_fingerprint"]):
+                report.fail(after, "index_configuration_changed_use_new_index_version")
                 continue
             report.planned += 1
             report.chunks += len(chunks)
@@ -126,7 +130,7 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
                          limit: int | None = None, page_size: int = 50,
                          dry_run: bool = False, create_collection: bool = False,
                          retry_delay: float = 5, index_version: str = DEFAULT_INDEX_VERSION,
-                         cleanup_stale: bool = True) -> IngestionReport:
+                         cleanup_stale: bool = True, sources: list[str] = ()) -> IngestionReport:
     _validate_options(page_size, limit, start, end)
     if retry_delay < 0:
         raise ValueError("retry_delay must not be negative")
@@ -143,7 +147,7 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
     while limit is None or report.read < limit:
         size = min(page_size, limit - report.read) if limit is not None else page_size
         page = await asyncio.to_thread(_read_page, session_factory, repository.chunk_page,
-            after=after, page_size=size, symbols=symbols, start=start, end=end, index_version=index_version)
+            after=after, page_size=size, symbols=symbols, start=start, end=end, index_version=index_version, sources=sources)
         if not page:
             break
         articles = []

@@ -186,6 +186,122 @@ def test_cnyes_worker_replaces_list_excerpt_with_detail_body(db_session):
     assert stored.content_kind == "full_text" and stored.analysis_input_hash == original_hash
 
 
+def test_cnyes_limit_is_global_across_categories_and_months(db_session):
+    requested = []
+    def provider(request):
+        requested.append(request)
+        return httpx.Response(200, json={"items": [cnyes_raw(newsId=len(requested))]})
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 3, 1), limit=1)
+    assert len(requested) == 1 and result["inserted"] == 1
+
+
+def test_cnyes_skip_existing_uses_canonical_urls_and_still_discovers_new_articles(db_session, capsys):
+    saved = crawlers.cnyes_item(cnyes_raw())
+    saved["content_kind"] = "full_text"
+    saved["url"] = "http://news.cnyes.com/news/id/12345/?utm_source=archive#top"
+    crawlers.store_news(db_session, [saved])
+    requests = []
+    def provider(request):
+        requests.append(request)
+        if "newslist" in request.url.path:
+            return httpx.Response(200, json={"items": [cnyes_raw(title="Revised list title"),
+                cnyes_raw(newsId="12346", publishAt=1704067201, title="New article")]})
+        assert request.url.path == "/news/id/12346"
+        return httpx.Response(200, text=cnyes_detail_html())
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3),
+                                     fetch_details=True, skip_existing=True)
+    assert result == {"inserted": 1, "updated": 0, "skipped": 3, "failed": 0}
+    assert sum("/news/id/" in request.url.path for request in requests) == 1
+    articles = list(db_session.scalars(select(NewsArticle)))
+    assert len(articles) == 2 and len({crawlers.canonical_url(article.url) for article in articles}) == 2
+    assert db_session.get(NewsArticle, saved["article_id"]).content == saved["content"]
+    progress = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [page["skipped"] for page in progress] == [1, 2]
+
+
+def test_cnyes_skip_existing_continues_past_fully_saved_page_and_counts_inspections(db_session):
+    saved = [cnyes_raw(newsId=str(10000 + index), title=f"Saved {index}") for index in range(30)]
+    crawlers.store_news(db_session, [{**crawlers.cnyes_item(row), "content_kind": "full_text"} for row in saved])
+    requests = []
+    def provider(request):
+        requests.append(request)
+        if "newslist" in request.url.path:
+            rows = saved if request.url.params["page"] == "1" else [
+                cnyes_raw(newsId="20000", title="New article", publishAt=1704067201),
+                cnyes_raw(newsId="20001", title="Beyond limit", publishAt=1704067202)]
+            return httpx.Response(200, json={"items": rows})
+        assert request.url.path == "/news/id/20000"
+        return httpx.Response(200, text=cnyes_detail_html())
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 3, 1),
+                                     limit=31, fetch_details=True, skip_existing=True)
+    assert result == {"inserted": 1, "updated": 0, "skipped": 30, "failed": 0}
+    assert len(requests) == 3
+    assert {request.url.path.rsplit("/", 1)[-1] for request in requests if "newslist" in request.url.path} == {"tw_stock_news"}
+    assert len(list(db_session.scalars(select(NewsArticle)))) == 31
+
+
+@pytest.mark.parametrize("kind,content", [("summary", "Saved summary"), ("title_only", ""),
+                                        ("full_text", ""), ("full_text", "Access denied")])
+def test_cnyes_skip_existing_repairs_incomplete_or_invalid_articles(db_session, kind, content):
+    saved = {**crawlers.cnyes_item(cnyes_raw()), "content_kind": kind, "content": content}
+    db_session.add(NewsArticle(**saved))
+    db_session.commit()
+    details = []
+    def provider(request):
+        if "newslist" in request.url.path:
+            return httpx.Response(200, json={"items": [cnyes_raw()]})
+        details.append(request.url.path)
+        return httpx.Response(200, text=cnyes_detail_html())
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3),
+                                     fetch_details=True, skip_existing=True)
+    assert result["updated"] == 1 and result["failed"] == 0 and len(details) == 1
+    db_session.expire_all()
+    articles = list(db_session.scalars(select(NewsArticle)))
+    assert len(articles) == 1 and articles[0].content_kind == "full_text"
+    assert articles[0].content == "完整新聞內文第一段。完整新聞內文第二段。"
+
+
+def test_cnyes_skip_existing_cli_is_opt_in_and_incompatible_with_refresh(settings, monkeypatch):
+    engine, calls = Mock(), []
+    monkeypatch.setattr(crawlers, "get_settings", lambda: settings)
+    monkeypatch.setattr(crawlers, "make_engine", lambda value: engine)
+    monkeypatch.setattr(impact_migrate, "migrate_news_impact", lambda value: None)
+    monkeypatch.setattr(crawlers, "crawl_cnyes", lambda *args: calls.append(args) or {"failed": 0})
+    assert crawlers.crawler_main("cnyes", ["--skip-existing", "--start", "2026-01-01", "--end", "2026-10-10"]) == 0
+    assert calls[0][-1] is True
+    assert calls[0][2].isoformat() == "2026-01-01T00:00:00+08:00"
+    assert calls[0][3].isoformat() == "2026-10-10T23:59:59+08:00"
+    with pytest.raises(SystemExit):
+        crawlers.crawler_main("cnyes", ["--skip-existing", "--refresh-existing"])
+
+
+def test_cnyes_detail_failure_is_reported_and_existing_body_survives(db_session):
+    item = crawlers.cnyes_item(cnyes_raw())
+    crawlers.store_news(db_session, [item])
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(503))) as http:
+        report = crawlers.refresh_cnyes_existing(db_session.bind, http)
+    assert report == {"read": 1, "updated": 0, "skipped": 0, "failed": 1}
+    assert db_session.get(NewsArticle, item["article_id"]).content == item["content"]
+
+
+def test_cnyes_cli_explicit_dates_are_inclusive(settings, monkeypatch):
+    engine, calls = Mock(), []
+    monkeypatch.setattr(crawlers, "get_settings", lambda: settings)
+    monkeypatch.setattr(crawlers, "make_engine", lambda value: engine)
+    monkeypatch.setattr(impact_migrate, "migrate_news_impact", lambda value: None)
+    def crawl(*args):
+        calls.append(args)
+        return {"failed": 0}
+    monkeypatch.setattr(crawlers, "crawl_cnyes", crawl)
+    assert crawlers.crawler_main("cnyes", ["--start", "2021-01-01", "--end", "2024-12-31"]) == 0
+    assert calls[0][2].isoformat() == "2021-01-01T00:00:00+08:00"
+    assert calls[0][3].isoformat() == "2024-12-31T23:59:59+08:00"
+
+
 def test_refresh_cnyes_existing_uses_coherent_detail_title_and_body(db_session):
     item = crawlers.cnyes_item(cnyes_raw(content="列表摘要"))
     crawlers.store_news(db_session, [item])

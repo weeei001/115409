@@ -15,14 +15,14 @@ def test_pipeline_uses_native_jobs_in_dependency_order(tmp_path):
     assert scheduler.run_pipeline("all", start=date(2026, 7, 1), symbols="2330,2317", output=tmp_path,
         run=lambda command: commands.append(command) or 0) == 0
     assert [command[0] for command in commands] == [
-        "market-backfill", "market-fetch", "market-import", "paper-reconcile", "crawl-cnyes", "crawl-ltn", "migrate-news-impact-schema",
+        "market-backfill", "market-fetch", "market-import", "market-supplemental-backfill",
+        "market-supplemental-backfill", "paper-reconcile", "crawl-cnyes", "migrate-news-impact-schema",
         "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup"]
     assert commands[1] == ["market-fetch", "--stocks", "2330,2317", "--start", "2026-07-01", "--out", str(tmp_path)]
     assert commands[2] == ["market-import", "--input-dir", str(tmp_path)]
     assert commands[0] == ["market-backfill", "--benchmark-only", "--incremental", "--start", "2026-07-01"]
-    assert commands[3] == ["paper-reconcile", "--execute"]
-    assert commands[4] == ["crawl-cnyes", "--scheduled-once"]
-    assert commands[5] == ["crawl-ltn", "--scheduled-once", "--lookback-days", "30"]
+    assert commands[5] == ["paper-reconcile", "--execute"]
+    assert commands[6] == ["crawl-cnyes", "--scheduled-once"]
     assert commands[-1] == ["cache-warmup", "--symbols", "2330,2317"]
     assert commands[-3] == ["news-impact-batch", "--limit", "100",
                             "--max-cost-usd", "0.5", "--execute"]
@@ -53,7 +53,7 @@ def test_news_index_reports_its_own_result_without_warming_briefs(failures, expe
     assert called == commands
 
 
-@pytest.mark.parametrize("failure", ["market-backfill", "market-fetch", "market-import", "paper-reconcile", "migrate-news-impact-schema", "news-ingest", "news-impact-sync"])
+@pytest.mark.parametrize("failure", ["market-backfill", "market-fetch", "market-import", "market-supplemental-backfill", "paper-reconcile", "migrate-news-impact-schema", "news-ingest", "news-impact-sync"])
 def test_pipeline_stops_on_failure_before_warming_stale_cache(failure, tmp_path):
     commands = []
 
@@ -86,6 +86,54 @@ def test_daily_pipeline_runs_once_without_independent_followups():
     assert worker.next_market == datetime(2026, 7, 14, 17, tzinfo=scheduler.TAIPEI)
 
 
+def test_failed_dispatch_remains_due_until_a_later_tick_succeeds():
+    calls = []
+    start = datetime(2026, 7, 13, 16, tzinfo=scheduler.TAIPEI)
+
+    def run(job):
+        calls.append(job)
+        if len(calls) == 1:
+            raise RuntimeError("Temporary dispatch failure")
+        return 0
+
+    worker = scheduler.Scheduler(run, start)
+    deadline = worker.next_market
+    with pytest.raises(RuntimeError, match="Temporary dispatch"):
+        worker.tick(deadline)
+    assert worker.next_market == deadline
+    worker.tick(deadline + timedelta(seconds=5))
+    worker.tick(deadline + timedelta(seconds=6))
+    assert calls == ["pipeline", "pipeline"]
+    assert worker.next_market == deadline + timedelta(days=1)
+
+
+@pytest.mark.parametrize("symbols", [None, "2330,2317"])
+@pytest.mark.parametrize("today,revenue_start", [
+    ("2026-01-10", "2025-11-01"), ("2026-10-10", "2026-08-01"),
+])
+def test_supplemental_jobs_refresh_recent_revenue_and_a_full_year_of_metrics(
+        monkeypatch, tmp_path, symbols, today, revenue_start):
+    fixed = date.fromisoformat(today)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.combine(fixed, time(17), tz)
+
+    monkeypatch.setattr(scheduler, "datetime", Clock)
+    calls = []
+    scheduler.run_pipeline("market", start=date(2021, 1, 1), symbols=symbols,
+                           output=tmp_path, run=lambda command: calls.append(command) or 0)
+    selected = ["--stocks", symbols] if symbols else []
+    assert calls[3:5] == [
+        ["market-supplemental-backfill", *selected, "--start", revenue_start, "--end", today,
+         "--datasets", "monthly_revenue", "--out", str(tmp_path / "revenue_report.json")],
+        ["market-supplemental-backfill", *selected, "--start", (fixed - timedelta(days=400)).isoformat(),
+         "--end", today, "--datasets", "financial_metrics", "--out", str(tmp_path / "financial_metrics_report.json")],
+    ]
+    assert calls[-1] == ["paper-reconcile", "--execute"]
+
+
 @pytest.mark.parametrize("failure", ["crawl-cnyes", "crawl-ltn", "news-impact-batch"])
 def test_partial_failures_finish_pipeline_but_preserve_failure(failure, tmp_path):
     calls = []
@@ -93,7 +141,7 @@ def test_partial_failures_finish_pipeline_but_preserve_failure(failure, tmp_path
         calls.append(command[0])
         return 7 if command[0] == failure else 0
     assert scheduler.run_pipeline("pipeline", start=date(2026, 7, 1), symbols=None,
-        output=tmp_path, run=run) == 7
+        output=tmp_path, run=run, source_enabled=lambda name: True) == 7
     assert calls[-1] == "cache-warmup"
     assert "news-impact-sync" in calls
 
@@ -234,7 +282,7 @@ def test_run_now_has_stop_handlers_and_cleanly_stops_scheduler(monkeypatch):
     assert operations[-1] == ("unlock", "scheduler")
 
 
-@pytest.mark.parametrize("failure", ["crawl-cnyes", "crawl-ltn", "news-impact-batch", "market-fetch"])
+@pytest.mark.parametrize("failure", ["crawl-cnyes", "news-impact-batch", "market-fetch"])
 @pytest.mark.parametrize("mode", ["--run-now", "--job"])
 def test_failed_startup_keeps_scheduling_and_one_shot_preserves_failure_exit(
         failure, mode, monkeypatch, tmp_path, capsys):
