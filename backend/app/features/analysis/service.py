@@ -414,14 +414,13 @@ class AnalysisService:
     def _save_snapshot(self, response, config, raw_text, news_count, latency_ms, metadata):
         if config.get("purpose") != "production" or contains_simulation(response.model_dump(mode="python")):
             raise ValueError("Ineligible sources cannot be saved as a production analysis")
-        safe_payload = response.brief.model_dump(mode="json") if response.brief else {"limitations": response.limitations}
         row = LlmResponse(symbol=response.symbol, as_of_date=date.fromisoformat(response.as_of_date),
             kind=LLM_RESPONSE_KIND_TEXT_BRIEF, config_hash=response.config_hash,
             config_json=json.dumps(config, ensure_ascii=False, sort_keys=True),
             model_name=response.generated_by, is_fallback=response.brief is None,
             news_count=news_count, summary=response.brief.headline if response.brief else response.limitations[0],
             raw_llm_text=raw_text, normalized_json=json.dumps(
-                {"payload": safe_payload, "model_metadata": metadata}, ensure_ascii=False),
+                {"model_metadata": metadata}, ensure_ascii=False),
             response_json=response.model_dump_json(), latency_ms=latency_ms)
         try:
             self.db.add(row)

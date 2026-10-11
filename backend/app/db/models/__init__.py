@@ -4,7 +4,6 @@ from .stock_info import StockInfo
 from .news_article import NewsArticle
 from .news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDecision
 from .technical_indicator import TechnicalIndicator
-from .simulated_order import SimulatedOrder
 from .institutional_trade import InstitutionalTrade
 from .market_extra import (
     DividendResult,
@@ -42,7 +41,6 @@ __all__ = [
     "NewsEventImpact",
     "NewsEventTopic",
     "TechnicalIndicator",
-    "SimulatedOrder",
     "InstitutionalTrade",
     "DividendResult",
     "FinancialStatementRow",

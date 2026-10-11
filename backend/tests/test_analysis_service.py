@@ -111,6 +111,9 @@ def test_analysis_pipeline_thread_boundary_backfill_snapshot_and_cache(db_sessio
     first = run_service(db_session, settings, llm, rag)
     assert first.status == "limited" and not first.cached
     assert first.snapshot_id is not None and first.analysis_revision and first.config_hash
+    snapshot = db_session.get(LlmResponse, first.snapshot_id)
+    assert set(json.loads(snapshot.normalized_json)) == {"model_metadata"}
+    assert json.loads(snapshot.response_json)["brief"] == first.brief.model_dump(mode="json")
     assert first.brief.key_days[-1].move_pct == pytest.approx(0.89)
     assert thread_ids and all(identifier != main_thread for identifier in thread_ids)
     assert all(row["date"] <= AS_OF.isoformat() for row in llm.packet["daily_timeline"])
