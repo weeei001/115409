@@ -728,6 +728,24 @@ def test_invalid_invalidation_is_removed_without_retry_or_losing_direction(db_se
     assert restored.brief.forward_views.short_1_5.validation_status is None
 
 
+def test_uncited_price_level_in_reason_is_cut_without_retry_or_losing_direction(db_session, settings):
+    seed_prices(db_session)
+    payload = brief_payload()
+    payload.update(overall_stance="mildly_bullish", confidence="medium")
+    payload["forward_views"]["short_1_5"].update(
+        stance="mildly_bullish", reason="7/13 收盤 113 元，短線支撐 2,400 元，後續方向仍有不確定性。")
+    llm = FakeLlm(payload)
+    result = run_service(db_session, settings, llm)
+    assert result.status == "limited" and llm.calls == 1
+    short = result.brief.forward_views.short_1_5
+    assert short.stance == "mildly_bullish" and short.validation_status is None
+    assert short.reason == "7/13 收盤 113 元，後續方向仍有不確定性。"
+    assert "2,400" not in result.brief.model_dump_json()
+    assert any("已刪除該句" in text for text in result.limitations)
+    restored = repository.saved_brief(db_session.get(LlmResponse, result.snapshot_id))
+    assert restored.brief.forward_views.short_1_5.validation_status is None
+
+
 def test_invalid_forward_reason_is_rejected_after_retry_without_losing_history(db_session, settings):
     seed_prices(db_session)
     payload = brief_payload()

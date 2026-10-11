@@ -262,7 +262,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
         ) : null}
         <div className={cn('handoff-fade mt-6 grid gap-px border bg-border lg:grid-cols-[300px_minmax(0,1fr)_320px]', gridDown && 'hidden')}>
           {/* 觀測清單 */}
-          <div id={`${id}-watchlist`} className="order-2 min-w-0 scroll-mt-16 bg-card lg:relative lg:order-none">
+          <div data-tour="terminal-watchlist" id={`${id}-watchlist`} className="order-2 min-w-0 scroll-mt-16 bg-card lg:relative lg:order-none">
             <div className="flex flex-col lg:absolute lg:inset-0">
               <div className="flex items-baseline justify-between gap-3 border-b border-border-strong px-4 py-3 sm:px-5">
                 <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">觀測清單</h3>
@@ -288,7 +288,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
           </div>
 
           {/* 報價與 K 線 */}
-          <div ref={quoteRef} className="order-1 min-w-0 scroll-mt-16 bg-card p-4 sm:p-5 lg:order-none">
+          <div data-tour="terminal-quote" ref={quoteRef} className="order-1 min-w-0 scroll-mt-16 bg-card p-4 sm:p-5 lg:order-none">
             {selected ? (
               <>
                 <a
@@ -417,7 +417,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
           </div>
 
           {/* 法人、指標、量與籌碼 */}
-          <div className="order-3 grid min-w-0 content-start gap-px bg-card lg:order-none [&>*]:border-b [&>*:last-child]:border-b-0">
+          <div data-tour="terminal-side" className="order-3 grid min-w-0 content-start gap-px bg-card lg:order-none [&>*]:border-b [&>*:last-child]:border-b-0">
             <LedgerPanel title="加權指數" unit={<DataStamp date={board?.date} state={boardState.status === 'idle' ? 'loading' : boardState.status} />}>
               {boardBlock}
             </LedgerPanel>
@@ -478,12 +478,12 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
         </div>
 
         {allDown ? null : (
-          <LedgerPanel framed className="mt-10 lg:mt-16">
+          <LedgerPanel data-tour="terminal-news" framed className="mt-10 lg:mt-16">
             <HomeNews />
           </LedgerPanel>
         )}
 
-        <Ledger title="觀測台以外" className="mt-10 lg:mt-16">
+        <Ledger data-tour="terminal-more" title="觀測台以外" className="mt-10 lg:mt-16">
           <NextStep href="/ai">AI 對話：用一句話問個股、比較或技術指標</NextStep>
           <NextStep href="/compare">多股比較：把幾檔股票放在同一張圖上，看報酬、風險與相關性</NextStep>
           <NextStep href="/order">模擬投資：登入後用虛擬資金練習買賣，日後回顧當初的理由</NextStep>

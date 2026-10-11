@@ -65,7 +65,7 @@ const OUTPUTS: Array<[string, string]> = [
 
 function CompareOutputs() {
   return (
-    <section aria-labelledby="compare-outputs-heading" className="-mt-4 min-w-0 lg:-mt-8">
+    <section data-tour="compare-outputs" aria-labelledby="compare-outputs-heading" className="-mt-4 min-w-0 lg:-mt-8">
       <p id="compare-outputs-heading" className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">
         加入兩檔以上股票並按「開始比較」，會產出
       </p>
@@ -205,7 +205,7 @@ export default function ComparePage() {
               ) : null}
               cols="grid-cols-1 lg:grid-cols-12"
             >
-              <LedgerPanel title="加入股票與期間" className="flex flex-col gap-4 lg:col-span-7">
+              <LedgerPanel data-tour="compare-pick" title="加入股票與期間" className="flex flex-col gap-4 lg:col-span-7">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <StockSearch
                     className="min-w-0 flex-1"
@@ -304,7 +304,7 @@ export default function ComparePage() {
                 </div>
               </LedgerPanel>
 
-              <LedgerPanel padded={false} className="flex flex-col lg:col-span-5">
+              <LedgerPanel data-tour="compare-selected" padded={false} className="flex flex-col lg:col-span-5">
                 <div className="flex items-baseline justify-between gap-3 border-b px-4 pt-4 pb-3 sm:px-5 sm:pt-5">
                   <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">已選股票</h3>
                   <span className="characteristic">色條＝圖表代表色</span>

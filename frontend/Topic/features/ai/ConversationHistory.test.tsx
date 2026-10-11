@@ -15,4 +15,14 @@ assert.match(renderToStaticMarkup(<ConversationHistory {...props} error="Connect
 const guest = renderToStaticMarkup(<ConversationHistory {...props} signedIn={false} />);
 assert.match(guest, /登入/);
 assert.doesNotMatch(guest, /<input|literal/);
+// 收合成細條：只留展開與新增對話，沒有搜尋框與清單；展開時標題列有收合鈕；抽屜不收合
+const rail = renderToStaticMarkup(<ConversationHistory {...props} collapsed onToggleCollapsed={noop} />);
+assert.match(rail, /aria-label="展開歷史對話"/);
+assert.match(rail, /aria-expanded="false"/);
+assert.match(rail, /aria-label="新增對話"/);
+assert.doesNotMatch(rail, /<input|literal|載入更多/);
+assert.match(renderToStaticMarkup(<ConversationHistory {...props} onToggleCollapsed={noop} />), /aria-expanded="true"[^>]*aria-label="收合歷史對話"/);
+const sheet = renderToStaticMarkup(<ConversationHistory {...props} variant="sheet" collapsed onToggleCollapsed={noop} />);
+assert.match(sheet, /for="conversation-search-sheet"/);
+assert.doesNotMatch(sheet, /收合歷史對話|展開歷史對話/);
 console.log('Conversation history UI passed: selection, search label, escaped titles, pagination, empty/error/guest states.');

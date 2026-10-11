@@ -20,6 +20,7 @@ export function TopNewsCard({ symbol, onOpenDetail }: { symbol: string; onOpenDe
 
   return (
     <Ledger
+      data-tour="stock-news"
       title="相關新聞"
       // 影響標籤是 AI 判讀的事件影響：用一句燈質列文字說明（含免責），不用 AI 圖示或徽章
       stamp={

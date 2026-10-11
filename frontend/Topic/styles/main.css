@@ -67,6 +67,19 @@
   /* 面板與 sticky 頁首靠線分隔，只有浮在內容上方的層（下拉清單、popover、sheet、toast）有陰影 */
   --elev-raised: 0 12px 32px -8px rgba(14, 26, 36, 0.18);
 
+  /* 站內助手「小燈」的像素圖（features/assistant/sprite.ts）：黑白條紋燈塔，不用紅白（紅＝漲）；燈點只用燈色 */
+  --mascot-line: var(--foreground);
+  --mascot-eye: var(--foreground);
+  --mascot-body: #ffffff;
+  --mascot-shade: var(--border);
+  --mascot-glass: var(--muted);
+  --mascot-lamp: var(--brand);
+  --mascot-lamp-dim: var(--brand-deep);
+  --mascot-lamp-off: var(--input);
+  /* 小燈腳下的海：浪頂一條線、底下是海水 */
+  --mascot-sea: var(--input);
+  --mascot-water: var(--muted);
+
   /* 動效：週期 P = 10s（燈質 Fl W 10s），時長都是 P 的分數 */
   --dur-flash: 125ms;
   --dur-sweep: 250ms;
@@ -128,6 +141,17 @@
   --warning-icon: #c9a57e;
 
   --elev-raised: 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+
+  /* 夜海的小燈：塔身用淺色，外框與條紋改中灰才不會和底色融在一起；眼睛用最深的底色 */
+  --mascot-line: var(--input);
+  --mascot-eye: var(--background);
+  --mascot-body: var(--foreground);
+  --mascot-shade: var(--muted-foreground);
+  --mascot-glass: var(--accent);
+  --mascot-lamp-dim: #8a6420;
+  --mascot-lamp-off: var(--border-strong);
+  --mascot-sea: var(--muted-foreground);
+  --mascot-water: var(--accent);
 }
 
 @theme inline {
@@ -243,13 +267,41 @@
     box-shadow: 0 0 0 2px var(--brand);
     transition: none !important;
   }
-  input[type="date"],
-  input[type="datetime-local"] {
+  /* 原生控制項（日期選擇器、下拉清單、核取方塊、捲軸）跟著主題換班，夜班才不會出現白色元件 */
+  html {
     color-scheme: light;
   }
-  .dark input[type="date"],
-  .dark input[type="datetime-local"] {
+  .dark {
     color-scheme: dark;
+  }
+  /* 捲軸：透明軌道、輸入框外框色的細滑塊、沒有箭頭，hover 加粗轉墨色。
+     任何元素設了 scrollbar-color／scrollbar-width，Chromium 就改走標準捲軸、這組不生效（又會出現箭頭），所以元件裡只能用 scrollbar-none 隱藏，不要另外設色 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--input);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+  ::-webkit-scrollbar-thumb:hover,
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--muted-foreground);
+    border-width: 1px;
+  }
+  /* Firefox 不支援 ::-webkit-scrollbar，用標準屬性做同一組顏色 */
+  @supports not selector(::-webkit-scrollbar) {
+    html {
+      scrollbar-color: var(--input) transparent;
+    }
+    * {
+      scrollbar-width: thin;
+    }
   }
 }
 
@@ -316,6 +368,17 @@
     pointer-events: none;
     animation: neatline-sweep var(--dur-eclipse) var(--ease-swell) 1 both;
   }
+}
+
+/* 小燈「這頁怎麼看」導覽：換一步時，一道光由左到右掃過被介紹的區塊一次（和圖廓同一個 neatline-sweep） */
+@utility tour-sweep {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--brand);
+  opacity: 0;
+  pointer-events: none;
+  animation: neatline-sweep var(--dur-eclipse) var(--ease-swell) 1 both;
 }
 
 /* 燈質記號：8px 的燈。F 定光＝實心、Q 急閃＝每秒閃一次（墨色）、熄燈＝空心加斜線 */

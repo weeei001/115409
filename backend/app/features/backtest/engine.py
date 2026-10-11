@@ -18,26 +18,40 @@ PRESETS: dict[Preset, dict[Stance, float | None]] = {
     "standard": {"bullish": 1.0, "mildly_bullish": 0.7, "neutral": None, "mildly_bearish": 0.3, "bearish": 0.0},
     "aggressive": {"bullish": 1.0, "mildly_bullish": 1.0, "neutral": None, "mildly_bearish": 0.5, "bearish": 0.0},
 }
+# Same floors as the signal check page: fewer events or months make the margin itself unreliable.
 MIN_EVIDENCE_EVENTS = 30
-FORWARD_DAYS = 5
+MIN_EVIDENCE_MONTHS = 6
 # Holdings within this many points of the target stay as they are.
 REBALANCE_BAND = 0.05
 
 
 def rule_stance(evidence: list[SignalEvidenceItem]) -> tuple[Stance, list[str], str]:
-    """The no-AI group: count active signals whose known history beat (or trailed) any day.
+    """The no-AI group: count active signals whose known history clearly beat (or trailed) other stocks.
 
-    Only signals with enough past events vote; each votes +1 if its average followed by better results
-    than any day, -1 if worse. Two or more net votes is the strong stance, one is the mild one.
+    A signal votes +1 when its whole margin of error is above zero against other stocks over the same days,
+    -1 when it is wholly below, and not at all when the margin crosses zero or it has too few events or months:
+    the same standard as the signal check page, with the floors the model's instructions mention. Two or more
+    net votes is the strong stance, one is the mild one; with no votes the stance is neutral and the position is kept.
     """
-    used = [item for item in evidence
-            if item.all_stocks.events >= MIN_EVIDENCE_EVENTS and item.edge_vs_baseline_pct]
-    better = sum(item.edge_vs_baseline_pct > 0 for item in used)
-    score = better - (len(used) - better)
+    votes = {}
+    for item in evidence:
+        stats = item.all_stocks
+        if (stats.events < MIN_EVIDENCE_EVENTS or stats.months < MIN_EVIDENCE_MONTHS
+                or stats.vs_peers_pct is None or stats.vs_peers_margin_pct is None):
+            continue
+        if stats.vs_peers_pct - stats.vs_peers_margin_pct > 0:
+            votes[item.key] = 1
+        elif stats.vs_peers_pct + stats.vs_peers_margin_pct < 0:
+            votes[item.key] = -1
+    better = sum(vote > 0 for vote in votes.values())
+    worse = len(votes) - better
+    score = better - worse
     stance = ("bullish" if score >= 2 else "mildly_bullish" if score == 1 else "neutral" if score == 0
               else "mildly_bearish" if score == -1 else "bearish")
-    reason = f"證據清單中，歷史上勝過任一天進場的訊號 {better} 個、輸給的 {len(used) - better} 個"
-    return stance, [item.key for item in used], reason
+    reason = f"證據清單中，明顯勝過同期其他股票的訊號 {better} 個、明顯輸給的 {worse} 個"
+    if len(evidence) > len(votes):
+        reason += f"；其餘 {len(evidence) - len(votes)} 個分不出差別或樣本不足，不投票"
+    return stance, list(votes), reason
 
 
 @dataclass
@@ -140,10 +154,11 @@ def max_drawdown(equity: list[float]) -> float:
     return round(worst * 100, 2)
 
 
-def forward(days: list[Day], index: int, benchmark: list[tuple[date, float]]) -> tuple[float | None, float | None]:
-    if index + FORWARD_DAYS >= len(days):
+def forward(days: list[Day], index: int, benchmark: list[tuple[date, float]],
+            horizon: int) -> tuple[float | None, float | None]:
+    if index + horizon >= len(days):
         return None, None
-    start, end = days[index], days[index + FORWARD_DAYS]
+    start, end = days[index], days[index + horizon]
     return end.close / start.close - 1, benchmark_change(benchmark, start.date, end.date)
 
 

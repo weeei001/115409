@@ -104,7 +104,7 @@ export function MetricsTable({
   };
 
   return (
-    <Ledger title="比較指標表" aria-label="股票比較指標表" stamp="粗底線＝本欄較佳">
+    <Ledger data-tour="compare-metrics" title="比較指標表" aria-label="股票比較指標表" stamp="粗底線＝本欄較佳">
       <LedgerPanel padded={false}>
         {/* 表的圖說：區間漲跌幅等欄位的實際期間，只在這裡寫一次 */}
         <div className="flex items-baseline gap-2 px-4 pt-3 sm:px-5">

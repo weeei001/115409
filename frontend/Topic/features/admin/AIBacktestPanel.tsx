@@ -9,7 +9,7 @@ import { inputClass, stackedFieldLabelClass } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { fetchAIBacktestResult, streamAIBacktest, type AIBacktestParams } from '@/lib/api/backtest';
 import {
-  baselineReturns, GROUP_ORDER, PRESET_RULES, presetText, returnGapText, STANCE_LABEL, STANCES, tradeText,
+  baselineReturns, GROUP_ORDER, PRESET_RULES, presetText, returnGapText, STANCE_LABEL, STANCES, tradeText, yearlyRunText,
 } from '@/lib/backtest/aiBacktest';
 import { aiBacktestOption, BACKTEST_GROUP_COLORS } from '@/lib/charts/adapters';
 import { useTheme } from '@/lib/theme/ThemeContext';
@@ -43,7 +43,7 @@ function TierTable({ result }: { result: AIBacktestResult }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[640px] text-left text-sm">
-        <caption className="sr-only">各組在五個等級的判斷次數、之後 5 個交易日的平均漲跌與命中率</caption>
+        <caption className="sr-only">各組在五個等級的判斷次數、之後 {result.decision_every} 個交易日的平均漲跌與命中率</caption>
         <thead className="border-b border-border-strong bg-muted">
           <tr><th scope="col" className={headCellClass}>等級</th>{result.groups.map((group) => <th key={group.key} scope="col" className={headCellClass}>{group.label}</th>)}</tr>
         </thead>
@@ -81,9 +81,9 @@ function CitationTable({ result }: { result: AIBacktestResult }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[720px] text-left text-sm">
-        <caption className="sr-only">每個訊號出現在證據清單的次數、當時已知的平均優勢，以及純規則與 AI 的使用情形</caption>
+        <caption className="sr-only">每個訊號出現在證據清單的次數、當時已知比同期其他股票高或低多少，以及純規則與 AI 的使用情形</caption>
         <thead className="border-b border-border-strong bg-muted">
-          <tr>{['訊號', '出現', '當時已知的平均優勢', '純規則用到', ...(ai ? ['AI 引用', 'AI 引用後命中'] : [])].map((heading) => <th key={heading} scope="col" className={headCellClass}>{heading}</th>)}</tr>
+          <tr>{['訊號', '出現', '當時已知比其他股票', '純規則用到', ...(ai ? ['AI 引用', 'AI 引用後命中'] : [])].map((heading) => <th key={heading} scope="col" className={headCellClass}>{heading}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((row) => {
@@ -164,7 +164,7 @@ export function BacktestResults({ result }: { result: AIBacktestResult }) {
       <LedgerPanel title="資產曲線" className="sm:col-span-3">
         {option ? <EChart title={`${result.symbol} 回測資產曲線`} option={option} height={300} /> : <EmptyState>沒有可畫的資料。</EmptyState>}
       </LedgerPanel>
-      <LedgerPanel title="五個等級的結果" unit="之後 5 個交易日" className="sm:col-span-3">
+      <LedgerPanel title="五個等級的結果" unit={`之後 ${result.decision_every} 個交易日`} className="sm:col-span-3">
         <div className="-mx-4 -mb-4 sm:-mx-5 sm:-mb-5"><TierTable result={result} /></div>
       </LedgerPanel>
       <LedgerPanel title="訊號使用情形" unit="AI 有沒有用對訊號" className="sm:col-span-3">
@@ -185,7 +185,7 @@ export function BacktestResults({ result }: { result: AIBacktestResult }) {
  * 跑的過程用串流回報進度；同一組條件跑過一次會留在快取，按「讀取已跑完的結果」不再呼叫模型。
  */
 export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unknown) => boolean }) {
-  const [form, setForm] = useState<AIBacktestParams>({ symbol: '2330', start: shiftYmdMonths(toYmdLocal(), -12), end: toYmdLocal(), preset: 'standard', initial_cash: 1_000_000, ai: true });
+  const [form, setForm] = useState<AIBacktestParams>({ symbol: '2330', start: shiftYmdMonths(toYmdLocal(), -12), end: toYmdLocal(), preset: 'standard', initial_cash: 1_000_000, ai: true, horizon: 5 });
   // 404 有兩種：還沒跑過，或股票不在清單裡；後端的訊息會說清楚是哪一種
   const { result, error, loading: running, run, cancel } = useAdminRequest<AIBacktestResult>(onAccessError, '回測暫時無法完成，請稍後重試。');
   const [progress, setProgress] = useState<{ done: number; total: number; date?: string; calls?: number; cached?: boolean } | null>(null);
@@ -218,10 +218,10 @@ export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unkn
   const percent = progress?.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
-    <Ledger title="AI 回測" stamp={result ? `${result.symbol} · ${result.start} ~ ${result.end}` : '每 5 個交易日判斷一次'} cols="grid-cols-1 sm:grid-cols-3">
+    <Ledger title="AI 回測" stamp={result ? `${result.symbol} · ${result.start} ~ ${result.end}` : `每 ${form.horizon} 個交易日判斷一次`} cols="grid-cols-1 sm:grid-cols-3">
       <LedgerPanel className="sm:col-span-3">
         <form onSubmit={start('run')} noValidate className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <label className={stackedFieldLabelClass}>股票代號<input className={cn(inputClass, 'font-mono tabular-nums')} value={form.symbol} onChange={(event) => update('symbol', event.target.value)} inputMode="numeric" maxLength={7} aria-describedby={formError ? 'backtest-form-error' : undefined} /></label>
             <label className={stackedFieldLabelClass}>開始日<input type="date" className={cn(inputClass, 'font-mono tabular-nums')} value={form.start} onChange={(event) => update('start', event.target.value)} /></label>
             <label className={stackedFieldLabelClass}>結束日<input type="date" className={cn(inputClass, 'font-mono tabular-nums')} value={form.end} onChange={(event) => update('end', event.target.value)} /></label>
@@ -232,8 +232,18 @@ export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unkn
               </NativeSelect>
             </label>
             <label className={stackedFieldLabelClass}>起始資金（元）<input type="number" className={cn(inputClass, 'font-mono tabular-nums')} min={10_000} max={100_000_000} step={10_000} value={form.initial_cash} onChange={(event) => update('initial_cash', Number(event.target.value))} /></label>
+            <label className={stackedFieldLabelClass}>
+              判斷間隔
+              <NativeSelect value={form.horizon} onChange={(event) => update('horizon', Number(event.target.value) as 5 | 20)}>
+                <option value={5}>每 5 個交易日</option>
+                <option value={20}>每 20 個交易日</option>
+              </NativeSelect>
+            </label>
           </div>
-          <p className="text-xs leading-5 text-muted-foreground">「{PRESET_RULES[form.preset].label}」：{presetText(form.preset)}。三組都套用同一套規則，AI 只決定等級。</p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            「{PRESET_RULES[form.preset].label}」：{presetText(form.preset)}。三組都套用同一套規則，AI 只決定等級。
+            間隔也是命中率看的天數；間隔越短，換股越頻繁，每次買賣的手續費與稅占的比例越高。
+          </p>
           <label className="flex items-center gap-2 text-[13px] text-subtle">
             <input type="checkbox" checked={form.ai} onChange={(event) => update('ai', event.target.checked)} className="size-4" />
             包含兩組 AI（每次判斷各呼叫一次模型；取消勾選只跑純規則）
@@ -259,7 +269,7 @@ export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unkn
       ) : null}
       {error ? <LedgerPanel className="sm:col-span-3"><Notice tone="danger">{error}</Notice></LedgerPanel> : null}
       {!result && !running && !error ? (
-        <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">選好股票與期間後按「開始回測」。一年大約 50 次判斷、100 次模型呼叫。</EmptyState></LedgerPanel>
+        <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">選好股票與期間後按「開始回測」。{yearlyRunText(form.horizon, form.ai)}。</EmptyState></LedgerPanel>
       ) : null}
       {!result && running && !progress ? <LedgerPanel padded={false} className="sm:col-span-3"><LoadingRows label="讀取結果中…" className="h-32" /></LedgerPanel> : null}
       {result ? <BacktestResults result={result} /> : null}

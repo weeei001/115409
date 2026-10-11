@@ -59,7 +59,7 @@ def text_brief_revision() -> str:
                                 "glossary": FIELD_GLOSSARY,
                                 "compliance": compliance_rules_signature(),
                                 "schema": StockBehaviorTextBrief.model_json_schema(),
-                                "pipeline": "backend-v1-claim-validation-4"})[:12]
+                                "pipeline": "backend-v1-claim-validation-5"})[:12]
 
 
 def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
@@ -372,6 +372,8 @@ class AnalysisService:
         if brief is not None and any(f"forward_views.{horizon}" in verification.removed_item_ids
                 for horizon in ("short_1_5", "swing_6_20", "medium_21_40")):
             limitations.append("部分期間展望重試後仍未通過內容檢查，已標示為無法判讀；其餘分析保留。")
+        if brief is not None and any(item.endswith(".reason") for item in verification.removed_item_ids):
+            limitations.append("部分期間展望的理由有句子未通過內容檢查，已刪除該句；方向與其餘理由保留。")
         if brief is not None and any(item.endswith(".invalidation") for item in verification.removed_item_ids):
             limitations.append("部分失效條件未通過檢查，已移除；保留有依據的方向與理由。")
         if brief is not None and any(item.endswith(".trigger") for item in verification.removed_item_ids):

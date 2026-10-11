@@ -28,7 +28,7 @@ class GroupDecision(BaseModel):
 class DecisionRecord(BaseModel):
     date: str = Field(description="判斷日（收盤後判斷）。")
     execution_date: Optional[str] = Field(default=None, description="成交日：判斷日的下一個交易日開盤。")
-    forward_return_pct: Optional[float] = Field(default=None, description="判斷日收盤到之後第 5 個交易日收盤的漲跌（%）。")
+    forward_return_pct: Optional[float] = Field(default=None, description="判斷日收盤到之後第 N 個交易日收盤的漲跌（%），N 是 decision_every。")
     market_return_pct: Optional[float] = Field(default=None, description="同期間加權指數（未含息）的漲跌（%）。")
     active_signals: list[str] = Field(default_factory=list, description="當天證據清單裡的訊號。")
     groups: dict[GroupKey, GroupDecision]
@@ -46,7 +46,7 @@ class CitationStats(BaseModel):
     label: str
     available: int = Field(description="出現在證據清單的次數。")
     cited: int = Field(description="被這一組引用的次數。")
-    avg_edge_pct: Optional[float] = Field(default=None, description="出現時，當時已知的平均優勢（相對任一天進場，百分點）。")
+    avg_edge_pct: Optional[float] = Field(default=None, description="出現時，當時已知比同期其他股票高或低的百分點，取平均。")
     cited_hit_rate: Optional[float] = Field(default=None, description="引用後的方向判斷命中率。")
 
 

@@ -127,7 +127,7 @@ def signal_check(user: Administrator, db: Database, response: Response,
                  split: date = Query(date(2025, 1, 1), description="驗證期的第一天；之前是挑選期。"),
                  end: date | None = Query(None, description="驗證期的最後一天，預設今天（台北）。"),
                  horizon: int = Query(5, description="觀察成立後第幾個交易日的收盤：5 或 20。")):
-    """標準技術、籌碼與營收訊號成立後的實際漲跌，分挑選期與驗證期，並對照任一天進場與加權指數。"""
+    """標準技術、籌碼、營收與估值訊號成立後的實際漲跌，分挑選期與驗證期，並和同期其他股票比較。"""
     response.headers["Cache-Control"] = "no-store"
     return signals.signal_check(db, symbol=symbol, start=start, split=split,
                                 end=end or datetime.now(TAIPEI).date(), horizon=horizon)
@@ -148,16 +148,17 @@ def prepared_backtest(db: Database, symbol: str = Query(..., pattern=r"^[0-9]{4,
                       end: date = Query(..., description="最後一天；之後的行情只用來算最後幾次判斷的命中與否。"),
                       preset: Preset = Query("standard", description="持股規則：conservative、standard、aggressive。"),
                       initial_cash: float = Query(1_000_000, ge=10_000, le=100_000_000),
-                      ai: bool = Query(True, description="false 只跑純規則組，不呼叫模型。")):
+                      ai: bool = Query(True, description="false 只跑純規則組，不呼叫模型。"),
+                      horizon: int = Query(5, description="判斷間隔，也是命中率的觀察天數：5 或 20 個交易日。")):
     return backtest.prepare(db, symbol=symbol, start=start, end=end, preset=preset,
-                            initial_cash=initial_cash, use_ai=ai)
+                            initial_cash=initial_cash, use_ai=ai, horizon=horizon)
 
 
 @router.get("/ai-backtest/stream", response_class=StreamingResponse,
             responses={200: {"content": {"text/event-stream": {}}}, 404: {}, 422: {}})
 def ai_backtest_stream(user: Administrator, request: Request,
                        prepared: Annotated[backtest.Prepared, Depends(prepared_backtest)]):
-    """三組 AI 回測（純規則、AI 不給訊號、AI 給訊號），每 5 個交易日判斷一次；SSE 回報進度，最後的 done 帶 AIBacktestResult。"""
+    """三組 AI 回測（純規則、AI 不給訊號、AI 給訊號），每 5 或 20 個交易日判斷一次；SSE 回報進度，最後的 done 帶 AIBacktestResult。"""
     settings = request.app.state.settings
     return StreamingResponse(
         encode_sse(backtest.events(prepared, settings, LlmClient(settings, request.app.state.http)), allow_nan=False),

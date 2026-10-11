@@ -1,4 +1,4 @@
-"""AI backtest: three groups decide every five trading days on the same stock and the same dates.
+"""AI backtest: three groups decide every 5 or 20 trading days on the same stock and the same dates.
 
 The rule group votes with point-in-time signal statistics, one AI group sees only the anonymized market
 snapshot, and the other also sees the signal evidence list; positions follow the same preset for all.
@@ -26,13 +26,11 @@ from app.features.analysis.repository import benchmark_series
 from app.features.signals import repository as signal_repository
 from app.features.signals.detection import Day
 from app.features.signals.history import SignalHistory, StockSeries
-from app.features.signals.service import HISTORY_START, revenue_months, series_from_rows
+from app.features.signals.service import HISTORY_START, HORIZONS, revenue_months, series_from_rows
 from . import engine, prompts
-from .repository import open_prices
 from .schemas import AIBacktestResult, BacktestDecision, DecisionRecord, GroupDecision, Preset
 
-REVISION = "ai-backtest-v2"
-DECISION_EVERY = 5
+REVISION = "ai-backtest-v3"
 MAX_DECISIONS = 130
 # A decision is a short answer, unlike a brief: LLM_TIMEOUT_SECONDS would let one stalled call hold the run for minutes.
 DECISION_TIMEOUT_SECONDS = 120
@@ -40,16 +38,19 @@ DECISION_TIMEOUT_SECONDS = 120
 MAX_FAILED_DAYS = 3
 GROUP_LABELS = {"rule": "純規則", "ai_plain": "AI 不給訊號", "ai_signals": "AI 給訊號"}
 
-METHOD_NOTE = (
-    "每 5 個交易日在收盤後判斷一次，下一個交易日開盤依持股規則調整到目標比例；中性不調整，"
-    "持股比例和目標相差不到 5 個百分點也不調整（目標為 0 時一律出清）。"
-    "三組用同一檔股票、同一批判斷日、同一套持股規則，只有判斷方式不同：純規則看當天證據清單裡歷史上勝過或輸給任一天進場的訊號投票；"
-    "AI 不給訊號只看匿名化的價量、指標、法人與營收資料；AI 給訊號另外收到證據清單，統計只用判斷日當天已經知道結果的事件。"
-    "給 AI 的資料去掉股票代號、名稱與日期，價格換成指數，降低模型靠記憶知道後來行情的機會，但無法完全排除。"
-    "只用現金、整股、不放空；買賣各收手續費 0.1425%，賣出另收證交稅 0.3%，不計最低手續費與滑價。"
-    "命中率看判斷日收盤到之後第 5 個交易日收盤的漲跌方向；中性不算方向判斷。"
-    "行情為未還原價格。這是研究用的模擬，不是投資建議，過去表現不代表未來結果。"
-)
+
+def method_note(horizon: int) -> str:
+    return (
+        f"每 {horizon} 個交易日在收盤後判斷一次，下一個交易日開盤依持股規則調整到目標比例；中性不調整，"
+        "持股比例和目標相差不到 5 個百分點也不調整（目標為 0 時一律出清）。"
+        "三組用同一檔股票、同一批判斷日、同一套持股規則，只有判斷方式不同：純規則只讓當天證據清單裡誤差範圍整段在同一側的訊號投票：明顯勝過同期其他股票的 +1、明顯輸給的 −1，分不出差別或不到 30 次、6 個月的訊號不投票，沒有票時判中性、持股不動；"
+        "AI 不給訊號只看匿名化的價量、指標、法人、營收與股價淨值比；AI 給訊號另外收到證據清單（含營收年增率與股價淨值比的排名），"
+        "統計只用判斷日當天已經知道結果的事件。"
+        "給 AI 的資料去掉股票代號、名稱與日期，價格換成指數，降低模型靠記憶知道後來行情的機會，但無法完全排除。"
+        "只用現金、整股、不放空；買賣各收手續費 0.1425%，賣出另收證交稅 0.3%，不計最低手續費與滑價。"
+        f"命中率看判斷日收盤到之後第 {horizon} 個交易日收盤的漲跌方向；中性不算方向判斷。"
+        "行情為未還原價格。這是研究用的模擬，不是投資建議，過去表現不代表未來結果。"
+    )
 
 
 @dataclass
@@ -60,6 +61,8 @@ class Prepared:
     preset: Preset
     initial_cash: float
     use_ai: bool
+    # Days between decisions, and how far ahead each one is judged.
+    horizon: int
     days: list[Day]
     opens: dict[date, float]
     revenue: list[tuple[int, date, float | None]]
@@ -77,36 +80,40 @@ class Prepared:
     @cached_property
     def history(self) -> SignalHistory:
         # Built on first use: reading a cached result only needs the fingerprint.
-        return SignalHistory(self.series, DECISION_EVERY, self.benchmark)
+        return SignalHistory(self.series, self.horizon)
 
 
 def prepare(db: Session, *, symbol: str, start: date, end: date, preset: Preset, initial_cash: float,
-            use_ai: bool) -> Prepared:
+            use_ai: bool, horizon: int) -> Prepared:
     if start >= end:
         raise AppError("開始日要早於結束日", status_code=422)
+    if horizon not in HORIZONS:
+        raise AppError("判斷間隔只能是 5 或 20 個交易日", status_code=422)
     symbols = signal_repository.catalog_symbols(db)
     if symbol not in symbols:
         raise AppError(f"股票清單裡沒有 {symbol}", status_code=404)
     try:
         rows = signal_repository.market_rows(db, symbols, HISTORY_START, HISTORY_START)
         benchmark = benchmark_series(db, HISTORY_START)
-        opens = open_prices(db, symbol, start)
     finally:
         # End the read transaction before a stream that may wait minutes on the model.
         db.rollback()
     series = series_from_rows(rows, symbols)
     days = series[symbol][0]
+    # Fills use the same opens the signal statistics start from.
+    opens = {day.date: day.open for day in days if day.open and day.open > 0}
     in_range = [index for index, day in enumerate(days) if start <= day.date <= end]
-    if len(in_range) <= DECISION_EVERY:
+    if len(in_range) <= horizon:
         raise AppError(f"{symbol} 在這段期間的交易日不足", status_code=422)
-    decisions = in_range[::DECISION_EVERY]
+    decisions = in_range[::horizon]
     if len(decisions) > MAX_DECISIONS:
         raise AppError(f"判斷次數 {len(decisions)} 次超過上限 {MAX_DECISIONS} 次，請縮短期間", status_code=422)
     revenue = revenue_months(rows[symbol]["revenue"])
     # The last decision's forward window ends after the range does; nothing later is read.
-    through = days[min(decisions[-1] + engine.FORWARD_DAYS, len(days) - 1)].date
+    through = days[min(decisions[-1] + horizon, len(days) - 1)].date
     return Prepared(
-        symbol=symbol, start=start, end=end, preset=preset, initial_cash=initial_cash, use_ai=use_ai, days=days,
+        symbol=symbol, start=start, end=end, preset=preset, initial_cash=initial_cash, use_ai=use_ai, horizon=horizon,
+        days=days,
         opens=opens, revenue=revenue, benchmark=benchmark, series=series, decision_indexes=decisions,
         first=in_range[0], last=in_range[-1], fingerprint=_fingerprint(series, benchmark, revenue, through),
     )
@@ -128,7 +135,8 @@ def _fingerprint(series: dict, benchmark: list[tuple[date, float]], revenue: lis
 def cache_path(settings: Any, prepared: Prepared, model_name: str | None) -> Path:
     identity = {"revision": REVISION, "symbol": prepared.symbol, "start": prepared.start.isoformat(),
                 "end": prepared.end.isoformat(), "preset": prepared.preset, "cash": prepared.initial_cash,
-                "ai": prepared.use_ai, "data": prepared.fingerprint, "prompt": [prompts.SYSTEM_PROMPT, prompts.SIGNALS_ADDENDUM],
+                "horizon": prepared.horizon, "ai": prepared.use_ai, "data": prepared.fingerprint,
+                "prompt": [prompts.system_prompt(prepared.horizon), prompts.signals_addendum(prepared.horizon)],
                 "model": [model_name, settings.LLM_BASE_URL, settings.LLM_TEMPERATURE, settings.LLM_MAX_TOKENS,
                           settings.LLM_RESPONSE_FORMAT] if prepared.use_ai else None}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
@@ -174,20 +182,22 @@ async def decide(prepared: Prepared, llm, index: int) -> tuple[DecisionRecord, d
     evidence = prepared.history.evidence(prepared.symbol, index)
     stance, used, reason = engine.rule_stance(evidence)
     groups = {"rule": GroupDecision(stance=stance, signal_keys=used, reason=reason)}
+    horizon = prepared.horizon
     if prepared.use_ai:
-        plain = prompts.snapshot(days, index, prepared.revenue)
-        rich = prompts.with_evidence(plain, prepared.history.baseline(days[index].date), evidence)
+        plain = prompts.snapshot(days, index, prepared.revenue, horizon)
+        rich = prompts.with_evidence(plain, prepared.history.baseline(days[index].date), evidence, horizon)
+        system = prompts.system_prompt(horizon)
         groups["ai_plain"], groups["ai_signals"] = await asyncio.gather(
-            _ask(llm, plain, prompts.SYSTEM_PROMPT, {}),
-            _ask(llm, rich, prompts.SYSTEM_PROMPT + "\n" + prompts.SIGNALS_ADDENDUM, {item.id: item.key for item in evidence}))
-    change, market = engine.forward(days, index, prepared.benchmark)
+            _ask(llm, plain, system, {}),
+            _ask(llm, rich, system + "\n" + prompts.signals_addendum(horizon), {item.id: item.key for item in evidence}))
+    change, market = engine.forward(days, index, prepared.benchmark, horizon)
     record = DecisionRecord(
         date=days[index].date.isoformat(),
         execution_date=days[index + 1].date.isoformat() if index + 1 <= prepared.last else None,
         forward_return_pct=None if change is None else round(change * 100, 2),
         market_return_pct=None if market is None else round(market * 100, 2),
         active_signals=[item.key for item in evidence], groups=groups)
-    return record, {item.key: item.edge_vs_baseline_pct for item in evidence}
+    return record, {item.key: item.all_stocks.vs_peers_pct for item in evidence}
 
 
 def build_result(prepared: Prepared, records: list[DecisionRecord], edges: list[dict[str, float | None]],
@@ -204,11 +214,11 @@ def build_result(prepared: Prepared, records: list[DecisionRecord], edges: list[
         groups.append(engine.score_group(key, GROUP_LABELS[key], records, simulation, prepared.initial_cash, edges))
     return AIBacktestResult(
         symbol=prepared.symbol, start=prepared.start.isoformat(), end=prepared.end.isoformat(), preset=prepared.preset,
-        initial_cash=prepared.initial_cash, decision_every=DECISION_EVERY, model_name=model_name if prepared.use_ai else None,
+        initial_cash=prepared.initial_cash, decision_every=prepared.horizon, model_name=model_name if prepared.use_ai else None,
         dates=[day.isoformat() for day in dates],
         buy_and_hold=engine.buy_and_hold(days, prepared.opens, first, last, prepared.initial_cash),
         market_index=engine.market_curve(dates, prepared.benchmark, prepared.initial_cash),
-        groups=groups, decisions=records, method_note=METHOD_NOTE)
+        groups=groups, decisions=records, method_note=method_note(prepared.horizon))
 
 
 async def events(prepared: Prepared, settings: Any, llm):

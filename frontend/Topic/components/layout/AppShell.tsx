@@ -5,6 +5,7 @@ import { SiteFooter } from './SiteFooter';
 import { RiskNoticeBanner } from './RiskNoticeBanner';
 import { ScrollToTop } from './ScrollToTop';
 import { FrozenRouter } from './FrozenRouter';
+import { AssistantDock } from '@/features/assistant/AssistantDock';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { useScrollRestoration } from '@/lib/navigation/useScrollRestoration';
 import { cn } from '@/lib/cn';
@@ -47,14 +48,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </AnimatePresence>
         )}
       </div>
-      {/* 列印時頁尾照印，紙本上也有投資風險提示；只有可列印的 AI 報告頁不印，報告自己印出免責文字 */}
-      <SiteFooter className={cn(router.pathname === '/stock/[id]/report' && 'print:hidden', router.pathname === '/ai' && 'hidden sm:block')} />
+      {/* 列印時頁尾照印，紙本上也有投資風險提示；只有可列印的 AI 報告頁不印，報告自己印出免責文字。
+          /ai 在手機（D13 A2）與 lg 以上的全螢幕工作台不放頁尾，免責固定在輸入框下方 */}
+      <SiteFooter className={cn(router.pathname === '/stock/[id]/report' && 'print:hidden', router.pathname === '/ai' && 'hidden sm:block lg:hidden')} />
       {/* 浮動（fixed）的提示條與按鈕任何一頁都不印，免得蓋在紙本內容上 */}
       <div className="print:hidden">
         <RiskNoticeBanner />
         {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕（決議 c69）；首頁旅程有自己的進度列與「回到海面」 */}
         {router.pathname === '/ai' || router.pathname === '/' ? null : <ScrollToTop />}
       </div>
+      {/* 站內助手小燈：放在換頁動畫外面，換頁時對話還在；面板用 portal，自己標 print:hidden */}
+      <AssistantDock />
     </div>
   );
 }

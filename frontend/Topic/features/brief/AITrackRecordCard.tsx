@@ -128,7 +128,7 @@ export function AITrackRecordCard({ symbol }: { symbol: string }) {
   }
 
   return (
-    <Ledger title="AI 判斷回顧" stamp={stamp} cols="grid-cols-1 sm:grid-cols-3">
+    <Ledger data-tour="stock-track" title="AI 判斷回顧" stamp={stamp} cols="grid-cols-1 sm:grid-cols-3">
       {body}
     </Ledger>
   );

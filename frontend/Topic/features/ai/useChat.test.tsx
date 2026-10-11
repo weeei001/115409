@@ -22,6 +22,8 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
 
 let state: ReturnType<typeof useChat>;
 function Harness() { state = useChat(); return null; }
+let quiet: ReturnType<typeof useChat>;
+function QuietHarness() { quiet = useChat({ listHistory: false }); return null; }
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const apiRequests: Array<{ method?: string; url?: string }> = [];
 let historyMessages: Array<Record<string, unknown>> = [];
@@ -52,6 +54,24 @@ async function main() {
   let renderer: ReactTestRenderer | undefined;
   const feedbackCount = () => apiRequests.filter((request) => request.url?.endsWith('/feedback')).length;
   try {
+    // 小燈面板：不抓歷史對話清單；stockId 送成 AskRequest.stock_id，沒給就是 null
+    let quietRenderer: ReactTestRenderer | undefined;
+    await act(async () => { quietRenderer = create(<QuietHarness />); await flush(); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    assert.equal(apiRequests.filter((request) => request.method === 'get' && request.url === '/api/conversations').length, 0,
+      'listHistory: false never requests the conversation list');
+    let askBody: Record<string, unknown> = {};
+    globalThis.fetch = async (_url: string | URL | Request, options?: RequestInit) => {
+      askBody = JSON.parse(String(options?.body));
+      return new Response(JSON.stringify({ answer: 'Scoped answer', actions: [] }));
+    };
+    await act(async () => { await quiet!.send('這檔呢？', { stockId: '2330' }); });
+    assert.equal(askBody.stock_id, '2330');
+    await act(async () => { await quiet!.send('一般問題'); });
+    assert.equal(askBody.stock_id, null);
+    await act(async () => { quietRenderer?.unmount(); });
+    apiRequests.length = 0;
+
     await act(async () => { renderer = create(<Harness />); await flush(); });
     assert.equal(state!.signedIn, true);
     globalThis.fetch = completedFetch('saved-first');

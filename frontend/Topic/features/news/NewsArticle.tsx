@@ -101,14 +101,14 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
   const quoteText = (segment: ArticleSegment) => segment.quotes.map((index) => model.quotes[index]);
 
   return (
-    <article className="min-w-0 bg-card p-5 sm:p-8 lg:col-span-8 lg:border-r">
+    <article data-tour="news-article" className="min-w-0 bg-card p-5 sm:p-8 lg:col-span-8 lg:border-r">
       {meta ? <p className={cn('characteristic', versionNote ? 'mb-1' : 'mb-3')}>{meta}</p> : null}
       {versionNote ? <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{versionNote}</p> : null}
 
       <h2 className="sr-only">{news.title}</h2>
 
       {stockCodes.length ? (
-        <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div data-tour="news-stocks" className="mb-5 flex flex-wrap items-center gap-2">
           <span className="characteristic mr-1">關聯個股</span>
           {stockCodes.map((code) => {
             const current = code === selectedStock;

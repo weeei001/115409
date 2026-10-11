@@ -23,6 +23,7 @@ import { stockNewsReturnHref } from '@/lib/news/stockNewsView';
 import { formatDateTime } from '@/lib/utils/date';
 import { newsSourceName } from '@/lib/news/newsSource';
 import { NEWS_IMPACT_DISCLAIMER } from '@/lib/disclaimers';
+import { useProvideAssistantTopic } from '@/features/assistant/topic';
 
 const firstQuery = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) || '';
 
@@ -41,6 +42,8 @@ export default function NewsDetailPage() {
   const revisionId = firstQuery(router.query.revision_id);
   const newsReturn = stockNewsReturnHref(firstQuery(router.query.returnTo), stockParam);
   const [news, setNews] = useState<News | null>(null);
+  // 小燈的「可以這樣問」會帶這則新聞的標題
+  useProvideAssistantTopic(news?.title ? { kind: 'news', title: news.title } : null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedStock, setSelectedStock] = useState('');
@@ -213,7 +216,7 @@ export default function NewsDetailPage() {
                 寬版：分析欄 sticky 在頁首下方（頁首高度＋1rem），高度不超過視窗剩餘高度。
                 標題列固定在欄頂、只有下面的內容在欄內捲動，標題不會被捲走或被頁首切掉。
               */}
-              <aside id="analysis" className="min-w-0 scroll-mt-[calc(var(--app-header-height)+1rem)] border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
+              <aside data-tour="news-analysis" id="analysis" className="min-w-0 scroll-mt-[calc(var(--app-header-height)+1rem)] border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
                 <LedgerHeading
                   title="新聞事件影響分析"
                   className="shrink-0"

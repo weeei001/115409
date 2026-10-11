@@ -152,6 +152,7 @@ function AccountNotificationSettings({ account }: { account: string }) {
     <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
       <AnimatedSection className="min-w-0 lg:col-span-7">
         <Ledger
+          data-tour="notifications-inbox"
           aria-labelledby="notifications-heading"
           title={<span id="notifications-heading">最近通知</span>}
           stamp={<span className="inline-flex items-center gap-1.5"><LightGlyph state={loading ? 'loading' : items === null ? 'error' : 'ready'} />{loading ? '載入中' : items === null ? '載入失敗' : `${items.length} 則 · 台灣時間`}</span>}
@@ -166,7 +167,7 @@ function AccountNotificationSettings({ account }: { account: string }) {
       </AnimatedSection>
 
       <AnimatedSection delay={0.05} className="min-w-0 space-y-10 lg:col-span-5 lg:space-y-16">
-        <Ledger aria-labelledby="device-notifications-heading" title={<span id="device-notifications-heading">此裝置推播</span>} stamp={enabled ? '已啟用' : '未啟用'}>
+        <Ledger data-tour="notifications-device" aria-labelledby="device-notifications-heading" title={<span id="device-notifications-heading">此裝置推播</span>} stamp={enabled ? '已啟用' : '未啟用'}>
           <LedgerPanel>
             <p className="text-sm leading-relaxed text-subtle">{enabled ? '已啟用，重要消息會推播到此裝置。' : '啟用後，不必開啟網站也能收到提醒。'}</p>
             {!pushConfigured() && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">推播服務尚未設定完成；仍可查看通知紀錄。</p>}
@@ -179,7 +180,7 @@ function AccountNotificationSettings({ account }: { account: string }) {
           </LedgerPanel>
         </Ledger>
 
-        <Ledger aria-labelledby="notification-preferences-heading" title={<span id="notification-preferences-heading">通知偏好</span>}>
+        <Ledger data-tour="notifications-prefs" aria-labelledby="notification-preferences-heading" title={<span id="notification-preferences-heading">通知偏好</span>}>
           <LedgerPanel>
             {!preferences ? (
               loading ? <LoadingRows label="載入設定中…" className="h-[132px]" />

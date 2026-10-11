@@ -59,7 +59,7 @@ export function StockHero({ dashboard, onOpenDetail }: Props) {
   );
 
   return (
-    <section aria-labelledby="stock-hero-heading" className="min-w-0">
+    <section data-tour="stock-hero" aria-labelledby="stock-hero-heading" className="min-w-0">
       <h2 id="stock-hero-heading" className="sr-only">
         收盤行情與 K 線
       </h2>
