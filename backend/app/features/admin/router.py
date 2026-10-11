@@ -2,7 +2,6 @@ import asyncio
 from datetime import date, datetime
 from typing import Annotated
 from urllib.parse import quote
-from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Body, Depends, Path, Query, Request, Response
@@ -16,8 +15,7 @@ from app.db.models.user import User
 from app.features.backtest import service as backtest
 from app.features.backtest.schemas import AIBacktestResult, Preset
 from app.features.admin import service
-from app.features.admin import ai_feedback, ai_usage, chat_review
-from app.features.admin.chat_review_schemas import ChatReviewDetail, ChatReviewFilter, ChatReviewList
+from app.features.admin import ai_feedback, ai_usage
 from app.features.admin.schemas import ActionResponse, AddStockRequest, GrantAdministratorRequest, JobActionRequest
 from app.features.auth.router import CurrentUser, Database
 from app.features.retrieval.common import TAIPEI
@@ -95,17 +93,6 @@ def audit(user: Administrator, db: Database, limit: int = Query(20, ge=1, le=100
     return service.list_audit(db, limit, offset)
 
 
-@router.get("/ai-conversations", response_model=ChatReviewList)
-def ai_conversations(user: Administrator, db: Database, response: Response,
-                     days: int = Query(14, ge=1, le=14),
-                     outcome: ChatReviewFilter | None = Query(None),
-                     reason: str = Query("", max_length=64), q: str = Query("", max_length=120),
-                     limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
-    response.headers["Cache-Control"] = "no-store"
-    return chat_review.list_reviews(db, days=days, outcome=outcome, reason=reason, query=q,
-                                    limit=limit, offset=offset)
-
-
 @router.get("/ai-feedback", response_model=ai_feedback.AIFeedbackSummary)
 def ai_feedback_summary(user: Administrator, db: Database, response: Response,
                         days: int = Query(30, ge=1, le=365)):
@@ -175,12 +162,6 @@ def ai_backtest_result(user: Administrator, request: Request, response: Response
     if cached is None:
         raise NotFound("這組條件還沒有跑完的回測結果")
     return cached
-
-
-@router.get("/ai-conversations/{review_id}", response_model=ChatReviewDetail)
-def ai_conversation(review_id: UUID, user: Administrator, db: Database, response: Response):
-    response.headers["Cache-Control"] = "no-store"
-    return chat_review.get_review(db, str(review_id))
 
 
 @router.get("/administrators")

@@ -17,7 +17,6 @@ import { subscribeAuthAccount } from '@/lib/auth/account';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
 import { StockManagement } from '@/features/admin/StockManagement';
-import { AIConversationReview } from '@/features/admin/AIConversationReview';
 import { AIEffectivenessPanel } from '@/features/admin/AIEffectivenessPanel';
 import { SignalCheckPanel } from '@/features/admin/SignalCheckPanel';
 import { SignalEvidencePanel } from '@/features/admin/SignalEvidencePanel';
@@ -59,7 +58,7 @@ const ACTION_LABELS: Record<string, string> = {
   'paper.order.create': '送出模擬委託', 'paper.order.cancel': '取消模擬委託', 'paper.review.complete': '完成投資回顧',
 };
 const TRIGGER_LABELS: Record<string, string> = { scheduled: '排程', schedule: '排程', manual: '手動', retry: '重跑' };
-const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-conversations', label: 'AI 成效與檢核' }, { id: 'signals', label: '訊號檢驗' }, { id: 'backtest', label: 'AI 回測' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
+const TABS = [{ id: 'jobs', label: '工作與執行紀錄' }, { id: 'ai-effectiveness', label: 'AI 成效' }, { id: 'signals', label: '訊號檢驗' }, { id: 'backtest', label: 'AI 回測' }, { id: 'stocks', label: '股票管理' }, { id: 'audit', label: '操作紀錄' }, { id: 'admins', label: '管理員' }] as const;
 /** 文字連結：中性色加底線，不用燈色 */
 const linkClass = cn('text-foreground', textLinkClass);
 
@@ -522,8 +521,8 @@ export default function AdminPage() {
     void mutate((signal) => apiClient.delete(`/admin/administrators/${administrator.user_id}`, { signal }), `已撤銷 ${administrator.email} 的管理員權限。`);
   };
 
-  const head = <Head><title>股海明燈｜管理後台</title><meta name="description" content="查看服務狀態、檢核 AI 對話、控制工作排程及管理後台權限。" /><meta name="robots" content="noindex,nofollow" /></Head>;
-  const header = <SiteHeader title="管理後台" subtitle="服務狀態、工作排程與 AI 對話檢核" />;
+  const head = <Head><title>股海明燈｜管理後台</title><meta name="description" content="查看服務狀態、AI 成效、控制工作排程及管理後台權限。" /><meta name="robots" content="noindex,nofollow" /></Head>;
+  const header = <SiteHeader title="管理後台" subtitle="服務狀態、工作排程與 AI 成效" />;
   if (access !== 'allowed') return <>{head}{header}<main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10"><div className="flex max-w-xl flex-col gap-4">
     {access === 'loading' ? <div className="border-t border-border-strong"><LoadingRows label="確認後台權限中…" className="h-[88px]" /></div>
       : access === 'denied' ? <Notice tone="danger">目前帳號沒有管理後台權限。請由管理員授予權限後再進入。</Notice>
@@ -574,7 +573,7 @@ export default function AdminPage() {
             兩者只在按下送出時發請求，沒有背景輪詢；其他分頁照舊離開就卸載 */}
         {keptTabs.backtest ? <div hidden={tab !== 'backtest'}><AIBacktestPanel onAccessError={handleAccessError} /></div> : null}
         {keptTabs.signals ? <div hidden={tab !== 'signals'} className="space-y-10 lg:space-y-16"><SignalCheckPanel onAccessError={handleAccessError} /><SignalEvidencePanel onAccessError={handleAccessError} /></div> : null}
-        {tab === 'ai-conversations' ? <div className="space-y-10 lg:space-y-16"><AIEffectivenessPanel onAccessError={handleAccessError} /><AIConversationReview onAccessError={handleAccessError} /></div> : null}
+        {tab === 'ai-effectiveness' ? <AIEffectivenessPanel onAccessError={handleAccessError} /> : null}
         {overview ? <>
         {tab === 'jobs' ? <div className="space-y-10">{overview.scheduler.status !== 'running' ? <Notice tone="warning">排程器目前無法接受工作操作，恢復運作後即可執行或變更排程。</Notice> : null}<section id="run-detail" aria-label="執行紀錄詳情" className="scroll-mt-24">{router.query.run !== undefined ? <LedgerPanel framed className="space-y-3"><LedgerHeading title={<>執行紀錄詳情{selectedRun ? ` #${selectedRun.id}` : ''}</>} headingProps={{ ref: runDetailHeading, tabIndex: -1 }} />{runDetailLoading && !selectedRun ? <LoadingRows label="載入執行紀錄中…" className="h-[88px]" /> : runDetailError ? <Notice tone="warning">{runDetailError}</Notice> : selectedRun ? <><p className="flex flex-wrap items-center gap-x-2 text-sm">{jobLabel(selectedRun.job_name)} {adminRunScope(selectedRun)} · 工作結果 <Status value={selectedRun.status} /></p><p className="text-xs text-muted-foreground">開始 <span className="font-mono tabular-nums">{timeText(selectedRun.started_at)}</span> · 結束 <span className="font-mono tabular-nums">{timeText(selectedRun.finished_at)}</span>{selectedRun.duration_seconds != null ? ` · ${adminDuration(selectedRun.duration_seconds)}` : ''}</p><AdminRunDiagnostics run={selectedRun} /></> : null}</LedgerPanel> : null}</section><AdminJobs jobs={overview.jobs} disabled={jobsDisabled} onAction={jobAction} actionError={actionError} checkedAt={overview.checked_at} schedulerStatus={overview.scheduler.status} onView={() => setTab('jobs')} state={dataState} /><Ledger aria-labelledby="runs-heading" title={<span id="runs-heading">執行紀錄</span>} stamp={<StateStamp state={dataState}>台灣時間</StateStamp>}><div className="min-w-0 bg-card"><AdminRunHistory runs={runs.items} jobs={overview.jobs} disabled={jobsDisabled} onRetry={retryRun} /><OffsetPagination label="執行紀錄分頁" offset={runOffset} total={runs.total} busy={refreshing || pending} onChange={setRunOffset} /></div></Ledger></div> : null}
         {tab === 'stocks' ? <StockManagement checkedAt={overview.checked_at} disabled={disabled} schedulerRunning={overview.scheduler.status === 'running'} backfillJob={overview.jobs.find((job) => job.name === 'stock-backfill')} onAccessError={handleAccessError} onViewRuns={() => setTab('jobs')} onAdd={(stock) => { void mutate((signal) => apiClient.post('/admin/stocks', { symbol: stock.symbol }, { signal }), `已加入 ${stock.symbol} ${stock.name}，可接著回補市場資料。`); }} onBackfill={(stock) => { const job = overview.jobs.find((item) => item.name === 'stock-backfill'); if (job) jobAction(job, 'run', stock.symbol); }} /> : null}

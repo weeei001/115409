@@ -7,7 +7,6 @@ import pytest
 from app.clients.llm import LlmClient
 from app.features.chat.schemas import AskRequest, AskResponse, SourceChunk
 from app.features.chat.service import ChatService, _tokens
-from app.features.chat.audit import ChatAudit
 from test_chat import FakeRetrieval, MODEL_ANSWER, plan_payload
 from test_llm_chat import completion, configured, stream_frame
 
@@ -57,9 +56,7 @@ def test_provider_reasoning_usage_reaches_chat_response(settings, stream, repair
                                  source="test", source_name="Test", pub_time="", url="", stock_id="", score=1)
             response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[source],
                                    tokens={}, duration_ms=0, current_time="2026-10-03 12:00")
-            audit = ChatAudit(AskRequest(query="Revenue?"), llm=llm, timeout_seconds=60)
-            audit.start_attempt("initial", llm)
-            service._publish_answer(raw_text, metadata, response, audit=audit)
+            service._publish_answer(raw_text, metadata, response)
             attempts = 1
             assert response.tokens == {"input": 50 * attempts, "output": 12 * attempts,
                                        "thinking": reasoning * attempts if reasoning is not None else None}
