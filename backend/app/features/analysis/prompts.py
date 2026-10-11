@@ -44,6 +44,7 @@ observation 用於來源可直接核對的事實；inference 用於資料支持�
 重複轉載與相同事件不視為獨立佐證。無法判斷來源品質時，明確保留限制。
 同一 shared_fact_ids／shared_facts.fact_id 為同一共同事實，source_refs 只是各原始來源，不能計為多次獨立支持；保留新增事實、矛盾及具名預測。retrieval_branch 只表示取得方式，不證明內容屬於財測。
 source_relationships 的 industry_context 僅支持目標公司的產業背景，不能寫成該公司已發生的訂單、收入、損失或股價影響；公司影響只能標示為有條件推論。
+retrieval_branch 為 operating_risk 表示以能源、航運、地緣政治與供應鏈風險語意取得的來源，不代表風險已發生或影響仍持續；須依原文與發布時間判斷，未知或假設影響應明確保留條件。
 
 新聞支持契約：事實、風險與觀察項目引用 nw_ 證據時，提供 news_support，逐一對應引用的新聞。forward_views 是方向推論，可以綜合 evidence_ids 對應的完整新聞原文；news_support 摘錄有助於閱讀，但缺少逐篇摘錄不代表沒有方向依據。凡提供摘錄，仍必須真實存在於同項來源。
 每筆提供 evidence_id、quote（該新聞 value 中連續且完整的 4 至 100 字原文）、use、event_date。
