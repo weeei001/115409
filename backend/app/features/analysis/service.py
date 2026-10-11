@@ -10,12 +10,15 @@ from datetime import date, datetime
 from functools import lru_cache
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.clients.llm import LlmClient
+from app.clients.usage import tracked_client
+from app.db.engine import make_session_factory
 from app.features.retrieval.service import RetrievalService
 from app.features.retrieval.common import TAIPEI
 from app.core.errors import AppError, ServiceUnavailable
@@ -112,6 +115,7 @@ class AnalysisService:
         self.db, self.settings = db, settings
         self.stock_options = repository.stock_names(db) if db is not None else {}
         self.llm = llm or LlmClient(settings, http)
+        self.session_factory = session_factory or (make_session_factory(db.get_bind()) if db is not None else None)
         self.rag = rag if rag is not None else RetrievalService(
             http, settings, stock_options=self.stock_options, session_factory=session_factory)
 
@@ -166,8 +170,9 @@ class AnalysisService:
 
     async def generate_trend_prediction(self, stock_id: str) -> dict:
         symbol, _, records, news_titles, strategy = await self._trend_context(stock_id)
+        llm = tracked_client(self.llm, self.session_factory, "analysis", str(uuid4()))
         prediction = await generate_prediction(
-            symbol, self.stock_options[symbol], records, news_titles, strategy, self.llm,
+            symbol, self.stock_options[symbol], records, news_titles, strategy, llm,
         )
         return {
             "stock_id": symbol,
@@ -188,6 +193,7 @@ class AnalysisService:
         return digest
 
     async def stream_trend_prediction(self, stock_id: str):
+        llm = tracked_client(self.llm, self.session_factory, "analysis", str(uuid4()))
         try:
             symbol, _, records, news_titles, strategy = await self._trend_context(stock_id)
             closes = [record["close"] for record in records]
@@ -218,7 +224,7 @@ class AnalysisService:
                     nodes, trading_days_per_week,
                 )
                 try:
-                    result = await self.llm.generate(system_prompt=prompt, payload={}, schema=WeeklyPredictionOutput)
+                    result = await llm.generate(system_prompt=prompt, payload={}, schema=WeeklyPredictionOutput)
                     weekly = WeeklyPredictionOutput.model_validate(result.payload)
                     pct, reason = weekly.pct, weekly.reason
                 except (AppError, ValidationError, TypeError, ValueError):
@@ -300,8 +306,9 @@ class AnalysisService:
             prompt += PAST_REVIEWS_GUIDANCE
         started = perf_counter()
         usage: dict[str, int] | None = {"prompt_tokens": 0, "completion_tokens": 0}
+        llm = tracked_client(self.llm, self.session_factory, "analysis", str(uuid4()))
         for attempt in range(2):
-            output = await self.llm.generate(system_prompt=prompt, payload=task_packet, schema=StockBehaviorTextBrief,
+            output = await llm.generate(system_prompt=prompt, payload=task_packet, schema=StockBehaviorTextBrief,
                                              examples=select_examples(symbol, as_of.isoformat()))
             if usage is not None and all(output.metadata.get(key) is not None for key in usage):
                 for key in usage:
