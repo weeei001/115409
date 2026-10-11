@@ -39,4 +39,16 @@ assert.doesNotMatch(panel, /\[S[15]\]/);
 const waiting = renderToStaticMarkup(<ChatArea messages={[{ id: 'q', role: 'user', content: '問題', timestamp: '' }]} loading streamingMessageId={null} exampleQuestions={[]} onSend={() => undefined} />);
 assert.match(waiting, /正在查詢資料…/);
 assert.doesNotMatch(waiting, /系統資料/);
+// 工作台：標題列放對話名稱（當文字，不當 HTML），順序是說明列 → 標題列 → 訊息 → 資料 → 輸入列（手機就是這個順序）
+const slotted = renderToStaticMarkup(<ChatArea messages={[message('old', 'Older answer [S1]', { sources: [source], dashboard }), message('latest', 'Latest answer')]}
+  loading={false} streamingMessageId={null} exampleQuestions={[]} onSend={() => undefined} title="<b>名稱</b>" status={<p>STATUS-SLOT</p>} composer={<p>COMPOSER-SLOT</p>} />);
+assert.match(slotted, /<h2[^>]*><span[^>]*title="&lt;b&gt;名稱&lt;\/b&gt;"[^>]*>&lt;b&gt;名稱&lt;\/b&gt;<\/span><\/h2>/);
+const order = ['STATUS-SLOT', 'data-chat-toolbar', 'Latest answer', 'aria-label="分析資料面板"', 'COMPOSER-SLOT'].map((text) => slotted.indexOf(text));
+assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), `slot order ${order}`);
+// 分隔線、放大與收起鈕只在掛載後的桌機出現；伺服器輸出（手機版）沒有
+assert.doesNotMatch(slotted, /role="separator"|放大資料欄|收起資料欄/);
+// 沒有區塊導覽時標題列在手機隱藏（lg 以上仍顯示對話名稱）
+assert.match(renderToStaticMarkup(<ChatArea messages={[message('short', 'Short')]} loading={false} streamingMessageId={null} exampleQuestions={[]} onSend={() => undefined} title="T" />),
+  /data-chat-toolbar="true"[^>]*class="[^"]*max-lg:hidden/);
+console.log('Chat area workspace slots passed: escaped title, status/toolbar/messages/data/composer order, desktop-only splitter controls.');
 console.log('Chat area navigation fixtures passed: latest answer/source targets, actual displayed dashboard, short/empty/missing targets, and visible focus.');

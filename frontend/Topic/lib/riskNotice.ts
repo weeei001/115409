@@ -4,6 +4,9 @@
  */
 export const RISK_NOTICE_KEY = 'tei:risk-notice-ack:v1';
 
+/** 按下「我已了解」時發出（window 事件）：底部被提示條佔住時先不出現的浮動元件（小燈）收到後才出現 */
+export const RISK_NOTICE_ACK_EVENT = 'tei:risk-notice-ack';
+
 type ReadableStorage = Pick<Storage, 'getItem'>;
 type WritableStorage = Pick<Storage, 'setItem'>;
 

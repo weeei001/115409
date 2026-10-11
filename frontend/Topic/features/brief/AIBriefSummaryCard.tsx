@@ -80,6 +80,7 @@ const CardFrame: React.FC<{ asOfDate?: string | null; state: LightState; childre
       </span>
     }
     aria-label="AI 投資分析摘要"
+    data-tour="stock-brief"
   >
     <LedgerPanel padded={false}>{children}</LedgerPanel>
   </Ledger>

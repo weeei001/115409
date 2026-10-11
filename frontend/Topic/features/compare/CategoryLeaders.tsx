@@ -50,7 +50,7 @@ export function CategoryLeaders({
   stockInfos?: Record<string, StockInfo>;
 }) {
   return (
-    <Ledger title="類別冠軍" aria-label="類別冠軍" stamp={`${leaders.length} 項標準指標的最高／最低者`}>
+    <Ledger data-tour="compare-leaders" title="類別冠軍" aria-label="類別冠軍" stamp={`${leaders.length} 項標準指標的最高／最低者`}>
       <div className="min-w-0 bg-card">
         {/* 桌機的欄名；手機每列自帶類別名，不需要表頭 */}
         <div aria-hidden className="hidden border-b px-5 md:grid md:grid-cols-[12rem_minmax(12rem,15rem)_9rem_minmax(0,1fr)] md:gap-x-6">

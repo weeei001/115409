@@ -181,7 +181,7 @@ export default function OrderPage() {
     content = (
       <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
         <AnimatedSection className="min-w-0 lg:col-span-7">
-          <Ledger title="想用多少資金練習投資？">
+          <Ledger data-tour="order-setup" title="想用多少資金練習投資？">
             <LedgerPanel><PaperFunds key={`${account}:initial`} portfolio={data} onChanged={fundsChanged} /></LedgerPanel>
           </Ledger>
         </AnimatedSection>
@@ -194,6 +194,7 @@ export default function OrderPage() {
         {error ? <Notice tone="danger" action={retry}>{error}</Notice> : null}
         <AnimatedSection>
           <Ledger
+            data-tour="order-summary"
             title="我的模擬投資"
             cols="grid-cols-1 sm:grid-cols-3"
             stamp={<span className="inline-flex items-center gap-1.5"><LightGlyph state={state} />{state === 'loading' ? '更新中' : state === 'error' ? '更新失敗' : marketDate ? `持股依 ${marketDate} 收盤估值` : '已更新'}</span>}
@@ -229,7 +230,7 @@ export default function OrderPage() {
               </section>
             ) : null}
 
-            <Ledger aria-labelledby="positions-heading" title={<span id="positions-heading">我的持股</span>} stamp={`${data.positions.length} 檔`}>
+            <Ledger data-tour="order-positions" aria-labelledby="positions-heading" title={<span id="positions-heading">我的持股</span>} stamp={`${data.positions.length} 檔`}>
               {!data.positions.length ? (
                 <LedgerPanel>
                   <EmptyState className="py-6" action={<div className="mt-2 flex flex-wrap justify-center gap-2">
@@ -272,11 +273,11 @@ export default function OrderPage() {
               })}
             </Ledger>
 
-            <Ledger aria-labelledby="reviews-heading" title={<span id="reviews-heading" className="scroll-mt-24">投資回顧</span>} stamp={due.length ? `${due.length} 筆待回顧` : '沒有待回顧'}>
+            <Ledger data-tour="order-reviews" aria-labelledby="reviews-heading" title={<span id="reviews-heading" className="scroll-mt-24">投資回顧</span>} stamp={due.length ? `${due.length} 筆待回顧` : '沒有待回顧'}>
               {due.length ? due.map(reviewPanel) : <LedgerPanel padded={false}><EmptyState>目前沒有待回顧的投資。買進成交後，到了回顧日（預設第 20 個交易日）會出現在這裡。</EmptyState></LedgerPanel>}
             </Ledger>
 
-            <Ledger aria-labelledby="orders-heading" title={<span id="orders-heading">交易紀錄</span>} stamp={pendingOrders.length ? `${pendingOrders.length} 筆待成交` : `共 ${data.orders.length} 筆`}>
+            <Ledger data-tour="order-orders" aria-labelledby="orders-heading" title={<span id="orders-heading">交易紀錄</span>} stamp={pendingOrders.length ? `${pendingOrders.length} 筆待成交` : `共 ${data.orders.length} 筆`}>
               {!data.orders.length ? <LedgerPanel padded={false}><EmptyState>還沒有交易紀錄。</EmptyState></LedgerPanel> : <>
                 {pendingOrders.length ? <div className="bg-card"><h3 className="border-b px-4 py-2.5 text-[13px] font-medium tracking-[0.04em] text-muted-foreground sm:px-5">待成交</h3><ul className="divide-y">{pendingOrders.map(orderRow)}</ul></div> : null}
                 {pastOrders.length ? <FoldSection title="已成交與已取消" summary={`${pastOrders.length} 筆，由新到舊`}><ul className="divide-y">{pastOrders.map(orderRow)}</ul></FoldSection> : null}
@@ -285,7 +286,7 @@ export default function OrderPage() {
           </div>
 
           <div className="min-w-0 space-y-10 lg:col-span-4 lg:space-y-16">
-            <Ledger title="管理資金">
+            <Ledger data-tour="order-funds" title="管理資金">
               <LedgerPanel><PaperFunds key={`${account}:funds`} portfolio={data} onChanged={fundsChanged} /></LedgerPanel>
             </Ledger>
             {rules}

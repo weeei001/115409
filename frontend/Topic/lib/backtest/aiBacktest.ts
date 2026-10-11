@@ -20,6 +20,15 @@ export function presetText(preset: BacktestPreset): string {
 
 export const GROUP_ORDER: BacktestGroupKey[] = ['rule', 'ai_plain', 'ai_signals'];
 
+/** 估算一年的判斷次數用：台股一年約 250 個交易日 */
+const TRADING_DAYS_PER_YEAR = 250;
+
+/** 「一年大約 50 次判斷、100 次模型呼叫」：兩組 AI 每次判斷各呼叫一次；只跑純規則時不呼叫模型 */
+export function yearlyRunText(horizon: number, ai: boolean): string {
+  const decisions = Math.round(TRADING_DAYS_PER_YEAR / horizon);
+  return `一年大約 ${decisions} 次判斷${ai ? `、${decisions * 2} 次模型呼叫` : '，不呼叫模型'}`;
+}
+
 /** 兩個報酬率的差（百分點）：「比買進持有高 2.10 個百分點」 */
 export function returnGapText(value: number, baseline: number | null, name: string): string {
   return gapText(baseline == null ? null : Math.round((value - baseline) * 100) / 100, name, `沒有${name}可比較`);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { ApiRequestError } from './client';
 import { streamAIBacktest, type AIBacktestEvent, type AIBacktestParams } from './backtest';
 
-const PARAMS: AIBacktestParams = { symbol: ' 2330 ', start: '2025-01-01', end: '2025-12-31', preset: 'standard', initial_cash: 1_000_000, ai: true };
+const PARAMS: AIBacktestParams = { symbol: ' 2330 ', start: '2025-01-01', end: '2025-12-31', preset: 'standard', initial_cash: 1_000_000, ai: true, horizon: 20 };
 const RESULT = { symbol: '2330', groups: [], decisions: [] };
 
 function respondWith(chunks: string[], status = 200, contentType = 'text/event-stream') {
@@ -31,7 +31,7 @@ async function main() {
   const result = await streamAIBacktest(PARAMS, (event) => seen.push(event.type));
   assert.deepEqual(seen, ['init', 'progress', 'progress', 'done']);
   assert.deepEqual(result, RESULT);
-  assert.match(calls[0], /\/admin\/ai-backtest\/stream\?symbol=2330&start=2025-01-01&end=2025-12-31&preset=standard&initial_cash=1000000&ai=true$/);
+  assert.match(calls[0], /\/admin\/ai-backtest\/stream\?symbol=2330&start=2025-01-01&end=2025-12-31&preset=standard&initial_cash=1000000&ai=true&horizon=20$/);
 
   respondWith(['data: {"type":"init","decisions":2}\n\n', 'data: {"type":"error","message":"模型服務暫時無法回應"}\n\n']);
   await assert.rejects(streamAIBacktest(PARAMS, () => {}), (err) => err instanceof ApiRequestError && err.message === '模型服務暫時無法回應');

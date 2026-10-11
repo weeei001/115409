@@ -12,6 +12,8 @@ export interface AIBacktestParams {
   initial_cash: number;
   /** false 只跑純規則組，不呼叫模型 */
   ai: boolean;
+  /** 判斷間隔，也是命中率的觀察天數（交易日） */
+  horizon: 5 | 20;
 }
 
 /** GET /admin/ai-backtest/stream 的 SSE 事件：openapi 沒有事件欄位，依後端 backtest/service.py 的 events()（決議 D5）；done 的 result 同 /result 的 AIBacktestResult */
@@ -21,7 +23,7 @@ export type AIBacktestEvent =
   | { type: 'done'; result: AIBacktestResult }
   | { type: 'error'; message: string };
 
-const query = (params: AIBacktestParams) => ({ ...params, symbol: params.symbol.trim(), ai: String(params.ai) });
+const query = (params: AIBacktestParams) => ({ ...params, symbol: params.symbol.trim(), ai: String(params.ai), horizon: String(params.horizon) });
 
 /** openapi: GET /admin/ai-backtest/result（同一組條件已跑完的結果；沒有時 404，不呼叫模型） */
 export async function fetchAIBacktestResult(params: AIBacktestParams, signal?: AbortSignal): Promise<AIBacktestResult> {

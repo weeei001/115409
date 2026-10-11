@@ -460,14 +460,18 @@ export type SignalReading = 'bullish' | 'bearish';
 export interface SignalPeriodStats {
   /** 已走完觀察期、去除重疊後的事件數 */
   events: number;
-  /** 成立日收盤到第 N 個交易日收盤的平均漲跌（%） */
+  /** 有同期比較的事件分布在幾個月份；誤差範圍以月份為單位估計 */
+  months?: number;
+  /** 成立日隔天開盤買進、成立後第 N 個交易日收盤的平均漲跌（%） */
   avg_return_pct?: number | null;
   /** 0–1 */
   up_rate?: number | null;
-  /** 漲跌勝過同期加權指數的比例，0–1 */
-  beat_market_rate?: number | null;
-  /** 平均漲跌減同期加權指數漲跌（百分點） */
-  avg_excess_pct?: number | null;
+  /** 平均比同期其他股票（同一天進場、同一天出場）高或低幾個百分點 */
+  vs_peers_pct?: number | null;
+  /** vs_peers_pct 的 95% 誤差範圍（± 百分點）；不到 2 個月為 null */
+  vs_peers_margin_pct?: number | null;
+  /** 漲跌勝過同期其他股票平均的比例，0–1 */
+  beat_peers_rate?: number | null;
   /** 扣一次買賣成本後的平均漲跌（%）；只有偏多訊號才算 */
   net_return_pct?: number | null;
 }
@@ -507,8 +511,6 @@ export interface SignalEvidenceItem {
   all_stocks: SignalPeriodStats;
   /** 截至判斷日，這檔股票自己的歷史統計 */
   this_stock: SignalPeriodStats;
-  /** 全部股票的平均漲跌減任一天進場（百分點） */
-  edge_vs_baseline_pct?: number | null;
 }
 
 /** openapi: GET /admin/signal-evidence → SignalEvidenceResponse */
@@ -533,7 +535,7 @@ export interface SignalCheckResponse {
   end: string;
   latest_date?: string | null;
   round_trip_cost_pct: number;
-  /** 任一天進場：同一批股票、同一期間每隔 N 個交易日取一天 */
+  /** 任一天進場：同一批股票、同一期間每隔 N 個交易日取一天，看那段期間的一般漲跌；判讀看各訊號的 vs_peers_pct */
   baseline: SignalStats;
   signals: SignalStats[];
   recent?: RecentSignal[];

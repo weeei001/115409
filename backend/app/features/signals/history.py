@@ -2,7 +2,7 @@
 
 Built once from full data, then queried for many decision dates; every query only sees events whose
 window had closed by that date, so the result equals what the same query would return on data cut at
-that date (tests check this).
+that date (tests check this). The other stocks' windows an event is compared with close on the same day.
 """
 from __future__ import annotations
 
@@ -10,15 +10,16 @@ from bisect import bisect_right
 from datetime import date
 
 from .detection import SIGNALS, Day
-from .evaluation import CumulativeStats, outcomes
+from .evaluation import CumulativeStats, outcomes, peer_windows
 from .schemas import SignalEvidenceItem
 
 StockSeries = tuple[list[Day], dict[str, list[int]]]
 
 
 class SignalHistory:
-    def __init__(self, series: dict[str, StockSeries], horizon: int, benchmark: list[tuple[date, float]]):
+    def __init__(self, series: dict[str, StockSeries], horizon: int):
         self.series, self.horizon = series, horizon
+        peers = peer_windows((days for days, _ in series.values()), horizon)
         pooled: dict[str, list] = {signal.key: [] for signal in SIGNALS}
         baseline: list = []
         self._own: dict[tuple[str, str], CumulativeStats] = {}
@@ -27,10 +28,10 @@ class SignalHistory:
                 continue
             first, last = days[0].date, days[-1].date
             for signal in SIGNALS:
-                results, _ = outcomes(days, fired[signal.key], horizon, benchmark, first, last)
+                results, _ = outcomes(days, fired[signal.key], horizon, peers, first, last)
                 pooled[signal.key].extend(results)
                 self._own[(signal.key, symbol)] = CumulativeStats(results)
-            baseline.extend(outcomes(days, list(range(len(days))), horizon, benchmark, first, last)[0])
+            baseline.extend(outcomes(days, list(range(len(days))), horizon, peers, first, last)[0])
         self._pooled = {key: CumulativeStats(items) for key, items in pooled.items()}
         self._baseline = CumulativeStats(baseline)
 
@@ -50,20 +51,16 @@ class SignalHistory:
         """
         days, fired = self.series[symbol]
         decision = days[index].date
-        base = self.baseline(decision)
         found = []
         for order, signal in enumerate(SIGNALS):
             recent = [hit for hit in fired[signal.key] if index - self.horizon < hit <= index]
             if not recent:
                 continue
             pooled = self._pooled[signal.key].upto(decision, signal.reading)
-            edge = (round(pooled.avg_return_pct - base.avg_return_pct, 2)
-                    if pooled.avg_return_pct is not None and base.avg_return_pct is not None else None)
-            found.append((index - recent[-1], order, signal, days[recent[-1]].date, pooled, edge))
+            found.append((index - recent[-1], order, signal, days[recent[-1]].date, pooled))
         found.sort(key=lambda item: (item[0], item[1]))
         return [SignalEvidenceItem(
             id=f"sg_{number:02d}", key=signal.key, label=signal.label, definition=signal.definition,
             reading=signal.reading, source=signal.source, fired_on=fired_on.isoformat(), trading_days_ago=ago,
             all_stocks=pooled, this_stock=self._own[(signal.key, symbol)].upto(decision, signal.reading),
-            edge_vs_baseline_pct=edge,
-        ) for number, (ago, _, signal, fired_on, pooled, edge) in enumerate(found, 1)]
+        ) for number, (ago, _, signal, fired_on, pooled) in enumerate(found, 1)]

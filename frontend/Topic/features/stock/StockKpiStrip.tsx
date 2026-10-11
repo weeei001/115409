@@ -63,7 +63,7 @@ export function StockKpiStrip({ priceChart, chartState }: Props) {
   const groups: Group[] = [{ ...rangeGroup(priceChart), state: chartState }];
 
   return (
-    <div className="grid gap-px border-y bg-border" role="group" aria-label="個股關鍵指標">
+    <div data-tour="stock-kpi" className="grid gap-px border-y bg-border" role="group" aria-label="個股關鍵指標">
       {groups.map((group) => (
         <div key={group.window} data-stagger className="grid grid-cols-2 gap-px lg:grid-cols-[minmax(0,0.8fr)_repeat(3,minmax(0,1fr))]">
           {/* 列首：時間窗 */}

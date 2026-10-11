@@ -18,8 +18,11 @@ function sessionOwner(): string | null {
   } catch { return null; }
 }
 
-/** 登入使用者的對話內容由後端完成回答後儲存。 */
-export function useChat() {
+/**
+ * 登入使用者的對話內容由後端完成回答後儲存。
+ * listHistory 為 false 時不抓歷史對話清單（小燈面板只需要目前這一則，不必每頁都打清單 API）。
+ */
+export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
@@ -146,12 +149,13 @@ export function useChat() {
   }, [search, signedIn]);
 
   useEffect(() => {
+    if (!listHistory) return;
     setConversations([]);
     setHasMore(false);
     setHistoryLoading(signedIn);
     const timer = window.setTimeout(() => { void fetchHistory(); }, 250);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
-  }, [fetchHistory, revision, signedIn]);
+  }, [fetchHistory, revision, signedIn, listHistory]);
 
   const newConversation = useCallback(() => {
     if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
@@ -186,7 +190,8 @@ export function useChat() {
     }
   }, [interrupt, resetAccount, changeMessages]);
 
-  const send = useCallback(async (text: string) => {
+  /** stockId：AskRequest.stock_id，回答只看這一檔（小燈在個股頁提供） */
+  const send = useCallback(async (text: string, { stockId }: { stockId?: string | null } = {}) => {
     if (!readyRef.current || abortRef.current) return;
     if (sessionOwner() !== ownerRef.current) { resetAccount(); return; }
     if (!ownerRef.current) { setNotice('登入狀態確認失敗，請重新登入。'); return; }
@@ -239,7 +244,7 @@ export function useChat() {
     setStreamingMessageId(assistantId);
 
     try {
-      const result = await ragAsk({ query: text, history }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
+      const result = await ragAsk({ query: text, history, stock_id: stockId ?? null }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
       if (!current()) return;
       completed = true;
       answer = result.answer;

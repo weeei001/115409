@@ -26,6 +26,11 @@ export interface SiteHeaderProps {
   titleNode?: React.ReactNode;
   /** 緊接在標題右側的動作（例如個股頁的收藏星號） */
   titleAction?: React.ReactNode;
+  /**
+   * 工作台頁面（AI 對話）：lg 以上收起標題區（h1 仍留給螢幕報讀器），內容直接接在頁首下方；
+   * 頁首改成滿版，左右緣和工作台的外框對齊（工作台四周留 16px）
+   */
+  workspace?: boolean;
 }
 
 /**
@@ -33,7 +38,7 @@ export interface SiteHeaderProps {
  * 1024 以下沒有放搜尋框的空間：按搜尋鈕在平列下方展開一列全寬搜尋（P1-19、04-U3），換頁或按 Esc 收起。
  * 底下是不跟著捲動的標題區（麵包屑、襯線 h1、副標）。標題區的粗線在換頁時由左到右畫出（光束掃過）。
  */
-export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap = false, titleAction }: SiteHeaderProps) {
+export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap = false, titleAction, workspace = false }: SiteHeaderProps) {
   const router = useRouter();
   const headerRef = useRef<HTMLElement>(null);
   useSyncAppHeaderHeight(headerRef);
@@ -60,7 +65,7 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
   return (
     <>
       <header ref={headerRef} className="sticky top-0 z-50 shrink-0 border-b bg-card pt-[var(--app-safe-area-top)]">
-        <div className="mx-auto flex h-14 max-w-[1320px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-10">
+        <div className={cn('mx-auto flex h-14 max-w-[1320px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-10', workspace && 'lg:max-w-none lg:pr-4 lg:pl-6')}>
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <Button type="button" variant="ghost" size="icon" onClick={handleBack} aria-label="返回上一頁" className="-ml-2 text-subtle hover:text-foreground">
               <ArrowLeft className="size-5" aria-hidden />
@@ -104,7 +109,7 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
           </div>
         ) : null}
       </header>
-      <div className="shrink-0 bg-card">
+      <div className={cn('shrink-0 bg-card', workspace && 'lg:sr-only')}>
         <div className="mx-auto max-w-[1320px] px-4 pt-4 pb-4 sm:px-6 lg:px-10 lg:pt-6 lg:pb-6">
           {crumbs.length ? <Breadcrumbs items={crumbs} className="-my-2.5" /> : null}
           <div className="flex min-w-0 items-center gap-2">

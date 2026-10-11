@@ -57,6 +57,7 @@ export function CompareHero({ symbols, symbolColors, stockInfos, requestedRange,
         : '跨產業比較：先看價格表現與風險差異；產業背景不同，不能據此判斷公司經營優劣。';
   return (
     <Ledger
+      data-tour="compare-result"
       title={`${summarize(symbols)} 的${symbols.length >= 2 ? '價格表現比較' : '價格表現'}`}
       actions={(
         <Button type="button" variant="outline" onClick={onJumpToControls} className="-my-1.5">

@@ -180,6 +180,7 @@ export function FavoriteList() {
 
   return (
     <Ledger
+      data-tour="favorites-list"
       aria-labelledby="favorites-heading"
       title={<span id="favorites-heading">收藏清單</span>}
       stamp={
