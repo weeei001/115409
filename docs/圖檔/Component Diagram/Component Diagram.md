@@ -57,4 +57,5 @@ flowchart LR
  BE --> C_REPO
  C_REPO --> C_MYSQL
  C_VEC --> C_QDRANT
+ C_ADMIN --> C_SCHED
 ```
