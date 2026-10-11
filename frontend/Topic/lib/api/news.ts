@@ -48,7 +48,7 @@ export async function fetchRelatedNews(params: FetchRelatedNewsParams): Promise<
 }
 
 /**
- * openapi: GET /news/industries（回應 schema 是空的，形狀見 `NewsIndustriesResponse`，決議 D5）。
+ * openapi: GET /news/industries（回應 schema 是空的，形狀見 `NewsIndustriesResponse`，openapi 未列）。
  * 清單只在後端更新公司資料時才會變，快取 10 分鐘；形狀不對的項目直接略過。
  */
 export async function fetchNewsIndustries(): Promise<NewsIndustry[]> {

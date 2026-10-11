@@ -13,7 +13,7 @@ export interface PaperDraft {
   review_after_days: number;
   conversation_id?: string | null;
 }
-/** 以下回應型別 openapi 未列（/paper-portfolio 沒有 response_model），依後端 paper_portfolio/service.py 的 snapshot／_order（決議 F2） */
+/** 以下回應型別 openapi 未列（/paper-portfolio 沒有 response_model），依後端 paper_portfolio/service.py 的 snapshot／_order */
 export interface PaperOrder extends PaperDraft {
   id: string;
   client_request_id: string;

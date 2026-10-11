@@ -16,7 +16,7 @@ export interface AIBacktestParams {
   horizon: 5 | 20;
 }
 
-/** GET /admin/ai-backtest/stream 的 SSE 事件：openapi 沒有事件欄位，依後端 backtest/service.py 的 events()（決議 D5）；done 的 result 同 /result 的 AIBacktestResult */
+/** GET /admin/ai-backtest/stream 的 SSE 事件：openapi 沒有事件欄位，依後端 backtest/service.py 的 events()（openapi 未列）；done 的 result 同 /result 的 AIBacktestResult */
 export type AIBacktestEvent =
   | { type: 'init'; symbol: string; decisions: number; groups: BacktestGroupKey[]; llm_calls: number; cached: boolean }
   | { type: 'progress'; done: number; total: number; date: string }

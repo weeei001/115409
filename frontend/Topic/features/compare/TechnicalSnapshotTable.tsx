@@ -57,7 +57,7 @@ export function TechnicalSnapshotTable({
               <tbody>
                 {symbols.map((sym) => {
                   const row = latestMap[sym] ?? null;
-                  // 收盤與均線取同一列（同一天），不拿比較主圖的最後收盤（決議 D9-c24）
+                  // 收盤與均線取同一列（同一天），不拿比較主圖的最後收盤
                   const ma20 = maPositionSignal(row?.close, row?.ma20, 'MA20');
                   const ma60 = maPositionSignal(row?.close, row?.ma60, 'MA60');
                   const kdText = row?.kd_k9 != null && row?.kd_d9 != null ? `${fmtFixed(row.kd_k9)} / ${fmtFixed(row.kd_d9)}` : '--';

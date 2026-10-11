@@ -81,7 +81,7 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
   - `LoadingRows`：有線的空白列加掃過的光帶，並且寫出「讀取中…」；用 `className` 給高度。
   - 同一個畫面的錯誤只說一次；依賴它的面板改顯示靜止的說明，不要一邊報錯一邊繼續閃載入。
 - **詳細內容放右側抽屜**：`features/stock/DetailDrawer.tsx`，內容只在打開時掛載，關閉後焦點回到觸發鈕。
-- **可收合表格**：`components/common/CollapsibleSection.tsx`，預設收合（決議 c53）；手機加 `TableScrollHint`。
+- **可收合表格**：`components/common/CollapsibleSection.tsx`，預設收合；手機加 `TableScrollHint`。
 - **圖示**只用 `lucide-react`，不用 emoji 當圖示。品牌標誌是 `components/common/BrandMark.tsx`、站內助手的像素小燈是 `features/assistant/LighthouseMascot.tsx`（都是商標圖形，不算介面圖示）。圖示預設用文字色或 `text-muted-foreground`，不用燈色。
 - **觸控目標至少 44px**：圖示按鈕 `size-11`，文字按鈕 `min-h-11`。
 - **Toast**：`sonner`（`components/layout/AppToaster.tsx`），顏色已接上狀態 token；2px 圓角（`--radius`）、在底部置中、不放小關閉鈕。
@@ -107,10 +107,10 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 | 函式 | 用途 |
 |---|---|
 | `getChartPalette(isDark)` | 格線、軸、tooltip、燈色（只給十字線與選取用）、`up`／`down`／`flat`、成交量柱色 |
-| `getMaColors(isDark)` | MA5 藍、MA10 紫、MA20 青、MA60 褐、MA120 灰藍；避開紅綠（決議 D8），也避開燈色 |
+| `getMaColors(isDark)` | MA5 藍、MA10 紫、MA20 青、MA60 褐、MA120 灰藍；避開紅綠，也避開燈色 |
 | `getInstitutionColors(isDark)` | 外資、投信、自營各一色，依法人上色、不依正負 |
 | `AI_SERIES_PALETTE` | AI 對話圖表的類別色（`SERIES_PALETTE` 去掉橘、琥珀、褐與洋紅），不帶漲跌意義 |
-| `COMPARE_SYMBOL_COLORS` | 多股比較依清單順序給每檔一個顏色（最多 6 檔，不撞色，決議 c76） |
+| `COMPARE_SYMBOL_COLORS` | 多股比較依清單順序給每檔一個顏色（最多 6 檔，不撞色） |
 | `correlationColor(value, isDark)`、`correlationGradient(isDark)` | 相關係數色階（負藍、0 灰、正橘），格子與圖例共用同一個函式 |
 
 - 帶正負的單一序列（例如法人合計柱）依正負上色，0 用 `flat`。
@@ -164,10 +164,10 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 - 五段文案（海面、燈塔、窗、桌前、交接）、四個進度站（海面／燈塔／窗前／觀測台）；章節區間、文案透明度與時間（`shiftHour`）在 `journeyMath.ts`，測試在 `journeyMode.test.ts`。
 - 版面：
   - **3D 路線**（所有人，包含減少動態與低功耗裝置）：文案直接放在場景的留白處（燈塔章在天空、窗章在窗旁、桌前章在牆上、交接章在上方），底下是從畫面邊緣淡進來、沒有邊緣的 `--scrim` 柔和襯底，不是卡片，也不用全寬橫條；每章位置不同，不蓋住該章的主體。桌面進度列是一條髮線上的四個刻度，四個站名都顯示、目前站加粗，沒有框。晨海的文案襯底是貼合文字塊的柔邊橢圓（取該章畫面的冷色調，透明度最多 0.55），不是整段白霧。最後 8% 的捲動（進度 0.92→1.0）是連續的交接：相機直線推進，三面螢幕從機身上的位置插值到觀測台量到的三欄矩形（觀測清單／報價／加權指數，誤差 ≤ 1px；窄螢幕只有中間那面對到報價欄，左右兩面移出畫面），邊框從機身邊框的寬度收成 1px 並換成頁面線色，螢幕內容交叉淡入成觀測台的版式，房間溶接成頁面底色。同一段期間場景把 `--handoff`（0→1）寫在 `<html>` 上：觀測台頂端的燈光餘溫隨之淡出、第一組面板隨之淡入（`styles/main.css` 的 `#terminal` 規則）；場景不在跑（只剩首屏海報、卸載、換頁、分頁隱藏）時這個變數一定要移除，面板才不會留在半透明。最後一章有主要按鈕「進入觀測台」，交接時淡出。觀測台用負的下邊距（一個舞台高）疊在舞台底下，最後一個舞台高的捲動被釘在舞台上緣（`translate`）；h ≥ 0.95（`<html data-handed-off>`）或捲到終點（`data-past`）時舞台用 `--dur-sweep` 溶掉，露出對齊好的真觀測台，捲回來再溶回來。不跟著捲動拖淡化（場景畫的內容跟觀測台不同，停在半透明會兩層字疊在一起），也不能讓場景畫的三欄和觀測台上下各出現一份。
-  - **只有首屏**（`data-mode="poster"`）：不支援 WebGL2 或場景出錯時，旅程只剩首屏（海報＋文案，沒有「從頭看起」，多一行「這台裝置無法啟用 3D 場景，已改用靜態畫面。」），往下直接是觀測台。不做圖版式的海報版面（決議 N1-1）。
+  - **只有首屏**（`data-mode="poster"`）：不支援 WebGL2 或場景出錯時，旅程只剩首屏（海報＋文案，沒有「從頭看起」，多一行「這台裝置無法啟用 3D 場景，已改用靜態畫面。」），往下直接是觀測台。不做圖版式的海報版面。
 - 場景只畫傳進來的真實資料；沒有資料就顯示「讀取中…」，不放只有標誌的畫面。收盤價下方只放日漲跌，不另外放區間漲跌（同一檔股票的漲跌幅只用一種口徑）。海報是靜態圖，不把有日期的數字烤進去；螢幕畫中性的格線與無日期的走勢線。
 - 時間順著旅程走：夜班從餘暉到入夜，晨班從天亮前到日出；文案要和畫面一致。室內夜班靠桌燈與螢幕照明，晨班靠窗外天光。晨夜切換用一個混合值在 1250ms 內過渡。
-- 一律跑 3D，`prefers-reduced-motion` 與低功耗裝置（核心數、記憶體、`saveData`、App 內建的 WebView）都不降級（決議 N1-1）；只有沒有 WebGL2（`journeyMode.ts` 的 `probeWebGL2`）或場景出錯時只留首屏。WebGL context 掉了不重建場景，舞台底下各章的海報會露出來。
+- 一律跑 3D，`prefers-reduced-motion` 與低功耗裝置（核心數、記憶體、`saveData`、App 內建的 WebView）都不降級；只有沒有 WebGL2（`journeyMode.ts` 的 `probeWebGL2`）或場景出錯時只留首屏。WebGL context 掉了不重建場景，舞台底下各章的海報會露出來。
 - 效能：DPR 桌面最多 1.5、手機 1.25；分頁隱藏、舞台捲出視窗、捲到終點時停止 render loop；卸載時先釋放場景的 geometry、material、texture、render target，再釋放 renderer（順序反了，`renderer.dispose()` 清掉內部記錄後再釋放 render target 會拋錯）。
 - 海報在 `public/beacon/`（夜／晨 × 4 張 × 橫式／直式），由場景自己擷取；場景或燈光改了要重新產生。第一張是首屏；其餘墊在 3D 舞台各章底下（場景還沒載入、或 context 掉了才看得到），第 3、4 張也用在登入、註冊頁（`features/auth/AuthForm.tsx`）。第一張 ≤ 70KB，其餘 ≤ 90KB。
 

@@ -14,7 +14,7 @@ interface ExpandableProps {
   contentClassName?: string;
 }
 
-/** 可收合區塊：預設收合（決議 c53 維持舊版），按鈕帶 aria-expanded */
+/** 可收合區塊：預設收合，按鈕帶 aria-expanded */
 export function Expandable({ expandLabel, collapseLabel, defaultOpen = false, children, className, contentClassName }: ExpandableProps) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -50,7 +50,7 @@ interface FoldSectionProps {
 }
 
 /**
- * 收合段落：一列「標題＋一行摘要＋展開」，預設收合（決議 c53）。
+ * 收合段落：一列「標題＋一行摘要＋展開」，預設收合。
  * 觸發鈕包在標題元素裡（帶 aria-expanded／aria-controls），內容在下方，以一條細線分開。
  */
 export function FoldSection({

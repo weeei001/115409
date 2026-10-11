@@ -53,7 +53,7 @@ export interface CategoryLeader {
   /** 主要股代號；組合（最低相關性）為「A × B」；沒有資料為「--」 */
   symbol: string;
   value: string;
-  /** 報酬、法人買賣超、均線多空依正負給 up／down；沒有方向的指標（波動、相關性）與缺值是 neutral（決議 D13） */
+  /** 報酬、法人買賣超、均線多空依正負給 up／down；沒有方向的指標（波動、相關性）與缺值是 neutral */
   tone: ValueTone;
   reason: string;
 }

@@ -25,7 +25,7 @@ export const withSign = (value: number, abs: string): string =>
   value > 0 ? `+${abs}` : value < 0 ? `${MINUS}${abs}` : abs;
 
 /**
- * 四捨五入到畫面顯示的位數。正負號與漲跌色都要用這個值判斷（決議 c7、D13 C3）：
+ * 四捨五入到畫面顯示的位數。正負號與漲跌色都要用這個值判斷：
  * −0.004 顯示成「0.00」時不帶號、不上色，不會出現「−0.00%」。
  */
 export const roundTo = (value: number, decimals: number): number => {
@@ -48,7 +48,7 @@ export function gapText(gap: number | null, name: string, missing: string): stri
 }
 
 /*
- * 股數一律顯示成「張」（1 張 = 1,000 股，四捨五入到整數張），同一欄不在股／萬股／億股之間切換（P1-21、決議 2026-10-06）。
+ * 股數一律顯示成「張」（1 張 = 1,000 股，四捨五入到整數張），同一欄不在股／萬股／億股之間切換。
  * API 的單位是股，這裡的函式都吃股數。不滿 1 張的非零值寫「不到 1 張」、不帶正負號，呼叫端也不上漲跌色（lotToneValue）。
  * 模擬投資的持股、委託數量仍用股，不經過這裡。
  */

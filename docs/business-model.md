@@ -73,7 +73,7 @@
 | F30 | 每日資料排程：行情、法人、融資融券、基本面、集保、新聞爬蟲、新聞向量化、事件判讀、AI 摘要預熱 | 後台「工作排程」 | `BE/jobs/` | 完成 | `BE/jobs/scheduler.py`、`BE/jobs/runtime.py`、`BE/core/config.py:121-126` |
 | F31 | AI 趨勢預測與分析彙整端點（`/api/trend_predict`、`/api/analysis_digest`） | 沒有畫面 | `BE/features/analysis/prediction.py` | 部分完成：前端沒有使用；`analysis_digests` 表在 app 內沒有寫入程式 | `BE/features/analysis/prediction.py`、`BE/features/analysis/repository.py` |
 | F32 | Android App（Capacitor 包裝） | 沒有路由（Next.js 靜態匯出） | 和網頁共用 | 部分完成：骨架已有，推播缺 `google-services.json` | `FE/capacitor.config.ts`、`FE/android/`、`FE/package.json:26-28` |
-| F33 | 一般使用者的歷史回測 | 沒有 | 沒有 | 規劃中：上學期列為特色，但程式只有管理員版（F29）；舊的公開回測端點已刪除 | `FE/docs/PARITY.md:47`、`FE/pages/admin.tsx` |
+| F33 | 一般使用者的歷史回測 | 沒有 | 沒有 | 規劃中：上學期列為特色，但程式只有管理員版（F29）；舊的公開回測端點已刪除 | `FE/openapi.json`（沒有 `/api/simulate_trading_stream`）、`FE/pages/admin.tsx` |
 | F34 | 方案、額度、訂閱 | 沒有 | 沒有 | 規劃中 | `BE/db/models/user.py:6-16`（`users` 表沒有方案欄位）、`FE/openapi.json`（沒有相關路徑） |
 | F35 | 金流（綠界測試環境） | 沒有 | 沒有 | 規劃中 | `backend/requirements.txt`（沒有金流套件）、`FE/openapi.json`（沒有付款路徑） |
 | F36 | CSV 匯出、圖表存成圖片 | 沒有 | 沒有 | 規劃中：目前唯一的匯出是 F13 的瀏覽器列印 | `FE/features/brief/BriefReport.tsx:196-200` |

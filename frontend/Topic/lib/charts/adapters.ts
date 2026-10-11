@@ -381,7 +381,7 @@ export function rsiMacdOptions(rows: TechnicalDay[], isDark: boolean) {
   const rsiSeries: Array<Record<string, unknown>> = [];
   if (hasValue(rsi5)) rsiSeries.push({ ...lineLook(ma.MA10, 1.5), name: 'RSI5', data: rsi5, tooltip: indicatorTooltip });
   if (hasValue(rsi10)) rsiSeries.push({ ...lineLook(palette.text, 2), name: 'RSI10', data: rsi10, tooltip: indicatorTooltip });
-  // 參考線必須掛在 series 上 ECharts 才會畫（決議 D9-c12）
+  // 參考線必須掛在 series 上 ECharts 才會畫
   if (rsiSeries.length) rsiSeries[0].markLine = referenceLines;
 
   const macdSeries: Array<Record<string, unknown>> = [

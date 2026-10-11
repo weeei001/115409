@@ -27,7 +27,7 @@ interface ComparePriceHistory {
 
 // ── 股票代表色 ──────────────────────────────────────────────
 
-/** 依比較清單的順序取色（決議 c76）：第 1 檔用第 1 色…，全頁各區塊一致 */
+/** 依比較清單的順序取色：第 1 檔用第 1 色…，全頁各區塊一致 */
 export function buildSymbolColorMap(symbols: string[]): Record<string, string> {
   return Object.fromEntries([...new Set(symbols)].map((symbol, i) => [symbol, COMPARE_SYMBOL_COLORS[i % COMPARE_SYMBOL_COLORS.length]]));
 }
@@ -110,7 +110,7 @@ const byDate = <T extends { date: string }>(a: T, b: T) => a.date.localeCompare(
 
 /**
  * 可用的日報酬列：依日期排序後去掉區間第一天。第一天的 change_percent 是相對區間前一天，
- * 不屬於區間內的報酬（決議 D9-c25）；指標表、相關係數、有效樣本與共同交易日都用這份（決議 c71）。
+ * 不屬於區間內的報酬；指標表、相關係數、有效樣本與共同交易日都用這份。
  */
 function dailyReturnRows(change: ComparePriceHistory | null) {
   return [...(change?.data ?? [])]
@@ -120,7 +120,7 @@ function dailyReturnRows(change: ComparePriceHistory | null) {
 }
 
 export function buildMetricsRow(symbol: string, change: ComparePriceHistory | null, volume: VolumeAnalysisResponse | null): CompareMetricsRow {
-  // 平均量與平均金額只看成交資料，漲跌資料缺了也照算（決議 c73）
+  // 平均量與平均金額只看成交資料，漲跌資料缺了也照算
   const avgVolume = mean(volume?.data.map((d) => d.volume).filter(isNum) ?? []);
   const avgAmount = mean(volume?.data.map((d) => d.amount).filter(isNum) ?? []);
   if (!change || change.data.length === 0) {
@@ -155,7 +155,7 @@ export function buildMetricsRow(symbol: string, change: ComparePriceHistory | nu
     // 年化波動度：日報酬樣本標準差 × √252 × 100%
     volatilityPct: volatility == null ? null : volatility * ANNUALIZE_FACTOR * 100,
     maxDrawdownPct: maxDrawdownPctFromCloses(closes),
-    // 分母只算有效的日報酬（決議 D9-c25）
+    // 分母只算有效的日報酬
     winRatePct: changePercents.length > 0 ? (upDays / changePercents.length) * 100 : null,
     maxDailyGainPct: changePercents.length ? Math.max(...changePercents) : null,
     maxDailyLossPct: changePercents.length ? Math.min(...changePercents) : null,

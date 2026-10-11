@@ -106,7 +106,7 @@ export default function MePage() {
       setUser(me);
       setProfileUnconfirmed(false);
     } catch (err) {
-      // 登入過期：跟一進頁面就 401 一樣，清除登入後回登入頁（決議 c80）
+      // 登入過期：跟一進頁面就 401 一樣，清除登入後回登入頁
       if (err instanceof ApiRequestError && err.status === 401) {
         leavingRef.current = true;
         clearAuth();
@@ -124,7 +124,7 @@ export default function MePage() {
   }, [router]);
 
   // 登入狀態變了（本分頁從主選單登出，或另一個分頁登出、換帳號）：
-  // 登出就清掉畫面上的資料並回首頁，跟本頁「登出」一致（決議 D9-c18）；換成別的帳號就改顯示新帳號並重新確認。
+  // 登出就清掉畫面上的資料並回首頁，跟本頁「登出」一致；換成別的帳號就改顯示新帳號並重新確認。
   // /auth/me 進行中的變動多半是 API 收到 401 造成的，交給各自的 catch；結束後（checkSettled）再判斷一次
   useEffect(() => {
     if (leavingRef.current || checkingRef.current > 0) return;

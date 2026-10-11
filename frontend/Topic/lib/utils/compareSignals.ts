@@ -3,15 +3,15 @@ import { finite, rsiSignal as indicatorRsiSignal, rsiZone, type RsiZone, type Si
 
 /**
  * 多股比較「技術指標快照」的判讀標籤。
- * RSI 超買／超賣用 warning（決議 D8-c8）；K 與 D 的相對位置是狀態、不是交叉事件（決議 D9-c24）。
- * MACD、KD 的判讀和個股頁、首頁同一組字（05 用語表、決議 C4／c59），直接沿用 indicatorSignals；RSI 只多冠「RSI 」。
+ * RSI 超買／超賣用 warning；K 與 D 的相對位置是狀態、不是交叉事件。
+ * MACD、KD 的判讀和個股頁、首頁同一組字（05 用語表），直接沿用 indicatorSignals；RSI 只多冠「RSI 」。
  */
 
 export { kdSignal, macdSignal } from './indicatorSignals';
 
 export const rsiSignal = (rsi: number | null | undefined): Signal => indicatorRsiSignal(rsi, { labelPrefix: 'RSI ' });
 
-/** 收盤相對 MA 的位置；收盤與 MA 取自技術指標同一列（同一天，決議 D9-c24） */
+/** 收盤相對 MA 的位置；收盤與 MA 取自技術指標同一列（同一天） */
 export function maPositionSignal(close: number | null | undefined, ma: number | null | undefined, periodLabel: string): Signal {
   const cv = finite(close);
   const mv = finite(ma);

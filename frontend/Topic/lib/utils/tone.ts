@@ -5,7 +5,7 @@
 export type ValueTone = 'up' | 'down' | 'neutral';
 
 /**
- * 數值正負 → tone；0 與缺值都是中性（決議 c7）。
+ * 數值正負 → tone；0 與缺值都是中性。
  * decimals：畫面上的位數（和 signedText 同一個值）；先四捨五入再判斷，寫成「0.00」的值不上漲跌色。
  */
 export function getValueTone(v: number | null | undefined, decimals?: number): ValueTone {

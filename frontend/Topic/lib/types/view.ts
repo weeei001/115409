@@ -1,6 +1,6 @@
 /**
  * 畫面用的資料形狀：由 lib/mappers 把 API 回應轉好（數字已轉成 number、日期已排序）。
- * 欄位名稱一律沿用 openapi 原名（決議 c50），不另外改名。
+ * 欄位名稱一律沿用 openapi 原名，不另外改名。
  */
 
 export interface DailyQuote {

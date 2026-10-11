@@ -34,7 +34,7 @@ assert.equal(signedShares(lotsToShares(-6_944)), '−6,944 張');
 assert.equal(signedShares(lotsToShares(32_362)), '+32,362 張');
 assert.equal(fmtNum(1234567.5), '1,234,567.5', 'fmtNum pins zh-TW grouping');
 
-// 決議（2026-10-06）：不滿 1 張的非零值寫「不到 1 張」，不帶號，也不上漲跌色
+// 不滿 1 張的非零值寫「不到 1 張」，不帶號，也不上漲跌色
 for (const value of [350, -350, 999, -1]) {
   assert.equal(isUnderOneLot(value), true, String(value));
   assert.equal(fmtVolume(Math.abs(value)), '不到 1 張');
@@ -60,7 +60,7 @@ assert.equal(fmtLotsAxisLabel(0.5), '0.5');
 
 console.log('Lot (張) formatting tests passed');
 
-// 決議 c7、D13 C3：先四捨五入到顯示的位數再決定正負號與漲跌色；顯示成 0 的值不帶號、不上色
+// 先四捨五入到顯示的位數再決定正負號與漲跌色；顯示成 0 的值不帶號、不上色
 {
   assert.equal(signedText(-0.004, 2, '%'), '0.00%', 'not −0.00%');
   assert.equal(signedText(0.004, 2, '%'), '0.00%', 'not +0.00%');
