@@ -234,6 +234,29 @@ class FakeWriter:
         self.deleted.append((article_id, index_version, ids))
 
 
+def test_new_model_version_preserves_old_chunks_and_excludes_other_sources(ingestion_db):
+    _, factory = ingestion_db
+    _seed(factory, [_article("cnyes"), {**_article("ltn"), "source": "ltn"}])
+    chunk_news(factory)
+    old = {row["chunk_id"] for row in _stored(factory)}
+    refused = chunk_news(factory, embedding_model="openai/text-embedding-3-small")
+    assert refused.failed == 2 and refused.written == 0
+    assert {row["chunk_id"] for row in _stored(factory)} == old
+    report = chunk_news(factory, index_version="openai-v2", sources=["cnyes"],
+                        embedding_model="openai/text-embedding-3-small")
+    assert report.written == 1
+    assert old.issubset({row["chunk_id"] for row in _stored(factory)})
+    writer = FakeWriter(accept_timeout=True)
+    report = asyncio.run(vectorize_news(factory, writer, sources=["cnyes"],
+                                       index_version="openai-v2", retry_delay=0))
+    assert report.written == 1 and report.failed == 0 and report.retries == 1
+    assert {row["article_id"] for row in writer.written} == {"cnyes"}
+    resumed = asyncio.run(vectorize_news(factory, writer, sources=["cnyes"],
+                                        index_version="openai-v2", retry_delay=0))
+    assert resumed.written == 0 and resumed.skipped == 1
+    assert len(writer.embedding_calls) == 1
+
+
 def test_vectorization_completes_whole_article_before_cleanup_and_resumes(ingestion_db):
     _, factory = ingestion_db
     _seed(factory, [_article("a", content="x" * 1700), _article("b", pub_time="unknown")])

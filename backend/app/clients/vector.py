@@ -6,7 +6,7 @@ from urllib.parse import quote
 import httpx
 
 from app.core.config import require_development_names
-from app.core.errors import ServiceUnavailable, UpstreamTimeout
+from app.core.errors import AppError, ServiceUnavailable, UpstreamTimeout
 
 
 def _timestamp(value: datetime) -> float:
@@ -48,10 +48,35 @@ class VectorClient:
 
     async def _embed(self, texts: list[str], input_type: str) -> list[list[float]]:
         self.require_enabled()
-        data = await self._post(self.settings.EMBED_API_URL, payload={
-            "model": self.settings.EMBED_MODEL, "input": texts, "input_type": input_type,
-            "encoding_format": "float", "truncate": self.settings.EMBED_TRUNCATE,
-        }, headers={"Authorization": f"Bearer {self.embed_key}"},
+        if self.settings.EMBED_API_STYLE == "openai":
+            # Byte-level tokenizers emit no more tokens than UTF-8 bytes. This
+            # conservative bound needs no downloaded tokenizer or truncation.
+            batches, batch, size = [], [], 0
+            for text in texts:
+                count = len(text.encode("utf-8"))
+                if not text.strip() or count > 8191:
+                    raise AppError("Embedding input is empty or exceeds the safe token bound", 422)
+                if batch and (size + count > 250000 or len(batch) >= 2048):
+                    batches.append(batch)
+                    batch, size = [], 0
+                batch.append(text)
+                size += count
+            if batch:
+                batches.append(batch)
+            vectors = []
+            for batch in batches:
+                vectors.extend(await self._embed_batch(batch, input_type))
+            if vectors and any(len(vector) != len(vectors[0]) for vector in vectors):
+                raise ServiceUnavailable("Inconsistent embedding dimension across batches")
+            return vectors
+        return await self._embed_batch(texts, input_type)
+
+    async def _embed_batch(self, texts: list[str], input_type: str) -> list[list[float]]:
+        payload = {"model": self.settings.EMBED_MODEL, "input": texts, "encoding_format": "float"}
+        if self.settings.EMBED_API_STYLE == "nvidia":
+            payload.update(input_type=input_type, truncate=self.settings.EMBED_TRUNCATE)
+        data = await self._post(self.settings.EMBED_API_URL, payload=payload,
+            headers={"Authorization": f"Bearer {self.embed_key}"},
             timeout=self.settings.EMBED_TIMEOUT_SECONDS, service="Embedding service")
         try:
             items = data["data"]

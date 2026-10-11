@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, text
 
 from app.clients.llm import LlmResult
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from app.features.market import company_catalog
 from app.features.news.impact import MAX_EVENTS, MAX_IMPACTS, config_hash, validate_output
 from app.jobs.impact.runner import ImpactBatchRunner
@@ -303,6 +303,23 @@ def test_legitimate_empty_output_is_saved_without_repair(db_session, settings, t
     record = db_session.get(NewsEventAnalysis, "empty-output")
     assert record.status == "success" and record.events_json == "[]"
     assert db_session.query(NewsEventImpact).count() == 0
+
+
+def test_save_replaces_topics_once_per_event_and_clears_failed_analysis(db_session, settings, tmp_path):
+    article = NewsArticle(article_id="topic-replacement", content="央行宣布升息一碼")
+    db_session.add(article)
+    db_session.commit()
+    runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
+                               llm=StubLlm([]), execute=True, work_dir=tmp_path)
+    result = validate_output(output(), article=article, catalog=CATALOG)
+    runner._save(article, article.analysis_input_hash, "success", output=result)
+    assert db_session.query(NewsEventImpact).count() == 2
+    assert [(row.event_key, row.topic) for row in db_session.query(NewsEventTopic)] == [("e1", "interest_rates")]
+    result.events[0].topics = ["ai"]
+    runner._save(article, article.analysis_input_hash, "success", output=result)
+    assert [row.topic for row in db_session.query(NewsEventTopic)] == ["ai"]
+    runner._save(article, article.analysis_input_hash, "failed", error_code="invalid_output")
+    assert db_session.query(NewsEventTopic).count() == 0
 
 
 def test_previous_validation_version_is_hidden_and_queued_for_analysis(

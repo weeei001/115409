@@ -40,9 +40,18 @@ class NewsEventImpact(Base):
     basis = Column(String(20), nullable=False)
     reason = Column(String(200), nullable=False)
     evidence = Column(_LONG_TEXT, nullable=False)
-    topics = Column(String(250), nullable=False, default=",")
 
     __table_args__ = (
         Index("idx_news_event_target", "target_type", "target_id", "importance", "direction"),
         Index("idx_news_event_article", "article_id"),
     )
+
+
+class NewsEventTopic(Base):
+    __tablename__ = "news_event_topics"
+
+    article_id = Column(String(64), ForeignKey("news_event_analyses.article_id"), primary_key=True)
+    event_key = Column(String(8), primary_key=True)
+    topic = Column(String(80), primary_key=True)
+
+    __table_args__ = (Index("idx_news_event_topic", "topic", "article_id", "event_key"),)

@@ -13,7 +13,7 @@ from sqlalchemy import delete, func, or_, select
 from app.clients.llm import LlmClient, token_cost
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from app.features.news.eligibility import contains_simulation
 from app.features.news.versions import source_states
 from app.features.news.impact import (ImpactOutput, PROMPT_VERSION, SYSTEM_PROMPT, TOPICS, article_hash,
@@ -147,9 +147,11 @@ class ImpactBatchRunner:
         record.estimated_cost_usd = (usage or {}).get("estimated_cost_usd")
         self.db.add(record)
         self.db.execute(delete(NewsEventImpact).where(NewsEventImpact.article_id == article.article_id))
+        self.db.execute(delete(NewsEventTopic).where(NewsEventTopic.article_id == article.article_id))
         article.analysis_input_hash = input_hash
         if output:
-            events = {event.key: event for event in output.events}
+            self.db.add_all(NewsEventTopic(article_id=article.article_id, event_key=event.key, topic=topic)
+                            for event in output.events for topic in set(event.topics))
             for impact in output.impacts:
                 self.db.add(NewsEventImpact(
                     article_id=article.article_id, event_key=impact.event_key,
@@ -157,7 +159,6 @@ class ImpactBatchRunner:
                     direction=impact.direction, importance=impact.importance, basis=impact.basis,
                     reason=impact.reason,
                     evidence=json.dumps([quote.model_dump(mode="json") for quote in impact.evidence], ensure_ascii=False),
-                    topics="," + ",".join(events[impact.event_key].topics) + ",",
                 ))
         try:
             self.db.commit()

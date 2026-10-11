@@ -4,7 +4,7 @@ import json
 import pytest
 
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from app.features.market import company_catalog
 from app.features.news.impact import article_hash, config_hash
 
@@ -42,8 +42,24 @@ def event_impact(article_id, *, target="2330", event_key="e1"):
         article_id=article_id, event_key=event_key, target_type="company", target_id=target,
         direction="positive", importance="high", basis="reported", reason="營運改善",
         evidence=json.dumps([{"field": "content", "quote": "Revenue increased."}]),
-        topics=",ai,",
     )
+
+
+def test_topic_filter_matches_the_same_event_as_the_target(client, db_session, settings):
+    current = article("two-events", "2026-05-20 09:00:00", content="Revenue increased.")
+    db_session.add(current)
+    db_session.flush()
+    db_session.add(event_analysis(current, settings))
+    db_session.flush()
+    db_session.add_all([
+        event_impact(current.article_id, target="2330", event_key="e1"),
+        event_impact(current.article_id, target="2317", event_key="e2"),
+        NewsEventTopic(article_id=current.article_id, event_key="e1", topic="ai"),
+        NewsEventTopic(article_id=current.article_id, event_key="e2", topic="interest_rates"),
+    ])
+    db_session.commit()
+    assert client.get("/news", params={"stock": "2330", "topic": "ai"}).json()["total"] == 1
+    assert client.get("/news", params={"stock": "2330", "topic": "interest_rates"}).json()["total"] == 0
 
 
 def test_news_mixed_timestamp_formats_inclusive_boundaries_and_pagination(client, db_session):
@@ -117,7 +133,7 @@ def test_news_detail_keeps_nullable_fields_and_malformed_event_evidence_fallback
     db_session.add(NewsEventImpact(
         article_id=current.article_id, event_key="e1", target_type="market", target_id="TW",
         direction="uncertain", importance="high", basis="inferred", reason="資料不足",
-        evidence="{truncated", topics=",ai,",
+        evidence="{truncated",
     ))
     db_session.commit()
 

@@ -108,6 +108,8 @@ class JobRuntime:
                                         AdminJobControl.job_name.in_(["market", "rag", "text-brief"]),
                                         AdminJobControl.paused.is_(True)).limit(1)) is not None
                                     db.add(AdminJobControl(job_name="pipeline", paused=legacy_paused))
+                                if db.get(AdminJobControl, "ltn") is None:
+                                    db.add(AdminJobControl(job_name="ltn", paused=True))
                                 db.commit()
                                 initialized = True
                             else:
@@ -174,6 +176,8 @@ class JobRuntime:
             db.add(row)
             db.commit()
             run_id = row.id
+        # The durable queue owns this attempt now, even if recording its result fails.
+        self.scheduler.next_market = next_daily(datetime.now(TAIPEI), self.scheduler.market_at)
         return self._execute(run_id)
 
     def _notification_tick(self):

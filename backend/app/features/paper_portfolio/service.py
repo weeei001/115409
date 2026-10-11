@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 from app.core.errors import AppError, NotFound, Conflict
 from app.db.models.paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview
 from app.db.models.notification import Notification
+from app.db.models.user import User
+from app.features.audit.service import audit
 from app.features.paper_portfolio import repository as repo
 
 TAIPEI = ZoneInfo('Asia/Taipei')
@@ -54,6 +56,12 @@ def _lock_account(db, user_id, required=True):
     return account
 
 
+def _audit(db, user_id, action, target, details=None):
+    owner = db.get(User, user_id)
+    audit(db, actor_id=user_id, actor_email=owner.email, action=action,
+          target=target, status='succeeded', details=details)
+
+
 def create_fund_movement(db, user_id, body, now=None):
     current = _now(now)
     try:
@@ -85,6 +93,8 @@ def create_fund_movement(db, user_id, body, now=None):
                 account.cash += body.amount
         db.add(PaperCashMovement(id=str(uuid4()), user_id=user_id,
                                 created_at=current.replace(tzinfo=None), **body.model_dump()))
+        action = 'paper.account.create' if body.kind == 'initial' else f'paper.cash.{body.kind}'
+        _audit(db, user_id, action, str(user_id), {'amount': str(body.amount)})
         db.commit()
         return snapshot(db, user_id, now=current)
     except Exception:
@@ -144,6 +154,7 @@ def create_order(db, user_id, body, now=None):
         row = PaperOrder(id=str(uuid4()), user_id=user_id, created_at=current.replace(tzinfo=None),
                          fee_rate=Decimal('.001425'), tax_rate=Decimal('.003'), **body.model_dump())
         db.add(row)
+        _audit(db, user_id, 'paper.order.create', row.id, {'symbol': row.symbol, 'side': row.side})
         db.commit()
         return _order(row)
     except Exception:
@@ -162,7 +173,9 @@ def cancel_order(db, user_id, order_id, now=None):
             raise Conflict('已成交的委託無法取消')
         if row.status == 'pending' and any(day > _day(row.created_at) for day in _eligible_sessions(db, current)):
             raise Conflict('預定成交日已收盤，目前等待行情補齊，無法取消委託')
-        row.status = 'cancelled'
+        if row.status != 'cancelled':
+            row.status = 'cancelled'
+            _audit(db, user_id, 'paper.order.cancel', row.id)
         db.commit()
         return _order(row)
     except Exception:
@@ -225,7 +238,7 @@ def _settle(db, user_id, current):
         if len(following) < row.review_after_days:
             continue
         due = following[row.review_after_days - 1]
-        review = PaperReview(id=str(uuid4()), user_id=user_id, order_id=row.id, due_date=due, status='due')
+        review = PaperReview(id=str(uuid4()), order_id=row.id, due_date=due, status='due')
         db.add(review)
         timestamp = current.replace(tzinfo=None)
         db.add(Notification(user_id=user_id, kind='paper_review', symbol=row.symbol,
@@ -336,8 +349,10 @@ def acknowledge_review(db, user_id, review_id, now=None):
         row = next((r for r in repo.reviews(db, user_id, lock=True) if r.id == review_id), None)
         if row is None:
             raise NotFound('找不到回顧')
-        row.status = 'reviewed'
-        row.reviewed_at = _now(now).replace(tzinfo=None)
+        if row.status != 'reviewed':
+            row.status = 'reviewed'
+            row.reviewed_at = _now(now).replace(tzinfo=None)
+            _audit(db, user_id, 'paper.review.complete', row.id)
         db.commit()
         return {'id': row.id, 'status': row.status}
     except Exception:

@@ -52,8 +52,7 @@ def test_payload_only_sync_and_sql_version_guard(db_session, settings, monkeypat
     db_session.add(analysis)
     db_session.add(NewsEventImpact(article_id=article.article_id, event_key="e1", target_type="market",
         target_id="TW", direction="uncertain", importance="high", basis="inferred",
-        reason="政策可能改變市場資金條件", evidence=json.dumps([{"field": "content", "quote": "影響台股資金"}], ensure_ascii=False),
-        topics=",interest_rates,"))
+        reason="政策可能改變市場資金條件", evidence=json.dumps([{"field": "content", "quote": "影響台股資金"}], ensure_ascii=False)))
     db_session.commit()
     factory = sessionmaker(bind=db_session.get_bind(), expire_on_commit=False)
     writer = FakeWriter(chunk)

@@ -132,7 +132,7 @@ def test_api_hides_legacy_foreign_company_tags_and_stale_impacts_without_writing
         status="success", events_json=json.dumps(impact_output(FOREIGN_REFERENCE)["events"])))
     db_session.add(NewsEventImpact(article_id=article.article_id, event_key="e1", target_type="company",
         target_id="5007", direction="positive", importance="medium", basis="inferred",
-        reason="Old wrong target", evidence=json.dumps([{"field": "content", "quote": FOREIGN_REFERENCE}]), topics=",ai,"))
+        reason="Old wrong target", evidence=json.dumps([{"field": "content", "quote": FOREIGN_REFERENCE}])))
     revision_id = record_version(db_session, article, observed_at=datetime(2026, 10, 5, 15))
     db_session.commit()
 

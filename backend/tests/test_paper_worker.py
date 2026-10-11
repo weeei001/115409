@@ -17,7 +17,7 @@ def test_worker_requires_explicit_execution_before_loading_settings(args, monkey
         assert paper_portfolio.main(args) == 0
 
 
-@pytest.mark.parametrize("failure", ["market-import", "market-backfill"])
+@pytest.mark.parametrize("failure", ["market-import", "market-backfill", "market-supplemental-backfill"])
 def test_missing_market_inputs_prevent_settlement(tmp_path, failure):
     commands = []
 

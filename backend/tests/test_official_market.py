@@ -161,3 +161,50 @@ def test_annual_financial_report_waits_for_filing_window(monkeypatch):
     monkeypatch.setattr(fetch, "date", FutureDate)
     assert fetch.latest_filed_quarter(date(2027, 2, 28)) == (2026, 3)
     assert fetch.latest_filed_quarter(date(2027, 4, 10)) == (2026, 4)
+
+
+def test_snapshot_market_date_does_not_require_selected_stock_to_trade(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "refresh_catalog", lambda http: {
+        "2317": {"market": "TWSE"}, "2330": {"market": "TWSE"}, "5347": {"market": "TPEx"}})
+    observed = []
+    def daily(http, day):
+        observed.append(day)
+        return [{"date": day.isoformat(), "symbol": "2317"}]
+    for module in (foreign_shareholding, institutional, margin):
+        monkeypatch.setattr(module, "fetch_twse", daily)
+    monkeypatch.setattr(tdcc_shareholding, "fetch", lambda *args: [])
+    monkeypatch.setattr(corporate_actions, "fetch_dividend_results", lambda *args: [])
+    monkeypatch.setattr(mops_financial, "fetch_quarter", lambda *args: [])
+    args = SimpleNamespace(symbols=["2317"], start="2021-01-01", end="2026-09-24", out=tmp_path)
+    with httpx.Client(transport=httpx.MockTransport(official)) as http:
+        report = fetch.export(args, fetch.OfficialClient(http, retries=0))
+    assert observed == [date(2026, 9, 23)] * 3
+    assert report["datasets"]["price_volume"] == 0
+    assert json.loads((tmp_path / "market_manifest.json").read_text()) == {
+        "2317": ["foreign_shareholding", "institutional", "margin"]}
+
+
+@pytest.mark.parametrize("day,symbol", [("invalid-date", "2330"), ("2026-06-30", "2317")])
+def test_rejected_financial_csv_does_not_advance_checkpoint(tmp_path, monkeypatch, day, symbol):
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(import_csv, "make_engine", lambda settings: engine)
+    monkeypatch.setattr(import_csv, "get_settings", lambda: None)
+    (tmp_path / "market_manifest.json").write_text('{"2330": ["financial_statements"]}')
+    pending = tmp_path / "financial_progress_pending.json"
+    pending.write_text('{"quarter":"2026Q2","offset":100}')
+    (tmp_path / "2330_financial_statements.csv").write_text(
+        f"date,symbol,statement,item_type,origin_name,value\n{day},{symbol},income,EPS,Earnings,10\n")
+    assert import_csv.main(["--input-dir", str(tmp_path), "--require-manifest"]) == 1
+    assert pending.exists() and not (tmp_path / "financial_progress.json").exists()
+
+
+@pytest.mark.parametrize("rows", [[], [{"date": "2026-06-30", "symbol": "2330"}]])
+def test_manifest_financial_dataset_requires_nonempty_rows_and_keys(tmp_path, db_session, rows):
+    import csv
+    with (tmp_path / "2330_financial_statements.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["date", "symbol"])
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(ValueError):
+        import_csv.import_symbol(db_session, tmp_path, "2330", ["financial_statements"])

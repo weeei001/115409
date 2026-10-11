@@ -5,9 +5,8 @@ from contextlib import nullcontext
 from datetime import date
 import json
 
-import httpx
-
 from app.core.config import get_settings
+from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.jobs.impact.migrate import migrate_news_impact
 from app.jobs.locking import worker_lock
@@ -25,6 +24,7 @@ def main(mode: str, argv: list[str] | None = None) -> int:
         "written counts confirmed new points. Dry-run reports planned work without external vector calls."
     ))
     parser.add_argument("--symbols", default="", help="Comma-separated stock IDs; omitted means all stocks")
+    parser.add_argument("--sources", default="", help="Comma-separated source IDs, for example cnyes")
     parser.add_argument("--start", type=date.fromisoformat)
     parser.add_argument("--end", type=date.fromisoformat)
     parser.add_argument("--limit", type=int, help="Maximum source articles to inspect per stage")
@@ -46,6 +46,9 @@ def main(mode: str, argv: list[str] | None = None) -> int:
     if args.index_version is not None and (not args.index_version.strip() or len(args.index_version) > 80):
         parser.error("--index-version must contain 1 to 80 characters")
     symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()))
+    sources = list(dict.fromkeys(source.strip().lower() for source in args.sources.split(",") if source.strip()))
+    if args.sources and not sources:
+        parser.error("--sources must contain at least one source")
     if args.symbols and not symbols:
         parser.error("--symbols must contain at least one symbol")
     settings = get_settings()
@@ -60,7 +63,7 @@ def main(mode: str, argv: list[str] | None = None) -> int:
         if not settings.NEWS_INDEX_VERSION or settings.QDRANT_COLLECTION == "news_chunks":
             parser.error("Set an explicit index version and a new collection before vectorization")
     options = dict(symbols=symbols, start=args.start, end=args.end, limit=args.limit,
-                   page_size=args.batch_size, dry_run=args.dry_run, index_version=version)
+                   page_size=args.batch_size, dry_run=args.dry_run, index_version=version, sources=sources)
     engine = make_engine(settings)
     session_factory = make_session_factory(engine)
     reports = []
@@ -78,7 +81,7 @@ def main(mode: str, argv: list[str] | None = None) -> int:
             if mode in {"vectorize-news", "news-ingest"}:
                 async def vectorize():
                     from app.clients.vector_writer import VectorWriter
-                    async with httpx.AsyncClient() as http:
+                    async with make_http_client(settings) as http:
                         return await vectorize_news(session_factory, VectorWriter(http, settings),
                                                      create_collection=args.create_collection,
                                                      cleanup_stale=not args.skip_stale_cleanup, **options)

@@ -76,7 +76,8 @@ def delete_conversation(db, user_id, conversation_id):
     owned = select(Conversation.id).where(Conversation.id == conversation_id, Conversation.user_id == user_id)
     delete_conversation_records(db, user_id, conversation_id)
     if feedback_ready(db):
-        db.execute(delete(ChatMessageFeedback).where(ChatMessageFeedback.conversation_id.in_(owned)))
+        message_ids = select(ConversationMessage.id).where(ConversationMessage.conversation_id.in_(owned))
+        db.execute(delete(ChatMessageFeedback).where(ChatMessageFeedback.message_id.in_(message_ids)))
     db.execute(delete(ConversationMessage).where(ConversationMessage.conversation_id.in_(owned)))
     db.execute(delete(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user_id))
 
@@ -90,7 +91,8 @@ def feedback_ratings(db, conversation_id):
     if not feedback_ready(db):
         return {}
     return dict(db.execute(select(ChatMessageFeedback.message_id, ChatMessageFeedback.rating)
-                           .where(ChatMessageFeedback.conversation_id == conversation_id)).all())
+                           .join(ConversationMessage, ConversationMessage.id == ChatMessageFeedback.message_id)
+                           .where(ConversationMessage.conversation_id == conversation_id)).all())
 
 
 def rateable_message(db, conversation_id, message_id):
@@ -99,10 +101,10 @@ def rateable_message(db, conversation_id, message_id):
         ConversationMessage.role == "assistant", ConversationMessage.status == "completed"))
 
 
-def set_feedback(db, *, user_id, conversation_id, message_id, rating, now):
+def set_feedback(db, *, message_id, rating, now):
     row = db.get(ChatMessageFeedback, message_id)
     if row is None:
-        db.add(ChatMessageFeedback(message_id=message_id, conversation_id=conversation_id, user_id=user_id,
+        db.add(ChatMessageFeedback(message_id=message_id,
                                    rating=rating, created_at=now, updated_at=now))
     else:
         row.rating, row.updated_at = rating, now

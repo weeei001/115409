@@ -31,13 +31,20 @@ def _scope(statement, table, symbols: list[str], start: date | None, end: date |
 
 def pending_articles(db: Session, *, after: str = "", page_size: int = 50,
                      symbols: list[str] = (), start: date | None = None,
-                     end: date | None = None, index_version: str = DEFAULT_INDEX_VERSION) -> list[dict]:
+                     end: date | None = None, index_version: str = DEFAULT_INDEX_VERSION,
+                     sources: list[str] = ()) -> list[dict]:
     articles = NewsArticle.__table__
     stored_revision = select(news_chunks.c.revision).where(
         news_chunks.c.article_id == articles.c.article_id,
         news_chunks.c.index_version == index_version).limit(1).scalar_subquery()
-    statement = _scope(select(articles, stored_revision.label("_stored_revision")).where(
+    stored_fingerprint = select(news_chunks.c.index_fingerprint).where(
+        news_chunks.c.article_id == articles.c.article_id,
+        news_chunks.c.index_version == index_version).limit(1).scalar_subquery()
+    statement = _scope(select(articles, stored_revision.label("_stored_revision"),
+                             stored_fingerprint.label("_stored_fingerprint")).where(
         articles.c.article_id > after), articles, symbols, start, end)
+    if sources:
+        statement = statement.where(articles.c.source.in_(sources))
     rows = [dict(row) for row in db.execute(statement.order_by(articles.c.article_id).limit(page_size)).mappings()]
     states = source_states(db, [SimpleNamespace(**row) for row in rows])
     return [{**row, "_source_eligible": states[row["article_id"]]["eligible"]} for row in rows]
@@ -46,11 +53,13 @@ def pending_articles(db: Session, *, after: str = "", page_size: int = 50,
 def chunk_page(db: Session, *, after: str = "", page_size: int = 50,
                symbols: list[str] = (), start: date | None = None,
                end: date | None = None, index_version: str = DEFAULT_INDEX_VERSION,
-               article_ids: list[str] | None = None) -> list[dict]:
+               article_ids: list[str] | None = None, sources: list[str] = ()) -> list[dict]:
     """Page complete articles, so stale vectors are never removed mid-article."""
     selected = _scope(select(news_chunks.c.article_id).where(
         news_chunks.c.article_id > after, news_chunks.c.index_version == index_version),
         news_chunks, symbols, start, end)
+    if sources:
+        selected = selected.where(news_chunks.c.source.in_(sources))
     if article_ids is not None:
         selected = selected.where(news_chunks.c.article_id.in_(article_ids))
     selected = selected.distinct().order_by(news_chunks.c.article_id).limit(page_size)

@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     EMBED_API_URL: str = "https://integrate.api.nvidia.com/v1/embeddings"
     EMBED_API_KEY: str = ""
     EMBED_MODEL: str = "nvidia/nemotron-3-embed-1b"
+    EMBED_API_STYLE: Literal["nvidia", "openai"] = "nvidia"
     EMBED_TIMEOUT_SECONDS: float = 60
     EMBED_TRUNCATE: Literal["NONE", "START", "END"] = "NONE"
     # Empty keeps existing read-only indexes usable until an explicit version switch.

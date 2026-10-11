@@ -1,4 +1,4 @@
-"""共用對外 HTTP client，明確設定代理與 TLS 信任來源。"""
+"""Shared outbound HTTP clients with explicit proxy and verified TLS trust."""
 import ssl
 import sys
 from typing import Any
@@ -6,15 +6,23 @@ from typing import Any
 import httpx
 
 
-def make_http_client(settings: Any) -> httpx.AsyncClient:
-    """預設不繼承環境代理；Windows 額外採用系統已信任的憑證。"""
-    context = httpx.create_ssl_context(trust_env=settings.OUTBOUND_HTTP_TRUST_ENV)
+def _client_options(settings: Any, **kwargs) -> dict:
+    trust_env = kwargs.pop("trust_env", getattr(settings, "OUTBOUND_HTTP_TRUST_ENV", False))
+    proxy = kwargs.pop("proxy", getattr(settings, "OUTBOUND_HTTP_PROXY", "").strip() or None)
+    if "verify" in kwargs:
+        raise ValueError("TLS verification is managed by the shared HTTP client")
+    context = httpx.create_ssl_context(trust_env=trust_env)
     if sys.platform == "win32":
-        # 保留原有 CA，加入 Windows 信任存放區以支援端點防護的 HTTPS 檢查。
-        # 仍強制驗證憑證鏈與主機名稱，不接受未受信任的自簽憑證。
+        # Retain bundled CAs and add Windows trust for verified HTTPS inspection.
+        # Certificate-chain and hostname verification remain mandatory.
         context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    return httpx.AsyncClient(
-        verify=context,
-        proxy=settings.OUTBOUND_HTTP_PROXY.strip() or None,
-        trust_env=settings.OUTBOUND_HTTP_TRUST_ENV,
-    )
+    return {**kwargs, "verify": context, "proxy": proxy, "trust_env": trust_env}
+
+
+def make_http_client(settings: Any) -> httpx.AsyncClient:
+    return httpx.AsyncClient(**_client_options(settings))
+
+
+def make_sync_http_client(settings: Any, **kwargs) -> httpx.Client:
+    """Preserve caller timeouts/transports while sharing proxy and TLS policy."""
+    return httpx.Client(**_client_options(settings, **kwargs))

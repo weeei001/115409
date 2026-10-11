@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Index, String, Text, event, func
+from sqlalchemy import Column, DateTime, String, Text, event, func
 from sqlalchemy.dialects.mysql import LONGTEXT
 
 from app.db.base import Base
@@ -30,12 +30,6 @@ class NewsArticle(Base):
         DateTime,
         nullable=True,
         server_default=func.current_timestamp(),
-    )
-
-    __table_args__ = (
-        Index("idx_stock_id", "stock_id"),
-        Index("idx_pub_time", "pub_time"),
-        Index("idx_source", "source"),
     )
 
     def __repr__(self) -> str:

@@ -69,8 +69,7 @@ class ConversationService:
             if rating is None:
                 repository.clear_feedback(db, message_id)
             else:
-                repository.set_feedback(db, user_id=user_id, conversation_id=conversation_id,
-                                        message_id=message_id, rating=rating, now=utcnow())
+                repository.set_feedback(db, message_id=message_id, rating=rating, now=utcnow())
             return MessageFeedback(message_id=message_id, rating=rating)
 
     def delete(self, user_id, conversation_id):

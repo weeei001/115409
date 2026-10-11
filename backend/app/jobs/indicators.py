@@ -213,7 +213,6 @@ def _build_indicator_rows(prices: Sequence[DailyPrice], symbol: str) -> List[Dic
                 "ema26": _quantize(ema26[idx], "0.0001"),
                 "macd_dif": _quantize(macd_dif[idx], "0.0001"),
                 "macd_dea": _quantize(macd_dea[idx], "0.0001"),
-                "macd_signal": _quantize(macd_dea[idx], "0.0001"),
                 "macd_hist": _quantize(macd_hist[idx], "0.0001"),
                 "boll_mid20": _quantize(boll_mid20[idx], "0.01"),
                 "boll_upper20": _quantize(boll_upper20[idx], "0.01"),

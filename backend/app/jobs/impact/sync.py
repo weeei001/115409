@@ -8,11 +8,11 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 import json
 
-import httpx
 from sqlalchemy import select
 
 from app.clients.vector_writer import VectorWriter
 from app.core.config import get_settings
+from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.execute:
                 migrate_news_impact(engine)
             async def run():
-                async with httpx.AsyncClient() as http:
+                async with make_http_client(settings) as http:
                     return await sync_impact_payloads(make_session_factory(engine),
                         VectorWriter(http, settings), settings, backfill_days=args.backfill_days,
                         limit=args.limit, page_size=args.batch_size, execute=args.execute,
