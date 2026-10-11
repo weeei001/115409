@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { decideJourneyMode, isLowPower, type JourneyEnv } from './journeyMode';
 import {
   CAPTION_FADE,
   CAPTION_HIDE_BELOW,
@@ -42,62 +41,8 @@ import {
 } from './journeyMath';
 import { closeRange, dayChange, groupWatch } from './scene/screens';
 import { LOOKS, lookWeights } from './scene/theme';
-import { boardFigures, changeText, countsText, monitorFigures, quoteCharacteristic } from './boardFormat';
+import { boardFigures, changeText, quoteCharacteristic } from './boardFormat';
 import { fmtNum, signedText } from '@/lib/utils/format';
-
-const desktop: JourneyEnv = {
-  reducedMotion: false,
-  hardwareConcurrency: 12,
-  deviceMemory: 8,
-  saveData: false,
-  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36',
-  capacitor: false,
-};
-
-// ── 模式判斷 ──
-assert.deepEqual(decideJourneyMode(desktop), { mode: 'scene', reason: null });
-assert.deepEqual(decideJourneyMode(desktop, true), { mode: 'scene', reason: null });
-assert.deepEqual(decideJourneyMode(desktop, false), { mode: 'poster', reason: 'no-webgl' });
-assert.deepEqual(decideJourneyMode({ ...desktop, reducedMotion: true }), { mode: 'poster', reason: 'reduced-motion' });
-// 減少動態優先於其他原因
-assert.equal(decideJourneyMode({ ...desktop, reducedMotion: true, hardwareConcurrency: 2 }, false).reason, 'reduced-motion');
-assert.equal(decideJourneyMode({ ...desktop, hardwareConcurrency: 4 }).reason, 'low-power');
-assert.equal(decideJourneyMode({ ...desktop, hardwareConcurrency: 4 }, false).reason, 'low-power');
-
-// 低功耗的各種訊號
-assert.equal(isLowPower(desktop), false);
-assert.equal(isLowPower({ ...desktop, hardwareConcurrency: 4 }), true);
-assert.equal(isLowPower({ ...desktop, hardwareConcurrency: 6 }), false);
-assert.equal(isLowPower({ ...desktop, deviceMemory: 4 }), true);
-assert.equal(isLowPower({ ...desktop, deviceMemory: 2 }), true);
-assert.equal(isLowPower({ ...desktop, saveData: true }), true);
-// 其他 App 內建的 WebView 算低功耗
-assert.equal(
-  isLowPower({ ...desktop, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0 Mobile Safari/537.36' }),
-  true,
-);
-// 自家 Capacitor App 不算低功耗（決議 L1-1）：WebView UA、4 核、4GB、省流量都一樣跑 3D
-const app: JourneyEnv = {
-  ...desktop,
-  hardwareConcurrency: 4,
-  deviceMemory: 4,
-  saveData: true,
-  userAgent: 'Mozilla/5.0 (Linux; Android 17; Pixel 7; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0 Mobile Safari/537.36',
-  capacitor: true,
-};
-assert.equal(isLowPower(app), false);
-assert.deepEqual(decideJourneyMode(app), { mode: 'scene', reason: null });
-// App 裡仍然尊重減少動態，沒有 WebGL2 也只能用海報
-assert.equal(decideJourneyMode({ ...app, reducedMotion: true }).reason, 'reduced-motion');
-assert.equal(decideJourneyMode(app, false).reason, 'no-webgl');
-// 一般 Android Chrome 不是 WebView
-assert.equal(
-  isLowPower({ ...desktop, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36' }),
-  false,
-);
-// 瀏覽器沒提供的值不算低功耗（Safari、Firefox 沒有 deviceMemory）
-assert.equal(isLowPower({ reducedMotion: false }), false);
-assert.equal(isLowPower({ reducedMotion: false, hardwareConcurrency: 0, deviceMemory: 0 }), false);
 
 // ── 捲動進度：可捲距離是軌道高度 − 視窗高度 ──
 // 桌機 440vh、視窗 900：軌道 3960，可捲 3060
@@ -198,7 +143,7 @@ for (const b of BOUNDS) {
   assert.equal(signedText(0, 2), '0.00');
   assert.equal(signedText(1234.5, 2), '+1234.50', '不加千分位');
   assert.equal(dayChange([2510]), null);
-  // 螢幕與海報看板的漲跌字串是同一個函式（跟觀測台的報價區、大盤列同一個寫法）
+  // 螢幕與首屏燈質列的漲跌字串是同一個函式（跟觀測台的報價區、大盤列同一個寫法）
   assert.equal(changeText(d.change, 2510 - d.change), '+30.00（+1.21%）');
   assert.equal(changeText(-210, 21210), '−210.00（−0.99%）');
   assert.equal(changeText(null, 1), null);
@@ -531,7 +476,7 @@ assert.equal(shiftHour(1), 1);
   assert.ok(sun(0, 0) < 0 && sun(0, 0) > sun(0, 0.3) && sun(0, 0.3) > sun(0, 0.55), '夜班越走越暗');
 }
 
-// ── 海報版面的看板：跟觀測台同一組格式（fmtNum／fmtPrice／signedText，負號 U+2212） ──
+// ── 首屏燈質列的加權指數：跟觀測台同一組格式（fmtNum／signedText，負號 U+2212） ──
 {
   const up = boardFigures({ close: 48475.74, change: 122.25, date: '2026-10-02' });
   assert.ok(up);
@@ -549,22 +494,6 @@ assert.equal(shiftHour(1), 1);
   assert.equal(noChange?.change, null);
   assert.equal(noChange?.tone, 'neutral');
   assert.equal(boardFigures(null), null);
-
-  const m = monitorFigures({ symbol: '2330', name: '台積電', closes: [2370, 2400, 2480, 2510], date: '2026-10-01' });
-  assert.ok(m);
-  assert.equal(m.close, '2510.00');
-  assert.equal(m.change, '+30.00（+1.21%）', '單日漲跌：最後兩筆收盤');
-  assert.equal(m.tone, 'up');
-  assert.deepEqual(m.closes, [2370, 2400, 2480, 2510]);
-  assert.equal(monitorFigures({ symbol: '2330', name: '台積電', closes: [2510, 2480], date: '2026-10-01' })?.tone, 'down');
-  assert.equal(monitorFigures({ symbol: '2330', name: '台積電', closes: [2510, 2510], date: '2026-10-01' })?.change, '0.00（0.00%）');
-  assert.equal(monitorFigures({ symbol: '2330', name: '台積電', closes: [2510], date: '2026-10-01' }), null, '只有一筆收盤不算漲跌');
-  assert.equal(monitorFigures(null), null);
-
-  assert.equal(countsText(40, 20), '40 檔 · 20 個產業');
-  assert.equal(countsText(1234, 20), '1,234 檔 · 20 個產業');
-  assert.equal(countsText(null, 20), null);
-  assert.equal(countsText(40, null), null);
 }
 
-console.log('Journey mode, progress, chapter, time-of-day, hand-off layout, hand-off interpolation and board checks passed.');
+console.log('Journey progress, chapter, time-of-day, hand-off layout, hand-off interpolation and board checks passed.');

@@ -3172,7 +3172,11 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       if (light.isLight && light.shadow?.map) light.shadow.dispose();
     });
   }
+  /** 可能被呼叫兩次（World 卸載時、BeaconScene 釋放 renderer 前），第二次不做事 */
+  let disposed = false;
   function dispose() {
+    if (disposed) return;
+    disposed = true;
     const seen = new Set<object>();
     disposeScene(ext, seen);
     disposeScene(int, seen);
