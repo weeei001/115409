@@ -10,6 +10,7 @@ COMMANDS = (
     "init-schema",
     "admin-grant",
     "migrate-admin-schema",
+    "migrate-schema",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
     "market-supplemental-backfill", "market-chips-backfill", "verify-news-index",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler",
@@ -48,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "migrate-schema":
+        from app.jobs.schema_adjust import main as migrate
+        return migrate(argv)
     if job == "market-supplemental-backfill":
         from app.jobs.market.supplemental_history import main as supplement
         return supplement(argv)

@@ -51,6 +51,8 @@ def seed(engine):
             connection.execute(Base.metadata.tables["news_event_impacts"].insert(), {
                 "article_id": article_id, "event_key": "E1", "target_type": "stock", "target_id": "2330",
                 "direction": "positive", "importance": "high", "basis": "direct", "reason": "text", "evidence": "[]"})
+            connection.execute(Base.metadata.tables["news_event_topics"].insert(), {
+                "article_id": article_id, "event_key": "E1", "topic": "ai"})
         for key, chosen, url in [("c1", "c1", "https://news.cnyes.com/news/id/1"),
                 ("conflict", None, "https://news.cnyes.com/news/id/5"),
                 ("invalid", "sim_war_fixture", "https://news.cnyes.com/news/id/2"),
@@ -72,8 +74,8 @@ def test_copy_filters_sources_and_simulation_with_all_dependents_and_verifies_co
     report = copy_public_data(source, target, batch_size=1)
     assert report["status"] == "verified"
     assert set(report["tables"]) == set(PUBLIC_DATA_TABLES)
-    assert len(PUBLIC_DATA_TABLES) == 19
-    for name in ("news_articles", "news_article_versions", "news_chunks", "news_event_analyses", "news_event_impacts"):
+    assert len(PUBLIC_DATA_TABLES) == 20
+    for name in ("news_articles", "news_article_versions", "news_chunks", "news_event_analyses", "news_event_impacts", "news_event_topics"):
         assert report["tables"][name]["rows"] == 2
     assert report["tables"]["news_source_selections"]["rows"] == 2
     assert report["tables"]["news_source_decisions"]["rows"] == 2

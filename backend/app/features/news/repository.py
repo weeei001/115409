@@ -4,7 +4,7 @@ from sqlalchemy import case, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
+from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from app.db.models.news_version import NewsArticleVersion
 from .versions import effective_article_condition
 
@@ -74,7 +74,11 @@ def news_list(
     if industry:
         impact_conditions.extend((NewsEventImpact.target_type == "industry", NewsEventImpact.target_id == industry))
     if topic:
-        impact_conditions.append(NewsEventImpact.topics.like(f"%,{topic},%"))
+        impact_conditions.append(exists(select(NewsEventTopic.article_id).where(
+            NewsEventTopic.article_id == NewsEventImpact.article_id,
+            NewsEventTopic.event_key == NewsEventImpact.event_key,
+            NewsEventTopic.topic == topic,
+        )))
     if direction:
         impact_conditions.append(NewsEventImpact.direction == direction)
     if importance:

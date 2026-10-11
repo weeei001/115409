@@ -112,4 +112,4 @@ def test_market_request_diagnostic_omits_credentials_query_and_response_body():
         with pytest.raises(OfficialRequestError) as caught:
             OfficialClient(http, interval=0, retries=0).json(
                 "GET", "https://user:secret@example.test/official/report?token=secret")
-    assert str(caught.value) == "stage=official_request path=/official/report error=HTTPStatusError"
+    assert str(caught.value) == "stage=official_request path=/official/report status=503 error=HTTPStatusError"

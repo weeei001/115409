@@ -1,7 +1,8 @@
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.db.models.admin import AdminAccount, AdminAuditLog, AdminJobRun
+from app.db.models.admin import AdminAccount, AdminJobRun
+from app.db.models.audit import AuditLog
 from app.db.models.user import User
 from app.db.models.stock_info import StockInfo
 
@@ -55,8 +56,8 @@ def job_results(db: Session, job_name: str):
 
 
 def audit_logs(db: Session, limit: int, offset: int = 0):
-    return (list(db.scalars(select(AdminAuditLog).order_by(AdminAuditLog.id.desc()).limit(limit).offset(offset))),
-            db.scalar(select(func.count()).select_from(AdminAuditLog)))
+    return (list(db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit).offset(offset))),
+            db.scalar(select(func.count()).select_from(AuditLog)))
 
 
 def ping(db: Session) -> None:

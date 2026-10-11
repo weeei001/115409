@@ -78,7 +78,7 @@ def test_plan_swaps_all_public_tables_in_one_statement_and_builds_inverse(planni
     plan = planning.plan()
     assert not plan["executed"] and plan["tables"] == list(PUBLIC_DATA_TABLES)
     for sql in (plan["sql"], plan["rollback_sql"]):
-        assert sql.count("RENAME TABLE") == 1 and sql.count(" TO ") == 38
+        assert sql.count("RENAME TABLE") == 1 and sql.count(" TO ") == 2 * len(PUBLIC_DATA_TABLES)
         assert "users" not in sql and "llm_responses" not in sql
     for name in PUBLIC_DATA_TABLES:
         assert f"`prod`.`{name}` TO `archive`.`{name}`" in plan["sql"]

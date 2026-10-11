@@ -24,8 +24,9 @@ from .chat_audit import ChatValidationRun
 from .chat_feedback import ChatMessageFeedback
 from .llm_response import LlmResponse
 from .news_sentiment import NewsSentiment
-from .news_impact import NewsEventAnalysis, NewsEventImpact
+from .news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from .admin import AdminAccount, AdminJobControl, AdminJobRun, AdminAuditLog
+from .audit import AuditLog
 
 __all__ = [
     "DailyPrice",
@@ -38,6 +39,7 @@ __all__ = [
     "NewsSentiment",
     "NewsEventAnalysis",
     "NewsEventImpact",
+    "NewsEventTopic",
     "TechnicalIndicator",
     "SimulatedOrder",
     "InstitutionalTrade",
@@ -64,6 +66,7 @@ __all__ = [
     "AdminJobControl",
     "AdminJobRun",
     "AdminAuditLog",
+    "AuditLog",
 ]
 
 from .paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview

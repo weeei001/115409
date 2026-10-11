@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Date, DECIMAL, Index, String
+from sqlalchemy.orm import synonym
 
 from app.db.base import Base
 
@@ -30,7 +31,7 @@ class TechnicalIndicator(Base):
     macd_dif = Column(DECIMAL(10, 4), nullable=True)
     macd_dea = Column(DECIMAL(10, 4), nullable=True)
 
-    macd_signal = Column(DECIMAL(10, 4), nullable=True)
+    macd_signal = synonym("macd_dea")
     macd_hist = Column(DECIMAL(10, 4), nullable=True)
 
     boll_mid20 = Column(DECIMAL(10, 2), nullable=True)

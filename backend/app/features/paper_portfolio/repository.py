@@ -31,7 +31,7 @@ def fund_movements(db, user_id, lock=False):
 
 
 def reviews(db, user_id, lock=False):
-    query = select(PaperReview).where(PaperReview.user_id == user_id).order_by(PaperReview.due_date.desc()).execution_options(populate_existing=True)
+    query = select(PaperReview).join(PaperOrder, PaperOrder.id == PaperReview.order_id).where(PaperOrder.user_id == user_id).order_by(PaperReview.due_date.desc()).execution_options(populate_existing=True)
     if lock:
         query = query.with_for_update()
     return list(db.scalars(query))

@@ -23,7 +23,7 @@ PUBLIC_DATA_TABLES = (
     "market_monthly_revenues", "market_stock_valuations", "market_dividend_results",
     "market_margin_trades", "market_foreign_shareholdings", "market_holding_share_levels",
     "news_articles", "news_article_versions", "news_source_selections",
-    "news_source_decisions", "news_chunks", "news_event_analyses", "news_event_impacts",
+    "news_source_decisions", "news_chunks", "news_event_analyses", "news_event_impacts", "news_event_topics",
 )
 
 
@@ -55,7 +55,7 @@ def _source_tables(connection, names):
         needed.add("news_articles")
     if "news_source_decisions" in names:
         needed.add("news_source_selections")
-    if "news_event_impacts" in names:
+    if {"news_event_impacts", "news_event_topics"}.intersection(names):
         needed.add("news_event_analyses")
     return _reflect(connection, [name for name in PUBLIC_DATA_TABLES if name in needed])
 
@@ -100,7 +100,7 @@ def _filtered_statement(name, tables, cnyes_only):
         if name == "news_source_selections":
             return statement.where(condition)
         return statement.where(table.c.source_key.in_(select(selections.c.source_key).where(condition)))
-    if name == "news_event_impacts":
+    if name in {"news_event_impacts", "news_event_topics"}:
         analyses = tables["news_event_analyses"]
         article_ids = select(analyses.c.article_id).where(analyses.c.article_id.in_(article_ids))
     return statement.where(table.c.article_id.in_(article_ids))
