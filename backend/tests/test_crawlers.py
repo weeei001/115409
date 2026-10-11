@@ -337,7 +337,7 @@ def test_cnyes_worker_exposes_failure_and_stops_broken_pagination(db_session, fa
 def ltn_catalog(monkeypatch):
     catalog = {symbol: {"name": name} for symbol, name in (
         ("2330", "台積電"), ("2317", "鴻海"), ("2454", "聯發科"), ("2408", "南亞科"))}
-    monkeypatch.setattr("app.features.news.sentiment.company_catalog", lambda: catalog)
+    monkeypatch.setattr("app.features.news.text.company_catalog", lambda: catalog)
     return catalog
 
 

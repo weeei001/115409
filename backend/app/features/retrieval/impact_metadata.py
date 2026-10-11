@@ -2,7 +2,7 @@
 import json
 
 from app.features.news.impact import article_hash
-from app.features.news.sentiment import source_quote_span
+from app.features.news.text import source_quote_span
 from .chunking import article_chunks
 
 

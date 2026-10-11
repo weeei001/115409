@@ -12,7 +12,7 @@ from app.db.models.news_chunk import chunk_metadata
 from app.db.models.news_impact import NewsEventAnalysis
 from app.features.news.impact import article_hash, config_hash, validate_output
 from app.features.news.schemas import News
-from app.features.news.sentiment import (analysis_content_window, estimate_token_count,
+from app.features.news.text import (analysis_content_window, estimate_token_count,
     extract_candidate_stocks, source_quote_span)
 from app.features.retrieval.chunking import article_chunks
 from app.features.retrieval.impact_metadata import impact_payload

@@ -22,8 +22,7 @@ PUBLIC_DATA_TABLES = (
     "market_institutional_trades", "market_financial_statement_rows",
     "market_monthly_revenues", "market_stock_valuations", "market_dividend_results",
     "market_margin_trades", "market_foreign_shareholdings", "market_holding_share_levels",
-    "news_articles", "news_article_versions", "news_source_selections",
-    "news_source_decisions", "news_chunks", "news_event_analyses", "news_event_impacts", "news_event_topics",
+    "news_articles", "news_chunks", "news_event_analyses", "news_event_impacts", "news_event_topics",
 )
 
 
@@ -53,8 +52,6 @@ def _source_tables(connection, names):
     needed = set(names)
     if any(name.startswith("news_") for name in names):
         needed.add("news_articles")
-    if "news_source_decisions" in names:
-        needed.add("news_source_selections")
     if {"news_event_impacts", "news_event_topics"}.intersection(names):
         needed.add("news_event_analyses")
     return _reflect(connection, [name for name in PUBLIC_DATA_TABLES if name in needed])
@@ -91,15 +88,6 @@ def _filtered_statement(name, tables, cnyes_only):
     article_ids = select(articles.c.article_id).where(_article_condition(articles, cnyes_only))
     if name == "news_articles":
         return statement.where(_article_condition(table, cnyes_only))
-    if name in {"news_source_selections", "news_source_decisions"}:
-        selections = tables["news_source_selections"]
-        condition = or_(selections.c.selected_article_id.is_(None),
-                        selections.c.selected_article_id.in_(article_ids))
-        if cnyes_only:
-            condition = and_(condition, _cnyes_url(selections.c.canonical_url))
-        if name == "news_source_selections":
-            return statement.where(condition)
-        return statement.where(table.c.source_key.in_(select(selections.c.source_key).where(condition)))
     if name in {"news_event_impacts", "news_event_topics"}:
         analyses = tables["news_event_analyses"]
         article_ids = select(analyses.c.article_id).where(analyses.c.article_id.in_(article_ids))

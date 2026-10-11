@@ -13,7 +13,6 @@ class FavoriteStock(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "symbol", name="uq_favorite_user_symbol"),
-        # SQLite index names are database-wide, so this cannot reuse simulated_orders' idx_user_created.
         Index("idx_favorite_user_created", "user_id", "created_at"),
     )
 

@@ -13,6 +13,7 @@ class NewsArticle(Base):
 
     article_id = Column(String(64), primary_key=True)
     source = Column(String(50), nullable=True, index=True)
+    source_key = Column(String(64), nullable=True, index=True)
     source_group = Column(String(50), nullable=True)
     stock_id = Column(String(20), nullable=True, index=True)
     title = Column(Text, nullable=True)
@@ -41,4 +42,7 @@ class NewsArticle(Base):
 def refresh_analysis_hash(mapper, connection, target):
     from app.features.news.impact import article_hash
 
+    from app.features.news.versions import source_identity
+
     target.analysis_input_hash = article_hash(target)
+    target.source_key = source_identity(target)[0]

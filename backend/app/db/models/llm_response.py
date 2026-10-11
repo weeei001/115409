@@ -36,6 +36,7 @@ class LlmResponse(Base):
     news_count = Column(Integer, nullable=False, default=0)
     summary = Column(Text, nullable=True)
     raw_llm_text = Column(_MEDIUM_TEXT, nullable=True)
+    # Validation and usage metadata; the normalized brief lives in response_json.
     normalized_json = Column(_MEDIUM_TEXT, nullable=True)
     response_json = Column(_MEDIUM_TEXT, nullable=True)
     latency_ms = Column(Integer, nullable=True)

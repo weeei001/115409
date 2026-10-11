@@ -111,6 +111,9 @@ def test_analysis_pipeline_thread_boundary_backfill_snapshot_and_cache(db_sessio
     first = run_service(db_session, settings, llm, rag)
     assert first.status == "limited" and not first.cached
     assert first.snapshot_id is not None and first.analysis_revision and first.config_hash
+    snapshot = db_session.get(LlmResponse, first.snapshot_id)
+    assert set(json.loads(snapshot.normalized_json)) == {"model_metadata"}
+    assert json.loads(snapshot.response_json)["brief"] == first.brief.model_dump(mode="json")
     assert first.brief.key_days[-1].move_pct == pytest.approx(0.89)
     assert thread_ids and all(identifier != main_thread for identifier in thread_ids)
     assert all(row["date"] <= AS_OF.isoformat() for row in llm.packet["daily_timeline"])
@@ -188,56 +191,7 @@ def test_numeric_claims_are_not_checked_against_evidence(db_session, settings, t
     assert {item.id for item in response.evidence_catalog} >= {"d_01", "d_02", "d_03", "d_04"}
 
 
-def test_same_body_canonical_selection_and_rollback_invalidate_cached_brief(db_session, settings, monkeypatch):
-    from app.db.models.news_version import NewsSourceDecision
-    from app.features.news import versions
-    from app.jobs import news_versions
-
-    seed_prices(db_session)
-    # Hold timestamps fixed so rollback must invalidate through the decision ID,
-    # even though it restores exactly the original effective source and reason.
-    fixed_now = datetime(2026, 7, 13, 12)
-    monkeypatch.setattr(versions, "utc_now", lambda: fixed_now)
-    monkeypatch.setattr(news_versions, "utc_now", lambda: fixed_now)
-    first = NewsArticle(article_id="canonical-first", stock_id="2330", source="cnyes", title="台積電營收",
-        content="台積電公布本月營收。", pub_time="2026-07-13T09:00:00+08:00",
-        url="https://news.cnyes.com/news/id/6605885?utm_source=first")
-    outside = NewsArticle(article_id="canonical-outside-window", stock_id="2317", source="cnyes", title=first.title,
-        content=first.content, pub_time="2024-01-01T09:00:00+08:00",
-        url="https://news.cnyes.com/news/id/6605885?utm_source=second")
-    db_session.add_all([first, outside])
-    db_session.flush()
-    key, canonical = versions.source_identity(first)
-    assert key == versions.source_identity(outside)[0]
-    for article in (first, outside):
-        versions.record_version(db_session, article, observed_at=None)
-    versions.set_selection(db_session, key, canonical, first.article_id, "active", "original choice")
-    db_session.commit()
-    baseline = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
-    news_versions.choose(db_session, key, first.article_id, "original choice")
-    db_session.commit()
-    assert repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF) == baseline
-    response = run_service(db_session, settings)
-    def cached():
-        return repository.load_cached(db_session, symbol="2330", as_of=AS_OF, config_hash=response.config_hash)
-    assert cached() is not None
-    news_versions.choose(db_session, key, outside.article_id, "reviewed second source")
-    db_session.commit()
-    selected = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
-    assert selected != baseline and cached() is None
-    decision_id = db_session.scalar(select(NewsSourceDecision.id).order_by(NewsSourceDecision.id.desc()).limit(1))
-    news_versions.rollback_decision(db_session, decision_id, "restore original source")
-    db_session.commit()
-    restored = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
-    assert restored not in {baseline, selected}
-    assert cached() is None
-    assert first.content == outside.content == "台積電公布本月營收。"
-
-
-def test_cached_indirect_news_tracks_only_its_actual_sources_and_canonical_group(db_session, settings):
-    from app.features.news import versions
-    from app.jobs import news_versions
-    from app.db.models.news_version import NewsSourceDecision
+def test_cached_indirect_news_tracks_only_latest_actual_source_content(db_session, settings):
 
     seed_prices(db_session)
     article = NewsArticle(article_id="industry-source", stock_id="9999", source="cnyes", title="供應鏈需求",
@@ -249,10 +203,6 @@ def test_cached_indirect_news_tracks_only_its_actual_sources_and_canonical_group
         content="無關公司的近況。", pub_time=article.pub_time, url="https://news.cnyes.com/news/id/9990002")
     db_session.add_all([article, alternative, unrelated])
     db_session.flush()
-    key, canonical = versions.source_identity(article)
-    for item in (article, alternative):
-        versions.record_version(db_session, item, observed_at=None)
-    versions.set_selection(db_session, key, canonical, article.article_id, "active", "reviewed")
     db_session.commit()
     base = repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF)
     source = {"article_id": article.article_id, "title": article.title, "summary": article.content,
@@ -272,12 +222,10 @@ def test_cached_indirect_news_tracks_only_its_actual_sources_and_canonical_group
     article.content = original
     db_session.commit()
     assert cached() is not None
-    news_versions.choose(db_session, key, alternative.article_id, "confirmed alternative")
+    alternative.content = "Another current article with the same canonical URL was corrected."
     db_session.commit()
-    assert repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF) == base
-    assert cached() is None
-    decision_id = db_session.scalar(select(NewsSourceDecision.id).order_by(NewsSourceDecision.id.desc()).limit(1))
-    news_versions.rollback_decision(db_session, decision_id, "restore")
+    assert cached() is not None
+    db_session.delete(article)
     db_session.commit()
     assert cached() is None
 

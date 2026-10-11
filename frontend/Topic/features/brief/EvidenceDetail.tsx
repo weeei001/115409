@@ -109,12 +109,12 @@ export const EvidenceDetail: React.FC<{
           <p>{item.calculation.formula}，單位：{item.calculation.unit}</p>
           <ul>{item.calculation.inputs.map((input) => <li key={input.date}>{input.date}：{input.value}</li>)}</ul>
         </Row> : null}
-        {item.savedVersionUrl ? <Row label="保存的原文">
-          <a href={item.savedVersionUrl} target="_blank" rel="noopener noreferrer"
+        {item.articleUrl ? <Row label="最新原文">
+          <a href={item.articleUrl} target="_blank" rel="noopener noreferrer"
             className={cn('text-foreground', textLinkClass)}>
-            查看此證據保存的新聞版本
+            查看最新新聞內容
           </a>
-          <p className="text-xs text-muted-foreground">保存版本可供追溯，不代表現在仍為有效來源。</p>
+          <p className="text-xs text-muted-foreground">新聞內容可能已更新，與回答中的引用不同。</p>
         </Row> : null}
         {item.url ? <Row label="原始網址">
           <a

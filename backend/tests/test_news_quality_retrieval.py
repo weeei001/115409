@@ -11,7 +11,7 @@ from app.db.models.news_article import NewsArticle
 from app.db.models.news_chunk import chunk_metadata
 from app.db.models.news_impact import NewsEventAnalysis
 from app.features.news.impact import article_hash, config_hash, validate_output
-from app.features.news.sentiment import company_mentions, extract_candidate_stocks
+from app.features.news.text import company_mentions, extract_candidate_stocks
 from app.features.retrieval.chunking import article_chunks
 from app.features.retrieval.facts import group_shared_facts
 from app.features.retrieval.impact_metadata import impact_payload
@@ -80,8 +80,6 @@ def test_passage_requires_own_mention_or_current_quote_grounded_transmission(db_
     assert context["statement_type"] == "forecast" and context["speaker"] == "供應商"
     candidate["payload"]["analysis_config_hash"] = "old"
     assert retrieval._fresh_hits([candidate], ["2330"]) == []
-    from app.features.news.versions import record_version
-    record_version(db_session, article, observed_at=datetime(2026, 9, 15))
     db_session.commit()
     assert len(retrieval._fresh_hits([candidate], ["2317"], datetime(2026, 9, 10, tzinfo=timezone.utc))) == 1
     assert retrieval._fresh_hits([candidate], ["2317"], datetime(2026, 8, 31, tzinfo=timezone.utc)) == []

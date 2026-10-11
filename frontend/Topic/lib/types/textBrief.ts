@@ -8,8 +8,6 @@
  * 其餘一律 optional，避免多一個欄位就整頁編不過。
  */
 
-import type { NewsSourceState } from './api';
-
 export type Direction =
   | 'positive'
   | 'negative'
@@ -151,7 +149,6 @@ export interface EvidenceItem {
   retrieval_branch?: string;
   shared_fact_ids?: string[];
   article_id?: string;
-  source_state?: NewsSourceState;
   source_relationships?: { symbol: string; scope: string; relationship: string; target_id: string }[];
   last4q?: [string, number][];
   yoy_last6?: [string, number][];

@@ -13,7 +13,7 @@ from app.clients.llm import LlmClient
 from app.core.errors import AppError, NotFound, ServiceUnavailable, UpstreamTimeout
 from app.features.market.company_catalog import load_catalog
 from app.features.market.repository import stock_names
-from app.features.news.sentiment import extract_candidate_stocks
+from app.features.news.text import extract_candidate_stocks
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 

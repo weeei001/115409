@@ -15,8 +15,6 @@ def schema_metadata():
     metadata = MetaData()
     for source in (Base.metadata, chunk_metadata):
         for table in source.tables.values():
-            if table.name == "news_sentiments":
-                continue  # Retained ORM compatibility mapping; no current runtime reader or writer.
             copied = table.to_metadata(metadata)
             copied.dialect_options["mysql"]["charset"] = "utf8mb4"
             copied.dialect_options["mysql"]["engine"] = "InnoDB"

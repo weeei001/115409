@@ -5,8 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
-from app.db.models.news_version import NewsArticleVersion
-from .versions import effective_article_condition
 
 
 # Preserve wall-clock comparison of stored VARCHAR timestamps across both dialects.
@@ -18,11 +16,6 @@ def by_article_id(db: Session, article_id: str):
     return db.scalar(select(NewsArticle).where(NewsArticle.article_id == article_id))
 
 
-def article_revision(db: Session, article_id: str, revision_id: str):
-    return db.scalar(select(NewsArticleVersion).where(NewsArticleVersion.article_id == article_id,
-                                                    NewsArticleVersion.revision_id == revision_id))
-
-
 def news_list(
     db: Session, *, page: int, page_size: int, article_id: str | None = None,
     keyword: str | None = None, stock: str | None = None, source: str | None = None,
@@ -32,7 +25,7 @@ def news_list(
     importance: str | None = None, relation: str | None = None,
     stock_industries: list[str] | None = None, impact_config_hash: str | None = None,
 ):
-    conditions = [effective_article_condition()]
+    conditions = []
     if article_id:
         conditions.append(NewsArticle.article_id == article_id)
     if keyword:
