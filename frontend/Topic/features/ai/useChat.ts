@@ -7,6 +7,7 @@ import { createConversation, getConversation, listConversations, type Conversati
 import { rateChatMessage } from '@/lib/api/aiEffectiveness';
 import type { ChatAction, ChatMessage, ChatSource } from '@/lib/types/chat';
 import type { ChatDashboard } from '@/lib/types/chatDashboard';
+import { recordAiAsk } from '@/features/pricing/quota';
 
 const newId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -242,6 +243,8 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
     ]);
     setLoading(true);
     setStreamingMessageId(assistantId);
+    // 方案額度提示用：這台裝置實際送出的提問次數（只提示、不擋）
+    if (owner) recordAiAsk(owner);
 
     try {
       const result = await ragAsk({ query: text, history, stock_id: stockId ?? null }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });

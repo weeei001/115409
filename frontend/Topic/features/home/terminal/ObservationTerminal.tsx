@@ -487,6 +487,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
           <NextStep href="/ai">AI 對話：用一句話問個股、比較或技術指標</NextStep>
           <NextStep href="/compare">多股比較：把幾檔股票放在同一張圖上，看報酬、風險與相關性</NextStep>
           <NextStep href="/order">模擬投資：登入後用虛擬資金練習買賣，日後回顧當初的理由</NextStep>
+          <NextStep href="/pricing">方案：AI 投資分析全部免費，付費只差在用量和工具</NextStep>
         </Ledger>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-4">

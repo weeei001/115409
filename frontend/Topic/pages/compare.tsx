@@ -38,6 +38,10 @@ import {
   technicalFinding,
 } from '@/features/compare/analysisFindings';
 import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
+import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { QuotaNotice } from '@/features/pricing/QuotaNotice';
+import { compareLimitText } from '@/features/pricing/quota';
+import { PLAN_LIMITS } from '@/features/pricing/plans';
 import { COMPARE_FROM_PARAM, COMPARE_SYMBOLS_PARAM, COMPARE_TO_PARAM, compareHref, parseCompareQuery } from '@/lib/utils/compareQuery';
 import { STOCK_SEARCH_BULK_HINT_COMPARE } from '@/components/common/StockSearch';
 
@@ -126,6 +130,9 @@ export default function ComparePage() {
   }, [reduceMotion]);
 
   const availableSymbols = c.allSymbols.filter((s) => !c.selected.includes(s));
+  // 方案的同時比較檔數（展示）：超過只提示、不擋
+  const { planId } = useCurrentPlan();
+  const compareLimit = PLAN_LIMITS[planId].compare;
   const stockInfos = useMemo(() => Object.values(c.stockInfos), [c.stockInfos]);
   const result = c.result;
   const metrics = result?.metrics ?? null;
@@ -268,6 +275,7 @@ export default function ComparePage() {
                     {c.metricsError}
                   </Notice>
                 ) : null}
+                {c.selected.length > compareLimit ? <QuotaNotice>{compareLimitText(c.selected.length, compareLimit, planId)}</QuotaNotice> : null}
                 {c.warnings.length > 0 ? (
                   <Notice tone="warning">
                     <span className="block space-y-1 text-xs">

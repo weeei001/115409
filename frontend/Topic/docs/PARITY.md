@@ -365,3 +365,14 @@
 | K1-6 | 使用者覺得「問小燈」方框很醜、希望更動態（2026-10-11）：拿掉外框與文字，改成站在像素海浪上的小燈；加五種待機小動作、打瞌睡、捲動時浪變快、換主題打招呼；旁邊的對話泡泡顯示狀態；面板加「暫停小燈動作」 | features/assistant/sprite.ts, features/assistant/AssistantDock.tsx, features/assistant/AssistantPanel.tsx, styles/main.css（`--mascot-sea`、`--mascot-water`） |
 | K1-7 | 新功能：選取文字問小燈（只在滑鼠裝置，不送 `stock_id`）；新聞頁把標題交給小燈，推薦問題引用這則新聞 | features/assistant/AssistantDock.tsx, features/assistant/context.ts（`selectionQuestion`）, features/assistant/topic.ts, pages/news/[id].tsx |
 | K1-8 | 「這頁怎麼看」導覽（使用者從建議的五個功能裡選這個，2026-10-11）：小燈一步一步框出頁面區塊並說明；區塊用 `data-tour` 標記，畫面上沒有的自動跳過；第一次來某頁時泡泡主動問一次 | features/assistant/tours.ts, features/assistant/PageTour.tsx, features/assistant/tourLayout.ts, features/assistant/AssistantDock.tsx, styles/main.css（`tour-sweep`），以及各頁加上 `data-tour` 的檔案 |
+
+### App 首頁旅程與風險提示條（L1，2026-10-11）
+
+在 Android 模擬器實測 Capacitor APK：App 裡首頁旅程一律走海報路線（被判成低功耗），首次開啟時底部的風險提示條（手機約 178px 高）完整蓋住首屏「從頭看起」「直接看行情」兩顆按鈕與 h1 下半。使用者決定 App 也要顯示 3D、不要海報。
+
+| # | 內容 | 位置 |
+|---|---|---|
+| L1-1 | 自家 Capacitor App 不套用低功耗條件（核心數、記憶體、`saveData`、WebView UA），一律跑 3D；減少動態與沒有 WebGL2 仍改用海報。其他 App 內建的 Android WebView（LINE、Facebook 等）維持低功耗判定 | features/home/journey/journeyMode.ts, features/home/journey/journeyMode.test.ts, DESIGN.md 第 11 節 |
+| L1-2 | 風險提示條顯示時把自己的高度（含手勢區）寫進 `--risk-notice-height`；`--app-bottom-inset` 取手勢區與提示條的較大值，首頁旅程貼底的文案（手機各章、桌機首屏）改用它閃開 | components/layout/RiskNoticeBanner.tsx, styles/main.css, features/home/journey/BeaconJourney.tsx, DESIGN.md 第 9 節 |
+| L1-3 | 改成 App 跑 3D 後發現：小燈在 3D 旅程後半就出現（手機約從一半進度起）。原因是最後一個舞台高觀測台被釘在舞台底下（`data-pinned`），量到的位置在視窗上方。改成釘住但還沒交接時不算到了，並在 `data-handed-off` 變化時重量（相機平滑落後捲動，停手後才交接完成）。網頁版 3D 也有同樣的問題，一併修正 | features/assistant/AssistantDock.tsx（`homeTerminalReached`）, features/assistant/assistant.test.tsx, DESIGN.md 第 12 節 |
+| L1-4 | App 深色主題時狀態列的時間與圖示仍是深色（系統列預設跟系統深淺色，不跟網站主題），疊在深色頁首上看不見。改成在 App 裡依網站主題呼叫 `SystemBars.setStyle`（深色主題用 `Dark`＝深底淺色圖示），切換主題時即時更新；`capacitor.config.ts` 維持預設，啟動到網頁接手前跟系統深淺色 | components/layout/ThemeColorMeta.tsx, components/layout/ThemeColorMeta.test.ts（`test:home`）, DESIGN.md 第 9 節 |

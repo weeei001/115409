@@ -16,7 +16,7 @@ const COUNTER_THRESHOLD = MAX_QUERY_LENGTH - 500;
  * Enter 送出、Shift+Enter 換行；輸入法組字中（isComposing／keyCode 229）不送出。
  * 送出鈕是這個畫面唯一的燈色主要按鈕。
  */
-export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initialValue = '', id = 'chat-input', placeholder = '輸入你的問題…', toolbar }: {
+export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initialValue = '', id = 'chat-input', placeholder = '輸入你的問題…', toolbar, quota }: {
   onSend: (text: string) => void;
   disabled: boolean;
   onStop?: () => void;
@@ -27,6 +27,8 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
   placeholder?: string;
   /** 輸入框上方的一列選項（小燈面板的「回答只看這檔」） */
   toolbar?: ReactNode;
+  /** 免責一行上方的提問額度（features/pricing/AskQuota） */
+  quota?: ReactNode;
 }) {
   const [value, setValue] = useState(initialValue.slice(0, MAX_QUERY_LENGTH));
 
@@ -87,6 +89,7 @@ export function ChatInput({ onSend, disabled, onStop, stopNotice = false, initia
           </p>
         ) : null}
         {stopNotice ? <p role="status" className="mt-1 text-xs leading-relaxed text-muted-foreground">已停止顯示這則回覆。</p> : null}
+        {quota}
         {/* 手機版 /ai 隱藏頁尾，免責改在輸入框下方固定一行（D13 A2） */}
         <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
           {AI_CHAT_NOTICE}

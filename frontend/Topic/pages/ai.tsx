@@ -9,6 +9,7 @@ import { ConversationHistory } from '@/features/ai/ConversationHistory';
 import { ChatArea, type ExampleQuestionGroup } from '@/features/ai/ChatArea';
 import { ChatInput } from '@/features/ai/ChatInput';
 import { useChat } from '@/features/ai/useChat';
+import { AskQuota } from '@/features/pricing/AskQuota';
 import { useHydrated, useIsMobile, useMediaQuery } from '@/lib/hooks/useClientEnv';
 import { parseFlag, serializeFlag, useStoredPreference } from '@/lib/hooks/useStoredPreference';
 import { HISTORY_COLLAPSED_KEY } from '@/features/ai/layout';
@@ -199,7 +200,7 @@ export default function AiPage() {
                   if (initialPrompt) void router.replace('/ai', undefined, { shallow: true });
                   chat.send(text);
                 }} disabled={chat.loading || !chat.ready}
-                  onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} />
+                  onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} quota={<AskQuota />} />
               }
             />
           </div>

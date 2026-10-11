@@ -71,11 +71,25 @@ assert.equal(isLowPower({ ...desktop, hardwareConcurrency: 6 }), false);
 assert.equal(isLowPower({ ...desktop, deviceMemory: 4 }), true);
 assert.equal(isLowPower({ ...desktop, deviceMemory: 2 }), true);
 assert.equal(isLowPower({ ...desktop, saveData: true }), true);
-assert.equal(isLowPower({ ...desktop, capacitor: true }), true);
+// 其他 App 內建的 WebView 算低功耗
 assert.equal(
   isLowPower({ ...desktop, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/140.0 Mobile Safari/537.36' }),
   true,
 );
+// 自家 Capacitor App 不算低功耗（決議 L1-1）：WebView UA、4 核、4GB、省流量都一樣跑 3D
+const app: JourneyEnv = {
+  ...desktop,
+  hardwareConcurrency: 4,
+  deviceMemory: 4,
+  saveData: true,
+  userAgent: 'Mozilla/5.0 (Linux; Android 17; Pixel 7; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0 Mobile Safari/537.36',
+  capacitor: true,
+};
+assert.equal(isLowPower(app), false);
+assert.deepEqual(decideJourneyMode(app), { mode: 'scene', reason: null });
+// App 裡仍然尊重減少動態，沒有 WebGL2 也只能用海報
+assert.equal(decideJourneyMode({ ...app, reducedMotion: true }).reason, 'reduced-motion');
+assert.equal(decideJourneyMode(app, false).reason, 'no-webgl');
 // 一般 Android Chrome 不是 WebView
 assert.equal(
   isLowPower({ ...desktop, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36' }),

@@ -63,8 +63,8 @@ const POSTER_COUNT = 4;
 /** 跟頁首內容對齊的左緣、右緣（頁面容器 max-w-[1320px] lg:px-10） */
 const GUTTER_L = 'lg:ml-[max(2.5rem,calc((100%-1320px)/2+2.5rem))]';
 const GUTTER_R = 'lg:mr-[max(2.5rem,calc((100%-1320px)/2+2.5rem))]';
-/** 手機：文案欄用滿整個欄寬（左右各 16px），底部閃開手勢區 */
-const MOBILE_BOTTOM = 'self-end mx-4 mb-[calc(1rem+var(--app-safe-area-bottom))]';
+/** 手機：文案欄用滿整個欄寬（左右各 16px），底部閃開手勢區與首次造訪的風險提示條 */
+const MOBILE_BOTTOM = 'self-end mx-4 mb-[calc(1rem+var(--app-bottom-inset))]';
 
 /** 第 2–5 段文案共用：疊在場景上、捲到之前不顯示；海報版面整個不輸出（圖版裡有自己的一份） */
 const CAPTION = 'relative z-20 col-start-1 row-start-1 invisible opacity-0 in-data-[mode=poster]:hidden motion-reduce:hidden';
@@ -278,7 +278,7 @@ function CaptionScrim({
         aria-hidden
         className={cn(
           'pointer-events-none absolute -inset-x-4 -z-10 hidden dark:max-lg:block',
-          top ? '-top-4 -bottom-6' : '-top-24 -bottom-[calc(1rem+var(--app-safe-area-bottom))]',
+          top ? '-top-4 -bottom-6' : '-top-24 -bottom-[calc(1rem+var(--app-bottom-inset))]',
         )}
         style={top ? SCRIM_NARROW_TOP : SCRIM_NARROW}
       />
@@ -1124,7 +1124,8 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
             className={cn(
               'relative z-20 col-start-1 row-start-1 lg:w-fit lg:max-w-[min(46rem,calc(100%-5rem))]',
               MOBILE_BOTTOM,
-              'lg:justify-self-start lg:mr-0 lg:mb-[clamp(1.5rem,6svh,4rem)]',
+              // 風險提示條在桌機是一列，首屏按鈕要在它上方留 1rem
+              'lg:justify-self-start lg:mr-0 lg:mb-[max(clamp(1.5rem,6svh,4rem),calc(1rem+var(--risk-notice-height,0px)))]',
               GUTTER_L,
             )}
           >

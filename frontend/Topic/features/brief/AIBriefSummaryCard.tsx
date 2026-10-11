@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import Link from 'next/link';
 import { ArrowRight, RefreshCw } from 'lucide-react';
 import { Disclosure } from '@/components/common/Disclosure';
 import { cn } from '@/lib/cn';
@@ -8,6 +9,7 @@ import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
 import { byImportance } from '@/lib/brief/textBriefClaims';
 import { buildFacets, type Facet, type FacetTone } from '@/lib/brief/textBriefFacets';
 import { AI_RESEARCH_ONLY } from '@/lib/disclaimers';
+import { AI_BRIEF_ALL_PLANS } from '@/features/pricing/plans';
 import {
   CONF,
   briefStatusNote,
@@ -23,7 +25,7 @@ import {
 import { Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { FoldSection } from '@/components/common/CollapsibleSection';
 import { LoadingRows, Notice } from '@/components/common/Notice';
-import { Button } from '@/components/ui/button';
+import { Button, textLinkClass } from '@/components/ui/button';
 import { ClaimTypeBadge, EvidenceTagList, StanceIcon, Tag } from './BriefAtoms';
 
 interface Props {
@@ -292,6 +294,8 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
             <ArrowRight aria-hidden />
           </Button>
           <span className="text-[13px] leading-5 text-muted-foreground">{AI_RESEARCH_ONLY}</span>
+          {/* 付費只差用量和工具，AI 判讀不放付費牆（商業模式第 4 節） */}
+          <Link href="/pricing" className={cn('text-[13px] leading-5 text-muted-foreground', textLinkClass)}>{AI_BRIEF_ALL_PLANS}</Link>
         </div>
       </div>
 

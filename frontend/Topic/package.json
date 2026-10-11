@@ -17,9 +17,10 @@
     "test:compare": "tsx lib/utils/compare.test.ts && tsx lib/utils/compareBenchmark.test.ts && tsx lib/utils/compareFundamentals.test.ts && tsx features/compare/CompareHero.test.tsx && tsx features/compare/CorrelationPanel.test.tsx && tsx features/compare/FundamentalsPanel.test.tsx && tsx components/common/IndustrySearch.test.ts && tsx features/compare/MetricsTable.test.tsx && tsx components/common/StockSearch.test.ts && tsx lib/utils/compareQuery.test.ts && tsx features/compare/compareCopy.test.tsx && tsx components/common/Combobox.test.ts",
     "test:brief": "tsx lib/brief/textBriefEvidence.test.ts && tsx lib/brief/textBriefFacets.test.ts && tsx features/brief/AIBriefSummaryCard.test.tsx && tsx lib/brief/trackRecord.test.ts && tsx lib/brief/report.test.ts && tsx features/brief/BriefReport.test.tsx",
     "test:favorites": "tsx features/favorites/favorites.test.ts && tsx lib/api/closeSeries.test.ts",
-    "test:home": "tsx features/home/journey/journeyMode.test.ts && tsx lib/navigation/scrollRestoration.test.ts && tsx components/layout/SiteHeader.test.tsx && tsx lib/navigation/drawerHistory.test.ts && tsx components/layout/navChrome.test.tsx && tsx features/home/terminal/terminalCopy.test.ts && tsx lib/riskNotice.test.ts",
+    "test:home": "tsx features/home/journey/journeyMode.test.ts && tsx lib/navigation/scrollRestoration.test.ts && tsx components/layout/SiteHeader.test.tsx && tsx lib/navigation/drawerHistory.test.ts && tsx components/layout/navChrome.test.tsx && tsx components/layout/ThemeColorMeta.test.ts && tsx features/home/terminal/terminalCopy.test.ts && tsx lib/riskNotice.test.ts",
     "test:assistant": "tsx features/assistant/sprite.test.ts && tsx features/assistant/assistant.test.tsx && tsx features/assistant/tour.test.ts",
-    "test:all": "npm run test:chat && npm run test:volume && npm run test:order && npm run test:news && npm run test:compare && npm run test:admin && npm run test:brief && npm run test:favorites && npm run test:home && npm run test:notifications && npm run test:assistant",
+    "test:pricing": "tsx features/pricing/pricing.test.tsx",
+    "test:all": "npm run test:chat && npm run test:volume && npm run test:order && npm run test:news && npm run test:compare && npm run test:admin && npm run test:brief && npm run test:favorites && npm run test:home && npm run test:notifications && npm run test:assistant && npm run test:pricing",
     "sync:openapi": "node scripts/sync-openapi.mjs"
   },
   "dependencies": {

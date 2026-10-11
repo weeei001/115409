@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'motion/react';
-import { Bell, BookOpen, Bot, GitCompareArrows, House, LogIn, LogOut, Menu, ShieldCheck, Star, UserRound, type LucideIcon } from 'lucide-react';
+import { Bell, BookOpen, Bot, GitCompareArrows, House, Layers, LogIn, LogOut, Menu, ShieldCheck, Star, UserRound, type LucideIcon } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from './ThemeToggle';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ import { isNavPathActive, PRIMARY_NAV } from '@/lib/nav';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import { cn } from '@/lib/cn';
+import { PlanBadge } from '@/features/pricing/PlanBadges';
+import { useCurrentPlan } from '@/features/pricing/demoPlan';
 
 const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/': House,
@@ -21,6 +23,7 @@ const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/ai': Bot,
   '/order': BookOpen,
   '/compare': GitCompareArrows,
+  '/pricing': Layers,
 };
 
 function avatarLetter(user: UserPublic): string {
@@ -47,6 +50,7 @@ export function AppNavDrawer() {
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<UserPublic | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const plan = useCurrentPlan();
 
   // 管理員身分：掛載與登入狀態改變時確認；視窗取得焦點時，同一個登入最多每 5 分鐘再確認一次（權限可能被收回）。
   // 開關選單不重新確認；確認期間保留同一個登入上一次的結果，「管理後台」不會在選單打開時閃掉再出現。
@@ -170,6 +174,8 @@ export function AppNavDrawer() {
                     <p className="truncate text-xs text-muted-foreground" title={user.email}>
                       {user.email}
                     </p>
+                    {/* 目前方案（展示）：模擬開通的付費方案會標「展示」 */}
+                    <PlanBadge planId={plan.planId} className="mt-1" />
                   </div>
                 </motion.div>
                 <motion.button type="button" {...enter(1)} onClick={() => go('/me')} aria-current={isActive('/me') ? 'page' : undefined} className={cn(itemClass, isActive('/me') ? 'text-foreground' : 'text-subtle')}>

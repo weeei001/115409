@@ -10,6 +10,7 @@ import { Notice } from '@/components/common/Notice';
 import { ChatMessage } from '@/features/ai/ChatMessage';
 import { ChatDashboard } from '@/features/ai/ChatDashboard';
 import { ChatInput } from '@/features/ai/ChatInput';
+import { AskQuota } from '@/features/pricing/AskQuota';
 import type { useChat } from '@/features/ai/useChat';
 import { LighthouseMascot } from './LighthouseMascot';
 import type { AssistantContext } from './context';
@@ -181,6 +182,7 @@ export function AssistantPanel({ chat, context, mood, stockOnly, onStockOnlyChan
         disabled={chat.loading}
         onStop={chat.loading ? chat.stop : undefined}
         stopNotice={chat.stopNotice}
+        quota={<AskQuota stock={context.stock} />}
         toolbar={context.stock ? (
           <label className="-mt-1 mb-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-sm text-subtle">
             <Checkbox checked={stockOnly} onCheckedChange={(value) => onStockOnlyChange(value === true)} />
