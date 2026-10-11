@@ -2,7 +2,6 @@ from sqlalchemy import delete, exists, func, inspect, or_, select, update
 
 from app.db.models.chat_feedback import ChatMessageFeedback
 from app.db.models.conversation import Conversation, ConversationMessage
-from app.features.chat.audit_repository import delete_conversation_records
 
 
 def conversation(db, user_id, conversation_id, *, lock=False):
@@ -74,7 +73,6 @@ def finish(db, conversation_id, turn_id, content, status, extra, now):
 def delete_conversation(db, user_id, conversation_id):
     # Explicit deletion also works with SQLite connections that do not enable FK cascades.
     owned = select(Conversation.id).where(Conversation.id == conversation_id, Conversation.user_id == user_id)
-    delete_conversation_records(db, user_id, conversation_id)
     if feedback_ready(db):
         message_ids = select(ConversationMessage.id).where(ConversationMessage.conversation_id.in_(owned))
         db.execute(delete(ChatMessageFeedback).where(ChatMessageFeedback.message_id.in_(message_ids)))

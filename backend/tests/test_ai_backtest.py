@@ -15,7 +15,7 @@ from app.db.models.stock_info import StockInfo
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.backtest import engine, prompts
 from app.features.signals.schemas import PeriodStats, SignalEvidenceItem
-from test_admin_chat_review import credentials
+from admin_helpers import credentials
 from test_signals import series, trading_days
 
 
