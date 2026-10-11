@@ -245,17 +245,15 @@ const AS_OF = '2026-09-03';
 {
   const source: EvidenceItem = {
     id: 'nw_saved', field: 'news', value: 'Saved article', article_id: 'article-123', url: 'https://example.com/original',
-    source_state: { eligible: true, status: 'active', revision_id: 'a'.repeat(64) },
   };
   const resolved = resolveEvidenceItem(source);
   assert.equal(resolved.url, source.url);
-  assert.equal(resolved.savedVersionUrl, `/news/article-123?revision_id=${'a'.repeat(64)}`);
+  assert.equal(resolved.articleUrl, '/news/article-123');
   const html = renderToStaticMarkup(React.createElement(EvidenceDetail, { item: resolved, usedBy: [] }));
   assert.ok(html.includes('href="https://example.com/original"'));
-  assert.ok(html.includes(`href="/news/article-123?revision_id=${'a'.repeat(64)}"`));
-  assert.equal(resolveEvidenceItem({ ...source, source_state: undefined }).savedVersionUrl, null);
-  assert.equal(resolveEvidenceItem({ ...source, article_id: '../other' }).savedVersionUrl, null);
-  assert.equal(resolveEvidenceItem({ ...source, source_state: { eligible: true, status: 'active', revision_id: 'invalid' } }).savedVersionUrl, null);
+  assert.ok(html.includes('href="/news/article-123"'));
+  assert.equal(resolveEvidenceItem({ ...source }).articleUrl, '/news/article-123');
+  assert.equal(resolveEvidenceItem({ ...source, article_id: '../other' }).articleUrl, null);
 }
 
 console.log('textBrief evidence / claims / facets tests passed');

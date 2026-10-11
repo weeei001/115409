@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from .sentiment import (COMPANY_RECOGNITION_VERSION, clean_text, extract_candidate_stocks,
+from .text import (COMPANY_RECOGNITION_VERSION, clean_text, extract_candidate_stocks,
                         parse_news_pub_time, source_quote_span)
 
 

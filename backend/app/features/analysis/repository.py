@@ -17,12 +17,10 @@ from app.db.models.market_extra import MonthlyRevenue, StockValuation
 from app.db.models.institutional_trade import InstitutionalTrade
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_version import NewsArticleVersion, NewsSourceDecision, NewsSourceSelection
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.market.repository import financial_statements, stock_names, symbol_range
 from app.features.news.repository import news_list
-from app.features.news.sentiment import company_catalog, extract_candidate_stocks
-from app.features.news.versions import source_identity
+from app.features.news.text import company_catalog, extract_candidate_stocks
 from app.features.retrieval.common import parse_timestamp
 from .schemas import StockBehaviorTextBriefResponse
 from app.features.news.eligibility import contains_simulation
@@ -144,7 +142,7 @@ def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
 
     start = as_of - timedelta(days=60)
     # Include a one-day SQL margin for timezone offsets, then check Taiwan dates.
-    # ponytail: hash the bounded source content; add stored revisions if reads become a bottleneck.
+    # Hash current source content so corrections invalidate cached analysis.
     columns = [column for column in NewsArticle.__table__.columns if column.name != "created_at"]
     catalog = company_catalog()
     catalog = {**catalog, **{key: {**catalog.get(key, {}), "name": name} for key, name in stock_names(db).items()}}
@@ -155,12 +153,10 @@ def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
     statement = statement.order_by(NewsArticle.article_id)
     update("news")
     update(sorted(referenced_article_ids))
-    source_keys = set()
     with db.execute(statement.execution_options(yield_per=100)).mappings() as articles:
         for article in articles:
             if article["article_id"] in referenced_article_ids:
                 update(dict(article))
-                source_keys.add(source_identity(dict(article))[0])
                 continue
             timestamp = parse_timestamp(article["pub_time"])
             if timestamp is not None and start <= timestamp.date() <= as_of:
@@ -168,25 +164,7 @@ def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
                     article["title"], article["content"], catalog)
                 if article["stock_id"] == "tw_stock" or symbol in mentioned:
                     update(dict(article))
-                    source_keys.add(source_identity(dict(article))[0])
-    # Source decisions concern the canonical group, including other article IDs
-    # outside this stock/date selection. A rollback is a new decision, not reuse
-    # of a previously cached interpretation of the same body text.
-    update("news_publication_time_eligibility_v1")
-    update("news_source_decisions_v1")
-    if source_keys:
-        for row in db.scalars(select(NewsSourceSelection).where(
-                NewsSourceSelection.source_key.in_(source_keys)).order_by(NewsSourceSelection.source_key)):
-            update({column.name: getattr(row, column.name) for column in row.__table__.columns})
-        for row in db.execute(select(NewsSourceDecision.source_key, func.max(NewsSourceDecision.id)).where(
-                NewsSourceDecision.source_key.in_(source_keys)).group_by(NewsSourceDecision.source_key)
-                .order_by(NewsSourceDecision.source_key)):
-            update(list(row))
-        for row in db.execute(select(NewsArticleVersion.source_key, NewsArticleVersion.revision_id,
-                NewsArticleVersion.article_id, NewsArticleVersion.observed_at).where(
-                NewsArticleVersion.source_key.in_(source_keys)).order_by(
-                NewsArticleVersion.source_key, NewsArticleVersion.revision_id)):
-            update(list(row))
+    update("news_current_content_publication_eligibility_v3")
     return digest.hexdigest()
 
 

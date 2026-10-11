@@ -68,18 +68,16 @@ def test_payload_only_sync_and_sql_version_guard(db_session, settings, monkeypat
     assert retrieval._fresh_hits([hit], None)[0]["payload"]["impact_context"]
     stale_analysis = {**payload, "analysis_input_hash": "old"}
     assert "impact_context" not in retrieval._fresh_hits([{**hit, "payload": stale_analysis}], None)[0]["payload"]
-    from app.features.news.versions import set_selection, source_identity
-    key, canonical = source_identity(article)
-    set_selection(db_session, key, canonical, None, "conflict", "Conflicting publisher revisions")
+    original_hash = analysis.config_hash
+    analysis.config_hash = "outdated-model"
     db_session.commit()
-    assert retrieval._fresh_hits([hit], None) == []
 
     cleared = asyncio.run(sync.sync_impact_payloads(factory, writer, settings, execute=True))
     assert cleared["updated"] == 1
     assert payload["impact_context"] == [] and payload["impact_scopes"] == []
     assert payload["analysis_status"] == "pending" and payload["analysis_input_hash"] == ""
     assert asyncio.run(sync.sync_impact_payloads(factory, writer, settings, execute=True))["updated"] == 0
-    set_selection(db_session, key, canonical, article.article_id, "active", "Publisher revision checked")
+    analysis.config_hash = original_hash
     db_session.commit()
     assert asyncio.run(sync.sync_impact_payloads(factory, writer, settings, execute=True))["updated"] == 1
     assert retrieval._fresh_hits([hit], None)[0]["payload"]["impact_context"]

@@ -18,7 +18,6 @@ COMMANDS = (
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
     "stock-backfill",
-    "news-source-versions",
 )
 
 
@@ -79,9 +78,6 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job == "init-schema":
         from app.jobs.schema import main as initialize
         return initialize(argv)
-    if job == "news-source-versions":
-        from app.jobs.news_versions import main as versions
-        return versions(argv)
     if job == "brief-lessons":
         from app.jobs.brief_lessons import main as lessons
         return lessons(argv)

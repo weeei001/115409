@@ -5,9 +5,6 @@ from decimal import Decimal
 
 DAY = date(2026, 5, 20)
 CREATED = datetime(2026, 5, 20, 12)
-CONFIG_HASH = "a7240da41160cd0ff08a6b33f01aff78cd75fb1512d998282535dc707a804eb3"
-# norm_v1 fingerprint of article-a for the 2330 sentiment fixture.
-INPUT_HASH = "a3198284bcfeb3510e555fb48da0b6f43e551cc5796757d871fb2ea99cb09d86"
 
 
 def populate(db, models):
@@ -35,9 +32,6 @@ def populate(db, models):
             pub_time="2026-05-20T12:00:00+08:00", content="Revenue grows with demand.", tags="2317,2330", created_at=CREATED),
         models.NewsArticle(article_id="article-b", source="ltn", stock_id="2317", title="Markets",
             pub_time="2026-05-19 12:00:00", content=None, tags="2330", created_at=CREATED - timedelta(days=1)),
-        models.NewsSentiment(article_id="article-a", target_stock_id="2330", input_hash=INPUT_HASH,
-            config_hash=CONFIG_HASH, status="success", label="positive", reason="Revenue grows",
-            evidence='[{"field":"title","quote":"Revenue grows"}]', analyzed_at=CREATED),
     ])
     db.commit()
 

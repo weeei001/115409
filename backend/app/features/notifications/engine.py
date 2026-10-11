@@ -12,7 +12,7 @@ from urllib.parse import quote
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.notification import Notification
-from app.features.news.sentiment import parse_news_pub_time
+from app.features.news.text import parse_news_pub_time
 from . import engine_repository as repository
 
 TAIPEI = timezone(timedelta(hours=8))

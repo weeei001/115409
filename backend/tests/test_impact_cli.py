@@ -1,4 +1,4 @@
-"""The impact CLI preserves bounded execution with an optional fixed start date."""
+"""The impact CLI defaults to bounded execution and supports explicit overrides."""
 from contextlib import nullcontext, asynccontextmanager
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -13,7 +13,11 @@ from app.jobs.impact import cli
     (['--since', '2026-01-01'], 1, 1),
     ([], 0, 0),
 ])
-def test_cli_fixed_start_default_window_and_failed_exit(flags, failed, expected, monkeypatch, settings):
+@pytest.mark.parametrize('budget_flags,budget', [
+    ([], 0.5), (['--max-cost-usd', '2.5'], 2.5), (['--no-cost-limit'], None),
+])
+def test_cli_fixed_start_default_window_and_failed_exit(
+        flags, failed, expected, budget_flags, budget, monkeypatch, settings):
     seen = {}
     @asynccontextmanager
     async def http(_):
@@ -32,17 +36,18 @@ def test_cli_fixed_start_default_window_and_failed_exit(flags, failed, expected,
     monkeypatch.setattr(cli, 'make_http_client', http)
     monkeypatch.setattr(cli, 'ImpactBatchRunner', Runner)
     before = datetime.now(cli.TAIPEI_TZ).replace(tzinfo=None) - timedelta(days=30)
-    assert cli.main(flags) == expected
+    assert cli.main(flags + budget_flags) == expected
     if flags:
         assert seen['since'] == datetime(2026, 1, 1)
     else:
         after = datetime.now(cli.TAIPEI_TZ).replace(tzinfo=None) - timedelta(days=30)
         assert before <= seen['since'] <= after
-    assert seen['limit'] == 100 and seen['max_cost_usd'] == 0.5 and seen['execute'] is False
+    assert seen['limit'] == 100 and seen['max_cost_usd'] == budget and seen['execute'] is False
 
 
 @pytest.mark.parametrize('flags', [
     ['--since', 'invalid'], ['--since', '2026-01-01', '--backfill-days', '10'],
+    ['--no-cost-limit', '--max-cost-usd', '2.5'],
 ])
 def test_cli_rejects_ambiguous_window_before_loading_settings(flags, monkeypatch):
     monkeypatch.setattr(cli, 'get_settings', lambda: pytest.fail('No external initialization'))

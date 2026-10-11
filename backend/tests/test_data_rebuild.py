@@ -1,5 +1,4 @@
-from datetime import date, datetime
-import json
+from datetime import date
 
 import pytest
 from sqlalchemy import Column, MetaData, Table, create_engine, event, text
@@ -23,7 +22,6 @@ def databases(tmp_path):
 
 
 def seed(engine):
-    now = datetime(2026, 10, 1, 12)
     articles = [
         {"article_id": "c1", "source": "鉅亨網", "url": "https://news.cnyes.com/news/id/1", "title": "Real news"},
         {"article_id": "c2", "source": "CNYES", "url": None, "title": "Legacy news"},
@@ -39,10 +37,6 @@ def seed(engine):
         connection.execute(Base.metadata.tables["news_articles"].insert(), articles)
         for article in articles:
             article_id = article["article_id"]
-            connection.execute(Base.metadata.tables["news_article_versions"].insert(), {
-                "revision_id": "revision_" + article_id, "article_id": article_id,
-                "source_key": article_id, "content_hash": "hash", "snapshot_json": json.dumps(article),
-                "recorded_at": now})
             connection.execute(news_chunks.insert(), {"chunk_id": "chunk_" + article_id,
                 "article_id": article_id, "chunk_index": 0, "content_hash": "hash", "revision": "rev",
                 "index_fingerprint": "fp", "index_version": "v1", "char_start": 0, "char_end": 4})
@@ -53,15 +47,6 @@ def seed(engine):
                 "direction": "positive", "importance": "high", "basis": "direct", "reason": "text", "evidence": "[]"})
             connection.execute(Base.metadata.tables["news_event_topics"].insert(), {
                 "article_id": article_id, "event_key": "E1", "topic": "ai"})
-        for key, chosen, url in [("c1", "c1", "https://news.cnyes.com/news/id/1"),
-                ("conflict", None, "https://news.cnyes.com/news/id/5"),
-                ("invalid", "sim_war_fixture", "https://news.cnyes.com/news/id/2"),
-                ("l1", "l1", "https://ltn.com.tw/news/1")]:
-            connection.execute(Base.metadata.tables["news_source_selections"].insert(), {
-                "source_key": key, "selected_article_id": chosen, "canonical_url": url,
-                "status": "selected" if chosen else "conflict", "reason": "Observed", "observed_at": now})
-            connection.execute(Base.metadata.tables["news_source_decisions"].insert(), {
-                "source_key": key, "before_json": "null", "after_json": "{}", "reason": "Observed", "observed_at": now})
 
 
 def test_copy_filters_sources_and_simulation_with_all_dependents_and_verifies_counts(databases):
@@ -74,11 +59,9 @@ def test_copy_filters_sources_and_simulation_with_all_dependents_and_verifies_co
     report = copy_public_data(source, target, batch_size=1)
     assert report["status"] == "verified"
     assert set(report["tables"]) == set(PUBLIC_DATA_TABLES)
-    assert len(PUBLIC_DATA_TABLES) == 20
-    for name in ("news_articles", "news_article_versions", "news_chunks", "news_event_analyses", "news_event_impacts", "news_event_topics"):
+    assert len(PUBLIC_DATA_TABLES) == 17
+    for name in ("news_articles", "news_chunks", "news_event_analyses", "news_event_impacts", "news_event_topics"):
         assert report["tables"][name]["rows"] == 2
-    assert report["tables"]["news_source_selections"]["rows"] == 2
-    assert report["tables"]["news_source_decisions"]["rows"] == 2
     assert report["tables"] == public_data_manifest(target, batch_size=2)["tables"]
     assert report["tables"] == public_data_manifest(source, batch_size=3)["tables"]
     with target.connect() as connection:

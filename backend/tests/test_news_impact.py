@@ -375,26 +375,18 @@ def test_pending_excludes_simulation_before_limit_without_touching_records(db_se
     assert not db_session.new and not db_session.dirty and not db_session.deleted
 
 
-@pytest.mark.parametrize("status", ["conflict", "superseded"])
-def test_pending_source_selection_exclusion_precedes_limit(db_session, settings, tmp_path, status):
-    from app.features.news.versions import set_selection, source_identity
-    excluded = NewsArticle(article_id="excluded", source="cnyes", title="Obsolete report", content="Old financial facts",
-        url="https://news.test/source", pub_time="2026-09-20 12:00:00", created_at=datetime(2026, 9, 20))
-    active = NewsArticle(article_id="active", source="cnyes", title="Current report", content="Current financial facts",
-        url="https://news.test/source" if status == "superseded" else "https://news.test/other",
-        pub_time="2026-09-19 12:00:00", created_at=datetime(2026, 9, 19))
-    db_session.add_all([excluded, active])
-    db_session.flush()
-    key, canonical = source_identity(excluded)
-    set_selection(db_session, key, canonical, "active" if status == "superseded" else None,
-                  "active" if status == "superseded" else "conflict", "Fixed source review")
+def test_pending_latest_sources_precedes_limit(db_session, settings, tmp_path):
+    latest = NewsArticle(article_id="latest", source="cnyes", title="Latest report", content="Current financial facts",
+        url="https://news.test/source", pub_time="2026-09-20T04:00:00+00:00", created_at=datetime(2026, 9, 18))
+    older = NewsArticle(article_id="older", source="cnyes", title="Other report", content="Other financial facts",
+        url="https://news.test/other", pub_time="2026-09-20 11:00:00", created_at=datetime(2026, 9, 21))
+    db_session.add_all([latest, older])
     db_session.commit()
     llm = StubLlm([])
     runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
                                llm=llm, limit=1, execute=True, work_dir=tmp_path)
-    assert [article.article_id for article, _ in runner.pending(datetime(2026, 1, 1))] == ["active"]
-    assert runner.counts["pending"] == 1 and llm.calls == 0
-    assert db_session.get(NewsArticle, "excluded") is excluded
+    assert [article.article_id for article, _ in runner.pending(datetime(2026, 1, 1))] == ["latest"]
+    assert runner.counts["pending"] == 2 and llm.calls == 0
 
 
 def test_macro_article_is_searchable_without_company_and_stale_analysis_is_hidden(
@@ -540,6 +532,32 @@ def test_budget_stops_before_call(db_session, settings, tmp_path):
     summary = asyncio.run(runner.run(since=datetime(2026, 1, 1)))
     assert summary["stopped_reason"] == "budget_exhausted" and llm.calls == 0
     assert db_session.get(NewsEventAnalysis, "budget") is None
+
+
+@pytest.mark.parametrize("budget_options,expected_calls", [
+    ({}, 0), ({"max_cost_usd": 0.1}, 0), ({"max_cost_usd": None}, 2),
+])
+def test_explicit_unlimited_budget_continues_above_default_cap(
+        db_session, settings, tmp_path, budget_options, expected_calls):
+    settings.LLM_INPUT_PRICE_PER_M = 10_000
+    settings.LLM_OUTPUT_PRICE_PER_M = 10_000
+    for index in range(2):
+        db_session.add(NewsArticle(article_id=f"budget-{index}", title="Rate decision",
+                                  content="央行宣布升息一碼", pub_time="2026-09-20 10:00:00"))
+    db_session.commit()
+    llm = StubLlm([output(), output()])
+    runner = ImpactBatchRunner(db_session=db_session, settings=settings, catalog=CATALOG,
+                              llm=llm, execute=True, work_dir=tmp_path, **budget_options)
+    summary = asyncio.run(runner.run(since=datetime(2026, 1, 1)))
+    assert summary["api_calls"] == llm.calls == expected_calls
+    assert summary["success"] == expected_calls
+    assert db_session.query(NewsEventAnalysis).count() == expected_calls
+    if expected_calls:
+        assert summary["stopped_reason"] is None
+        assert summary["budget_spent_usd"] == pytest.approx(3.6)
+    else:
+        assert summary["stopped_reason"] == "budget_exhausted"
+        assert summary["budget_spent_usd"] == 0
 
 
 def test_recognition_alias_upgrade_invalidates_previous_analysis_config(settings, monkeypatch):

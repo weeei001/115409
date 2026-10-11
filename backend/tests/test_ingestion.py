@@ -10,7 +10,6 @@ from sqlalchemy.schema import CreateTable
 
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDecision
 from app.jobs.ingestion import cli, repository
 from app.db.models.news_chunk import chunk_metadata
 from app.features.retrieval.chunking import article_chunks, embedding_text, split_spans, split_text
@@ -23,8 +22,6 @@ def ingestion_db():
     with engine.begin() as connection:
         connection.execute(CreateTable(NewsArticle.__table__))
     chunk_metadata.create_all(engine)
-    for model in (NewsArticleVersion, NewsSourceSelection, NewsSourceDecision):
-        model.__table__.create(engine)
     yield engine, sessionmaker(engine, expire_on_commit=False)
     engine.dispose()
 
@@ -165,29 +162,15 @@ def test_simulation_is_excluded_from_chunking_and_existing_chunk_vectorization(i
     assert writer.existing == real_ids
 
 
-@pytest.mark.parametrize("status", ["conflict", "superseded"])
-def test_source_selection_blocks_chunking_and_existing_chunk_vectorization(ingestion_db, status):
-    from app.features.news.versions import set_selection, source_identity
+def test_latest_sources_chunk_and_vectorize_without_selection_tables(ingestion_db):
     _, factory = ingestion_db
-    excluded, active = _article("excluded"), _article("active")
-    if status == "superseded":
-        active["url"] = excluded["url"]
-    _seed(factory, [excluded, active])
-    with factory() as db:
-        key, canonical = source_identity(excluded)
-        set_selection(db, key, canonical, "active" if status == "superseded" else None,
-                      "active" if status == "superseded" else "conflict", "Fixed source review")
-        db.commit()
+    _seed(factory, [_article("first"), _article("second")])
     result = chunk_news(factory)
-    assert result.skipped == 1 and result.written == 1
-    assert [row["article_id"] for row in _stored(factory)] == ["active"]
-    with factory() as db:
-        repository.insert_article_chunks(db, article_chunks(excluded))
-        db.commit()
+    assert result.written == 2
     writer = FakeWriter()
     result = asyncio.run(vectorize_news(factory, writer, retry_delay=0))
-    assert result.skipped == 1 and result.written == 1
-    assert {chunk["article_id"] for chunk in writer.written} == {"active"}
+    assert result.written == 2
+    assert {chunk["article_id"] for chunk in writer.written} == {"first", "second"}
 
 
 def test_chunk_dry_run_respects_limit_and_keeps_database_empty(ingestion_db):

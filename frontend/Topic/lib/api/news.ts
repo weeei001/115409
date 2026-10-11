@@ -61,8 +61,8 @@ export async function fetchNewsIndustries(): Promise<NewsIndustry[]> {
 }
 
 /** openapi: GET /news/{article_id} */
-export async function fetchNewsDetail(articleId: string, stock?: string, revisionId?: string): Promise<News> {
-  const params = { ...(stock ? { stock } : {}), ...(revisionId ? { revision_id: revisionId } : {}) };
+export async function fetchNewsDetail(articleId: string, stock?: string): Promise<News> {
+  const params = { ...(stock ? { stock } : {}) };
   return dedupeFetch(`GET /news/${articleId} ${JSON.stringify(params)}`, async () => {
     const { data } = await apiClient.get<News>(`/news/${encodeURIComponent(articleId)}`, {
       params,

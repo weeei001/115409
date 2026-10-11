@@ -18,8 +18,8 @@ from app.features.news.eligibility import contains_simulation
 from app.features.news.versions import source_states
 from app.features.news.impact import (ImpactOutput, PROMPT_VERSION, SYSTEM_PROMPT, TOPICS, article_hash,
                                       config_hash, validate_output)
-from app.features.news.sentiment import (TAIPEI_TZ, clean_text, extract_candidate_stocks,
-                                         analysis_content_window, estimate_token_count)
+from app.features.news.text import (TAIPEI_TZ, clean_text, extract_candidate_stocks,
+                                         analysis_content_window, estimate_token_count, parse_news_pub_time)
 
 
 MAX_INPUT_TOKENS = 8000
@@ -81,9 +81,9 @@ class ImpactBatchRunner:
         self.execute = execute
         self.work_dir = work_dir
         self.run_id = f"{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:8]}"
-        self.budget = Decimal(str(max_cost_usd))
+        self.budget = Decimal(str(max_cost_usd)) if max_cost_usd is not None else None
         self.reserved = token_cost(MAX_INPUT_TOKENS, self.settings.LLM_MAX_TOKENS, self.settings)
-        if (limit < 1 or not self.budget.is_finite() or self.budget < 0
+        if (limit < 1 or (self.budget is not None and (not self.budget.is_finite() or self.budget < 0))
                 or self.reserved is None or not self.reserved.is_finite() or self.reserved < 0):
             raise ValueError("Invalid news impact budget or limit")
         self.spent = Decimal(0)
@@ -112,7 +112,6 @@ class ImpactBatchRunner:
                 continue
             published = article.created_at
             if article.pub_time:
-                from app.features.news.sentiment import parse_news_pub_time
                 parsed, _ = parse_news_pub_time(article.pub_time)
                 published = parsed.replace(tzinfo=None) if parsed else published
             if published and published < since:
@@ -126,6 +125,10 @@ class ImpactBatchRunner:
                 if previous.status == "failed" and previous.analyzed_at and now - previous.analyzed_at < RETRY_DELAY:
                     continue
             selected.append((article, current_hash))
+        # Publication time, not ingestion time, determines newest-first dispatch.
+        selected.sort(key=lambda item: (
+            parse_news_pub_time(item[0].pub_time)[0] or datetime.min.replace(tzinfo=TAIPEI_TZ),
+            item[0].article_id), reverse=True)
         self.counts["pending"] = len(selected)
         return selected[:self.limit]
 
@@ -202,7 +205,7 @@ class ImpactBatchRunner:
                     ensure_ascii=False)
                 reserved = token_cost(MAX_INPUT_TOKENS + estimate_token_count(repair_context + REPAIR_PROMPT),
                                       self.settings.LLM_MAX_TOKENS, self.settings)
-            if self.spent + reserved > self.budget:
+            if self.budget is not None and self.spent + reserved > self.budget:
                 self.stopped_reason = "budget_exhausted"
                 if attempt == 1:
                     return
