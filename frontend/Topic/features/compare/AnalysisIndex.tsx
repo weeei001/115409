@@ -34,6 +34,7 @@ export function AnalysisIndex({ title, entries }: { title: string; entries: Anal
 
   return (
     <Ledger
+      data-tour="compare-analysis"
       title={title}
       stamp={`${entries.length} 項`}
       aria-label={title}

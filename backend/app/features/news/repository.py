@@ -4,9 +4,7 @@ from sqlalchemy import case, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
-from app.db.models.news_version import NewsArticleVersion
-from .versions import effective_article_condition
+from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 
 
 # Preserve wall-clock comparison of stored VARCHAR timestamps across both dialects.
@@ -18,11 +16,6 @@ def by_article_id(db: Session, article_id: str):
     return db.scalar(select(NewsArticle).where(NewsArticle.article_id == article_id))
 
 
-def article_revision(db: Session, article_id: str, revision_id: str):
-    return db.scalar(select(NewsArticleVersion).where(NewsArticleVersion.article_id == article_id,
-                                                    NewsArticleVersion.revision_id == revision_id))
-
-
 def news_list(
     db: Session, *, page: int, page_size: int, article_id: str | None = None,
     keyword: str | None = None, stock: str | None = None, source: str | None = None,
@@ -32,7 +25,7 @@ def news_list(
     importance: str | None = None, relation: str | None = None,
     stock_industries: list[str] | None = None, impact_config_hash: str | None = None,
 ):
-    conditions = [effective_article_condition()]
+    conditions = []
     if article_id:
         conditions.append(NewsArticle.article_id == article_id)
     if keyword:
@@ -74,7 +67,11 @@ def news_list(
     if industry:
         impact_conditions.extend((NewsEventImpact.target_type == "industry", NewsEventImpact.target_id == industry))
     if topic:
-        impact_conditions.append(NewsEventImpact.topics.like(f"%,{topic},%"))
+        impact_conditions.append(exists(select(NewsEventTopic.article_id).where(
+            NewsEventTopic.article_id == NewsEventImpact.article_id,
+            NewsEventTopic.event_key == NewsEventImpact.event_key,
+            NewsEventTopic.topic == topic,
+        )))
     if direction:
         impact_conditions.append(NewsEventImpact.direction == direction)
     if importance:

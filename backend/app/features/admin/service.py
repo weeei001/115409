@@ -5,7 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.db.models.admin import AdminAccount, AdminAuditLog
+from app.db.models.admin import AdminAccount
+from app.features.audit.service import audit
 from app.db.models.user import User
 from app.features.admin import repository
 from app.features.admin.schemas import AuditPublic, RunPublic
@@ -62,12 +63,6 @@ def add_stock(db: Session, actor: User, symbol: str) -> dict:
 def require_admin(db: Session, user: User) -> None:
     if not user.is_active or not repository.is_admin(db, user.id):
         raise AppError("Administrator access required", 403)
-
-
-def audit(db: Session, actor_id: int | None, actor_email: str | None,
-          action: str, target: str, status: str, details: dict | None = None) -> None:
-    db.add(AdminAuditLog(actor_id=actor_id, actor_email=actor_email, action=action[:80],
-                         target=target[:255], status=status, details=details))
 
 
 def _commit(db: Session) -> None:

@@ -76,7 +76,7 @@ const evidence = buildEvidenceIndex(CATALOG, '2026-09-03');
   assert.equal(usdText(12.345), 'US$12.35');
   assert.equal(usdText(null), '--');
   assert.match(costNote(usage), /^以設定的單價估算：輸入每百萬 token US\$0\.20、輸出 US\$1\.20。40 份中有 38 份有 token 紀錄/);
-  assert.match(costNote(usage), /其中 2 份沒有通過檢查/);
+  assert.match(costNote(usage), /其中 2 份沒有產出內容/);
   assert.match(costNote({ ...usage, input_price_per_m: 0.075 }), /輸入每百萬 token US\$0\.075、/, 'finer prices are not rounded to cents');
   const empty = { ...usage, measured: 0, avg_prompt_tokens: null, avg_completion_tokens: null, avg_latency_seconds: null, retry_rate: null };
   assert.equal(avgTokensText(empty), '--');

@@ -4,20 +4,22 @@ import asyncio
 import json
 import logging
 import re
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
+from uuid import uuid4
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.clients.llm import LlmClient
+from app.clients.usage import tracked_client
 from app.core.errors import AppError, NotFound, ServiceUnavailable, UpstreamTimeout
 from app.features.market.company_catalog import load_catalog
 from app.features.market.repository import stock_names
-from app.features.news.sentiment import extract_candidate_stocks
+from app.features.news.text import extract_candidate_stocks
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
-from .audit import ChatAudit
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
@@ -74,6 +76,7 @@ def _add_usage(response: AskResponse, metadata: dict) -> None:
 
 
 REQUEST_TIMEOUT_MESSAGE = "本次回答已超過時間上限，請縮小問題後再試。"
+_usage_request_id = ContextVar("chat_usage_request_id", default=None)
 
 
 def _remaining_seconds(deadline: float) -> float:
@@ -147,13 +150,15 @@ class ChatService:
             return discover_stock_candidates(db, groups, as_of, limit)
 
     async def _prepare(self, request: AskRequest) -> tuple[AskResponse, str, str]:
+        intent_llm = tracked_client(self.intent_llm, self.session_factory, "chat",
+                                    _usage_request_id.get() or str(uuid4()))
         now = taipei_now().replace(microsecond=0)
         history = _conversation_history(request)
         response = AskResponse(answer="", detected_stocks=[], time_range=None, sources=[],
                                tokens={}, duration_ms=0,
                                current_time=now.strftime("%Y年%m月%d日 %H:%M"))
         intent = await plan_request(
-            self.intent_llm, request=request, history=history,
+            intent_llm, request=request, history=history,
             current_time=now.strftime("%Y-%m-%d %H:%M:%S"),
             add_usage=lambda metadata: _add_usage(response, metadata))
         if intent is None:
@@ -242,7 +247,7 @@ class ChatService:
             try:
                 industries = await asyncio.to_thread(self._discovery_industries)
                 selection = await plan_discovery(
-                    self.intent_llm, request=request, query=query, industries=industries,
+                    intent_llm, request=request, query=query, industries=industries,
                     add_usage=lambda metadata: _add_usage(response, metadata))
                 if selection is None or (not selection.search_all and not selection.industry_groups):
                     discovery_note = "目前無法確認要篩選的產業範圍，請指定產業或比較條件。"
@@ -354,7 +359,7 @@ class ChatService:
         if "news" in needs and intent.news_strategy == "auto":
             try:
                 supplement = await plan_news_supplement(
-                    self.intent_llm, request=request, query=query, sources=response.sources,
+                    intent_llm, request=request, query=query, sources=response.sources,
                     add_usage=lambda metadata: _add_usage(response, metadata))
             except (ServiceUnavailable, UpstreamTimeout):
                 supplement = None
@@ -450,39 +455,29 @@ class ChatService:
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
         return response, prompt, warning
 
-    def _publish_answer(self, raw_text, metadata, response, *, audit):
+    def _publish_answer(self, raw_text, metadata, response):
         """直接回傳模型文字，不檢核內容或重新生成。"""
         _add_usage(response, metadata)
         response.answer = raw_text
-        audit.update_usage(response)
-        audit.bypassed()
 
     async def ask(self, request: AskRequest) -> AskResponse:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds)
+        request_id = str(uuid4())
+        usage_context = _usage_request_id.set(request_id)
+        llm = tracked_client(self.llm, self.session_factory, "chat", request_id)
         try:
             self.require_enabled()
             async with asyncio.timeout_at(deadline):
                 response, prompt, warning = await self._prepare(request)
-                audit.prepared(response)
                 if prompt:
                     _remaining_seconds(deadline)
-                    audit.start_attempt("initial", self.llm)
-                    result = await self.llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
-                    audit.complete_attempt(result.raw_text, result.metadata)
-                    self._publish_answer(result.raw_text, result.metadata, response, audit=audit)
-                else:
-                    audit.outcome = "direct"
+                    result = await llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
+                    self._publish_answer(result.raw_text, result.metadata, response)
                 _remaining_seconds(deadline)
             response.duration_ms = int((perf_counter() - started) * 1000)
-            audit.publish(response, completed=True)
             return response
         except TimeoutError as exc:
-            audit.failed(exc)
             raise UpstreamTimeout(REQUEST_TIMEOUT_MESSAGE) from exc
-        except Exception as exc:
-            audit.failed(exc)
-            raise
         finally:
-            await audit.persist(self.session_factory)
+            _usage_request_id.reset(usage_context)

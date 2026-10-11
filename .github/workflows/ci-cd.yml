@@ -38,8 +38,6 @@ jobs:
           backend/tests/test_chat_unvalidated.py backend/tests/test_chat_minimal_publication.py
           backend/tests/test_chat_request_budget.py backend/tests/test_chat_usage.py
           backend/tests/test_chat_model_config.py -q
-      - name: Check private AI conversation diagnostics and administrator access
-        run: python -m pytest backend/tests/test_admin_chat_review.py backend/tests/test_chat_audit.py -q
       - name: Check AI briefs, signal statistics, backtests, and schema
         run: >-
           python -m pytest backend/tests/test_analysis_service.py backend/tests/test_brief_lessons.py
@@ -75,6 +73,7 @@ jobs:
       - run: npm run test:favorites
       - run: npm run test:home
       - run: npm run test:notifications
+      - run: npm run test:assistant
       # Next generates next-env.d.ts and route types on a fresh checkout.
       - run: npm run build
       - run: npm run lint -- --incremental false

@@ -76,8 +76,8 @@ export interface ResolvedEvidence {
   title: string | null;
   excerpt: string | null;
   url: string | null;
-  /** Immutable local article revision, separate from the publisher's mutable page. */
-  savedVersionUrl: string | null;
+  /** Local article URL always displays the latest available content. */
+  articleUrl: string | null;
   /** 新聞性質；guidance 要另外標示「非實際數字」 */
   kind: string | null;
   /** 日期晚於 as_of_date：資料有問題，不可當成可點擊來源 */
@@ -281,7 +281,6 @@ export function resolveEvidenceItem(item: EvidenceItem, asOfDate?: string | null
       item.publication_basis,
       item.content_truncated ? '僅使用部分內文，可能漏掉其他段落' : null,
       item.shared_fact_ids?.length ? '與其他報導包含相同事實，不代表多份獨立證據' : null,
-      item.source_state?.limitation ? '依新聞發布時間回顧，使用目前有效原文版本' : null,
       item.source_relationships?.some((relation) => relation.relationship === 'industry_context')
         ? '產業背景，不代表這家公司已發生相同事件或股價影響' : null,
     ].filter(Boolean).join('；') || null,
@@ -292,9 +291,8 @@ export function resolveEvidenceItem(item: EvidenceItem, asOfDate?: string | null
     title: isNews ? (item.title ?? null) : null,
     excerpt,
     url: safeHttpUrl(item.url),
-    savedVersionUrl: isNews && /^[A-Za-z0-9_-]{1,64}$/.test(item.article_id ?? '')
-      && /^[0-9a-f]{64}$/.test(item.source_state?.revision_id ?? '')
-      ? `/news/${encodeURIComponent(item.article_id!)}?revision_id=${item.source_state!.revision_id}` : null,
+    articleUrl: isNews && /^[A-Za-z0-9_-]{1,64}$/.test(item.article_id ?? '')
+      ? `/news/${encodeURIComponent(item.article_id!)}` : null,
     kind,
     futureDated: Boolean(asOfDate && item.date && item.date > asOfDate),
   };

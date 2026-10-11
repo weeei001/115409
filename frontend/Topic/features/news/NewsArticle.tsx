@@ -83,11 +83,6 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
   const originalLink = safeHttpUrl(news.url);
   // 來源只顯示對照得到的中文名稱，對照不到就不寫（不顯示後端代碼）
   const meta = [newsSourceName(news.source), news.pub_time ? formatDateTime(news.pub_time) : null].filter(Boolean).join(' · ');
-  // 一般版本（active／untracked）的擷取說明：縮成 meta 下的一行小字，不佔首屏；舊版本、衝突、被取代由頁面的提示框說明
-  const sourceStatus = news.source_state?.status;
-  const observedAt = news.source_state?.observed_at ? formatDateTime(news.source_state.observed_at) : '';
-  const versionNote = sourceStatus === 'active' || sourceStatus === 'untracked'
-    ? `${observedAt ? `這是 ${observedAt} 擷取的版本` : '這是擷取當時的版本'}，來源之後可能修改過。` : null;
 
   useEffect(() => {
     if (!scrollRequest) return;
@@ -101,14 +96,13 @@ export function NewsArticle({ news, stockCodes, selectedStock, model, activeQuot
   const quoteText = (segment: ArticleSegment) => segment.quotes.map((index) => model.quotes[index]);
 
   return (
-    <article className="min-w-0 bg-card p-5 sm:p-8 lg:col-span-8 lg:border-r">
-      {meta ? <p className={cn('characteristic', versionNote ? 'mb-1' : 'mb-3')}>{meta}</p> : null}
-      {versionNote ? <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{versionNote}</p> : null}
+    <article data-tour="news-article" className="min-w-0 bg-card p-5 sm:p-8 lg:col-span-8 lg:border-r">
+      {meta ? <p className="characteristic mb-3">{meta}</p> : null}
 
       <h2 className="sr-only">{news.title}</h2>
 
       {stockCodes.length ? (
-        <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div data-tour="news-stocks" className="mb-5 flex flex-wrap items-center gap-2">
           <span className="characteristic mr-1">關聯個股</span>
           {stockCodes.map((code) => {
             const current = code === selectedStock;

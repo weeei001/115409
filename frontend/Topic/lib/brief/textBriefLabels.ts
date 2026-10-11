@@ -6,11 +6,11 @@ import type { ClaimType, ForwardView, ForwardViewKey } from '../types/textBrief'
  */
 
 /**
- * 後端自動檢查結果（status）的說明。只有 limited 需要提示：verified 照常顯示，
- * unavailable 時沒有 brief，由各元件的空狀態處理。原因列在「分析限制」（limitations）。
+ * Explain incomplete responses without implying a content validation gate.
+ * Responses without a brief use each component's empty state.
  */
 export function briefStatusNote(status: string | undefined): string | null {
-  return status === 'limited' ? '部分內容沒有通過系統檢查或缺少資料，已移除或留空' : null;
+  return status === 'limited' ? '部分分析內容缺漏，未提供的段落已留空' : null;
 }
 
 export const STANCE: Record<string, string> = {
@@ -50,7 +50,7 @@ export const DIRECTION: Record<string, string> = {
 
 export function forwardViewLabel(view: ForwardView): string {
   return view.validation_status === 'rejected'
-    ? '內容未通過檢查'
+    ? '暫無分析內容'
     : (STANCE[view.stance] ?? view.stance);
 }
 

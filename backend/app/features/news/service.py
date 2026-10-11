@@ -7,8 +7,8 @@ from app.core.errors import AppError
 from app.features.news import repository
 from app.features.news.impact import article_hash, config_hash
 from app.features.news.schemas import EventAnalysisResponse, EventImpact, News, NewsEvent
-from app.features.news.sentiment import company_catalog, clean_text, analysis_content_window, safe_stock_metadata
-from app.features.news.versions import source_states, content_digest, canonical_url
+from app.features.news.text import company_catalog, clean_text, analysis_content_window, safe_stock_metadata
+from app.features.news.versions import source_states
 
 
 def attach_event_analysis(db: Session, articles, stock: str | None = None, *, settings=None):
@@ -81,26 +81,7 @@ def news_list(db: Session, *, settings=None, **filters):
             "items": attach_event_analysis(db, articles, filters.get("stock"), settings=settings)}
 
 
-def news_detail(db: Session, article_id: str, stock: str | None = None, *, settings=None, revision_id: str | None = None):
-    if revision_id:
-        revision = repository.article_revision(db, article_id, revision_id)
-        if revision is None:
-            raise AppError("找不到指定的新聞歷史版本。", status_code=404)
-        try:
-            values = json.loads(revision.snapshot_json)
-            if values.get("article_id") != article_id or content_digest(values) != revision.content_hash:
-                raise ValueError("Revision snapshot identity/content mismatch")
-            news = News.model_validate(values)
-        except (ValueError, TypeError, AttributeError) as exc:
-            raise AppError("新聞歷史版本資料無法核對。", status_code=503) from exc
-        news.source_state = {"eligible": False, "status": "historical", "revision_id": revision.revision_id,
-            "canonical_key": revision.source_key, "canonical_url": canonical_url(news.url),
-            "observed_at": revision.observed_at.isoformat() + "Z" if revision.observed_at else None,
-            "limitation": "此為保存的歷史原文，不代表目前有效版本；首次發布與完整修訂歷史仍可能未知。"}
-        news.event_analysis = EventAnalysisResponse(status="skipped", content_kind=news.content_kind,
-                                                    validation_scope="historical_source_only")
-        return news.model_copy(update=safe_stock_metadata(
-            news.stock_id, news.tags, news.title, news.content, company_catalog()))
+def news_detail(db: Session, article_id: str, stock: str | None = None, *, settings=None):
     article = repository.by_article_id(db, article_id)
     if article is None:
         raise AppError("找不到指定的新聞文章。", status_code=404)

@@ -11,7 +11,8 @@ from pathlib import Path
 
 import httpx
 
-from app.core.config import state_directory
+from app.core.config import get_settings, state_directory
+from app.core.http import make_sync_http_client
 
 
 SOURCES = {
@@ -107,7 +108,7 @@ def refresh_catalog(http: httpx.Client | None = None, path: Path | None = None) 
     """Replace the cached directory only after both official markets succeed."""
     path = path if path is not None else state_directory() / "company_catalog.json"
     if http is None:
-        with httpx.Client(trust_env=False, timeout=30) as client:
+        with make_sync_http_client(get_settings(), timeout=30) as client:
             return refresh_catalog(client, path)
     catalog = {}
     for market, url in SOURCES.items():

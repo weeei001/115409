@@ -8,7 +8,6 @@ from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.db.models.notification import Notification, NotificationPreference
 from app.db.models.stock_info import StockInfo
 from app.db.models.user import User
-from app.features.news.versions import effective_article_condition
 
 
 def enabled_preferences(db):
@@ -45,8 +44,7 @@ def major_events(db, symbols, config_hash, since):
                NewsEventAnalysis.status == "success",
                NewsEventAnalysis.input_hash == NewsArticle.analysis_input_hash,
                NewsEventAnalysis.config_hash == config_hash,
-               NewsEventAnalysis.analyzed_at >= since,
-               effective_article_condition()).order_by(NewsArticle.pub_time.desc(), NewsArticle.article_id)).all()
+               NewsEventAnalysis.analyzed_at >= since).order_by(NewsArticle.pub_time.desc(), NewsArticle.article_id)).all()
 
 
 def already_created(db, user_id, dedupe_key):

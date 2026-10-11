@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { curveReturn, presetText, returnGapText, tradeText } from '../../lib/backtest/aiBacktest';
+import { curveReturn, presetText, returnGapText, tradeText, yearlyRunText } from '../../lib/backtest/aiBacktest';
 import type { AIBacktestResult, BacktestGroupResult } from '../../lib/types/api';
 import { signedText } from '../../lib/utils/format';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
@@ -18,6 +18,8 @@ assert.equal(tradeText(0.7, 120, '2025-01-03'), '目標持股 70%，2025-01-03 �
 assert.equal(tradeText(0, -1200, '2025-01-03'), '目標持股 0%，2025-01-03 開盤賣出 1,200 股');
 assert.equal(tradeText(null, 0, '2025-01-03'), '不調整持股');
 assert.equal(tradeText(1, 0, null), '期間最後一次判斷，沒有隔日可以成交');
+assert.equal(yearlyRunText(5, true), '一年大約 50 次判斷、100 次模型呼叫');
+assert.equal(yearlyRunText(20, false), '一年大約 13 次判斷，不呼叫模型', 'rule-only runs never call the model');
 
 const tiers = (counts: number[]) => (['bullish', 'mildly_bullish', 'neutral', 'mildly_bearish', 'bearish'] as const)
   .map((stance, index) => ({ stance, count: counts[index], avg_forward_pct: counts[index] ? 0.5 - index * 0.3 : null, hit_rate: counts[index] && stance !== 'neutral' ? 0.55 : null }));
@@ -38,7 +40,7 @@ const RESULT: AIBacktestResult = {
   decisions: [{
     date: '2025-01-02', execution_date: '2025-01-03', forward_return_pct: 2.3, market_return_pct: 0.8, active_signals: ['foreign_buy_5'],
     groups: {
-      rule: { stance: 'mildly_bullish', signal_keys: ['foreign_buy_5'], reason: '證據清單中，歷史上勝過任一天進場的訊號 1 個、輸給的 0 個', target_exposure: 0.7, traded_shares: 120 },
+      rule: { stance: 'mildly_bullish', signal_keys: ['foreign_buy_5'], reason: '證據清單中，明顯勝過同期其他股票的訊號 1 個、明顯輸給的 0 個', target_exposure: 0.7, traded_shares: 120 },
       ai_plain: { stance: null, failed: true, reason: '模型沒有回傳可用的判斷，這次不調整持股。' },
       ai_signals: { stance: 'bullish', signal_keys: ['foreign_buy_5'], reason: '外資連買且歷史優勢為正。', target_exposure: 1, traded_shares: 172 },
     },
@@ -51,7 +53,9 @@ const RESULT: AIBacktestResult = {
   assert.ok(plain.includes('基準：買進持有 +12.10% · 加權指數 +9.60%'));
   assert.ok(plain.includes('+9.10%') && plain.includes('比買進持有低 3.00 個百分點') && plain.includes('比加權指數低 0.50 個百分點'));
   assert.ok(plain.includes('模型 2 次沒有回傳可用的判斷'));
-  assert.ok(plain.includes('五個等級的結果') && plain.includes('溫和偏多'));
+  assert.ok(plain.includes('五個等級的結果') && plain.includes('溫和偏多') && plain.includes('之後 5 個交易日'));
+  const twenty = renderedText(renderToStaticMarkup(React.createElement(BacktestResults, { result: { ...RESULT, decision_every: 20 } })));
+  assert.ok(twenty.includes('每 20 個交易日判斷一次') && twenty.includes('之後 20 個交易日') && !twenty.includes('之後 5 個交易日'));
   assert.ok(plain.includes('外資連續買超 5 日') && plain.includes('7 次（58%）') && plain.includes('71%'), 'AI cited 7 of 12 times');
   assert.ok(plain.includes('目標持股 70%，2025-01-03 開盤買進 120 股') && plain.includes('沒有判斷'));
   assert.ok(plain.includes('用到：外資連續買超 5 日'));
@@ -72,6 +76,8 @@ const RESULT: AIBacktestResult = {
 {
   const plain = renderedText(renderToStaticMarkup(React.createElement(AIBacktestPanel, { onAccessError: () => false })));
   assert.ok(plain.includes('開始回測') && plain.includes('讀取已跑完的結果') && plain.includes('每 5 個交易日判斷一次'));
+  assert.ok(plain.includes('判斷間隔') && plain.includes('每 20 個交易日') && plain.includes('手續費與稅占的比例越高'));
+  assert.ok(plain.includes('一年大約 50 次判斷、100 次模型呼叫'));
   assert.ok(plain.includes('偏多 100%、溫和偏多 70%'));
 }
 

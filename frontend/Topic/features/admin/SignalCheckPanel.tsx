@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { inputClass, stackedFieldLabelClass } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { fetchSignalCheck, type SignalCheckParams } from '@/lib/api/signals';
-import { dayBefore, edgeText, edgeVsBaseline, MIN_SIGNAL_EVENTS, signalVerdict, VERDICT_LABEL } from '@/lib/signals/signalCheck';
-import type { SignalCheckResponse, SignalPeriodStats, SignalReading, SignalStats } from '@/lib/types/api';
+import { dayBefore, marginText, MIN_SIGNAL_EVENTS, MIN_SIGNAL_MONTHS, peersGapText, signalVerdict, thinReason, VERDICT_LABEL } from '@/lib/signals/signalCheck';
+import type { SignalCheckResponse, SignalPeriodStats, SignalStats } from '@/lib/types/api';
 import { toYmdLocal } from '@/lib/utils/date';
 import { rateText, signedText } from '@/lib/utils/format';
 import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
@@ -19,21 +19,20 @@ import { useAdminRequest } from './useAdminRequest';
 
 const dateClass = cn(inputClass, 'font-mono tabular-nums');
 
-/** 一期的讀數：平均漲跌（上色）、和任一天進場的差距、上漲與贏大盤比例、次數 */
-function PeriodCell({ stats, baseline, reading }: { stats: SignalPeriodStats; baseline: SignalPeriodStats; reading: SignalReading | null }) {
+/** 一期的讀數：平均漲跌（上色）、和同期其他股票的差距與誤差範圍、上漲與贏過其他股票的比例、次數與月份 */
+function PeriodCell({ stats, compare }: { stats: SignalPeriodStats; compare: boolean }) {
   if (!stats.events) return <p className="text-sm text-muted-foreground">沒有事件</p>;
-  const thin = stats.events < MIN_SIGNAL_EVENTS;
+  const thin = thinReason(stats);
   return (
     <div className={cn('space-y-0.5 text-[13px] leading-relaxed', thin && 'text-muted-foreground')}>
-      <p>
-        平均 <span className={cn('font-mono font-semibold tabular-nums', !thin && valueToneText(stats.avg_return_pct ?? 0))}>{signedText(stats.avg_return_pct, 2, '%')}</span>
-        {reading ? <span className="ml-2 text-subtle">{edgeText(edgeVsBaseline(stats, baseline))}</span> : null}
-      </p>
+      <p>平均 <span className={cn('font-mono font-semibold tabular-nums', !thin && valueToneText(stats.avg_return_pct ?? 0))}>{signedText(stats.avg_return_pct, 2, '%')}</span></p>
+      {compare ? <p className="text-subtle">{peersGapText(stats)}<span className="whitespace-nowrap">{marginText(stats)}</span></p> : null}
       <p className="text-subtle">
-        上漲 {rateText(stats.up_rate)} · 贏大盤 {rateText(stats.beat_market_rate)}
+        上漲 {rateText(stats.up_rate)}
+        {compare && stats.beat_peers_rate != null ? ` · 贏過其他股票 ${rateText(stats.beat_peers_rate)}` : ''}
         {stats.net_return_pct != null ? ` · 扣成本 ${signedText(stats.net_return_pct, 2, '%')}` : ''}
       </p>
-      <p className="font-mono text-xs tabular-nums text-muted-foreground">{stats.events} 次{thin ? `（不到 ${MIN_SIGNAL_EVENTS} 次）` : ''}</p>
+      <p className="font-mono text-xs tabular-nums text-muted-foreground">{stats.events} 次 · {stats.months ?? 0} 個月{thin ? `（${thin}）` : ''}</p>
     </div>
   );
 }
@@ -43,7 +42,7 @@ export function SignalTable({ result }: { result: SignalCheckResponse }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-left text-sm">
-        <caption className="sr-only">各訊號在挑選期與驗證期成立後第 {result.horizon} 個交易日的漲跌，和任一天進場比較</caption>
+        <caption className="sr-only">各訊號在挑選期與驗證期，成立隔天開盤到第 {result.horizon} 個交易日收盤的漲跌，和同期其他股票比較</caption>
         <thead className="border-b border-border-strong bg-muted">
           <tr>
             <th scope="col" className={headCellClass}>訊號</th>
@@ -58,12 +57,12 @@ export function SignalTable({ result }: { result: SignalCheckResponse }) {
               <p className="font-semibold">{baseline.label}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{baseline.definition}</p>
             </th>
-            <td className={cellClass}><PeriodCell stats={baseline.discovery} baseline={baseline.discovery} reading={null} /></td>
-            <td className={cellClass}><PeriodCell stats={baseline.validation} baseline={baseline.validation} reading={null} /></td>
-            <td className={cn(cellClass, 'text-[13px] text-muted-foreground')}>對照組</td>
+            <td className={cellClass}><PeriodCell stats={baseline.discovery} compare={false} /></td>
+            <td className={cellClass}><PeriodCell stats={baseline.validation} compare={false} /></td>
+            <td className={cn(cellClass, 'text-[13px] text-muted-foreground')}>參考：同期間的一般漲跌</td>
           </tr>
           {result.signals.map((signal: SignalStats) => {
-            const verdict = signalVerdict(signal, baseline);
+            const verdict = signalVerdict(signal);
             return (
               <tr key={signal.key} className="border-b last:border-b-0">
                 <th scope="row" className={cn(cellClass, 'font-normal')}>
@@ -71,8 +70,8 @@ export function SignalTable({ result }: { result: SignalCheckResponse }) {
                   <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{signal.definition}</p>
                   <p className="mt-1 flex flex-wrap gap-x-2"><ReadingMark reading={signal.reading} /><span className="text-xs text-muted-foreground">{signal.source}</span></p>
                 </th>
-                <td className={cellClass}><PeriodCell stats={signal.discovery} baseline={baseline.discovery} reading={signal.reading} /></td>
-                <td className={cellClass}><PeriodCell stats={signal.validation} baseline={baseline.validation} reading={signal.reading} /></td>
+                <td className={cellClass}><PeriodCell stats={signal.discovery} compare /></td>
+                <td className={cellClass}><PeriodCell stats={signal.validation} compare /></td>
                 <td className={cn(cellClass, 'text-[13px] leading-relaxed', verdict === 'thin' && 'text-muted-foreground')}>
                   {VERDICT_LABEL[verdict]}
                   {signal.pending ? <span className="mt-0.5 block text-xs text-muted-foreground">另有 {signal.pending} 次未到期</span> : null}
@@ -87,7 +86,7 @@ export function SignalTable({ result }: { result: SignalCheckResponse }) {
 }
 
 /**
- * 訊號檢驗：標準技術、籌碼與營收訊號成立後的實際漲跌，分成挑選期與驗證期，對照「任一天進場」與加權指數。
+ * 訊號檢驗：標準技術、籌碼、營收與估值訊號成立後的實際漲跌，分成挑選期與驗證期，和同期其他股票比較。
  * 只用已存的行情資料，不呼叫 AI；判讀規則寫在畫面上，不另外產生分數。
  */
 export function SignalCheckPanel({ onAccessError }: { onAccessError: (error: unknown) => boolean }) {
@@ -163,10 +162,12 @@ export function SignalCheckPanel({ onAccessError }: { onAccessError: (error: unk
                   ) : <EmptyState className="py-4">最近 10 個交易日沒有訊號成立。</EmptyState>}
                 </LedgerPanel>
               ) : null}
-              <FoldSection title="計算方式" summary="怎麼算事件、為什麼要和任一天進場比" contentClassName="px-4 py-3 text-[13px] leading-relaxed text-subtle sm:px-5">
+              <FoldSection title="計算方式" summary="怎麼算事件、為什麼要和同期其他股票比" contentClassName="px-4 py-3 text-[13px] leading-relaxed text-subtle sm:px-5">
                 <p>{result.method_note}</p>
                 <p className="mt-2">
-                  判讀只看兩段各自和任一天進場的平均差距正負，任一段不到 {MIN_SIGNAL_EVENTS} 次就不判讀；不是統計檢定，也不是分數。
+                  判讀看兩段各自比同期其他股票高或低多少，以及它的 95% 誤差範圍：範圍整段落在一般解讀那一側才算明顯一致，
+                  整段在另一側算明顯相反，跨過 0 就是分不出差別。任一段不到 {MIN_SIGNAL_EVENTS} 次或不到 {MIN_SIGNAL_MONTHS} 個月就不判讀。
+                  誤差範圍是常見的統計估計，不是分數；月份少時會自動放寬。十幾個訊號一起看時，仍可能有一個碰巧過關，所以要兩段都成立才比較可信。
                   一次買賣的成本以 {result.round_trip_cost_pct}% 計。
                 </p>
               </FoldSection>

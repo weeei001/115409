@@ -15,7 +15,7 @@ from app.db.models.stock_info import StockInfo
 from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.backtest import engine, prompts
 from app.features.signals.schemas import PeriodStats, SignalEvidenceItem
-from test_admin_chat_review import credentials
+from admin_helpers import credentials
 from test_signals import series, trading_days
 
 
@@ -51,34 +51,39 @@ def test_decisions_at_the_close_fill_at_the_next_open():
     assert run.exposure[0] == 0 and run.exposure[3] > 0.99
 
 
-def evidence_item(key, events, edge, number=1):
-    stats = PeriodStats(events=events, avg_return_pct=0.5)
+def evidence_item(key, events, edge, number=1, margin=0.1, months=12):
+    stats = PeriodStats(events=events, months=months, avg_return_pct=0.5, vs_peers_pct=edge, vs_peers_margin_pct=margin)
     return SignalEvidenceItem(id=f"sg_{number:02d}", key=key, label=key, definition="", reading="bullish", source="",
-                              fired_on="2026-01-05", trading_days_ago=0, all_stocks=stats, this_stock=PeriodStats(events=0),
-                              edge_vs_baseline_pct=edge)
+                              fired_on="2026-01-05", trading_days_ago=0, all_stocks=stats, this_stock=PeriodStats(events=0))
 
 
-def test_rule_group_votes_with_known_edges_of_well_sampled_signals():
-    votes = [evidence_item("ma20_up", 120, 0.3), evidence_item("foreign_buy_5", 80, 0.1, 2),
-             evidence_item("kd_dead_high", 10, -2.0, 3), evidence_item("ma60_down", 90, None, 4)]
+def test_rule_group_votes_only_with_signals_clearly_above_or_below_other_stocks():
+    votes = [evidence_item("ma20_up", 120, 0.3), evidence_item("foreign_buy_5", 80, 0.5, 2, margin=0.2),
+             evidence_item("kd_dead_high", 10, -2.0, 3), evidence_item("ma60_down", 90, None, 4),
+             evidence_item("macd_turn_up", 200, 0.2, 5, margin=0.5), evidence_item("trust_buy_3", 300, 0.4, 6, months=4)]
     stance, used, reason = engine.rule_stance(votes)
-    assert (stance, used) == ("bullish", ["ma20_up", "foreign_buy_5"]), "thin and unknown edges do not vote"
-    assert reason == "證據清單中，歷史上勝過任一天進場的訊號 2 個、輸給的 0 個"
-    assert engine.rule_stance([evidence_item("ma20_down", 50, -0.2)])[0] == "mildly_bearish"
-    assert engine.rule_stance([])[:2] == ("neutral", [])
+    assert (stance, used) == ("bullish", ["ma20_up", "foreign_buy_5"]),         "thin, unknown, inside-the-margin and few-month signals do not vote"
+    assert reason == "證據清單中，明顯勝過同期其他股票的訊號 2 個、明顯輸給的 0 個；其餘 4 個分不出差別或樣本不足，不投票"
+    assert engine.rule_stance([evidence_item("ma20_down", 50, -0.4, margin=0.2)])[0] == "mildly_bearish"
+    noise = engine.rule_stance([evidence_item("ma20_up", 120, 0.3, margin=0.5)])
+    assert noise[:2] == ("neutral", []), "a positive average whose margin crosses zero is no evidence"
+    assert engine.rule_stance([evidence_item("ma20_up", 120, 0.3, margin=0.3)])[0] == "neutral", "touching zero is not clear"
+    assert engine.rule_stance([]) == ("neutral", [], "證據清單中，明顯勝過同期其他股票的訊號 0 個、明顯輸給的 0 個")
 
 
 def test_model_input_has_no_code_name_or_dates_and_only_published_revenue():
-    days = series([800 + index for index in range(30)], ma20=[790.0] * 30)
+    days = series([800 + index for index in range(30)], ma20=[790.0] * 30, pbr=[2.345] * 30)
     revenue = [(24300, days[5].date, 3.0), (24301, days[20].date, 12.5), (24302, days[29].date + timedelta(days=5), 40.0)]
-    payload = prompts.snapshot(days, 25, revenue)
+    payload = prompts.snapshot(days, 25, revenue, 5)
     text = json.dumps(payload, ensure_ascii=False)
     assert all(day.date.isoformat() not in text for day in days) and "800" not in text
     assert [row["t"] for row in payload["daily"]] == list(range(-19, 1))
     assert payload["daily"][0]["close"] == 100 and payload["daily"][-1]["close"] == pytest.approx(825 / 806 * 100, abs=0.01)
     assert payload["revenue_yoy_pct"] == [{"m": -1, "yoy": 3.0}, {"m": 0, "yoy": 12.5}], "next month is not out yet"
-    rich = prompts.with_evidence(payload, PeriodStats(events=900, avg_return_pct=0.3), [evidence_item("ma20_up", 120, 0.3)])
+    assert payload["valuation"] == {"pbr": 2.35} and payload["task"]["horizon_trading_days"] == 5
+    rich = prompts.with_evidence(payload, PeriodStats(events=900, avg_return_pct=0.3), [evidence_item("ma20_up", 120, 0.3)], 5)
     assert "fired_on" not in json.dumps(rich) and rich["signal_evidence"]["signals"][0]["id"] == "sg_01"
+    assert rich["signal_evidence"]["signals"][0]["all_stocks"]["vs_peers_pct"] == 0.3
 
 
 class FakeModel:
@@ -205,6 +210,20 @@ def test_rule_only_runs_without_the_model_and_failures_are_not_cached(client, db
     assert len(FakeModel.payloads) == 3 * 2 * 2, "three days, two groups, one retry each"
 
 
+def test_twenty_day_runs_decide_less_often_and_judge_twenty_days_ahead(client, db_session, settings, market):
+    _, admin = credentials(db_session, settings, admin=True)
+    params = {"symbol": "2330", "start": market[260].isoformat(), "end": market[360].isoformat()}
+    events = stream(client, admin, **params, horizon=20)
+    assert events[0]["decisions"] == 6 and events[0]["llm_calls"] == 12
+    result = events[-1]["result"]
+    assert result["decision_every"] == 20 and "每 20 個交易日" in result["method_note"]
+    close = lambda index: round(100 + (4 if (index // 7) % 2 else -4) + index * 0.05, 2)  # as seeded
+    assert result["decisions"][0]["forward_return_pct"] == pytest.approx((close(280) / close(260) - 1) * 100, abs=0.01)
+    assert {payload["task"]["horizon_trading_days"] for payload in FakeModel.payloads} == {20}
+    assert {payload["signal_evidence"]["horizon_trading_days"] for payload in FakeModel.payloads if "signal_evidence" in payload} == {20}
+    assert stream(client, admin, **params)[0]["cached"] is False, "five-day runs are cached apart from twenty-day ones"
+
+
 def test_backtest_validates_access_and_range(client, db_session, settings, market):
     _, user = credentials(db_session, settings)
     _, admin = credentials(db_session, settings, admin=True)
@@ -216,3 +235,4 @@ def test_backtest_validates_access_and_range(client, db_session, settings, marke
     assert client.get("/admin/ai-backtest/stream", headers=admin,
                       params={**params, "start": market[0].isoformat(), "end": market[-1].isoformat()}).status_code == 200
     assert client.get("/admin/ai-backtest/stream", headers=admin, params={**params, "preset": "yolo"}).status_code == 422
+    assert client.get("/admin/ai-backtest/stream", headers=admin, params={**params, "horizon": 10}).status_code == 422

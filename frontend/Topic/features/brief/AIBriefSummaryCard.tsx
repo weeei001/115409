@@ -80,6 +80,7 @@ const CardFrame: React.FC<{ asOfDate?: string | null; state: LightState; childre
       </span>
     }
     aria-label="AI 投資分析摘要"
+    data-tour="stock-brief"
   >
     <LedgerPanel padded={false}>{children}</LedgerPanel>
   </Ledger>
@@ -166,7 +167,7 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
     return (
       <CardFrame asOfDate={data.as_of_date} state="ready">
         <div className="p-4 sm:p-5">
-          <Notice tone="warning">{data.limitations?.[0] ?? '這次沒有產出分析，AI 寫的內容沒通過系統檢查。'}</Notice>
+          <Notice tone="warning">{data.limitations?.[0] ?? '這次未能產出分析，請稍後重新產生。'}</Notice>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenDetail()}>
               查看完整分析
@@ -310,8 +311,8 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
       >
         <div className="space-y-5 p-4 sm:p-5">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {factorBlock('正面因素', positives, b.positive_factors?.length ?? 0, '沒有通過檢查的依據，暫無法提供正面因素判讀。', 'text-up-emphasis')}
-            {factorBlock('負面因素', negatives, b.negative_factors?.length ?? 0, '本次未列出或未通過檢查（不代表沒有負面因素）。', 'text-warning')}
+            {factorBlock('正面因素', positives, b.positive_factors?.length ?? 0, '本次未提供正面因素判讀。', 'text-up-emphasis')}
+            {factorBlock('負面因素', negatives, b.negative_factors?.length ?? 0, '本次未提供負面因素內容（不代表沒有負面因素）。', 'text-warning')}
           </div>
           <div className="grid grid-cols-1 gap-5 border-t pt-5 sm:grid-cols-2">
             {factorBlock('主要分歧', divergence, divergences.length, '本次未提供主要分歧，並不代表沒有矛盾。')}

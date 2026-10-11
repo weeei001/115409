@@ -3,8 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { SiteHeader } from '@/components/layout/SiteHeader';
-import { Button, textLinkClass } from '@/components/ui/button';
-import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { LedgerHeading, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { NewsArticle, scrollIntoViewIfNeeded } from '@/features/news/NewsArticle';
@@ -20,9 +19,9 @@ import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
 import { impactTarget } from '@/lib/utils/newsImpact';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { stockNewsReturnHref } from '@/lib/news/stockNewsView';
-import { formatDateTime } from '@/lib/utils/date';
 import { newsSourceName } from '@/lib/news/newsSource';
 import { NEWS_IMPACT_DISCLAIMER } from '@/lib/disclaimers';
+import { useProvideAssistantTopic } from '@/features/assistant/topic';
 
 const firstQuery = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) || '';
 
@@ -38,9 +37,10 @@ export default function NewsDetailPage() {
   const router = useRouter();
   const articleId = firstQuery(router.query.id);
   const stockParam = firstQuery(router.query.stock);
-  const revisionId = firstQuery(router.query.revision_id);
   const newsReturn = stockNewsReturnHref(firstQuery(router.query.returnTo), stockParam);
   const [news, setNews] = useState<News | null>(null);
+  // 小燈的「可以這樣問」會帶這則新聞的標題
+  useProvideAssistantTopic(news?.title ? { kind: 'news', title: news.title } : null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedStock, setSelectedStock] = useState('');
@@ -56,7 +56,7 @@ export default function NewsDetailPage() {
     setLoading(true);
     setError(null);
     setNews(null);
-    fetchNewsDetail(articleId, stockParam || undefined, revisionId || undefined)
+    fetchNewsDetail(articleId, stockParam || undefined)
       .then((data) => {
         if (cancelled) return;
         setNews(data);
@@ -67,7 +67,7 @@ export default function NewsDetailPage() {
       .catch((err) => { if (!cancelled) setError(userFacingMessage(err, '無法載入新聞文章')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [router.isReady, articleId, stockParam, revisionId]);
+  }, [router.isReady, articleId, stockParam]);
 
   const analysis = news?.event_analysis;
   // 燈質記號：後端說分析還在排隊（pending）才算讀取中＝Q；分析失敗＝熄燈；其餘（成功、略過、沒有分析）＝F
@@ -146,8 +146,6 @@ export default function NewsDetailPage() {
     if (window.history.length > 1) router.back();
     else void router.push('/');
   };
-  const sourceStatus = news?.source_state?.status;
-  const specialSource = sourceStatus === 'historical' || sourceStatus === 'conflict' || sourceStatus === 'superseded';
   const pageTitle = `股海明燈｜${news?.title ?? '新聞內容與事件影響'}`;
 
   return (
@@ -185,18 +183,6 @@ export default function NewsDetailPage() {
           </section>
         ) : (
           <div className="space-y-4">
-            {/* 一般版本的擷取說明在內文 meta 列下方（NewsArticle）；這裡只提示舊版本、衝突、被取代 */}
-            {news.source_state && (specialSource || revisionId) && (
-              <Notice tone={sourceStatus === 'conflict' ? 'warning' : 'info'}>
-                {specialSource ? <span className="block">{sourceStatus === 'historical'
-                  ? '這是舊版本的原文，不是目前的版本；這個版本不顯示 AI 影響分析。'
-                  : sourceStatus === 'conflict'
-                    ? '來源有多個內容互相矛盾的版本，尚未確認哪一版有效；暫不顯示 AI 影響分析。'
-                    : '來源已更新，這是舊版本，保留原文供對照；暫不顯示 AI 影響分析。'}</span> : null}
-                {specialSource && news.source_state.observed_at && <span className="mt-1 block font-mono text-xs tabular-nums opacity-90">這個版本的擷取時間：{formatDateTime(news.source_state.observed_at)}</span>}
-                {revisionId && <a className={cn('mt-1 inline-flex min-h-11 items-center outline-none focus-lamp', textLinkClass)} href={`/news/${encodeURIComponent(articleId)}${stockParam ? `?stock=${encodeURIComponent(stockParam)}` : ''}`}>查看目前文章與來源狀態</a>}
-              </Notice>
-            )}
             {/* 一張帳頁：左欄內文、右欄事件影響，中間一條細線，不用陰影 */}
             <div className="grid grid-cols-1 items-start border bg-card lg:grid-cols-12">
               <NewsArticle
@@ -213,7 +199,7 @@ export default function NewsDetailPage() {
                 寬版：分析欄 sticky 在頁首下方（頁首高度＋1rem），高度不超過視窗剩餘高度。
                 標題列固定在欄頂、只有下面的內容在欄內捲動，標題不會被捲走或被頁首切掉。
               */}
-              <aside id="analysis" className="min-w-0 scroll-mt-[calc(var(--app-header-height)+1rem)] border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
+              <aside data-tour="news-analysis" id="analysis" className="min-w-0 scroll-mt-[calc(var(--app-header-height)+1rem)] border-t p-4 sm:p-5 lg:sticky lg:top-[calc(var(--app-header-height)+1rem)] lg:col-span-4 lg:flex lg:max-h-[calc(100dvh-var(--app-header-height)-2rem)] lg:flex-col lg:border-t-0" aria-label="新聞事件影響分析">
                 <LedgerHeading
                   title="新聞事件影響分析"
                   className="shrink-0"

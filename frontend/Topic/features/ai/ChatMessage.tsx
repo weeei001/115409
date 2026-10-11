@@ -15,6 +15,7 @@ import { Button, textLinkClass } from '@/components/ui/button';
 import { RagStructuredReply } from './RagStructuredReply';
 import { StreamCursor } from './StreamCursor';
 import { formatTaipei } from '@/lib/utils/date';
+import { CHAT_COLUMN } from './layout';
 
 interface Props {
   message: ChatMessageData;
@@ -109,137 +110,143 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
       data-message-role={message.role}
       tabIndex={answerTargetId ? -1 : undefined}
       className={cn(
-        'min-w-0 border-b px-4 py-4 sm:px-5',
-        // 日誌條目：提問用左側 2px 粗線與淺底區分，回覆是一般的有線區塊
-        isUser ? 'border-l-2 border-l-border-strong bg-muted' : 'bg-card',
+        'min-w-0 border-b px-4 py-4 sm:px-5 lg:px-6',
+        isUser ? 'bg-muted' : 'bg-card',
         answerTargetId && 'focus:outline-2 focus:outline-offset-[-2px] focus:outline-focus',
       )}
       initial={reducedMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={reducedMotion ? { duration: 0 } : { duration: 0.25, ease: [0.2, 0, 0, 1] }}
     >
-      <div className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <p className="characteristic flex flex-wrap items-center gap-x-2">
-          <span className={isUser ? 'text-subtle' : undefined}>{isUser ? '提問' : 'AI 回覆'}</span>
-          {time ? <><span aria-hidden>·</span><time dateTime={message.timestamp}>{time}</time></> : null}
-        </p>
-        <div className="flex items-center gap-1">
-          {statusLabel ? <p className={cn('characteristic', message.status === 'failed' && 'text-danger')} aria-live="polite">
-            {statusLabel}
-            {message.status === 'failed' && message.error ? `：${message.error}` : ''}
-          </p> : null}
-          {!isUser && message.content.trim() ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => void handleCopy()}
-              aria-label={copied ? '已複製' : '複製回覆'}
-              className="-my-2.5 -mr-2.5 text-muted-foreground hover:text-foreground"
-            >
-              {copied ? <Check size={16} className="text-success" aria-hidden /> : <Copy size={16} aria-hidden />}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className={cn('mt-2 min-w-0 text-[15px] leading-[1.8]', !message.dashboard && !structured && 'max-w-[46em]')}>
-        {!isUser && message.dashboard ? <h4 className="mb-1 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">AI 解讀</h4> : null}
-        {!isUser && message.streamStatus ? (
-          <p className="mb-2 text-xs whitespace-pre-wrap text-muted-foreground" aria-live="polite">
-            {message.streamStatus}
+      {/*
+        條目的底色與分隔線撐滿整欄，內容放在置中的閱讀欄（和輸入列同一條）。
+        日誌條目：提問用淺底加左側 2px 粗線（貼著內容、撐滿條目高度）區分，回覆是一般的有線區塊。
+      */}
+      <div className={cn('relative mx-auto w-full min-w-0', CHAT_COLUMN,
+        isUser && 'before:absolute before:-inset-y-4 before:-left-3.5 before:w-0.5 before:bg-border-strong')}>
+        <div className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <p className="characteristic flex flex-wrap items-center gap-x-2">
+            <span className={isUser ? 'text-subtle' : undefined}>{isUser ? '提問' : 'AI 回覆'}</span>
+            {time ? <><span aria-hidden>·</span><time dateTime={message.timestamp}>{time}</time></> : null}
           </p>
-        ) : null}
-        {structured ? (
-          <RagStructuredReply content={content} showCursor={cursor} renderCitation={renderCitation} />
-        ) : (
-          <>
-            <MarkdownBlock text={content} renderCitation={isUser ? undefined : renderCitation} />
-            {cursor ? <StreamCursor /> : null}
-          </>
-        )}
-      </div>
-
-      {!isUser && citedIds.length > 0 ? <div id={citationsTargetId}
-        tabIndex={citationsTargetId ? -1 : undefined} aria-label="引用來源"
-        className={cn('mt-4 border-t', citationsTargetId && 'focus:outline-2 focus:outline-offset-2 focus:outline-focus')}>
-      {citedIds.length ? (
-        <section className="pt-3 text-sm" aria-label="引用來源">
-          <h3 className="mb-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">引用來源</h3>
-          {/* 有線的列：標記在左側欄，標題在右 */}
-          <ul className="divide-y border-y leading-relaxed">
-            {[...citedIds].sort((a, b) => Number(labels.get(a) ?? Infinity) - Number(labels.get(b) ?? Infinity)).map((id) => <li key={id} id={sourceId(id)} tabIndex={-1} className="focus:outline-2 focus:outline-offset-2 focus:outline-focus grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2">
-              {renderCitation(id, 'margin')}
-              <span className="py-2.5 break-words whitespace-pre-wrap text-subtle">{sourceMap.get(id)?.title ?? '來源無法使用'}</span>
-            </li>)}
-          </ul>
-        </section>
-      ) : null}
-
-      </div> : null}
-
-      {followUps.length > 0 ? (
-        <div className="mt-4" role="group" aria-label="建議追問">
-          <p className="mb-1 text-[13px] font-medium tracking-[0.04em] text-muted-foreground" aria-hidden>建議追問</p>
-          {/* 追問是送出問題，不是換頁：用精簡的底線文字鈕排成一列（可換行），和有箭頭的導覽列分開層級 */}
-          <div className="flex flex-wrap gap-x-5">
-            {followUps.map((action, index) => (
-              <button
-                key={`${action.query}-${index}`}
-                type="button"
-                disabled={followUpDisabled}
-                onClick={() => onFollowUp?.(action.query)}
-                className={followUpClass}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {drafts.map((action) => <div className="mt-4" key={action.draft_id}><PaperOrderDraft initial={action} requestId={action.draft_id} chatMode /></div>)}
-
-      {navActions.length > 0 ? (
-        <nav className="mt-4" aria-label="相關功能">
-          <p className="mb-1 text-[13px] font-medium tracking-[0.04em] text-muted-foreground" aria-hidden>相關功能</p>
-          {/* 換頁是次要連結：底線文字（至少 44px 高），後面一個小箭頭表示會離開對話 */}
-          <div className="flex flex-wrap gap-x-5">
-            {navActions.map((action, index) => (
-              <Link key={`${action.path}-${index}`} href={action.path} className={navLinkClass}>
-                <span className="min-w-0 underline decoration-input underline-offset-4 group-hover:decoration-foreground">{action.label}</span>
-                {rowArrow}
-              </Link>
-            ))}
-          </div>
-        </nav>
-      ) : null}
-
-      {!isUser && onRate && message.serverId && message.status === 'completed' && !streamActive ? (
-        // 回饋用中性色：讚／倒讚不是漲跌方向。按下的那顆加粗框，再按一次取消
-        <div className="mt-4 flex flex-wrap items-center gap-x-1 border-t pt-2" role="group" aria-label="回饋這則回覆">
-          <p className="mr-1 text-[13px] text-muted-foreground" aria-live="polite">
-            {message.feedback ? '謝謝你的回饋，會用來改善 AI 回覆。' : '這則回覆有幫助嗎？'}
-          </p>
-          {([['up', '有幫助', ThumbsUp], ['down', '沒有幫助', ThumbsDown]] as const).map(([rating, label, Icon]) => {
-            const pressed = message.feedback === rating;
-            return (
+          <div className="flex items-center gap-1">
+            {statusLabel ? <p className={cn('characteristic', message.status === 'failed' && 'text-danger')} aria-live="polite">
+              {statusLabel}
+              {message.status === 'failed' && message.error ? `：${message.error}` : ''}
+            </p> : null}
+            {!isUser && message.content.trim() ? (
               <Button
-                key={rating}
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={label}
-                aria-pressed={pressed}
-                onClick={() => onRate(message.id, pressed ? null : rating)}
-                className={cn('border', pressed ? 'border-border-strong text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                onClick={() => void handleCopy()}
+                aria-label={copied ? '已複製' : '複製回覆'}
+                className="-my-2.5 -mr-2.5 text-muted-foreground hover:text-foreground"
               >
-                <Icon size={16} aria-hidden />
+                {copied ? <Check size={16} className="text-success" aria-hidden /> : <Copy size={16} aria-hidden />}
               </Button>
-            );
-          })}
+            ) : null}
+          </div>
         </div>
-      ) : null}
+
+        <div className={cn('mt-2 min-w-0 text-[15px] leading-[1.8]', !message.dashboard && !structured && 'max-w-[46em]')}>
+          {!isUser && message.dashboard ? <h4 className="mb-1 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">AI 解讀</h4> : null}
+          {!isUser && message.streamStatus ? (
+            <p className="mb-2 text-xs whitespace-pre-wrap text-muted-foreground" aria-live="polite">
+              {message.streamStatus}
+            </p>
+          ) : null}
+          {structured ? (
+            <RagStructuredReply content={content} showCursor={cursor} renderCitation={renderCitation} />
+          ) : (
+            <>
+              <MarkdownBlock text={content} renderCitation={isUser ? undefined : renderCitation} />
+              {cursor ? <StreamCursor /> : null}
+            </>
+          )}
+        </div>
+
+        {!isUser && citedIds.length > 0 ? <div id={citationsTargetId}
+          tabIndex={citationsTargetId ? -1 : undefined} aria-label="引用來源"
+          className={cn('mt-4 border-t', citationsTargetId && 'focus:outline-2 focus:outline-offset-2 focus:outline-focus')}>
+        {citedIds.length ? (
+          <section className="pt-3 text-sm" aria-label="引用來源">
+            <h3 className="mb-2 text-[13px] font-medium tracking-[0.04em] text-muted-foreground">引用來源</h3>
+            {/* 有線的列：標記在左側欄，標題在右 */}
+            <ul className="divide-y border-y leading-relaxed">
+              {[...citedIds].sort((a, b) => Number(labels.get(a) ?? Infinity) - Number(labels.get(b) ?? Infinity)).map((id) => <li key={id} id={sourceId(id)} tabIndex={-1} className="focus:outline-2 focus:outline-offset-2 focus:outline-focus grid grid-cols-[3rem_minmax(0,1fr)] gap-x-2">
+                {renderCitation(id, 'margin')}
+                <span className="py-2.5 break-words whitespace-pre-wrap text-subtle">{sourceMap.get(id)?.title ?? '來源無法使用'}</span>
+              </li>)}
+            </ul>
+          </section>
+        ) : null}
+
+        </div> : null}
+
+        {followUps.length > 0 ? (
+          <div className="mt-4" role="group" aria-label="建議追問">
+            <p className="mb-1 text-[13px] font-medium tracking-[0.04em] text-muted-foreground" aria-hidden>建議追問</p>
+            {/* 追問是送出問題，不是換頁：用精簡的底線文字鈕排成一列（可換行），和有箭頭的導覽列分開層級 */}
+            <div className="flex flex-wrap gap-x-5">
+              {followUps.map((action, index) => (
+                <button
+                  key={`${action.query}-${index}`}
+                  type="button"
+                  disabled={followUpDisabled}
+                  onClick={() => onFollowUp?.(action.query)}
+                  className={followUpClass}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {drafts.map((action) => <div className="mt-4" key={action.draft_id}><PaperOrderDraft initial={action} requestId={action.draft_id} chatMode /></div>)}
+
+        {navActions.length > 0 ? (
+          <nav className="mt-4" aria-label="相關功能">
+            <p className="mb-1 text-[13px] font-medium tracking-[0.04em] text-muted-foreground" aria-hidden>相關功能</p>
+            {/* 換頁是次要連結：底線文字（至少 44px 高），後面一個小箭頭表示會離開對話 */}
+            <div className="flex flex-wrap gap-x-5">
+              {navActions.map((action, index) => (
+                <Link key={`${action.path}-${index}`} href={action.path} className={navLinkClass}>
+                  <span className="min-w-0 underline decoration-input underline-offset-4 group-hover:decoration-foreground">{action.label}</span>
+                  {rowArrow}
+                </Link>
+              ))}
+            </div>
+          </nav>
+        ) : null}
+
+        {!isUser && onRate && message.serverId && message.status === 'completed' && !streamActive ? (
+          // 回饋用中性色：讚／倒讚不是漲跌方向。按下的那顆加粗框，再按一次取消
+          <div className="mt-4 flex flex-wrap items-center gap-x-1 border-t pt-2" role="group" aria-label="回饋這則回覆">
+            <p className="mr-1 text-[13px] text-muted-foreground" aria-live="polite">
+              {message.feedback ? '謝謝你的回饋，會用來改善 AI 回覆。' : '這則回覆有幫助嗎？'}
+            </p>
+            {([['up', '有幫助', ThumbsUp], ['down', '沒有幫助', ThumbsDown]] as const).map(([rating, label, Icon]) => {
+              const pressed = message.feedback === rating;
+              return (
+                <Button
+                  key={rating}
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={label}
+                  aria-pressed={pressed}
+                  onClick={() => onRate(message.id, pressed ? null : rating)}
+                  className={cn('border', pressed ? 'border-border-strong text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}
+                >
+                  <Icon size={16} aria-hidden />
+                </Button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
     </motion.div>
   );
 }

@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.http import make_sync_http_client
 from app.db.engine import make_engine
 from app.db.models.stock_info import StockInfo
 from app.features.market.company_catalog import refresh_catalog
@@ -209,6 +210,7 @@ def export(args: argparse.Namespace, client: OfficialClient) -> dict:
                   "financial_statements": [mops_financial.URL]},
               "history": "Most daily datasets are official snapshots; TWSE ex-right results cover the requested interval, and financial statements process one recent-quarter batch per run. The requested start date does not imply complete historical backfill.",
               "single_quarter_metric_gap": ["EPS", "Revenue", "GrossProfit", "OperatingIncome"]}
+    latest_twse = None
     for kind, sources in SOURCES.items():
         count = 0
         for market, url in sources:
@@ -218,6 +220,8 @@ def export(args: argparse.Namespace, client: OfficialClient) -> dict:
                 item = normalize(kind, row, market)
                 if item and item["symbol"] in catalog and catalog[item["symbol"]]["market"] == market:
                     recognized += 1
+                    if kind == "price_volume" and market == "TWSE":
+                        latest_twse = max(latest_twse or item["date"], item["date"])
                 if (item and item["symbol"] in selected and catalog[item["symbol"]]["market"] == market
                         and args.start <= item["date"] <= args.end):
                     output[item["symbol"]][kind].append(item)
@@ -225,9 +229,6 @@ def export(args: argparse.Namespace, client: OfficialClient) -> dict:
             if not recognized:
                 raise ValueError(f"No mapped {market} {kind} rows; official fields may have changed")
         report["datasets"][kind] = count
-    latest_twse = max((row["date"] for symbol, datasets in output.items()
-                       if catalog[symbol]["market"] == "TWSE"
-                       for row in datasets.get("price_volume", [])), default=None)
     for kind, module in (("foreign_shareholding", foreign_shareholding),
                          ("institutional", institutional), ("margin", margin)):
         count = 0
@@ -328,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.start > args.end or not math.isfinite(args.timeout) or args.timeout <= 0 or args.retries < 0:
         parser.error("Invalid date range, timeout or retries")
     try:
-        with httpx.Client(timeout=args.timeout, trust_env=False) as http:
+        with make_sync_http_client(get_settings(), timeout=args.timeout) as http:
             report = export(args, OfficialClient(http, args.retries))
         print(json.dumps(report, ensure_ascii=False))
         return 0

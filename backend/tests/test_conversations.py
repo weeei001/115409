@@ -4,8 +4,9 @@ import logging
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import select, update
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import event, select, update
+from sqlalchemy.dialects import mysql
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.errors import Conflict, ServiceUnavailable
 from app.db.models.conversation import Conversation, ConversationMessage
@@ -116,6 +117,37 @@ def test_continue_only_complete_turns_and_nonstream(client, service, db_session,
         ("user", "First"), ("assistant", "FindMe [S1]")]
     messages = service.get(owner, conversation_id).messages
     assert messages[3].status == "failed" and messages[3].error == "Provider unavailable"
+
+
+def test_feedback_locks_owner_before_reading_or_changing_rating(service, db_session, settings):
+    from app.db.models.chat_feedback import ChatMessageFeedback
+
+    owner, _ = login(db_session, settings)
+    conversation_id = service.create(owner).id
+    turn_id, _ = service.begin(owner, conversation_id, AskRequest(query="Question"))
+    message_id = service._finish(conversation_id, turn_id, "Answer", "completed", {})
+    statements = []
+
+    def record_statement(state):
+        statements.append(str(state.statement.compile(dialect=mysql.dialect())))
+
+    for rating in ("up", "down", None):
+        statements.clear()
+        event.listen(Session, "do_orm_execute", record_statement)
+        try:
+            response = service.rate(owner, conversation_id, message_id, rating)
+        finally:
+            event.remove(Session, "do_orm_execute", record_statement)
+        # SQLite verifies persisted behavior; MySQL compilation verifies the lock
+        # request and ordering, not actual concurrent InnoDB lock behavior.
+        assert "FROM chat_conversations" in statements[0]
+        assert statements[0].endswith("FOR UPDATE")
+        assert "chat_conversations.user_id =" in statements[0]
+        assert any("chat_message_feedback" in statement for statement in statements[1:])
+        assert response.rating == rating
+        with service.session_factory() as db:
+            saved = db.get(ChatMessageFeedback, message_id)
+            assert (saved.rating if saved else None) == rating
 
 
 def test_response_acknowledges_committed_message_before_it_is_delivered(service, db_session, settings):

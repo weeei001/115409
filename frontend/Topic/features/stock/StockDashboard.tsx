@@ -83,7 +83,7 @@ export function StockDashboard({ dashboard, stockName }: Props) {
       {/* 帳頁：法人 6／指標 6；手機單欄。日期寫在各格底部的戳記。
           標準指標排在 AI 分析之前；法人合計、RSI、MACD 柱只在這裡出現一次，不在 KPI 列重複（04-S2） */}
       <AnimatedSection delay={0.05}>
-        <Ledger title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
+        <Ledger data-tour="stock-flows" title="法人與指標" cols="grid-cols-1 md:grid-cols-2">
           <LatestInstitutionalCard
             latest={institutionalLatest}
             loading={chipsLoading}

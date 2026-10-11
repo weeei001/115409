@@ -85,11 +85,22 @@ function isNumericColumn(column: string, rows: string[][], index: number): boole
   return cells.length > 0 && cells.every((cell) => NUMBER_LIKE_CELL.test(cell));
 }
 
-/** 最後一格補滿該列，避免 gap-px 的底色露出成灰塊（手機 2 欄、sm 以上 3 欄） */
-function lastCellSpan(count: number): string {
-  const base = count % 2 === 1 ? 'col-span-2' : 'col-span-1';
-  const sm = { 0: 'sm:col-span-1', 1: 'sm:col-span-3', 2: 'sm:col-span-2' }[count % 3];
-  return `${base} ${sm}`;
+/**
+ * 指標格的欄數跟著面板寬度（container query，不看視窗）：2 欄、@xl 3 欄、@3xl 4 欄、@6xl 6 欄（每格至少約 180px，資料日期不會斷行）。
+ * 資料欄可以拖寬、放大，同一個視窗寬度下面板可能很窄也可能很寬。
+ */
+const METRIC_GRID = 'grid-cols-2 @xl:grid-cols-3 @3xl:grid-cols-4 @6xl:grid-cols-6';
+/** 各欄數下最後一格要跨幾欄：class 要寫成完整字串，Tailwind 才掃得到 */
+const LAST_SPAN: Array<[number, string[]]> = [
+  [2, ['col-span-1', 'col-span-2']],
+  [3, ['@xl:col-span-1', '@xl:col-span-2', '@xl:col-span-3']],
+  [4, ['@3xl:col-span-1', '@3xl:col-span-2', '@3xl:col-span-3', '@3xl:col-span-4']],
+  [6, ['@6xl:col-span-1', '@6xl:col-span-2', '@6xl:col-span-3', '@6xl:col-span-4', '@6xl:col-span-5', '@6xl:col-span-6']],
+];
+
+/** 最後一格補滿該列，避免 gap-px 的底色露出成灰塊 */
+export function lastCellSpan(count: number): string {
+  return LAST_SPAN.map(([cols, spans]) => spans[cols - (count % cols || cols)]).join(' ');
 }
 
 function DataTable({ title, columns, rows }: { title: string; columns: string[]; rows: string[][] }) {
@@ -239,7 +250,8 @@ function ChartBlock({ block }: { block: DashboardChart }) {
           <span key={index} className="whitespace-nowrap">{index > 0 ? `· ${part}` : part}</span>
         ))}
       </p>
-      {hasData ? <EChart title={block.title} option={view.option} height={280} className="min-h-[280px]" /> : <EmptyState className="border py-5">此區間無可繪製資料；可展開下方「查看圖表資料」核對原始數值。</EmptyState>}
+      {/* 面板越寬圖越高（container query），拉寬或放大時折線不會被壓成扁長條 */}
+      {hasData ? <div className="h-[280px] @3xl:h-[340px] @6xl:h-[400px]"><EChart title={block.title} option={view.option} height="100%" /></div> : <EmptyState className="border py-5">此區間無可繪製資料；可展開下方「查看圖表資料」核對原始數值。</EmptyState>}
       <Disclosure className="border-t text-sm" summary="查看圖表資料">
         <DataTable
           title={block.title}
@@ -255,7 +267,7 @@ function BlockContent({ block, sourceLabel }: { block: ChatDashboardBlock; sourc
   switch (block.kind) {
     case 'metrics':
       return block.items.length ? (
-        <dl className="grid grid-cols-2 gap-px border bg-border sm:grid-cols-3">
+        <dl className={cn('grid gap-px border bg-border', METRIC_GRID)}>
           {block.items.map((item, index) => (
             <div key={index} className={cn('min-w-0 bg-card px-3 py-2.5', index === block.items.length - 1 && lastCellSpan(block.items.length))}>
               <dt className="text-xs leading-relaxed text-muted-foreground">
@@ -328,7 +340,7 @@ function SourceChip({ id, sourceLabel }: { id: string; sourceLabel?: SourceLabel
 /** AI 回覆的資料面板：指標、折線圖、表格、新聞；每區塊列出資料來源。帳頁語法：區塊之間 1px 線分隔 */
 export function ChatDashboard({ dashboard, sourceLabel }: { dashboard: ChatDashboardData; sourceLabel?: SourceLabel }) {
   return (
-    <section className="min-w-0" aria-label={dashboard.title}>
+    <section className="@container min-w-0" aria-label={dashboard.title}>
       <LedgerHeading as="h3" title={dashboard.title} />
       <div className="grid gap-px border-x border-b bg-border">
         {dashboard.blocks.map((block, index) => (

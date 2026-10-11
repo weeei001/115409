@@ -1,8 +1,10 @@
 """Standard, explainable signals detected on one stock's trading days; pure functions, no database access.
 
 Crossings, turns and streaks fire on the day the condition first becomes true (a streak on reaching its
-length), not on every day it stays true. A 60-day high and a volume breakout fire on every day they
-occur; the event study skips windows that overlap, so a run of them still counts once per window.
+length), not on every day it stays true. A 60-day high, a volume breakout and the fundamental rankings fire
+on every day they hold; the event study skips windows that overlap, so a run of them still counts once per
+window. The rankings compare a stock with the others on the same day, so they are set by ``thirds`` across
+stocks before detection.
 """
 from __future__ import annotations
 
@@ -38,16 +40,26 @@ SIGNALS: tuple[Signal, ...] = (
     Signal("foreign_buy_5", "外資連續買超 5 日", "外資連續第 5 個交易日買超", "bullish", "法人籌碼"),
     Signal("foreign_sell_5", "外資連續賣超 5 日", "外資連續第 5 個交易日賣超", "bearish", "法人籌碼"),
     Signal("trust_buy_3", "投信連續買超 3 日", "投信連續第 3 個交易日買超", "bullish", "法人籌碼"),
-    Signal("revenue_yoy_up", "月營收年增率轉正", "月營收年增率由 0 以下轉為正值；以營收可取得日（次月 10 日或出表日）當天計", "bullish", "月營收"),
+    Signal("revenue_yoy_up", "月營收年增率轉正", "月營收年增率由 0 以下轉為正值；以法定公布期限（次月 10 日）當天計", "bullish", "月營收"),
+    Signal("revenue_top", "月營收年增率排前 1/3", "最新已公布的月營收年增率，在當天有資料的股票裡排最高的三分之一", "bullish", "月營收"),
+    Signal("revenue_bottom", "月營收年增率排後 1/3", "最新已公布的月營收年增率，在當天有資料的股票裡排最低的三分之一", "bearish", "月營收"),
+    Signal("pbr_low", "股價淨值比排後 1/3", "股價淨值比在當天有資料的股票裡排最低的三分之一（相對便宜）", "bullish", "估值"),
+    Signal("pbr_high", "股價淨值比排前 1/3", "股價淨值比在當天有資料的股票裡排最高的三分之一（相對昂貴）", "bearish", "估值"),
 )
 SIGNAL_BY_KEY = {signal.key: signal for signal in SIGNALS}
+# Signals that hold on every day their condition does, rather than firing when it first becomes true.
+RANKINGS = frozenset({"revenue_top", "revenue_bottom", "pbr_low", "pbr_high"})
 HIGH_LOOKBACK = 60
+# Fewer stocks with a value that day and a third is too few to call a ranking.
+MIN_RANKED = 15
 
 
 @dataclass(frozen=True)
 class Day:
     date: date
     close: float
+    # The earliest fill for a signal seen at the previous close.
+    open: float | None = None
     volume: float | None = None
     ma20: float | None = None
     ma60: float | None = None
@@ -57,6 +69,24 @@ class Day:
     volume_ma5: float | None = None
     foreign_net: float | None = None
     trust_net: float | None = None
+    pbr: float | None = None
+    # Third of the stocks ranked that day: 1 highest, -1 lowest, 0 middle; None when not ranked.
+    pbr_third: int | None = None
+    revenue_third: int | None = None
+
+
+def thirds(values: dict[str, float]) -> dict[str, int]:
+    """Each stock's third on one day: 1 for the highest third of ``values``, -1 the lowest, 0 the rest.
+
+    Ties are broken by stock code so the result does not depend on input order. Empty when fewer than
+    ``MIN_RANKED`` stocks have a value.
+    """
+    if len(values) < MIN_RANKED:
+        return {}
+    ordered = sorted(values, key=lambda code: (values[code], code))
+    size = len(ordered) // 3
+    return {code: -1 if rank < size else 1 if rank >= len(ordered) - size else 0
+            for rank, code in enumerate(ordered)}
 
 
 def _crossed_above(previous_a, previous_b, a, b) -> bool:
@@ -83,6 +113,10 @@ def detect(days: list[Day], revenue_turns: list[date] = ()) -> dict[str, list[in
         for key, streak, length in (("foreign_buy_5", "foreign_buy", 5), ("foreign_sell_5", "foreign_sell", 5),
                                     ("trust_buy_3", "trust_buy", 3)):
             if streaks[streak] == length:
+                fired[key].append(index)
+        for key, third, wanted in (("revenue_top", day.revenue_third, 1), ("revenue_bottom", day.revenue_third, -1),
+                                   ("pbr_low", day.pbr_third, -1), ("pbr_high", day.pbr_third, 1)):
+            if third == wanted:
                 fired[key].append(index)
         if index == 0:
             continue

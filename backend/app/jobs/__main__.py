@@ -10,13 +10,14 @@ COMMANDS = (
     "init-schema",
     "admin-grant",
     "migrate-admin-schema",
+    "migrate-schema",
     "crawl-cnyes", "crawl-ltn", "market-fetch", "market-backfill", "market-import",
+    "market-supplemental-backfill", "market-chips-backfill", "verify-news-index",
     "chunk-news", "vectorize-news", "news-ingest", "migrate-news-schema", "scheduler",
     "cache-warmup", "brief-lessons", "technical-recompute", "methodology-train", "backtest-learned",
     "news-impact-batch", "migrate-news-impact-schema", "news-impact-sync",
     "stock-info-sync",
     "stock-backfill",
-    "news-source-versions",
 )
 
 
@@ -47,6 +48,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dispatch(job: str, argv: list[str]) -> int:
+    if job == "migrate-schema":
+        from app.jobs.schema_adjust import main as migrate
+        return migrate(argv)
+    if job == "market-supplemental-backfill":
+        from app.jobs.market.supplemental_history import main as supplement
+        return supplement(argv)
+    if job == "market-chips-backfill":
+        from app.jobs.market.chips_history import main as chips
+        return chips(argv)
+    if job == "verify-news-index":
+        from app.jobs.ingestion.verify import main as verify
+        return verify(argv)
     if job == "stock-backfill":
         from app.jobs.stock_backfill import main as backfill
         return backfill(argv)
@@ -65,9 +78,6 @@ def dispatch(job: str, argv: list[str]) -> int:
     if job == "init-schema":
         from app.jobs.schema import main as initialize
         return initialize(argv)
-    if job == "news-source-versions":
-        from app.jobs.news_versions import main as versions
-        return versions(argv)
     if job == "brief-lessons":
         from app.jobs.brief_lessons import main as lessons
         return lessons(argv)

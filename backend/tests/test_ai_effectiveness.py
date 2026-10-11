@@ -12,7 +12,7 @@ from app.db.models.llm_response import LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse
 from app.features.analysis import track_record as tr
 from app.features.conversations.router import get_service
 from app.features.conversations.service import ConversationService
-from test_admin_chat_review import credentials
+from admin_helpers import credentials
 from test_conversations import FakeChat
 
 

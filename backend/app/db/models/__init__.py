@@ -2,9 +2,7 @@ from .daily_price import DailyPrice
 from .benchmark_price import BenchmarkPrice
 from .stock_info import StockInfo
 from .news_article import NewsArticle
-from .news_version import NewsArticleVersion, NewsSourceSelection, NewsSourceDecision
 from .technical_indicator import TechnicalIndicator
-from .simulated_order import SimulatedOrder
 from .institutional_trade import InstitutionalTrade
 from .market_extra import (
     DividendResult,
@@ -20,27 +18,23 @@ from .password_reset_token import PasswordResetToken
 from .favorite_stock import FavoriteStock
 from .notification import NotificationPreference, PushDevice, Notification, NotificationDelivery
 from .conversation import Conversation, ConversationMessage
-from .chat_audit import ChatValidationRun
+from .ai_usage import AiUsageLog
 from .chat_feedback import ChatMessageFeedback
 from .llm_response import LlmResponse
 from .brief_lesson import BriefLesson
-from .news_sentiment import NewsSentiment
-from .news_impact import NewsEventAnalysis, NewsEventImpact
+from .news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from .admin import AdminAccount, AdminJobControl, AdminJobRun, AdminAuditLog
+from .audit import AuditLog
 
 __all__ = [
     "DailyPrice",
     "BenchmarkPrice",
     "StockInfo",
     "NewsArticle",
-    "NewsArticleVersion",
-    "NewsSourceSelection",
-    "NewsSourceDecision",
-    "NewsSentiment",
     "NewsEventAnalysis",
     "NewsEventImpact",
+    "NewsEventTopic",
     "TechnicalIndicator",
-    "SimulatedOrder",
     "InstitutionalTrade",
     "DividendResult",
     "FinancialStatementRow",
@@ -58,7 +52,7 @@ __all__ = [
     "NotificationDelivery",
     "Conversation",
     "ConversationMessage",
-    "ChatValidationRun",
+    "AiUsageLog",
     "ChatMessageFeedback",
     "LlmResponse",
     "BriefLesson",
@@ -66,6 +60,7 @@ __all__ = [
     "AdminJobControl",
     "AdminJobRun",
     "AdminAuditLog",
+    "AuditLog",
 ]
 
 from .paper_portfolio import PaperAccount, PaperCashMovement, PaperOrder, PaperReview

@@ -75,9 +75,9 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
   const views = FORWARD_VIEWS.filter(([key]) => brief.forward_views?.[key]);
 
   const sections: { id: string; title: string; hint?: string; body: React.ReactNode }[] = [
-    { id: 'status', title: '現在是什麼狀態', body: <ClaimList items={brief.current_status} evidence={evidence} empty="本節沒有通過檢查的依據。" /> },
-    { id: 'positive', title: '正面因素', body: <ClaimList items={brief.positive_factors} evidence={evidence} empty="本節沒有通過檢查的依據。" /> },
-    { id: 'negative', title: '負面因素', body: <ClaimList items={brief.negative_factors} evidence={evidence} empty="本節沒有通過檢查的依據。這不代表沒有風險。" /> },
+    { id: 'status', title: '現在是什麼狀態', body: <ClaimList items={brief.current_status} evidence={evidence} empty="本節暫無分析內容。" /> },
+    { id: 'positive', title: '正面因素', body: <ClaimList items={brief.positive_factors} evidence={evidence} empty="本節暫無分析內容。" /> },
+    { id: 'negative', title: '負面因素', body: <ClaimList items={brief.negative_factors} evidence={evidence} empty="本節暫無分析內容。這不代表沒有風險。" /> },
     ...(brief.source_divergences?.length ? [{
       id: 'divergences', title: '資料互相矛盾的地方', hint: '不同來源講的不一樣，AI 沒有硬選一邊，判讀時要自己權衡。',
       body: <ClaimList items={brief.source_divergences} evidence={evidence} empty="" />,
@@ -107,7 +107,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
     {
       id: 'risks', title: '情境風險', hint: '每一項都附上觸發條件，也就是「什麼情況下這個風險會真的發生」。',
       body: (
-        <Items empty="本節沒有通過檢查的依據，暫無法提供情境風險判讀。這不代表沒有風險。">
+        <Items empty="本節暫無分析內容，無法提供情境風險判讀。這不代表沒有風險。">
           {(brief.risks ?? []).map((item) => (
             <Item key={item.id}>
               <span className="block text-xs font-bold text-muted-foreground">{item.risk_type}</span>
@@ -122,7 +122,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
     {
       id: 'watch', title: '接下來觀察什麼',
       body: (
-        <Items empty="本節沒有通過檢查的依據，暫無法提供觀察點判讀。">
+        <Items empty="本節暫無分析內容，無法提供觀察點判讀。">
           {(brief.watch_points ?? []).map((item) => (
             <Item key={item.id}>
               <p className="text-[15px] font-semibold">{item.what_to_watch}<span className="ml-2 text-xs font-normal text-muted-foreground">{item.when}</span></p>
@@ -136,7 +136,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
     {
       id: 'days', title: '關鍵交易日', hint: '漲跌幅與量能倍數取自當日行情，不是 AI 寫的。',
       body: (
-        <Items empty="本節沒有通過檢查的依據，暫無法提供交易日判讀。">
+        <Items empty="本節暫無分析內容，無法提供交易日判讀。">
           {(brief.key_days ?? []).map((item) => (
             <Item key={item.id}>
               <p className="flex flex-wrap items-baseline gap-x-3">
@@ -158,7 +158,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
       body: <ul className="list-disc space-y-1 pl-5 text-[15px] leading-[1.8] text-subtle">{brief.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul>,
     }] : []),
     ...(data.limitations?.length ? [{
-      id: 'limits', title: '分析限制', hint: '系統檢查與資料缺漏的說明。',
+      id: 'limits', title: '分析限制', hint: '資料與分析內容缺漏的說明。',
       body: <ul className="list-disc space-y-1 pl-5 text-[15px] leading-[1.8] text-subtle">{data.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul>,
     }] : []),
     {

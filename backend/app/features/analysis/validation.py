@@ -74,6 +74,54 @@ TEXT_BRIEF_COMPLIANCE_TEXT_KEYS = frozenset(
     }
 )
 TEXT_BRIEF_MISSING_TRIGGER = "本次未提供可核對的觸發條件。"
+TEXT_BRIEF_MISSING_INVALIDATION = "本次未提供可核對的失效條件。"
+# Only a price level can be cut out of a sentence; advice or a target makes the whole sentence advice.
+_CLAUSE_STRIPPABLE_RULES = frozenset({"未來價位型-hard", "前瞻價位-hard"})
+_DANGLING_CONDITION_RE = re.compile(r"\s*(?:若|如果|假如|假使|倘若|一旦|只要)")
+_DANGLING_RESULT_RE = re.compile(r"\s*(?:則|就|否則|那麼|反之)")
+# 「並未」「或許」 start a clause with meaning of their own and must not be cut.
+_LEADING_CONJUNCTION_RE = re.compile(r"^\s*(?:或是|或者|或(?!許)|並且|而且|且|以及|但是|但(?!書)|不過|然而)")
+
+
+def _strip_flagged_parts(text: str, flagged) -> str:
+    """Drop the sentences, then the clauses, that fail the gate; '' when nothing usable survives.
+
+    `flagged` returns the hard rules a text breaks. A forward view usually packs its reason
+    into one sentence, so one price level should cost that clause, not the period's direction.
+    """
+    kept_sentences = []
+    for sentence in (part for part in re.split(r"(?<=[。！？；;!?\n])", text) if part.strip()):
+        rules = flagged(sentence)
+        if not rules:
+            kept_sentences.append(sentence)
+            continue
+        if not rules <= _CLAUSE_STRIPPABLE_RULES:
+            continue
+        # A comma between digits is a thousands separator, not a clause boundary.
+        clauses = [part for part in re.split(r"(?<=，)|(?<=,)(?!\d)", sentence) if part.strip()]
+        flags = [flagged(clause) for clause in clauses]
+        kept = []
+        for index, clause in enumerate(clauses):
+            if flags[index]:
+                continue
+            # 「若跌破 1400 元，則看法失效」: neither half means anything without the other.
+            if index + 1 < len(clauses) and flags[index + 1] and _DANGLING_CONDITION_RE.match(clause):
+                continue
+            if index > 0 and (index - 1) not in kept and _DANGLING_RESULT_RE.match(clause):
+                continue
+            kept.append(index)
+        if not kept:
+            continue
+        joined = "".join(clauses[index] for index in kept)
+        if kept[0] != 0:
+            joined = _LEADING_CONJUNCTION_RE.sub("", joined, count=1)
+        ending = sentence.rstrip()[-1] if sentence.rstrip()[-1] in "。！？；;!?" else "。"
+        kept_sentences.append(joined.rstrip().rstrip("，,。！？；;!?") + ending)
+    result = "".join(kept_sentences).strip()
+    # A clause can be clean alone yet fail joined to its neighbour, so the result is checked whole.
+    if len(re.sub(r"[\W\d_]", "", result)) < 4 or flagged(result):
+        return ""
+    return result
 
 
 def _price_mentions(text: str, *, condition: bool = False):
@@ -377,17 +425,30 @@ def _apply_text_brief_compliance_gate(
                 kept.append(item)
         brief_payload[section] = kept
 
+    def has_hard(hits):
+        return any(hit.severity == "hard" for hit in hits)
+
+    def flagged(key, refs):
+        # Scanned beside the view's own citations, which are what ground its price levels.
+        return lambda text: {hit.rule for hit in check({key: text, "evidence_ids": refs}) if hit.severity == "hard"}
+
     blocked = False
     for horizon, view in brief_payload["forward_views"].items():
-        if record(check(view)):
-            # An invalid condition does not invalidate a supported explanation.
-            explanation = {key: value for key, value in view.items() if key != "invalidation"}
-            if not any(hit.severity == "hard" for hit in check(explanation)):
-                view["invalidation"] = "本次未提供可核對的失效條件。"
-                removed_ids.append(f"forward_views.{horizon}.invalidation")
+        if not record(check(view)):
+            continue
+        refs = view.get("evidence_ids", [])
+        # An invalid sentence does not invalidate the rest of a supported explanation.
+        explanation = {key: value for key, value in view.items() if key != "invalidation"}
+        if has_hard(check(explanation)):
+            # Already rechecked whole inside; the reason is the only text the explanation has.
+            reason = _strip_flagged_parts(view["reason"], flagged("reason", refs))
+            if reason:
+                view["reason"] = reason
+                removed_ids.append(f"forward_views.{horizon}.reason")
                 brief_payload["confidence"] = "low"
             elif not allow_partial_forward_views:
                 blocked = True
+                continue
             else:
                 removed_ids.append(f"forward_views.{horizon}")
                 brief_payload["forward_views"][horizon] = {
@@ -397,6 +458,12 @@ def _apply_text_brief_compliance_gate(
                     "evidence_ids": [],
                     "validation_status": "rejected",
                 }
+                continue
+        if has_hard(check({"invalidation": view["invalidation"], "evidence_ids": refs})):
+            view["invalidation"] = (_strip_flagged_parts(view["invalidation"], flagged("invalidation", refs))
+                                    or TEXT_BRIEF_MISSING_INVALIDATION)
+            removed_ids.append(f"forward_views.{horizon}.invalidation")
+            brief_payload["confidence"] = "low"
 
     has_direction = any(view["stance"] != "uncertain" and view.get("evidence_ids")
                         and view.get("validation_status") != "rejected"
@@ -406,8 +473,8 @@ def _apply_text_brief_compliance_gate(
             brief_payload["overall_stance"] = "uncertain"
         brief_payload["confidence"] = "low"
         brief_payload["confidence_reason"] = "部分期間的分析依據無法確認，信心調降；請參考其餘有依據的期間判斷。"
-    elif any(item.endswith(".invalidation") for item in removed_ids):
-        brief_payload["confidence_reason"] = "部分失效條件未通過檢查，已保留有依據的方向與理由，信心調降。"
+    elif any(item.endswith((".reason", ".invalidation")) for item in removed_ids):
+        brief_payload["confidence_reason"] = "部分期間展望的文字未通過檢查，已刪除該部分並保留有依據的方向，信心調降。"
 
     refs = list(_text_brief_referenced_ids(brief_payload))
     replacements = {"headline": "依可核對資料整理個股現況與展望",

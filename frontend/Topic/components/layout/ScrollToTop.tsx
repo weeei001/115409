@@ -17,6 +17,7 @@ export function ScrollToTop() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  // 小燈出現時會寫 --assistant-dock-offset，這顆鈕疊在它上方（features/assistant/AssistantDock.tsx）
   return (
     <AnimatePresence>
       {visible ? (
@@ -28,7 +29,7 @@ export function ScrollToTop() {
             // 捲回頂端後這顆鈕會消失：焦點交給內容開頭，不要掉到 body（03-F8）
             focusMainContent();
           }}
-          className="fixed right-[calc(1.5rem+var(--app-safe-area-right))] bottom-[calc(1.5rem+var(--app-safe-area-bottom))] z-40 hidden size-12 items-center lg:flex justify-center rounded-md border border-border-strong bg-card text-foreground shadow-raised transition-colors duration-(--dur-flash) hover:bg-accent focus-lamp"
+          className="fixed right-[calc(1.5rem+var(--app-safe-area-right))] bottom-[calc(1.5rem+var(--assistant-dock-offset,0px)+var(--app-safe-area-bottom))] z-40 hidden size-12 items-center lg:flex justify-center rounded-md border border-border-strong bg-card text-foreground shadow-raised transition-colors duration-(--dur-flash) hover:bg-accent focus-lamp"
           initial={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}
           animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
           exit={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}

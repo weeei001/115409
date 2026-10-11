@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ChevronDown, LogIn, Plus } from 'lucide-react';
+import { ChevronDown, LogIn, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import type { ConversationSummary } from '@/lib/api/conversations';
 import { Button } from '@/components/ui/button';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
@@ -27,6 +28,9 @@ interface Props {
    * 標題列右側留位置給抽屜的關閉鈕，搜尋框換一個 id（避免和隱藏中的左欄重複）。
    */
   variant?: 'panel' | 'sheet';
+  /** panel 才有：收合成細條（只留展開與新增對話），把寬度讓給對話與資料 */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 /** 日誌索引的日期欄：月／日 時:分（24 小時制，等寬對齊） */
@@ -41,19 +45,68 @@ function formatUpdatedAt(value: string): string {
 export function ConversationHistory(props: Props) {
   const sheet = props.variant === 'sheet';
   const searchId = sheet ? 'conversation-search-sheet' : 'conversation-search';
+  /** 收合／展開時按鈕換成另一顆：焦點跟到新的那顆，鍵盤使用者不會掉回頁首 */
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    toggleRef.current?.focus();
+  }, [props.collapsed]);
+  const toggle = () => {
+    refocus.current = true;
+    props.onToggleCollapsed?.();
+  };
+  /* 燈質記號：清單讀取中 Q、已載入 F、失敗熄燈；訪客沒有清單就不放 */
+  const glyph = !props.ready ? <LightGlyph state="loading" /> : props.signedIn
+    ? <LightGlyph state={props.loading ? 'loading' : props.error ? 'error' : 'ready'} /> : null;
+
+  if (!sheet && props.collapsed) {
+    // 細條：頂端一格和其他欄的標題列同高，底下是新增對話；訪客多一顆登入（展開時的登入說明收在細條裡看不到）
+    return (
+      <aside aria-label="歷史對話" className="flex w-14 shrink-0 flex-col items-center bg-card lg:min-h-0">
+        <h2 className="sr-only">歷史對話</h2>
+        <div className="flex h-14 w-full shrink-0 items-center justify-center border-b border-border-strong">
+          <Button ref={toggleRef} type="button" variant="ghost" size="icon" onClick={toggle} aria-expanded={false}
+            aria-label="展開歷史對話" title="展開歷史對話" className="text-muted-foreground hover:text-foreground">
+            <PanelLeftOpen className="size-[18px]" aria-hidden />
+          </Button>
+        </div>
+        <Button type="button" variant="ghost" size="icon" onClick={props.onNew} disabled={!props.ready}
+          aria-label="新增對話" title="新增對話" className="mt-1.5 text-muted-foreground hover:text-foreground">
+          <Plus className="size-[18px]" aria-hidden />
+        </Button>
+        {props.ready && !props.signedIn ? (
+          <Button asChild variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+            <Link href="/login?returnUrl=%2Fai" aria-label="登入以儲存對話" title="登入以儲存對話">
+              <LogIn className="size-[18px]" aria-hidden />
+            </Link>
+          </Button>
+        ) : null}
+      </aside>
+    );
+  }
+
   return (
     <aside aria-label="歷史對話" className={cn('flex min-w-0 flex-col bg-card', sheet ? 'min-h-0 flex-1' : 'shrink-0 lg:min-h-0 lg:w-72')}>
-      <div className={cn('flex min-h-14 items-center justify-between gap-2 border-b border-border-strong py-1.5 pl-4', sheet ? 'pr-16' : 'pr-1.5')}>
+      {/* 和對話欄、資料欄的標題列同高（h-14），三欄的粗線連成一條 */}
+      <div className={cn('flex h-14 shrink-0 items-center justify-between gap-1 border-b border-border-strong pl-4', sheet ? 'pr-16' : 'pr-1.5')}>
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="font-serif text-xl leading-snug font-black tracking-[0.06em]">歷史對話</h2>
-          {/* 燈質記號：清單讀取中 Q、已載入 F、失敗熄燈；訪客沒有清單就不放 */}
-          {!props.ready ? <LightGlyph state="loading" /> : props.signedIn
-            ? <LightGlyph state={props.loading ? 'loading' : props.error ? 'error' : 'ready'} /> : null}
+          {glyph}
         </div>
-        <Button type="button" variant="ghost" onClick={props.onNew} disabled={!props.ready} className="px-3">
-          <Plus aria-hidden className="text-muted-foreground" />
-          新增對話
-        </Button>
+        <div className="flex shrink-0 items-center">
+          <Button type="button" variant="ghost" onClick={props.onNew} disabled={!props.ready} className="px-3">
+            <Plus aria-hidden className="text-muted-foreground" />
+            新增對話
+          </Button>
+          {!sheet && props.onToggleCollapsed ? (
+            <Button ref={toggleRef} type="button" variant="ghost" size="icon" onClick={toggle} aria-expanded
+              aria-label="收合歷史對話" title="收合歷史對話" className="text-muted-foreground hover:text-foreground">
+              <PanelLeftClose className="size-[18px]" aria-hidden />
+            </Button>
+          ) : null}
+        </div>
       </div>
       {/* 載入＝燈質 Q（LoadingRows）；空資料＝燈質 F（EmptyState），能給下一步就附動作 */}
       {!props.ready ? <LoadingRows label="讀取對話紀錄…" className="h-[132px]" /> : !props.signedIn ? (

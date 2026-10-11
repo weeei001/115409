@@ -30,6 +30,7 @@ export function FavoriteStockSearch() {
 
   return (
     <Ledger
+      data-tour="favorites-search"
       aria-labelledby="add-favorite-heading"
       title={<span id="add-favorite-heading">加入收藏股</span>}
       stamp={

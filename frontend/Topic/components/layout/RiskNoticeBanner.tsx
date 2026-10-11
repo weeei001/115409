@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DISCLAIMER_PATH, INVESTMENT_RISK_NOTICE } from '@/lib/disclaimers';
-import { acknowledgeRiskNotice, browserStorage, hasAcknowledgedRiskNotice } from '@/lib/riskNotice';
+import { acknowledgeRiskNotice, browserStorage, hasAcknowledgedRiskNotice, RISK_NOTICE_ACK_EVENT } from '@/lib/riskNotice';
 
 /**
  * 首次造訪的投資風險提示：固定在畫面底部，按「我已了解」後不再出現。
@@ -37,6 +37,7 @@ export function RiskNoticeBanner() {
           onClick={() => {
             acknowledgeRiskNotice(browserStorage());
             setVisible(false);
+            window.dispatchEvent(new Event(RISK_NOTICE_ACK_EVENT));
           }}
         >
           我已了解

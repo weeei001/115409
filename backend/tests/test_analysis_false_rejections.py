@@ -105,13 +105,64 @@ def flows():
         {"id": "d_41", "date": "2026-10-02", "close": 1085.0, "chg_pct": 3.33, "foreign_net_lots": 12345}])
 
 
-def _gate(payload, bundle):
+def _gate(payload, bundle, allow_partial=True):
     for section in ("key_days", "current_status", "positive_factors", "negative_factors", "watch_points"):
         for item in payload[section]:
             item["evidence_ids"] = ["d_40"]
     for view in payload["forward_views"].values():
         view["evidence_ids"] = ["d_40"]
-    return gate._apply_text_brief_compliance_gate(payload, bundle=bundle, allow_partial_forward_views=True)
+    return gate._apply_text_brief_compliance_gate(payload, bundle=bundle, allow_partial_forward_views=allow_partial)
+
+
+@pytest.mark.parametrize("allow_partial", [False, True])
+def test_uncited_price_level_costs_its_clause_not_the_period(bundle, allow_partial):
+    payload = brief_payload()
+    short = payload["forward_views"]["short_1_5"]
+    short.update(stance="mildly_bearish", reason="外資連賣三日，短線支撐在 1,350 元附近，量縮整理。")
+    removed, hard_hits, _, blocked = _gate(payload, bundle, allow_partial)
+    assert not blocked and hard_hits
+    assert removed == ["forward_views.short_1_5.reason"]
+    assert short["reason"] == "外資連賣三日，量縮整理。"
+    assert short["stance"] == "mildly_bearish" and short.get("validation_status") is None
+    assert payload["confidence"] == "low"
+
+
+@pytest.mark.parametrize("invalidation, kept", [
+    ("外資轉為賣超，或收盤跌破 1,350 元。", "外資轉為賣超。"),
+    ("收盤跌破 1,350 元，或外資轉為賣超。", "外資轉為賣超。"),
+    # A condition cut from its result, or a result from its condition, is not kept.
+    ("若收盤跌破 1,350 元，則短線偏多看法失效。", gate.TEXT_BRIEF_MISSING_INVALIDATION),
+])
+def test_invalidation_keeps_the_conditions_without_price_levels(bundle, invalidation, kept):
+    payload = brief_payload()
+    short = payload["forward_views"]["short_1_5"]
+    short.update(stance="mildly_bullish", reason="外資回補，量能放大。", invalidation=invalidation)
+    removed, _, _, blocked = _gate(payload, bundle)
+    assert not blocked and removed == ["forward_views.short_1_5.invalidation"]
+    assert short["invalidation"] == kept and short["stance"] == "mildly_bullish"
+
+
+@pytest.mark.parametrize("reason", ["營收創高。外資賣超，建議停損。", "營收創高。若外資回補，短線可望挑戰 1,500 元。"])
+def test_advice_or_a_target_costs_the_whole_sentence(bundle, reason):
+    payload = brief_payload()
+    short = payload["forward_views"]["short_1_5"]
+    short.update(stance="mildly_bullish", reason=reason)
+    removed, _, _, blocked = _gate(payload, bundle)
+    assert not blocked and removed == ["forward_views.short_1_5.reason"]
+    assert short["reason"] == "營收創高。"
+
+
+def test_reason_without_a_clean_sentence_still_rejects_the_period(bundle):
+    def run(allow_partial):
+        payload = brief_payload()
+        payload["forward_views"]["short_1_5"].update(stance="mildly_bullish", reason="短線宜逢低布局，可分批進場。")
+        return payload, _gate(payload, bundle, allow_partial)
+
+    _, (_, _, _, blocked) = run(False)
+    assert blocked
+    payload, (removed, _, _, blocked) = run(True)
+    assert not blocked and "forward_views.short_1_5" in removed
+    assert payload["forward_views"]["short_1_5"]["validation_status"] == "rejected"
 
 
 def test_invalid_trigger_keeps_the_supported_risk(bundle):

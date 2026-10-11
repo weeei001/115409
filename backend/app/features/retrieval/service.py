@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError, NotFound, ServiceUnavailable
 from app.features.market.company_catalog import load_catalog
 from app.features.news.impact import config_hash
-from app.features.news.sentiment import extract_candidate_stocks, source_quote_span
+from app.features.news.text import extract_candidate_stocks, source_quote_span
 from app.features.news.eligibility import contains_simulation
 from app.features.news.versions import source_states
 from . import repository

@@ -61,7 +61,8 @@ class ConversationService:
     def rate(self, user_id, conversation_id, message_id, rating):
         """Record or clear (rating=None) the owner's rating of a completed assistant answer."""
         with self.session_factory() as db, db.begin():
-            self._owned(db, user_id, conversation_id)
+            # Serialize feedback creation/update/removal with other ratings and deletion.
+            self._owned(db, user_id, conversation_id, lock=True)
             if not repository.feedback_ready(db):
                 raise ServiceUnavailable("回饋功能尚未啟用，請稍後再試")
             if repository.rateable_message(db, conversation_id, message_id) is None:
@@ -69,8 +70,7 @@ class ConversationService:
             if rating is None:
                 repository.clear_feedback(db, message_id)
             else:
-                repository.set_feedback(db, user_id=user_id, conversation_id=conversation_id,
-                                        message_id=message_id, rating=rating, now=utcnow())
+                repository.set_feedback(db, message_id=message_id, rating=rating, now=utcnow())
             return MessageFeedback(message_id=message_id, rating=rating)
 
     def delete(self, user_id, conversation_id):

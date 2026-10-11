@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.user import User
+from app.features.audit.service import audit
 from app.features.auth import repository
 from app.features.auth.schemas import (
     ChangePasswordRequest, GoogleAuthRequest, LoginRequest, RegisterRequest,
@@ -85,9 +86,15 @@ def register(db: Session, body: RegisterRequest, settings: Settings) -> TokenRes
     )
     db.add(user)
     try:
+        db.flush()
+        audit(db, user.id, user.email, "auth.register", str(user.id), "succeeded")
         _commit(db)
     except IntegrityError:
+        db.rollback()
         raise AppError("此 email 已註冊", status_code=400) from None
+    except SQLAlchemyError:
+        db.rollback()
+        raise
     db.refresh(user)
     return token_response(user, settings)
 
@@ -95,8 +102,16 @@ def register(db: Session, body: RegisterRequest, settings: Settings) -> TokenRes
 def login(db: Session, body: LoginRequest, settings: Settings) -> TokenResponse:
     user = repository.by_email(db, str(body.email))
     if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
+        audit(db, user.id if user else None, user.email if user else str(body.email).strip().lower(),
+              "auth.login", "password", "failed")
+        _commit(db)
         raise AppError("帳號或密碼錯誤", status_code=401)
+    if not user.is_active:
+        audit(db, user.id, user.email, "auth.login", "password", "failed")
+        _commit(db)
     _require_active(user)
+    audit(db, user.id, user.email, "auth.login", "password", "succeeded")
+    _commit(db)
     return token_response(user, settings)
 
 
@@ -113,6 +128,8 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
     user = repository.by_google_sub(db, sub)
     if user:
         _require_active(user)
+        audit(db, user.id, user.email, "auth.login", "google", "succeeded")
+        _commit(db)
         return token_response(user, settings)
     user = repository.by_email(db, str(email))
     if user:
@@ -122,8 +139,11 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
         if not user.google_sub:
             user.google_sub = sub
             try:
+                audit(db, user.id, user.email, "auth.google_link", str(user.id), "succeeded")
+                audit(db, user.id, user.email, "auth.login", "google", "succeeded")
                 _commit(db)
             except IntegrityError:
+                db.rollback()
                 raise AppError("此 email 已綁定其他 Google 帳號", status_code=409) from None
     else:
         name = info.get("name")
@@ -133,9 +153,16 @@ def google_login(db: Session, body: GoogleAuthRequest, settings: Settings) -> To
         )
         db.add(user)
         try:
+            db.flush()
+            audit(db, user.id, user.email, "auth.register", str(user.id), "succeeded", {"provider": "google"})
+            audit(db, user.id, user.email, "auth.login", "google", "succeeded")
             _commit(db)
         except IntegrityError:
+            db.rollback()
             raise AppError("無法建立帳號（可能與既有帳號衝突）", status_code=409) from None
+        except SQLAlchemyError:
+            db.rollback()
+            raise
     db.refresh(user)
     return token_response(user, settings)
 
@@ -149,6 +176,7 @@ def change_password(db: Session, user: User, body: ChangePasswordRequest) -> str
         raise AppError("新密碼不可與目前密碼相同", status_code=400)
     user.password_hash = hash_password(body.new_password)
     repository.delete_reset_tokens(db, user.id)
+    audit(db, user.id, user.email, "auth.password_change", str(user.id), "succeeded")
     _commit(db)
     return "密碼已更新。"
 
@@ -193,5 +221,6 @@ def reset_password(db: Session, raw_token: str, new_password: str) -> str:
     _require_active(user)
     user.password_hash = hash_password(new_password)
     repository.delete_reset_tokens(db, user.id)
+    audit(db, user.id, user.email, "auth.password_reset", str(user.id), "succeeded")
     _commit(db)
     return "密碼已重設，請使用新密碼登入。"

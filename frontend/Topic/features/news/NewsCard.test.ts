@@ -17,16 +17,6 @@ const news: News = {
     importance: 'high', basis: 'reported', reason: 'STALE_IMPACT_REASON', evidence: [],
   }] },
 };
-for (const status of ['conflict', 'superseded', 'historical'] as const) {
-  const html = renderToStaticMarkup(React.createElement(NewsCard, {
-    news: { ...news, source_state: { status, eligible: false, revision_id: 'a'.repeat(64) } }, targetStock: '2330',
-  }));
-  assert.ok(html.includes('這個版本不顯示 AI 影響分析'));
-  assert.ok(html.includes('查看原文與版本狀態') && !html.includes('#analysis'));
-  assert.ok(!html.includes('STALE_IMPACT_REASON'));
-  assert.ok(renderedElements(html, 'a').some((link) => link.attribs.href === news.url));
-  if (status === 'historical') assert.ok(html.includes(`revision_id=${'a'.repeat(64)}`));
-}
 const activeHtml = renderToStaticMarkup(React.createElement(NewsCard, { news, targetStock: '2330' }));
 assert.ok(activeHtml.includes('bg-up-muted text-up-emphasis border-up/30'));
 assert.doesNotMatch(activeHtml, /emerald|rose|slate|amber|zinc/);
@@ -98,4 +88,4 @@ for (const content of [
   const markup = renderToStaticMarkup(React.createElement(NewsCard, { news: { ...news, content } }));
   for (const tag of ['script', 'img', 'style']) assert.equal(renderedElements(markup, tag).length, 0);
 }
-console.log('NewsCard version state tests passed');
+console.log('NewsCard current article tests passed');

@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 
-from app.features.news.sentiment import extract_candidate_stocks, source_quote_span
+from app.features.news.text import extract_candidate_stocks, source_quote_span
 
 
 _MONTHLY_REVENUE = re.compile(

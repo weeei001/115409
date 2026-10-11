@@ -2,20 +2,23 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 import json
 import math
 import re
 import time
-from datetime import date
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, state_directory
+from app.core.http import make_sync_http_client
 from app.db.engine import make_engine
 from app.db.models.daily_price import DailyPrice
 from app.db.models.institutional_trade import InstitutionalTrade
@@ -59,6 +62,18 @@ def _months(start: date, end: date) -> list[date]:
     return result
 
 
+class OfficialRequestError(RuntimeError):
+    """Safe endpoint diagnostics without URL queries, credentials or payloads."""
+
+    def __init__(self, url: str, cause: Exception):
+        self.endpoint = urlsplit(url).path
+        self.error_type = type(cause).__name__
+        response = getattr(cause, "response", None)
+        self.status_code = getattr(response, "status_code", None)
+        status = f" status={self.status_code}" if isinstance(self.status_code, int) else ""
+        super().__init__(f"stage=official_request path={self.endpoint}{status} error={self.error_type}")
+
+
 class OfficialClient:
     def __init__(self, http: httpx.Client, interval: float, retries: int):
         self.http = http
@@ -82,8 +97,20 @@ class OfficialClient:
             except (httpx.HTTPError, ValueError, UnicodeError) as exc:
                 last_error = exc
                 if attempt < self.retries:
-                    time.sleep(1.5 * (attempt + 1))
-        raise RuntimeError(f"Official request failed: {url.rsplit('/', 1)[-1]}") from last_error
+                    response = getattr(exc, "response", None)
+                    retry_after = getattr(response, "headers", {}).get("Retry-After")
+                    delay = min(120.0, 2.0 ** (attempt + 2))
+                    if retry_after:
+                        try:
+                            delay = min(120.0, max(0.0, float(retry_after)))
+                        except ValueError:
+                            try:
+                                retry_at = parsedate_to_datetime(retry_after)
+                                delay = min(120.0, max(0.0, (retry_at - datetime.now(retry_at.tzinfo)).total_seconds()))
+                            except (TypeError, ValueError, OverflowError):
+                                pass
+                    time.sleep(delay)
+        raise OfficialRequestError(url, last_error) from last_error
 
 
 def _twse_prices(client: OfficialClient, symbol: str, month: date,
@@ -244,13 +271,21 @@ def _symbols_from_db(engine) -> list[str]:
         return list(db.execute(text("select symbol from stock_info order by symbol")).scalars())
 
 
+def _save_checkpoint(path: Path, report: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    temporary.replace(path)
+
+
 def backfill(args: argparse.Namespace) -> dict:
     from app.jobs.market import benchmark, institutional
 
-    engine = make_engine(get_settings())
+    settings = get_settings()
+    engine = make_engine(settings)
     if getattr(args, "benchmark_only", False):
         try:
-            with httpx.Client(timeout=args.timeout, trust_env=False, follow_redirects=True) as http:
+            with make_sync_http_client(settings, timeout=args.timeout, follow_redirects=True) as http:
                 client = OfficialClient(http, args.interval, args.retries)
                 count = benchmark.import_history(engine, client, args.start, args.end,
                                                  incremental=args.incremental)
@@ -268,17 +303,42 @@ def backfill(args: argparse.Namespace) -> dict:
     except BaseException:
         engine.dispose()
         raise
+    scope = {"start": args.start.isoformat(), "end": args.end.isoformat(),
+             "symbols": list(symbols), "include_institutional": getattr(args, "include_institutional", False),
+             "skip_valuations": getattr(args, "skip_valuations", False),
+             "skip_benchmark": getattr(args, "skip_benchmark", False)}
     report = {"start": args.start.isoformat(), "end": args.end.isoformat(),
-              "symbols": len(symbols), "datasets": {}, "requests": 0}
+              "symbols": len(symbols), "datasets": {}, "requests": 0,
+              "checkpoint": {"scope": scope, "completed_symbols": [], "symbol_days": {}}}
+    if getattr(args, "resume", False) and args.out.exists():
+        saved = json.loads(args.out.read_text(encoding="utf-8"))
+        checkpoint = saved.get("checkpoint")
+        if not isinstance(checkpoint, dict) or checkpoint.get("scope") != scope:
+            raise ValueError("Market history resume checkpoint scope mismatch")
+        report = saved
     prices: dict[str, list[dict]] = {symbol: [] for symbol in symbols}
     market_members: dict[date, dict[str, set[str]]] = {}
     try:
-        with httpx.Client(timeout=args.timeout, trust_env=False, follow_redirects=True) as http:
+        with make_sync_http_client(settings, timeout=args.timeout, follow_redirects=True) as http:
             client = OfficialClient(http, args.interval, args.retries)
             if not getattr(args, "skip_benchmark", False):
                 report["datasets"]["benchmark_prices"] = benchmark.import_history(
                     engine, client, args.start, args.end, incremental=getattr(args, "incremental", False))
+            completed = set(report["checkpoint"].get("completed_symbols", []))
             for symbol in symbols:
+                if getattr(args, "resume", False) and symbol in completed:
+                    saved_days = report["checkpoint"].get("symbol_days", {}).get(symbol, [])
+                    with Session(engine) as db:
+                        stored_days = [day.isoformat() for day in db.scalars(select(DailyPrice.date).where(
+                            DailyPrice.symbol == symbol, DailyPrice.date >= args.start,
+                            DailyPrice.date <= args.end).order_by(DailyPrice.date))]
+                    if stored_days == [item["date"] for item in saved_days]:
+                        prices[symbol] = [{"date": date.fromisoformat(item["date"])} for item in saved_days]
+                        for item in saved_days:
+                            market_members.setdefault(date.fromisoformat(item["date"]),
+                                {"TWSE": set(), "TPEx": set()})[item["market"]].add(symbol)
+                        print(f"price {symbol} resumed rows={len(stored_days)}", flush=True)
+                        continue
                 market_prices = {"TWSE": [], "TPEx": []}
                 for month in _months(args.start, args.end):
                     # A transfer can split one month across both official markets.
@@ -301,6 +361,12 @@ def backfill(args: argparse.Namespace) -> dict:
                     for row in rows:
                         members = market_members.setdefault(row["date"], {"TWSE": set(), "TPEx": set()})
                         members[market].add(symbol)
+                report["checkpoint"]["completed_symbols"] = sorted(completed | {symbol})
+                report["checkpoint"]["symbol_days"][symbol] = sorted([
+                    {"date": row["date"].isoformat(), "market": market}
+                    for market, rows in market_prices.items() for row in rows], key=lambda item: item["date"])
+                completed.add(symbol)
+                _save_checkpoint(args.out, report)
                 print(f"price {symbol} rows={len(prices[symbol])}", flush=True)
 
             report["datasets"]["daily_prices"] = sum(len(rows) for rows in prices.values())
@@ -348,7 +414,8 @@ def backfill(args: argparse.Namespace) -> dict:
             for symbol in symbols:
                 if prices[symbol]:
                     with Session(engine) as db:
-                        recompute(db, symbol, args.start, args.end)
+                        # Corrected historical prices also affect later indicators.
+                        recompute(db, symbol, args.start)
         finally:
             engine.dispose()
     report["coverage"] = {
@@ -361,8 +428,7 @@ def backfill(args: argparse.Namespace) -> dict:
             "rows": report["datasets"].get("stock_valuations", 0),
             "symbols": len(symbols),
         }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    _save_checkpoint(args.out, report)
     return report
 
 
@@ -373,9 +439,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end", type=date.fromisoformat, default=date.today())
     parser.add_argument("--out", type=Path,
                         default=state_directory(production=Path(".state")) / "market" / "history_2y.json")
-    parser.add_argument("--interval", type=float, default=0.5)
+    parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--timeout", type=float, default=30)
-    parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument("--retries", type=int, default=5)
+    parser.add_argument("--resume", action="store_true", help="Resume verified completed symbols from the output report")
     parser.add_argument("--skip-valuations", action="store_true")
     parser.add_argument("--include-institutional", action="store_true", help="Import dated official institutional trades")
     parser.add_argument("--skip-benchmark", action="store_true", help="Keep a single-stock backfill scoped to that stock")
@@ -393,7 +460,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = backfill(args)
     except Exception as exc:
-        print(f"Official market backfill failed ({type(exc).__name__})")
+        detail = str(exc) if isinstance(exc, OfficialRequestError) else type(exc).__name__
+        print(f"Official market backfill failed ({detail})")
         return 1
     print(json.dumps({"status": "ok", "datasets": report["datasets"], "requests": report["requests"]},
                      ensure_ascii=False))
