@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.db.models.benchmark_price import BenchmarkPrice
+from app.db.models.benchmark_price import TAIEX, BenchmarkPrice
 
 
 SOURCE_URL = "https://www.twse.com.tw/zh/indices/taiex/mi-5min-hist.html"
@@ -34,7 +34,7 @@ def history(db: Session, start_date: date, end_date: date):
     if start_date > end_date:
         raise AppError("start_date must be on or before end_date", status_code=400)
     rows = list(db.scalars(select(BenchmarkPrice).where(
-        BenchmarkPrice.symbol == "TAIEX", BenchmarkPrice.date >= start_date,
+        BenchmarkPrice.symbol == TAIEX, BenchmarkPrice.date >= start_date,
         BenchmarkPrice.date <= end_date, BenchmarkPrice.close > 0,
     ).order_by(BenchmarkPrice.date)))
     return BenchmarkHistory(start_date=start_date, end_date=end_date, total=len(rows), data=rows)

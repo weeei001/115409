@@ -43,8 +43,7 @@ import {
 import { closeRange, dayChange, groupWatch } from './scene/screens';
 import { LOOKS, lookWeights } from './scene/theme';
 import { boardFigures, changeText, countsText, monitorFigures, quoteCharacteristic } from './boardFormat';
-import { fmtNum } from '@/lib/utils/format';
-import { signedText } from '@/components/common/LightEntry';
+import { fmtNum, signedText } from '@/lib/utils/format';
 
 const desktop: JourneyEnv = {
   reducedMotion: false,

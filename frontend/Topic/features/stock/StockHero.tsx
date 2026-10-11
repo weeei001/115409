@@ -1,12 +1,11 @@
 import { Minus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
 import { STOCK_RANGE_PRESETS, type StockRangePresetKey, type UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { MA_KEYS, type MaKey } from '@/lib/types/view';
-import { fmtPrice } from '@/lib/utils/format';
+import { fmtPrice, signedText } from '@/lib/utils/format';
 import { getValueTone, toneText } from '@/lib/utils/tone';
 import { PriceChart } from '@/components/charts/PriceChart';
 import { DataStamp, type LightState } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
-import { signedText } from '@/components/common/LightEntry';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/cn';

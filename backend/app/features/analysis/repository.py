@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.db.models.benchmark_price import TAIEX, BenchmarkPrice
+from app.db.models.brief_lesson import BRIEF_LESSON_READY, BriefLesson
 from app.db.models.daily_price import DailyPrice
 from app.db.models.market_extra import MonthlyRevenue, StockValuation
 from app.db.models.institutional_trade import InstitutionalTrade
@@ -24,23 +26,39 @@ from app.features.news.versions import source_identity
 from app.features.retrieval.common import parse_timestamp
 from .schemas import StockBehaviorTextBriefResponse
 from app.features.news.eligibility import contains_simulation
-from .evidence import (FINANCIAL_LOOKBACK_DAYS, LONG_TERM_LOOKBACK_DAYS,
+from .evidence import (BENCHMARK_LOOKBACK_DAYS, FINANCIAL_LOOKBACK_DAYS, LONG_TERM_LOOKBACK_DAYS,
                        REVENUE_LOOKBACK_DAYS, TIMELINE_TRADING_DAYS,
                        VALUATION_RANK_LOOKBACK_DAYS)
 
+PAST_REVIEW_LIMIT = 3
 
-def collect_rows(db: Session, *, symbol: str, as_of: date) -> dict[str, list[Any]]:
+
+def collect_rows(db: Session, *, symbol: str, as_of: date, lessons: bool = False) -> dict[str, list[Any]]:
     start = as_of - timedelta(days=LONG_TERM_LOOKBACK_DAYS)
     prices = symbol_range(db, DailyPrice, symbol, start, as_of)
     chip_start = prices[-TIMELINE_TRADING_DAYS].date if len(prices) >= TIMELINE_TRADING_DAYS else start
-    return {
+    rows = {
         "price_rows": prices,
         "chip_rows": symbol_range(db, InstitutionalTrade, symbol, chip_start, as_of),
         "technical_rows": symbol_range(db, TechnicalIndicator, symbol, start, as_of),
         "income_rows": financial_statements(db, symbol, "income", as_of - timedelta(days=FINANCIAL_LOOKBACK_DAYS), as_of, None),
         "revenue_rows": symbol_range(db, MonthlyRevenue, symbol, as_of - timedelta(days=REVENUE_LOOKBACK_DAYS), as_of),
         "valuation_rows": symbol_range(db, StockValuation, symbol, as_of - timedelta(days=VALUATION_RANK_LOOKBACK_DAYS), as_of),
+        "benchmark_rows": symbol_range(db, BenchmarkPrice, TAIEX,
+                                       as_of - timedelta(days=BENCHMARK_LOOKBACK_DAYS), as_of),
     }
+    if lessons:
+        # Inside the input fingerprint, so a review settled after a cached brief makes it stale.
+        rows["lesson_rows"] = past_reviews(db, symbol=symbol, as_of=as_of)
+    return rows
+
+
+def past_reviews(db: Session, *, symbol: str, as_of: date, limit: int = PAST_REVIEW_LIMIT) -> list[BriefLesson]:
+    rows = db.scalars(select(BriefLesson).where(
+        BriefLesson.symbol == symbol, BriefLesson.status == BRIEF_LESSON_READY,
+        BriefLesson.resolved_on <= as_of, BriefLesson.as_of_date < as_of,
+    ).order_by(BriefLesson.resolved_on.desc(), BriefLesson.id.desc()).limit(limit))
+    return list(reversed(list(rows)))
 
 
 def trend_inputs(db: Session, *, symbol: str, history_days: int,
@@ -110,7 +128,7 @@ def news_article_ids(value: Any) -> set[str]:
 
 
 def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
-                      referenced_article_ids: set[str] | None = None) -> str:
+                      referenced_article_ids: set[str] | None = None, lessons: bool = False) -> str:
     """Detect same-day additions, corrections and deletions without provider calls."""
     digest = hashlib.sha256()
 
@@ -118,7 +136,8 @@ def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
         digest.update(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
         digest.update(b"\n")
 
-    for name, items in sorted((rows if rows is not None else collect_rows(db, symbol=symbol, as_of=as_of)).items()):
+    rows = rows if rows is not None else collect_rows(db, symbol=symbol, as_of=as_of, lessons=lessons)
+    for name, items in sorted(rows.items()):
         update(name)
         for item in items:
             update({column.name: getattr(item, column.name) for column in item.__table__.columns})
@@ -218,7 +237,7 @@ def load_latest_saved(db: Session, *, symbol: str, as_of: date) -> StockBehavior
 
 def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
                 source_fingerprints: dict[date, str] | None = None,
-                evidence_fingerprint: str | None = None) -> StockBehaviorTextBriefResponse | None:
+                evidence_fingerprint: str | None = None, lessons: bool = False) -> StockBehaviorTextBriefResponse | None:
     statement = select(LlmResponse).where(
         LlmResponse.symbol == symbol, LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF,
         LlmResponse.is_fallback.is_(False),
@@ -246,7 +265,7 @@ def load_cached(db: Session, *, symbol: str, config_hash: str, as_of: date,
             key = (row.as_of_date, tuple(sorted(referenced))) if referenced else row.as_of_date
             if key not in fingerprints:
                 fingerprints[key] = input_fingerprint(db, symbol=symbol, as_of=row.as_of_date,
-                                                       referenced_article_ids=referenced)
+                                                       referenced_article_ids=referenced, lessons=lessons)
             if config["input_fingerprint"] == fingerprints[key]:
                 return response
     return None
@@ -274,13 +293,15 @@ def track_record_snapshots(db: Session, *, symbol: str | None, since: date) -> l
     statement = select(
         LlmResponse.id, LlmResponse.symbol, LlmResponse.as_of_date, LlmResponse.created_at,
         func.json_extract(LlmResponse.response_json, "$.status").label("status"),
-        func.json_extract(LlmResponse.config_json, "$.purpose").label("purpose"), *stances,
+        func.json_extract(LlmResponse.config_json, "$.purpose").label("purpose"),
+        func.json_extract(LlmResponse.config_json, "$.past_review_count").label("past_review_count"), *stances,
     ).where(LlmResponse.kind == LLM_RESPONSE_KIND_TEXT_BRIEF, LlmResponse.is_fallback.is_(False),
             LlmResponse.as_of_date >= since)
     if symbol:
         statement = statement.where(LlmResponse.symbol == symbol)
     return [{
-        "symbol": row["symbol"], "as_of_date": row["as_of_date"], "created_at": row["created_at"],
+        "id": row["id"], "symbol": row["symbol"], "as_of_date": row["as_of_date"], "created_at": row["created_at"],
+        "past_review_count": _json_text(row["past_review_count"]),
         **{key: _json_text(row[key]) for key in _STANCE_PATHS},
     } for row in db.execute(statement.order_by(LlmResponse.id)).mappings()
         if _json_text(row["purpose"]) == "production" and _json_text(row["status"]) in {"verified", "limited"}]
@@ -296,3 +317,29 @@ def close_series(db: Session, symbols: set[str], since: date) -> dict[str, list[
     for row in rows:
         series[row.symbol].append((row.date, float(row.close)))
     return series
+
+
+def benchmark_series(db: Session, since: date) -> list[tuple[date, float]]:
+    return [(row.date, float(row.close)) for row in db.execute(
+        select(BenchmarkPrice.date, BenchmarkPrice.close).where(
+            BenchmarkPrice.symbol == TAIEX, BenchmarkPrice.date >= since,
+        ).order_by(BenchmarkPrice.date))]
+
+
+def lesson_calls(db: Session, symbols: set[str]) -> dict[tuple[str, str], list[tuple[date, date]]]:
+    """(as_of_date, resolved_on) of every reviewed call by (symbol, horizon), whatever its status,
+    so a rejected one is not retried every run."""
+    calls: dict[tuple[str, str], list[tuple[date, date]]] = {}
+    if not symbols:
+        return calls
+    for row in db.execute(select(BriefLesson.symbol, BriefLesson.horizon, BriefLesson.as_of_date,
+                                 BriefLesson.resolved_on).where(BriefLesson.symbol.in_(symbols))):
+        calls.setdefault((row.symbol, row.horizon), []).append((row.as_of_date, row.resolved_on))
+    return calls
+
+
+def snapshot_responses(db: Session, ids: set[int]) -> dict[int, str]:
+    if not ids:
+        return {}
+    return {row.id: row.response_json for row in db.execute(
+        select(LlmResponse.id, LlmResponse.response_json).where(LlmResponse.id.in_(ids)))}

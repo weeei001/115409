@@ -11,9 +11,8 @@
  *   右「加權指數」面板（收盤、漲跌、與觀測台同一條走勢線）。
  * 海報（idle）不畫任何資料與日期：螢幕是中性的圖廓、格線與一條無日期的走勢線（像海圖上的畫，不是載入中的灰條）。
  */
-import { signedText } from '@/components/common/LightEntry';
 import { getChartPalette, type ChartPalette } from '@/lib/charts/theme';
-import { fmtNum, fmtPrice } from '@/lib/utils/format';
+import { fmtNum, fmtPrice, signedText } from '@/lib/utils/format';
 import type { BeaconJourneyProps } from '../types';
 import { CLOSE_DATA_NOTE, changeText, quoteCharacteristic } from '../boardFormat';
 import { PAGE_TOKEN_FALLBACK } from './theme';

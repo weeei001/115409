@@ -140,3 +140,41 @@ def test_owner_rates_completed_answers_and_admin_sees_summary(client, conversati
     client.put(url, headers=headers, json={"rating": "up"})
     assert client.delete(f"/api/conversations/{conversation_id}", headers=headers).status_code == 204
     assert db_session.scalar(select(ChatMessageFeedback)) is None
+
+
+def usage_row(db, *, metadata, latency_ms, fallback=False, age_days=0):
+    db.add(LlmResponse(symbol="2330", as_of_date=START, kind=LLM_RESPONSE_KIND_TEXT_BRIEF, config_hash="h",
+                       config_json="{}", is_fallback=fallback, latency_ms=latency_ms,
+                       normalized_json=json.dumps({"payload": {}, "model_metadata": metadata}),
+                       created_at=datetime.utcnow() - timedelta(days=age_days)))
+
+
+def test_admin_sees_brief_tokens_latency_and_estimated_cost(client, db_session, settings):
+    usage_row(db_session, latency_ms=3000, metadata={"prompt_tokens": 600, "completion_tokens": 120,
+              "usage_total": {"prompt_tokens": 1000, "completion_tokens": 200}, "validation_attempts": 2})
+    # Saved before retries were summed: only the last call's usage is known.
+    usage_row(db_session, latency_ms=1000, metadata={"prompt_tokens": 800, "completion_tokens": 100,
+                                                     "validation_attempts": 1})
+    usage_row(db_session, latency_ms=None, metadata={"validation_attempts": 2}, fallback=True)
+    # Two calls but no total (one went unreported): the last call alone would understate the cost.
+    usage_row(db_session, latency_ms=None, metadata={"prompt_tokens": 500, "completion_tokens": 50,
+                                                     "validation_attempts": 2})
+    usage_row(db_session, latency_ms=9000, metadata={"prompt_tokens": 9, "completion_tokens": 9}, age_days=40)
+    db_session.commit()
+    _, headers = credentials(db_session, settings)
+    _, admin = credentials(db_session, settings, admin=True)
+    assert client.get("/admin/ai-usage").status_code == 403
+    assert client.get("/admin/ai-usage", headers=headers).status_code == 403
+
+    response = client.get("/admin/ai-usage", headers=admin)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    usage = response.json()
+    assert (usage["briefs"], usage["unavailable"], usage["measured"]) == (4, 1, 2)
+    assert (usage["avg_prompt_tokens"], usage["avg_completion_tokens"]) == (900.0, 150.0)
+    assert usage["avg_latency_seconds"] == 2.0 and usage["retry_rate"] == pytest.approx(0.75)
+    # (1000 × 0.20 + 200 × 1.20) / 1e6 and (800 × 0.20 + 100 × 1.20) / 1e6 at the default prices.
+    assert (usage["input_price_per_m"], usage["output_price_per_m"]) == (0.2, 1.2)
+    assert usage["avg_cost_usd"] == pytest.approx(0.00036) and usage["total_cost_usd"] == pytest.approx(0.0007)
+    empty = client.get("/admin/ai-usage", headers=admin, params={"days": 1}).json()
+    assert empty["briefs"] == 4
+    assert client.get("/admin/ai-usage", headers=admin, params={"days": 0}).status_code == 422

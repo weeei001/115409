@@ -97,7 +97,8 @@ from app.features.favorites import service
 from app.features.analysis import service
 from app.features.chat import service
 from app.features.retrieval import service
-from app.features.simulation import service
+from app.features.signals import service
+from app.features.backtest import service
 '''
     result = subprocess.run([sys.executable, "-I", "-c", script, str(ROOT)], cwd=ROOT,
                             capture_output=True, text=True)

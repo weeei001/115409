@@ -39,6 +39,15 @@ export const STANCE_HINT: Record<string, string> = {
 
 export const STANCE_NOTE = 'AI 依行情、籌碼、營運與新聞推論的方向，不是評級，也不是買賣建議。';
 
+/** 單一結論的方向（Claim.direction）；畫面上另外配＋／－ 符號（BriefAtoms 的 DirectionMark），不只靠顏色 */
+export const DIRECTION: Record<string, string> = {
+  positive: '正面',
+  negative: '負面',
+  mixed: '多空交雜',
+  neutral: '中性',
+  not_applicable: '不適用',
+};
+
 export function forwardViewLabel(view: ForwardView): string {
   return view.validation_status === 'rejected'
     ? '內容未通過檢查'

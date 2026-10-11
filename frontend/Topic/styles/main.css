@@ -548,3 +548,13 @@
     animation: none !important;
   }
 }
+
+/* 列印：顏色直接套用，不跑過渡。可列印的 AI 報告在 beforeprint 換回淺色，過渡中拍下的快照會印成半深色 */
+@media print {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

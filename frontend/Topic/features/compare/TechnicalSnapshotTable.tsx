@@ -4,7 +4,7 @@ import type { TechnicalDay } from '@/lib/types/view';
 import { kdSignal, macdSignal, maPositionSignal, rsiSignal } from '@/lib/utils/compareSignals';
 import { fmtIndicator, INDICATOR_LABELS, MACD_DECIMALS, type Signal } from '@/lib/utils/indicatorSignals';
 import { SignalTag } from '@/components/common/SignalTag';
-import { signedText } from '@/components/common/LightEntry';
+import { signedText } from '@/lib/utils/format';
 import { cn } from '@/lib/cn';
 
 /** 小數位和個股頁一致（RSI、KD 1 位；MACD 柱 3 位用 signedText）；缺值用 -- */

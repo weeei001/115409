@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
 import type { Claim } from '@/lib/types/textBrief';
 import { buildEvidenceIndex } from '@/lib/brief/textBriefEvidence';
+import { byImportance } from '@/lib/brief/textBriefClaims';
 import { buildFacets, type Facet, type FacetTone } from '@/lib/brief/textBriefFacets';
 import { AI_RESEARCH_ONLY } from '@/lib/disclaimers';
 import {
@@ -64,9 +65,7 @@ function facetToneClass(facet: Facet): string {
 }
 
 function topClaims(items?: Claim[]): Claim[] {
-  return [...(items ?? [])]
-    .sort((a, b) => Number(b.importance === 'high') - Number(a.importance === 'high'))
-    .slice(0, FACTOR_LIMIT);
+  return byImportance(items ?? []).slice(0, FACTOR_LIMIT);
 }
 
 /** 帳頁外框：襯線標題「AI 投資分析」＋右側分析日戳記，底下一格方角面板 */

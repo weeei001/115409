@@ -5,14 +5,18 @@ import logging
 
 from sqlalchemy import func, select
 
+from app.clients.llm import LlmClient
 from app.core.config import get_settings
 from app.core.http import make_http_client
+from app.db.models.brief_lesson import BriefLesson
 from app.db.models.daily_price import DailyPrice
 from app.db.models.stock_info import StockInfo
 from app.db.engine import make_engine, make_session_factory
+from app.features.analysis.lessons import lessons_enabled
 from app.features.analysis.schemas import StockBehaviorTextBriefRequest
 from app.features.analysis.service import AnalysisService
 from app.features.retrieval.common import TAIPEI
+from app.jobs.brief_lessons import settle
 
 
 def as_of_dates(session_factory, symbol: str, start: date | None, end: date | None) -> list[date]:
@@ -44,6 +48,21 @@ async def warm(symbols: list[str] | None, start: date | None, end: date | None) 
         if symbols is None:
             symbols = await asyncio.to_thread(stock_info_symbols, session_factory)
         async with make_http_client(settings) as http:
+            reviewed = [symbol for symbol in symbols if lessons_enabled(settings, symbol)]
+            if reviewed:
+                try:
+                    # These stocks' briefs read the table even when this run writes no review.
+                    await asyncio.to_thread(BriefLesson.__table__.create, engine, checkfirst=True)
+                    reviewer = LlmClient(settings, http)
+                    if settings.JOBS_LESSONS_LIMIT and reviewer.enabled:
+                        # Settle first so today's briefs can read reviews resolved by today's close.
+                        report = await settle(session_factory, reviewer, reviewed,
+                                              limit=settings.JOBS_LESSONS_LIMIT, execute=True)
+                        print(f"job=brief-lessons due={report['due']} ready={report['ready']} "
+                              f"rejected={report['rejected']} failed={report['failed']}", flush=True)
+                except Exception as exc:
+                    # Reviews are optional input; a failure must not block the briefs themselves.
+                    logging.getLogger(__name__).error("Brief reviews failed (%s)", type(exc).__name__)
             for symbol in symbols:
                 dates = await asyncio.to_thread(as_of_dates, session_factory, symbol, start, end)
                 if not dates:

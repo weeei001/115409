@@ -23,6 +23,7 @@ from .conversation import Conversation, ConversationMessage
 from .chat_audit import ChatValidationRun
 from .chat_feedback import ChatMessageFeedback
 from .llm_response import LlmResponse
+from .brief_lesson import BriefLesson
 from .news_sentiment import NewsSentiment
 from .news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
 from .admin import AdminAccount, AdminJobControl, AdminJobRun, AdminAuditLog
@@ -62,6 +63,7 @@ __all__ = [
     "ChatValidationRun",
     "ChatMessageFeedback",
     "LlmResponse",
+    "BriefLesson",
     "AdminAccount",
     "AdminJobControl",
     "AdminJobRun",

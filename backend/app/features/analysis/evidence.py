@@ -20,6 +20,9 @@ NEWS_FIRST_PUBLIC_LIMITATION = "新聞的首次發布時間無法確認，分析
 FINANCIAL_PUBLISH_LAG_DAYS = 50
 ANNUAL_PUBLISH_LAG_DAYS = 95
 REVENUE_PUBLISH_DAY = 10
+# Calendar days; covers the Lunar New Year closure, so a longer gap means the data stopped updating.
+STALE_MARKET_DAYS = 10
+BENCHMARK_LOOKBACK_DAYS = 30
 
 FIELD_GLOSSARY: dict[str, str] = {
     "close": "收盤價（元）",
@@ -137,11 +140,13 @@ class EvidenceBundle:
     fundamental: list[dict[str, Any]] = field(default_factory=list)
     news: list[dict[str, Any]] = field(default_factory=list)
     missing_fields: list[str] = field(default_factory=list)
+    # Not evidence: pr_ ids are left out of evidence_ids(), so the brief cannot cite them.
+    past_reviews: list[dict[str, Any]] = field(default_factory=list)
     rag_fallback_mode: bool = False
     collected_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def as_payload_sections(self) -> dict[str, Any]:
-        return {
+        sections = {
             "daily_timeline": self.daily_timeline,
             "chip_summary": self.chip_summary,
             "long_term_anchor": self.long_term_anchor,
@@ -151,6 +156,10 @@ class EvidenceBundle:
             "data_limitations": ["價格為未還原收盤價，報酬未排除除權息與拆股影響",
                                  "財報可用日為估計；原始累計財報不等於單季 EPS"],
         }
+        # Only present with reviews, so a brief without any gets the same payload as with the feature off.
+        if self.past_reviews:
+            sections["past_reviews"] = self.past_reviews
+        return sections
 
     def evidence_ids(self) -> set[str]:
         ids: set[str] = set()
@@ -621,12 +630,36 @@ def build_news_items(
     return items
 
 
+def freshness_gaps(*, price_rows: Sequence[Any], chip_rows: Sequence[Any], technical_rows: Sequence[Any],
+                   benchmark_rows: Sequence[Any], as_of_date: date) -> list[str]:
+    """Name data that stopped updating, so a missing day is not read as a quiet day."""
+    if not price_rows:
+        return []
+    gaps: list[str] = []
+    latest = price_rows[-1].date
+    market = max((row.date for row in benchmark_rows if row.date <= as_of_date), default=None)
+    if market is not None and latest < market:
+        gaps.append(f"{market.isoformat()} 的個股行情（大盤已有該日收盤，個股只到 {latest.isoformat()}；"
+                    "可能暫停交易或資料尚未更新）")
+    reference = max(latest, market) if market is not None else latest
+    if (as_of_date - reference).days > STALE_MARKET_DAYS:
+        gaps.append(f"{reference.isoformat()} 之後的行情（距分析基準日 {(as_of_date - reference).days} 天，"
+                    "資料可能尚未更新）")
+    for rows, label in ((chip_rows, "三大法人買賣超"), (technical_rows, "技術指標")):
+        # No rows at all is reported by the timeline; this catches a source that fell behind.
+        if rows and rows[-1].date < latest:
+            gaps.append(f"{rows[-1].date.isoformat()} 之後的{label}（行情已到 {latest.isoformat()}）")
+    return gaps
+
+
 def build_evidence_bundle(*, symbol: str, as_of_date: date,
                           rows: dict[str, list[Any]], news_sources: Sequence[dict[str, Any]],
                           rag_fallback_mode: bool = False) -> EvidenceBundle:
     price_rows = [row for row in rows["price_rows"] if row.date <= as_of_date]
     chip_rows = [row for row in rows["chip_rows"] if row.date <= as_of_date]
     technical_rows = [row for row in rows["technical_rows"] if row.date <= as_of_date]
+    stale = freshness_gaps(price_rows=price_rows, chip_rows=chip_rows, technical_rows=technical_rows,
+                           benchmark_rows=rows.get("benchmark_rows", []), as_of_date=as_of_date)
     news = build_news_items(news_sources, summary_chars=None)
     timeline, timeline_missing = build_daily_timeline(
         price_rows=price_rows, chip_rows=chip_rows, technical_rows=technical_rows, news_items=news)
@@ -651,6 +684,23 @@ def build_evidence_bundle(*, symbol: str, as_of_date: date,
     return EvidenceBundle(
         symbol=symbol, as_of_date=as_of_date, daily_timeline=timeline,
         chip_summary=chips, long_term_anchor=anchor, fundamental=fundamental, news=news,
-        missing_fields=list(dict.fromkeys([*timeline_missing, *chip_missing, *anchor_missing, *fundamental_missing])),
+        missing_fields=list(dict.fromkeys([*stale, *timeline_missing, *chip_missing, *anchor_missing,
+                                           *fundamental_missing])),
+        past_reviews=build_past_reviews(rows.get("lesson_rows", []), as_of_date),
         rag_fallback_mode=rag_fallback_mode,
     )
+
+
+def build_past_reviews(lesson_rows: Sequence[Any], as_of_date: date) -> list[dict[str, Any]]:
+    """Settled reviews of earlier briefs on this stock; only outcomes known by the analysis date."""
+    usable = sorted((row for row in lesson_rows
+                     if row.resolved_on <= as_of_date and row.as_of_date < as_of_date),
+                    key=lambda row: (row.resolved_on, row.as_of_date, row.horizon))
+    ids = _IdGen("pr")
+    return [{key: value for key, value in {
+        "id": ids.next(), "analysis_date": row.as_of_date.isoformat(), "horizon": row.horizon,
+        "stance": row.stance, "resolved_on": row.resolved_on.isoformat(),
+        "return_pct": _round(_f(row.return_pct), 2),
+        "benchmark_return_pct": _round(_f(row.benchmark_return_pct), 2),
+        "result": row.result, "review": row.lesson,
+    }.items() if value is not None} for row in usable]

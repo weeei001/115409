@@ -1,22 +1,13 @@
 import React from 'react';
 import { Expandable } from '@/components/common/CollapsibleSection';
 import type { Brief, Claim, ForwardViews, KeyDay, Risk, WatchPoint } from '@/lib/types/textBrief';
-import { FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
-import { forwardViewKey } from '@/lib/brief/textBriefClaims';
-import { signedText } from '@/components/common/LightEntry';
+import { DIRECTION, FORWARD_VIEWS, forwardViewLabel, STANCE_TONE, type BriefTone } from '@/lib/brief/textBriefLabels';
+import { byImportance, forwardViewKey } from '@/lib/brief/textBriefClaims';
 import { ClaimRow } from './BriefHighlight';
-import { cn } from '@/lib/cn';
-import { ClaimTypeBadge, DirectionMark, Empty, SectionCard, StanceIcon, Tag } from './BriefAtoms';
+import { ClaimTypeBadge, DirectionMark, Empty, KeyDayMove, SectionCard, StanceIcon, Tag } from './BriefAtoms';
 
 /** 每段預設顯示幾項，其餘收在「展開更多」 */
 const SECTION_PREVIEW = 3;
-
-/** importance=high 先排；後端只有 high／medium 兩級 */
-function byImportance<T extends { importance?: string }>(items: T[]): T[] {
-  return [...items].sort(
-    (a, b) => Number(b.importance === 'high') - Number(a.importance === 'high')
-  );
-}
 
 function ItemGroup<T>({
   items,
@@ -47,14 +38,6 @@ function ItemGroup<T>({
   );
 }
 
-const DIRECTION_LABEL: Record<string, string> = {
-  positive: '正面',
-  negative: '負面',
-  mixed: '多空交雜',
-  neutral: '中性',
-  not_applicable: '不適用',
-};
-
 const ClaimItems: React.FC<{ items?: Claim[]; label: string }> = ({ items, label }) => (
   <ItemGroup
     items={byImportance(items ?? [])}
@@ -69,7 +52,7 @@ const ClaimItems: React.FC<{ items?: Claim[]; label: string }> = ({ items, label
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <DirectionMark
             direction={item.direction}
-            label={DIRECTION_LABEL[item.direction ?? 'neutral']}
+            label={DIRECTION[item.direction ?? 'neutral']}
           />
           <ClaimTypeBadge claimType={item.claim_type} />
         </div>
@@ -78,14 +61,6 @@ const ClaimItems: React.FC<{ items?: Claim[]; label: string }> = ({ items, label
     )}
   />
 );
-
-/** 漲跌幅由後端依 `ref` 回填，不是模型寫的，所以直接照數字上色 */
-function moveClass(move?: number | null): string {
-  if (move == null) return 'text-muted-foreground';
-  if (move > 0) return 'text-up';
-  if (move < 0) return 'text-down';
-  return 'text-muted-foreground';
-}
 
 const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
   <ItemGroup
@@ -97,11 +72,7 @@ const KeyDayItems: React.FC<{ items?: KeyDay[] }> = ({ items }) => (
           <span className="font-mono text-xs tabular-nums text-subtle">
             {item.date}
           </span>
-          <span className={cn('font-mono text-sm font-semibold tabular-nums', moveClass(item.move_pct))}>
-            {item.move_pct == null
-              ? '--'
-              : signedText(item.move_pct, 2, '%')}
-          </span>
+          <KeyDayMove move={item.move_pct} />
           {item.volume_ratio == null ? null : (
             <span className="font-mono text-xs tabular-nums text-muted-foreground">
               量能 {item.volume_ratio.toFixed(2)} 倍

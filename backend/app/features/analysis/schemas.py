@@ -235,6 +235,8 @@ class StockBehaviorTextBriefResponse(BaseModel):
     generated_at: str | None = None
     analysis_revision: str | None = None
     config_hash: str | None = None
+    past_review_count: int | None = Field(
+        default=None, description="這份分析讀到幾則已到期判斷的檢討；這檔股票未啟用檢討回饋時為 null。")
 
 class RawTextBriefClaim(BaseModel):
     id: Any = None
@@ -300,6 +302,9 @@ class TrackRecordOutcome(BaseModel):
     stance: Optional[str] = Field(default=None, description="該區間的 AI 立場（StanceLevel）；舊快照可能缺。")
     call: Literal["up", "down", "none"] = Field(description="看多／偏多為 up，看空／偏空為 down，其餘為 none。")
     return_pct: Optional[float] = Field(default=None, description="基準日收盤到區間終點收盤的漲跌幅（%）；未到期為 null。")
+    benchmark_return_pct: Optional[float] = Field(
+        default=None, description="同期間加權指數（未含息）的漲跌幅（%）；未到期或缺大盤資料為 null。")
+    resolved_on: Optional[str] = Field(default=None, description="區間終點的交易日（YYYY-MM-DD）；未到期為 null。")
     result: Literal["hit", "miss", "no_call", "pending"]
 
 
@@ -318,6 +323,10 @@ class TrackRecordHorizon(BaseModel):
     hit_rate: Optional[float] = Field(default=None, description="hits / directional_calls，0–1；沒有樣本為 null。")
     up_baseline_rate: Optional[float] = Field(
         default=None, description="同一批樣本中實際上漲的比例，即「每次都猜漲」的命中率，0–1。")
+    relative_calls: int = Field(default=0, description="已到期、有方向判斷且有同期大盤資料的樣本數。")
+    relative_hits: int = Field(default=0, description="看多且漲幅勝過大盤、看空且表現落後大盤的次數。")
+    relative_hit_rate: Optional[float] = Field(
+        default=None, description="relative_hits / relative_calls，0–1；沒有樣本為 null。")
     no_call: int = Field(description="已到期但立場為中性、分歧或不確定的樣本數。")
     pending: int = Field(description="尚未走完區間、還不能評分的樣本數。")
 

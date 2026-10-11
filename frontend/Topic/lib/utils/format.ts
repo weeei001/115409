@@ -22,6 +22,19 @@ export const uMinus = (text: string): string => text.replace(/^-/, MINUS);
 export const withSign = (value: number, abs: string): string =>
   value > 0 ? `+${abs}` : value < 0 ? `${MINUS}${abs}` : abs;
 
+/** 帶正負號的漲跌；負號用 U+2212，和數字等寬。百分比 signedText(v, 2, '%')、百分點 signedText(v, 2, ' 個百分點') */
+export function signedText(value: number | null | undefined, decimals = 2, suffix = ''): string {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return `${withSign(value, Math.abs(value).toFixed(decimals))}${suffix}`;
+}
+
+/** 百分點差距寫成一句：「比任一天進場高 0.42 個百分點」「和加權指數相同」；gap 由呼叫端先四捨五入，缺值時回傳 missing */
+export function gapText(gap: number | null, name: string, missing: string): string {
+  if (gap == null) return missing;
+  if (gap === 0) return `和${name}相同`;
+  return `比${name}${gap > 0 ? '高' : '低'} ${Math.abs(gap).toFixed(2)} 個百分點`;
+}
+
 /*
  * 股數一律顯示成「張」（1 張 = 1,000 股，四捨五入到整數張），同一欄不在股／萬股／億股之間切換（P1-21、決議 2026-10-06）。
  * API 的單位是股，這裡的函式都吃股數。不滿 1 張的非零值寫「不到 1 張」、不帶正負號，呼叫端也不上漲跌色（lotToneValue）。
@@ -122,3 +135,6 @@ export function fmtPercent(
   const prefix = sign && value > 0 ? '+' : '';
   return `${prefix}${text}%`;
 }
+
+/** 比例（0–1）→ 整數百分比：命中率、上漲比例這類讀數，0.5712 →「57%」 */
+export const rateText = (value: number | null | undefined): string => fmtPercent(value, { fromRatio: true, decimals: 0 });

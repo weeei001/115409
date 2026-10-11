@@ -4,6 +4,9 @@
  */
 export const AI_RESEARCH_ONLY = '僅供研究參考，不是投資建議。';
 
+/** AI 分析（完整分析、可列印報告）的後端沒給免責文字時的預設句 */
+export const AI_BRIEF_DISCLAIMER = `AI 依公開資料整理，${AI_RESEARCH_ONLY}投資前請自行評估風險。`;
+
 /** 新聞事件影響標籤：放在新聞區塊的標題層，不放在預設收合的內容裡 */
 export const NEWS_IMPACT_DISCLAIMER = `影響標籤由 AI 判讀，${AI_RESEARCH_ONLY}`;
 

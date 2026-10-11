@@ -13,3 +13,19 @@
 38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:117
 # Legacy Pydantic JSON schema example password/token; reviewed as a placeholder.
 38e41cfcf11bff99329a61b625335274bbf6f301:backend/schemas/auth.py:generic-api-key:118
+# Test fixture signal id foreign_buy_5 in an object literal; reviewed as a false positive, not a credential.
+b5acb430ba13e16d2e911d9f3798c731524c5cc1:frontend/Topic/features/admin/AIBacktestPanel.test.tsx:generic-api-key:34
+# Test fixture signal id foreign_buy_5 in an object literal; reviewed as a false positive, not a credential.
+b5acb430ba13e16d2e911d9f3798c731524c5cc1:frontend/Topic/features/admin/AIBacktestPanel.test.tsx:generic-api-key:36
+# Test fixture signal id foreign_buy_5 in an object literal; reviewed as a false positive, not a credential.
+b5acb430ba13e16d2e911d9f3798c731524c5cc1:frontend/Topic/features/admin/SignalCheckPanel.test.tsx:generic-api-key:17
+# Test fixture signal id foreign_buy_5 in an object literal; reviewed as a false positive, not a credential.
+b5acb430ba13e16d2e911d9f3798c731524c5cc1:frontend/Topic/features/admin/SignalEvidencePanel.test.tsx:generic-api-key:9
+# The previous comment wording quoted the same fixture literal; reviewed as a false positive.
+02f5d6d5d9c48268d5a7f3c7554f49adef42964f:.gitleaksignore:generic-api-key:16
+# The previous comment wording quoted the same fixture literal; reviewed as a false positive.
+02f5d6d5d9c48268d5a7f3c7554f49adef42964f:.gitleaksignore:generic-api-key:18
+# The previous comment wording quoted the same fixture literal; reviewed as a false positive.
+02f5d6d5d9c48268d5a7f3c7554f49adef42964f:.gitleaksignore:generic-api-key:20
+# The previous comment wording quoted the same fixture literal; reviewed as a false positive.
+02f5d6d5d9c48268d5a7f3c7554f49adef42964f:.gitleaksignore:generic-api-key:22

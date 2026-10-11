@@ -40,6 +40,10 @@ jobs:
           backend/tests/test_chat_model_config.py -q
       - name: Check private AI conversation diagnostics and administrator access
         run: python -m pytest backend/tests/test_admin_chat_review.py backend/tests/test_chat_audit.py -q
+      - name: Check AI briefs, signal statistics, backtests, and schema
+        run: >-
+          python -m pytest backend/tests/test_analysis_service.py backend/tests/test_brief_lessons.py
+          backend/tests/test_signals.py backend/tests/test_ai_backtest.py backend/tests/test_schema_init.py -q
 
   frontend:
     name: Frontend checks

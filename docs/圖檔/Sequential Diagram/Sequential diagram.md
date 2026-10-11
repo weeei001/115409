@@ -287,7 +287,6 @@ sequenceDiagram
     end
     deactivate FE
 ```
-
 #每日資料管線
 ```mermaid
 sequenceDiagram
@@ -376,7 +375,6 @@ sequenceDiagram
 
     Sched->>DB: 9. 寫入本次管線的執行紀錄
 ```
-
 #後台管理
 ```mermaid
 sequenceDiagram

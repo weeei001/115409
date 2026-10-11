@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 from contextlib import aclosing
 
@@ -27,6 +28,13 @@ JSON_NUMBER_RE = r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?"
 JSON_NUMERIC_EXPR_RE = re.compile(
     rf"(?P<prefix>:\s*)(?P<left>{JSON_NUMBER_RE})\s*(?P<op>[*/])\s*(?P<right>{JSON_NUMBER_RE})(?P<suffix>\s*[,}}\]])"
 )
+
+def token_cost(input_tokens: float | None, output_tokens: float | None, settings: Any) -> Decimal | None:
+    """Estimated US dollars at LLM_INPUT_PRICE_PER_M and LLM_OUTPUT_PRICE_PER_M; None when usage is unknown."""
+    if input_tokens is None or output_tokens is None:
+        return None
+    return (Decimal(str(input_tokens)) * Decimal(str(settings.LLM_INPUT_PRICE_PER_M))
+            + Decimal(str(output_tokens)) * Decimal(str(settings.LLM_OUTPUT_PRICE_PER_M))) / 1_000_000
 
 def _coerce_llm_text(content: str | list[Any] | None) -> str:
     if isinstance(content, list):

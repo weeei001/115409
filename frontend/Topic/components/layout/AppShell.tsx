@@ -7,6 +7,7 @@ import { ScrollToTop } from './ScrollToTop';
 import { FrozenRouter } from './FrozenRouter';
 import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { useScrollRestoration } from '@/lib/navigation/useScrollRestoration';
+import { cn } from '@/lib/cn';
 
 /** 換頁：舊頁 --dur-flash（125ms）淡出，新頁 --dur-sweep（250ms）淡入並上移 8px */
 const EXIT = { duration: 0.125, ease: [0.4, 0, 1, 1] as const };
@@ -46,10 +47,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </AnimatePresence>
         )}
       </div>
-      <SiteFooter className={router.pathname === '/ai' ? 'hidden sm:block' : undefined} />
-      <RiskNoticeBanner />
-      {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕（決議 c69）；首頁旅程有自己的進度列與「回到海面」 */}
-      {router.pathname === '/ai' || router.pathname === '/' ? null : <ScrollToTop />}
+      {/* 列印時頁尾照印，紙本上也有投資風險提示；只有可列印的 AI 報告頁不印，報告自己印出免責文字 */}
+      <SiteFooter className={cn(router.pathname === '/stock/[id]/report' && 'print:hidden', router.pathname === '/ai' && 'hidden sm:block')} />
+      {/* 浮動（fixed）的提示條與按鈕任何一頁都不印，免得蓋在紙本內容上 */}
+      <div className="print:hidden">
+        <RiskNoticeBanner />
+        {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕（決議 c69）；首頁旅程有自己的進度列與「回到海面」 */}
+        {router.pathname === '/ai' || router.pathname === '/' ? null : <ScrollToTop />}
+      </div>
     </div>
   );
 }

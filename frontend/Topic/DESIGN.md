@@ -89,7 +89,7 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 
 - 漲、買超、偏多：`up`（紅）；跌、賣超、偏空：`down`（綠）；0 或缺值：中性。
 - 依**數值正負**上色，不是依欄位上色。helper 在 `lib/utils/tone.ts`（`getValueTone`、`valueToneText`、`toneBadge`）。
-- 漲跌數字一律帶正負號（`signedText`，在 `LightEntry.tsx`），不只靠顏色。負號一律 U+2212，helper 在 `lib/utils/format.ts`（`withSign`、`uMinus`）。
+- 漲跌數字一律帶正負號（`signedText`），不只靠顏色。負號一律 U+2212，helper 都在 `lib/utils/format.ts`（`signedText`、`withSign`、`uMinus`）。
 - 新聞事件影響方向：正向用 up、負向用 down，其餘（中性、正負並存、方向未明）一律中性（`lib/utils/newsImpact.ts`）。
 - RSI 超買、超賣不是漲跌方向，用 `warning`（`lib/utils/indicatorSignals.ts`）。
 - 同一張卡的買進量、賣出量不上漲跌色，只有淨額上色。
