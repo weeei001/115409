@@ -19,6 +19,7 @@ from .favorite_stock import FavoriteStock
 from .notification import NotificationPreference, PushDevice, Notification, NotificationDelivery
 from .conversation import Conversation, ConversationMessage
 from .chat_audit import ChatValidationRun
+from .ai_usage import AiUsageLog
 from .chat_feedback import ChatMessageFeedback
 from .llm_response import LlmResponse
 from .brief_lesson import BriefLesson
@@ -53,6 +54,7 @@ __all__ = [
     "Conversation",
     "ConversationMessage",
     "ChatValidationRun",
+    "AiUsageLog",
     "ChatMessageFeedback",
     "LlmResponse",
     "BriefLesson",

@@ -216,7 +216,7 @@ const AS_OF = '2026-09-03';
   );
   // 缺資料時要寫出缺什麼，不提內部的「證據目錄」；情境風險空的時候不能說成沒有風險
   assert.ok(unknown.every((facet) => !facet.basis.includes('證據目錄')));
-  assert.equal(unknown.find((facet) => facet.key === 'risk')!.basis, '本次未列出或未通過檢查（不代表沒有風險）');
+  assert.equal(unknown.find((facet) => facet.key === 'risk')!.basis, '本次未提供情境風險內容（不代表沒有風險）');
   assert.equal(
     buildFacets([{ id: 'fd_06', field: 'per', value: 28.98 }]).find((facet) => facet.key === 'valuation')!.basis,
     '缺少近一年百分位，無法分級'
@@ -266,7 +266,7 @@ console.log('textBrief evidence / claims / facets tests passed');
   const empty = {} as Brief;
   const scenario = renderToStaticMarkup(React.createElement(ScenarioTab, { brief: empty }));
   const points = renderToStaticMarkup(React.createElement(KeyPointsTab, { brief: empty }));
-  assert.ok(scenario.includes('沒有通過檢查的依據'));
+  assert.ok(scenario.includes('暫無分析內容'));
   assert.ok(scenario.includes('這不代表沒有風險'));
   assert.ok(scenario.includes('觀察點判讀'));
   assert.ok(points.includes('這不代表沒有風險'));

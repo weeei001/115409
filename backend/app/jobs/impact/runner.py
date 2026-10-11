@@ -11,6 +11,8 @@ from uuid import uuid4
 from sqlalchemy import delete, func, or_, select
 
 from app.clients.llm import LlmClient, token_cost
+from app.clients.usage import tracked_client
+from app.db.engine import make_session_factory
 from app.core.errors import AppError
 from app.db.models.news_article import NewsArticle
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact, NewsEventTopic
@@ -70,6 +72,7 @@ class ImpactBatchRunner:
     def __init__(self, *, db_session, settings, catalog, http=None, llm=None,
                  limit=100, max_cost_usd=0.50, execute=False, work_dir: Path):
         self.db = db_session
+        self.session_factory = make_session_factory(db_session.get_bind())
         # 本機驗證需要原始 JSON，才能針對格式錯誤的目標或引文進行修復。
         self.settings = settings.model_copy(update={"LLM_MAX_RETRIES": 0, "LLM_STREAMING": False,
                                             "LLM_RESPONSE_FORMAT": "off"})
@@ -197,6 +200,7 @@ class ImpactBatchRunner:
             "topics": TOPICS,
         }
         last_error, last_usage = None, {}
+        llm = tracked_client(self.llm, self.session_factory, "news_impact", str(uuid4()))
         for attempt in (1, 2):
             reserved = self.reserved
             if attempt == 2:
@@ -214,7 +218,7 @@ class ImpactBatchRunner:
             result, error = None, None
             self.counts["api_calls"] += 1
             try:
-                result = await self.llm.generate(system_prompt=SYSTEM_PROMPT + ("\n" + REPAIR_PROMPT if attempt == 2 else ""),
+                result = await llm.generate(system_prompt=SYSTEM_PROMPT + ("\n" + REPAIR_PROMPT if attempt == 2 else ""),
                                                  payload=payload, schema=ImpactOutput)
             except AppError as exc:
                 error = _error_code(exc)
