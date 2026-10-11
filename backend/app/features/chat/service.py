@@ -20,7 +20,6 @@ from app.features.news.text import extract_candidate_stocks
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
-from .audit import ChatAudit
 from .comparison_context import MAX_COMPARISON_STOCKS, collect_comparison_source
 from .dashboard import build_dashboard
 from .knowledge import collect_knowledge_sources, reference_source
@@ -456,42 +455,29 @@ class ChatService:
                                       resolved_query=query, history=json.dumps(history, ensure_ascii=False))
         return response, prompt, warning
 
-    def _publish_answer(self, raw_text, metadata, response, *, audit):
+    def _publish_answer(self, raw_text, metadata, response):
         """直接回傳模型文字，不檢核內容或重新生成。"""
         _add_usage(response, metadata)
         response.answer = raw_text
-        audit.update_usage(response)
-        audit.bypassed()
 
     async def ask(self, request: AskRequest) -> AskResponse:
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
-        audit = ChatAudit(request, llm=self.llm, timeout_seconds=self.request_timeout_seconds)
-        usage_context = _usage_request_id.set(audit.id)
-        llm = tracked_client(self.llm, self.session_factory, "chat", audit.id)
+        request_id = str(uuid4())
+        usage_context = _usage_request_id.set(request_id)
+        llm = tracked_client(self.llm, self.session_factory, "chat", request_id)
         try:
             self.require_enabled()
             async with asyncio.timeout_at(deadline):
                 response, prompt, warning = await self._prepare(request)
-                audit.prepared(response)
                 if prompt:
                     _remaining_seconds(deadline)
-                    audit.start_attempt("initial", self.llm)
                     result = await llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
-                    audit.complete_attempt(result.raw_text, result.metadata)
-                    self._publish_answer(result.raw_text, result.metadata, response, audit=audit)
-                else:
-                    audit.outcome = "direct"
+                    self._publish_answer(result.raw_text, result.metadata, response)
                 _remaining_seconds(deadline)
             response.duration_ms = int((perf_counter() - started) * 1000)
-            audit.publish(response, completed=True)
             return response
         except TimeoutError as exc:
-            audit.failed(exc)
             raise UpstreamTimeout(REQUEST_TIMEOUT_MESSAGE) from exc
-        except Exception as exc:
-            audit.failed(exc)
-            raise
         finally:
             _usage_request_id.reset(usage_context)
-            await audit.persist(self.session_factory)

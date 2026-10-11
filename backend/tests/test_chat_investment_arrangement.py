@@ -1,15 +1,12 @@
-"""用固定投資資料測試直接回覆、串流與管理員紀錄，不呼叫外部搜尋或模型。"""
+"""Verify direct investment responses without external providers."""
 import asyncio
 import json
-from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import sessionmaker
 
 from app.clients.llm import LlmResult, LlmTextChunk
-from app.features.admin import chat_review_repository
-from app.features.chat.audit import utcnow
 from app.features.chat.schemas import AskRequest, AskResponse, SourceChunk
 from app.features.chat.service import ChatService
 
@@ -102,30 +99,17 @@ def run_turn(db, scenario, drafts, *, stream):
         return response.answer, response.model_dump_json()
 
     answer, public = asyncio.run(run())
-    db.expire_all()
-    summaries, total = chat_review_repository.review_list(
-        db, since=utcnow() - timedelta(days=1), outcome=None, reason="", query=QUERY,
-        limit=10, offset=0)
-    assert total == 1
-    record, email = chat_review_repository.review_by_id(
-        db, summaries[0]["id"], since=utcnow() - timedelta(days=1))
-    assert email is None
-    assert record.query == QUERY and record.data["publication_completed"]
-    assert record.data["sources"][0]["content"] == sources[0].content
-    assert record.data["duration_ms"] >= 0
-    assert record.data["tokens"]["input"] == 120 * len(calls)
-    assert record.data["tokens"]["output"] == 80 * len(calls)
-    return answer, public, record, calls
+    return answer, public, calls
+
 
 
 @pytest.mark.parametrize("scenario", ["cash", "holdings", "pending"])
 @pytest.mark.parametrize("stream", [False, True])
-def test_substantive_investment_discussion_is_published_and_audited(db_session, scenario, stream):
+def test_substantive_investment_discussion_is_published(db_session, scenario, stream):
     draft = substantive_answer(scenario)
-    answer, _, record, calls = run_turn(db_session, scenario, [(draft, METADATA)], stream=stream)
+    answer, _, calls = run_turn(db_session, scenario, [(draft, METADATA)], stream=stream)
     assert answer.startswith(draft)
-    assert record.outcome == "direct" and len(calls) == 1
-    assert record.data["attempts"][0]["finish_reason"] == "stop"
+    assert len(calls) == 1
     assert all(part in answer for part in ("2026-10-08", "2026-10-07"))
     assert all(part in answer for part in ("本輪選取", "尚缺行情", "若無法承受", "另保留"))
 
@@ -139,8 +123,8 @@ def test_missing_or_different_dates_publish_explicit_limits(db_session, stream, 
     else:
         answer += ("台積電行情截至2026-10-07，收盤價100元；與帳戶日期不同，不能當作即時報價。[S2]\n\n"
                    "鴻海尚缺行情資料，未納入比較；先補足相同日期資料，再討論配置。[S3]")
-    published, _, record, calls = run_turn(db_session, scenario, [(answer, METADATA)], stream=stream)
-    assert published.startswith(answer) and record.outcome == "direct" and len(calls) == 1
+    published, _, calls = run_turn(db_session, scenario, [(answer, METADATA)], stream=stream)
+    assert published.startswith(answer) and len(calls) == 1
 
 
 @pytest.mark.parametrize("bad,reason", [
@@ -153,21 +137,17 @@ def test_missing_or_different_dates_publish_explicit_limits(db_session, stream, 
 @pytest.mark.parametrize("stream", [False, True])
 def test_draft_is_published_without_semantic_repair(db_session, bad, reason, stream):
     repaired = substantive_answer("pending")
-    answer, public, record, calls = run_turn(
+    answer, public, calls = run_turn(
         db_session, "pending", [(bad, METADATA), (repaired, METADATA)], stream=stream)
     assert answer == bad
-    assert len(calls) == 1 and record.outcome == "direct"
-    assert record.data["attempts"][0]["validation"] == "not_checked"
-    assert record.data["reasons"] == []
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("stream", [False, True])
 def test_provider_length_finish_is_published_without_retry(db_session, stream):
     draft = substantive_answer("cash")
     metadata = {**METADATA, "finish_reason": "length"}
-    answer, public, record, calls = run_turn(
+    answer, public, calls = run_turn(
         db_session, "cash", [(draft, metadata), (draft, metadata)], stream=stream)
     assert answer == draft
-    assert record.outcome == "direct" and len(calls) == 1
-    assert record.data["attempts"][0]["finish_reason"] == "length"
-    assert record.data["attempts"][0]["validation"] == "not_checked"
+    assert len(calls) == 1

@@ -13,7 +13,7 @@ from app.db.models.technical_indicator import TechnicalIndicator
 from app.features.signals.detection import MIN_RANKED, Day, detect, revenue_turns, thirds
 from app.features.signals.evaluation import ROUND_TRIP_COST_PCT, Outcome, outcomes, peer_windows, summarize, t95
 from app.features.signals.service import _revenue_since, recent_signals, revenue_months, series_from_rows
-from test_admin_chat_review import credentials
+from admin_helpers import credentials
 
 START = date(2026, 1, 5)
 

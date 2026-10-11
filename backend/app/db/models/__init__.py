@@ -18,7 +18,6 @@ from .password_reset_token import PasswordResetToken
 from .favorite_stock import FavoriteStock
 from .notification import NotificationPreference, PushDevice, Notification, NotificationDelivery
 from .conversation import Conversation, ConversationMessage
-from .chat_audit import ChatValidationRun
 from .ai_usage import AiUsageLog
 from .chat_feedback import ChatMessageFeedback
 from .llm_response import LlmResponse
@@ -53,7 +52,6 @@ __all__ = [
     "NotificationDelivery",
     "Conversation",
     "ConversationMessage",
-    "ChatValidationRun",
     "AiUsageLog",
     "ChatMessageFeedback",
     "LlmResponse",
