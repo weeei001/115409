@@ -33,8 +33,8 @@ const Citations: React.FC<{ ids?: string[]; support?: NewsSupport[]; evidence: E
   );
 };
 
-const ReportSection: React.FC<{ id: string; title: string; hint?: string; children: React.ReactNode }> = ({ id, title, hint, children }) => (
-  <section aria-labelledby={`report-${id}`} id={`report-section-${id}`} className="scroll-mt-[calc(var(--app-header-height)+1rem)] border-t border-border-strong pt-5">
+const ReportSection: React.FC<{ id: string; title: string; hint?: string; tour?: string; children: React.ReactNode }> = ({ id, title, hint, tour, children }) => (
+  <section data-tour={tour} aria-labelledby={`report-${id}`} id={`report-section-${id}`} className="scroll-mt-[calc(var(--app-header-height)+1rem)] border-t border-border-strong pt-5">
     <h2 id={`report-${id}`} className="font-serif text-xl font-black tracking-[0.06em] print:break-after-avoid">{title}</h2>
     {hint ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p> : null}
     <div className="mt-3">{children}</div>
@@ -74,7 +74,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
   const statusNote = briefStatusNote(data.status);
   const views = FORWARD_VIEWS.filter(([key]) => brief.forward_views?.[key]);
 
-  const sections: { id: string; title: string; hint?: string; body: React.ReactNode }[] = [
+  const sections: { id: string; title: string; hint?: string; tour?: string; body: React.ReactNode }[] = [
     { id: 'status', title: '現在是什麼狀態', body: <ClaimList items={brief.current_status} evidence={evidence} empty="本節暫無分析內容。" /> },
     { id: 'positive', title: '正面因素', body: <ClaimList items={brief.positive_factors} evidence={evidence} empty="本節暫無分析內容。" /> },
     { id: 'negative', title: '負面因素', body: <ClaimList items={brief.negative_factors} evidence={evidence} empty="本節暫無分析內容。這不代表沒有風險。" /> },
@@ -83,7 +83,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
       body: <ClaimList items={brief.source_divergences} evidence={evidence} empty="" />,
     }] : []),
     {
-      id: 'views', title: '不同時間長度的看法', hint: '只講方向與什麼情況下不成立，不給買賣建議與目標價；天數以交易日計算。',
+      id: 'views', title: '不同時間長度的看法', tour: 'report-views', hint: '只講方向與什麼情況下不成立，不給買賣建議與目標價；天數以交易日計算。',
       body: (
         <Items empty="這次沒有這一段內容。">
           {views.map(([key, label]) => {
@@ -162,7 +162,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
       body: <ul className="list-disc space-y-1 pl-5 text-[15px] leading-[1.8] text-subtle">{data.limitations.map((text, index) => <li key={index}>{text}</li>)}</ul>,
     }] : []),
     {
-      id: 'sources', title: '引用資料', hint: '只列出這份分析實際引用的資料；完整目錄在網頁版的「證據來源」。',
+      id: 'sources', title: '引用資料', tour: 'report-sources', hint: '只列出這份分析實際引用的資料；完整目錄在網頁版的「證據來源」。',
       body: (
         <div className="space-y-5">
           {appendix.groups.map((group) => (
@@ -192,7 +192,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
 
   return (
     <article className="flex flex-col gap-8">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 print:hidden">
+      <div data-tour="report-print" className="flex flex-wrap items-center gap-x-3 gap-y-2 print:hidden">
         <Button type="button" onClick={() => window.print()}>
           <Printer aria-hidden />
           列印／存成 PDF
@@ -200,7 +200,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
         <p className="text-xs text-muted-foreground">在列印視窗的「目的地」選「另存為 PDF」就能存檔。</p>
       </div>
 
-      <header className="flex flex-col gap-4">
+      <header data-tour="report-provenance" className="flex flex-col gap-4">
         {/* 列印時頁首整條隱藏，標題改由這裡印出 */}
         <div className="hidden print:block">
           <p className="text-xs text-muted-foreground">股海明燈 · AI 分析報告</p>
@@ -210,14 +210,14 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
         {statusNote ? <Notice>{statusNote}{data.limitations?.length ? '；原因列在「分析限制」。' : '。'}</Notice> : null}
       </header>
 
-      <section aria-labelledby="report-summary" className="print:break-inside-avoid">
+      <section data-tour="report-summary" aria-labelledby="report-summary" className="print:break-inside-avoid">
         <h2 id="report-summary" className="sr-only">整體結論</h2>
         <BriefHeadline brief={brief} />
         {brief.confidence_reason ? <p className="mt-3 text-[15px] leading-[1.8] text-subtle">{brief.confidence_reason}</p> : null}
         <p className="mt-2 text-xs leading-5 text-muted-foreground">{STANCE_NOTE}分析信心：{CONF_HINT}</p>
       </section>
 
-      <nav aria-label="報告目錄" className="print:hidden">
+      <nav data-tour="report-toc" aria-label="報告目錄" className="print:hidden">
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {sections.map((section) => (
             <li key={section.id}><a href={`#report-section-${section.id}`} className="underline underline-offset-4">{section.title}</a></li>
@@ -226,7 +226,7 @@ export function BriefReport({ data, title }: { data: TextBriefResponse; title: s
       </nav>
 
       {sections.map((section) => (
-        <ReportSection key={section.id} id={section.id} title={section.title} hint={section.hint}>{section.body}</ReportSection>
+        <ReportSection key={section.id} id={section.id} title={section.title} hint={section.hint} tour={section.tour}>{section.body}</ReportSection>
       ))}
 
       <p className="border-t pt-4 text-xs leading-6 text-muted-foreground">{data.disclaimer?.text ?? AI_BRIEF_DISCLAIMER}</p>

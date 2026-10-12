@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowRight, FileText, RefreshCw } from 'lucide-react';
 import { Disclosure } from '@/components/common/Disclosure';
 import { cn } from '@/lib/cn';
 import type { UseStockTextBriefResult } from '@/lib/hooks/useStockTextBrief';
@@ -27,6 +27,7 @@ import { FoldSection } from '@/components/common/CollapsibleSection';
 import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button, textLinkClass } from '@/components/ui/button';
 import { ClaimTypeBadge, EvidenceTagList, StanceIcon, Tag } from './BriefAtoms';
+import { stockReportHref } from './BriefReportActions';
 
 interface Props {
   symbol: string;
@@ -291,6 +292,12 @@ export const AIBriefSummaryCard: React.FC<Props> = ({
           <Button type="button" onClick={() => onOpenDetail()}>
             查看完整分析
             <ArrowRight aria-hidden />
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={stockReportHref(symbol)} target="_blank" rel="noopener">
+              <FileText aria-hidden />
+              完整報告（可存 PDF）
+            </Link>
           </Button>
           <span className="text-[13px] leading-5 text-muted-foreground">{AI_RESEARCH_ONLY}</span>
           {/* 付費只差用量和工具，AI 判讀不放付費牆（商業模式第 4 節） */}

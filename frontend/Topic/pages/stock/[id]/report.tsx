@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -7,6 +7,7 @@ import { SiteHeader } from '@/components/layout/SiteHeader';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { BriefReport } from '@/features/brief/BriefReport';
+import { REPORT_PRINT_PARAM, stockReportHref } from '@/features/brief/BriefReportActions';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
 import { breadcrumbsTrail } from '@/lib/nav';
 import { formatStockLabel, useStockDisplayName } from '@/lib/utils/symbolNames';
@@ -40,6 +41,23 @@ function usePrintInLightTheme() {
   }, []);
 }
 
+/**
+ * 從個股頁按「下載 PDF」進來（帶 ?print=1）：報告畫好、字型載完後開一次列印視窗。
+ * 先把參數拿掉，重新整理或按上一頁回來不會再跳。
+ */
+function useAutoPrint(symbol: string, ready: boolean) {
+  const router = useRouter();
+  const requested = router.query[REPORT_PRINT_PARAM] === '1';
+  // 拿掉參數後 requested 會變 false；用 ref 記住已經處理過，不靠 cleanup 取消
+  const handled = useRef(false);
+  useEffect(() => {
+    if (handled.current || !requested || !ready) return;
+    handled.current = true;
+    void router.replace(stockReportHref(symbol), undefined, { shallow: true, scroll: false });
+    void document.fonts.ready.then(() => window.print());
+  }, [requested, ready]);
+}
+
 function ReportView({ symbol }: { symbol: string }) {
   const brief = useStockTextBrief({ symbol });
   const { run } = brief;
@@ -48,6 +66,7 @@ function ReportView({ symbol }: { symbol: string }) {
     void run();
   }, [symbol]);
   usePrintInLightTheme();
+  useAutoPrint(symbol, Boolean(brief.data?.brief));
 
   const label = formatStockLabel(symbol);
   const displayName = useStockDisplayName(symbol);

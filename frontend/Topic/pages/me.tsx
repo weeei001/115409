@@ -239,6 +239,7 @@ export default function MePage() {
           <div className="flex min-w-0 flex-col gap-10 lg:col-span-5">
             <AnimatedSection className="min-w-0">
               <Ledger
+                data-tour="me-profile"
                 title="帳號資料"
                 stamp={
                   <span className="inline-flex items-center gap-1.5">
@@ -295,7 +296,7 @@ export default function MePage() {
           </div>
 
           <AnimatedSection delay={0.1} className="min-w-0 lg:col-span-7">
-            <Ledger aria-labelledby="me-password-heading" title={<span id="me-password-heading">變更密碼</span>}>
+            <Ledger data-tour="me-password" aria-labelledby="me-password-heading" title={<span id="me-password-heading">變更密碼</span>}>
               <LedgerPanel>
                 <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
                   僅適用於以電子郵件註冊並已設定密碼的帳號。只用 Google 登入的帳號沒有密碼，無法在這裡變更。

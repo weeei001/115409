@@ -8,6 +8,7 @@ import { LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { FavoriteToggle } from '@/features/favorites/FavoriteToggle';
 import { StockDashboard } from '@/features/stock/StockDashboard';
+import { BriefReportActions } from '@/features/brief/BriefReportActions';
 import { useStockDashboard } from '@/lib/hooks/useStockDashboard';
 import { formatStockLabel, useStockDisplayName } from '@/lib/utils/symbolNames';
 import { isTaiwanStockCode } from '@/lib/utils/stockValidation';
@@ -53,13 +54,14 @@ function StockDashboardView({ symbol }: { symbol: string }) {
   const description = `查詢 ${label} 收盤行情、K 線、籌碼、技術指標、AI 投資分析與新聞（非即時；展示／專題用途）。`;
   // 頁首的「大盤收盤」和副標的個股收盤日不同時，在內容開頭說明原因（04-U6）
   const boardDate = useLatestCloseDate();
-  const header = (subtitle: string, titleWrap = false) => (
+  const header = (subtitle: string, titleWrap = false, actions?: React.ReactNode) => (
     <SiteHeader
       breadcrumbs={breadcrumbsForStock(symbol)}
       title={stockName ?? label}
       subtitle={subtitle}
       titleWrap={titleWrap}
       titleAction={<FavoriteToggle symbol={symbol} />}
+      actions={actions}
     />
   );
 
@@ -116,6 +118,9 @@ function StockDashboardView({ symbol }: { symbol: string }) {
       {/* 財經數據旁標明非投資建議（05；skill 免責規則） */}
       {header(
         [stockName ? symbol : null, dashboard.latest.date ? `收盤 ${dashboard.latest.date}` : null, '非即時', '非投資建議'].filter(Boolean).join(' · '),
+        false,
+        // 完整報告原本只在 AI 分析抽屜裡，放到頁首讓一進個股頁就看得到
+        <BriefReportActions symbol={symbol} data-tour="stock-report" />,
       )}
       {/* 「跳至個股內容」緊接在頁首後面等於沒跳，已拿掉；全站的「跳至主要內容」落點就在頁首之後（03-F6） */}
       <main id="stock-page-main" tabIndex={-1} aria-label="個股儀表板內容" className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 outline-none focus-visible:shadow-none sm:px-6 lg:px-10 lg:py-10">

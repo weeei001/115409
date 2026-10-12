@@ -27,6 +27,7 @@ export const TOURS: Record<string, PageTourDef> = {
     id: 'stock',
     title: '個股頁怎麼看',
     steps: [
+      { target: 'stock-report', title: 'AI 分析完整報告', body: '「AI 分析報告」在新分頁打開整份 AI 分析，所有段落與引用資料都展開；「下載 PDF」會直接跳出列印視窗，目的地選「另存為 PDF」就能存檔。' },
       { target: 'stock-hero', title: '收盤價與 K 線', body: '大字是最近交易日的收盤價，旁邊是和前一個交易日比的漲跌（紅漲綠跌）。可以切換 3 個月、6 個月、1 年；「K 線與量能」打開完整圖表。' },
       { target: 'stock-kpi', title: '區間漲跌與高低', body: '上面選的期間裡，這檔的區間漲跌幅、最高價與最低價。' },
       { target: 'stock-flows', title: '法人與指標', body: '一張是最近交易日三大法人（外資、投信、自營）的買賣超張數，一張是 RSI、MACD、KD 的讀數與訊號。按「籌碼明細」「技術指標明細」看完整圖表。' },
@@ -95,6 +96,46 @@ export const TOURS: Record<string, PageTourDef> = {
       { target: 'notifications-inbox', title: '最近通知', body: '收藏股的每日摘要、單日漲跌幅提醒、重大新聞與公告，都會出現在這裡。' },
       { target: 'notifications-device', title: '此裝置推播', body: '開啟後，這台裝置也會收到推播通知。' },
       { target: 'notifications-prefs', title: '通知偏好', body: '選要收哪幾種通知、漲跌幅門檻與安靜時段，改完記得按「儲存通知偏好」。' },
+    ],
+  },
+  '/stock/[id]/report': {
+    id: 'report',
+    title: 'AI 分析報告怎麼看',
+    steps: [
+      { target: 'report-print', title: '列印與存檔', body: '整份報告可以直接列印；在列印視窗的「目的地」選「另存為 PDF」就能存檔。列印時自動換成淺色，不印按鈕與目錄。' },
+      { target: 'report-provenance', title: '這份分析怎麼產生的', body: '分析基準日、行情與新聞截止日、模型和使用的資料。AI 依這些資料整理，推論與數字仍可能有誤。' },
+      { target: 'report-summary', title: '整體結論', body: '這份分析的總結和分析信心，以及信心高低的理由。' },
+      { target: 'report-toc', title: '報告目錄', body: '點標題直接跳到那一段：目前狀態、正負面因素、不同時間長度的看法、風險與觀察點。' },
+      { target: 'report-views', title: '不同時間長度的看法', body: '短線、波段、中期各自的方向，以及「什麼情況就不成立」。只講方向，不給買賣建議與目標價。' },
+      { target: 'report-sources', title: '引用資料', body: '這份分析實際引用的資料，依類別列出；前面每一段的引用都對得到這裡。' },
+    ],
+  },
+  '/pricing': {
+    id: 'pricing',
+    title: '方案頁怎麼看',
+    steps: [
+      { target: 'pricing-plans', title: '選擇方案', body: '免費版、進階版、專業版的價格與內容，標題旁切換月繳或年繳。本頁是專題展示，不會實際收費。' },
+      { target: 'pricing-compare', title: '方案比較', body: 'AI 提問額度、收藏股檔數、多股比較檔數等逐項對照。AI 投資分析在所有方案都完整開放，付費只差在用量和工具。' },
+      { target: 'pricing-desktop', title: '桌面小燈', body: '規劃中的功能：把小燈做成常駐電腦桌面的版本，不用打開網頁也能問。' },
+      { target: 'pricing-faq', title: '常見問題', body: '額度怎麼算、月繳和年繳差在哪、付費會不會讓 AI 更準等問題，點問題展開答案。' },
+      { target: 'pricing-scope', title: '付費方案的範圍', body: '付費包含什麼、不包含什麼，以及投資風險提示。' },
+    ],
+  },
+  '/checkout': {
+    id: 'checkout',
+    title: '結帳頁怎麼看',
+    steps: [
+      { target: 'checkout-summary', title: '訂單摘要', body: '選好的方案、金額與計費週期，可以在這裡切換月繳或年繳；開通日與續訂日只是展示。' },
+      { target: 'checkout-payment', title: '付款', body: '金流尚未串接，不會收費。登入後按「模擬開通」，帳號會直接換成這個方案、額度立即生效；隨時可以在個人中心恢復免費版。' },
+    ],
+  },
+  '/me': {
+    id: 'me',
+    title: '個人中心怎麼看',
+    steps: [
+      { target: 'me-profile', title: '帳號資料', body: '登入的電子郵件與顯示名稱。「重新整理資料」重新讀取帳號，「登出」會清掉這台裝置的登入狀態。' },
+      { target: 'me-plan', title: '目前方案', body: '現在的方案，以及 AI 提問、收藏股、多股比較等額度用了多少。要換方案按「升級方案」或「變更方案」。' },
+      { target: 'me-password', title: '變更密碼', body: '用電子郵件註冊的帳號可以在這裡改密碼；只用 Google 登入的帳號沒有密碼，不能在這裡改。' },
     ],
   },
 };

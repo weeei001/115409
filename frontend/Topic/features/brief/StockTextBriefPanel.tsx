@@ -15,6 +15,7 @@ import { BriefProvenance } from './BriefProvenance';
 import { BriefHeadline, SectionCard } from './BriefAtoms';
 import { KeyPointsTab, ScenarioTab } from './BriefSections';
 import { EvidenceCatalog, EvidenceRail, EvidenceSheet } from './EvidencePanel';
+import { stockReportHref } from './BriefReportActions';
 
 interface Props {
   symbol: string;
@@ -185,7 +186,7 @@ export const StockTextBriefPanel: React.FC<Props> = ({
         <div>
           <Button asChild variant="outline" size="sm">
             {/* 新分頁開，抽屜和捲動位置都留著 */}
-            <Link href={`/stock/${encodeURIComponent(symbol)}/report`} target="_blank" rel="noopener">
+            <Link href={stockReportHref(symbol)} target="_blank" rel="noopener">
               <FileText aria-hidden />
               完整報告（可列印、存成 PDF）
             </Link>
