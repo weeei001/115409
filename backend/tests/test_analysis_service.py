@@ -230,6 +230,27 @@ def test_cached_indirect_news_tracks_only_latest_actual_source_content(db_sessio
     assert cached() is None
 
 
+@pytest.mark.parametrize("referenced", [False, True])
+def test_news_fingerprint_ignores_ingestion_state_but_tracks_content(db_session, referenced):
+    article = NewsArticle(article_id="index-state", stock_id="9999" if referenced else "2330",
+        source="cnyes", title="Demand update", content="Demand increased.",
+        pub_time="2026-07-12T10:00:00+08:00")
+    db_session.add(article)
+    db_session.commit()
+
+    def fingerprint():
+        return repository.input_fingerprint(db_session, symbol="2330", as_of=AS_OF, rows={},
+            referenced_article_ids={article.article_id} if referenced else set())
+
+    original = fingerprint()
+    article.ingestion_revision = "a" * 32
+    db_session.commit()
+    assert fingerprint() == original
+    article.content = "Demand decreased."
+    db_session.commit()
+    assert fingerprint() != original
+
+
 def test_shared_fact_source_refs_are_included_in_snapshot_dependencies():
     catalog = [{"article_id": "representative", "shared_facts": [{"source_refs": [
         {"article_id": "second-source"}, {"article_id": "representative"}]}]}]

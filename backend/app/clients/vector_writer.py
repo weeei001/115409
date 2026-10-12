@@ -1,5 +1,6 @@
 """Worker-only Qdrant writes using the same embedding settings as retrieval."""
 from datetime import datetime
+import hashlib
 import math
 from urllib.parse import quote
 from uuid import NAMESPACE_URL, uuid5
@@ -19,6 +20,11 @@ class VectorWriter:
         self._create_allowed = False
         self._missing = False
         self.unavailable_chunk_ids: set[str] = set()
+
+    @property
+    def index_target_key(self):
+        """Do not reuse publication checkpoints across vector destinations."""
+        return hashlib.sha256(self.url.encode("utf-8")).hexdigest()
 
     async def _request(self, method, suffix="", *, payload=None, allow_missing=False):
         self.reader.require_enabled()

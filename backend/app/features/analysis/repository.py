@@ -143,7 +143,9 @@ def input_fingerprint(db: Session, *, symbol: str, as_of: date, rows=None,
     start = as_of - timedelta(days=60)
     # Include a one-day SQL margin for timezone offsets, then check Taiwan dates.
     # Hash current source content so corrections invalidate cached analysis.
-    columns = [column for column in NewsArticle.__table__.columns if column.name != "created_at"]
+    # Ingestion bookkeeping can change without changing the analysis evidence.
+    columns = [column for column in NewsArticle.__table__.columns
+               if column.name not in {"created_at", "ingestion_revision"}]
     catalog = company_catalog()
     catalog = {**catalog, **{key: {**catalog.get(key, {}), "name": name} for key, name in stock_names(db).items()}}
     referenced_article_ids = referenced_article_ids or set()

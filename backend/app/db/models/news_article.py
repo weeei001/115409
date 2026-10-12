@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from sqlalchemy import Column, DateTime, String, Text, event, func
 from sqlalchemy.dialects.mysql import LONGTEXT
 
@@ -27,6 +29,9 @@ class NewsArticle(Base):
     content = Column(_LONG_TEXT, nullable=True)
     content_kind = Column(String(20), nullable=False, default="unknown")
     analysis_input_hash = Column(String(64), nullable=True, index=True)
+    # SQLAlchemy ORM and Core writes both invalidate ingestion checkpoints.
+    ingestion_revision = Column(String(32), nullable=True,
+                                default=lambda: uuid4().hex, onupdate=lambda: uuid4().hex)
     created_at = Column(
         DateTime,
         nullable=True,

@@ -2,6 +2,7 @@
 from sqlalchemy import inspect, select, text
 
 from app.db.models.news_article import NewsArticle
+from app.db.models.news_chunk import news_chunk_state, news_vector_state
 from app.db.models.news_impact import NewsEventAnalysis, NewsEventImpact
 from app.features.news.impact import article_source_hash
 from app.jobs.schema_adjust import migrate_event_topics
@@ -20,11 +21,16 @@ def migrate_news_impact(engine) -> dict[str, int]:
         if "analysis_input_hash" not in columns:
             connection.execute(text("ALTER TABLE news_articles ADD COLUMN analysis_input_hash VARCHAR(64) NULL"))
             added += 1
+        if "ingestion_revision" not in columns:
+            connection.execute(text("ALTER TABLE news_articles ADD COLUMN ingestion_revision VARCHAR(32) NULL"))
+            added += 1
         indexes = {row["name"] for row in inspect(connection).get_indexes("news_articles")}
         if "ix_news_articles_analysis_input_hash" not in indexes:
             connection.execute(text("CREATE INDEX ix_news_articles_analysis_input_hash ON news_articles (analysis_input_hash)"))
     NewsEventAnalysis.__table__.create(engine, checkfirst=True)
     NewsEventImpact.__table__.create(engine, checkfirst=True)
+    news_chunk_state.create(engine, checkfirst=True)
+    news_vector_state.create(engine, checkfirst=True)
     updated = 0
     with engine.begin() as connection:
         migrate_event_topics(connection)

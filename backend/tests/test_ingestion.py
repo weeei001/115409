@@ -81,7 +81,7 @@ def test_revision_includes_metadata_model_and_configuration():
     ]:
         assert changed[0]["revision"] != original[0]["revision"]
         assert changed[0]["chunk_id"] != original[0]["chunk_id"]
-    assert list(chunk_metadata.tables) == ["news_chunks"]
+    assert set(chunk_metadata.tables) == {"news_chunks", "news_chunk_state", "news_vector_state"}
 
 
 def test_chunking_replaces_changed_revision_and_resumes(ingestion_db):
@@ -351,7 +351,7 @@ def test_interrupted_ingestion_resumes_without_reembedding_confirmed_points(
 
     assert worker_main(["news-ingest", "--batch-size", "1"]) == 0
     reports = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert reports[0]["written"] == 0 and reports[0]["skipped"] == 2
+    assert reports[0]["written"] == 0 and reports[0]["read"] == 0
     assert reports[1]["written"] == 1 and reports[1]["skipped"] == 1
     assert reports[1]["failed"] == 0
     assert _stored(factory) == stored
