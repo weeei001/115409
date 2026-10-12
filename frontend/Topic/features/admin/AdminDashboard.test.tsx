@@ -271,6 +271,14 @@ assert.equal(adminLatestResult(latestJob)?.id, 8);
 const latestMarkup = renderToStaticMarkup(<AdminJobs jobs={[latestJob]} disabled={false} onAction={() => undefined} />);
 assert.match(latestMarkup, /最近執行：.*已中斷/);
 assert.match(adminRunProblem(latestInterrupted)!.title, /服務停止/);
+const workerInterrupted = { ...latestInterrupted, job_name: 'rag', exit_code: 130,
+  diagnostics: { run_id: 8, error_category: 'worker_interrupted', failed_stages: [],
+    stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown' as const, worker_progress: 'unknown' as const } };
+assert.equal(adminRunProblem(workerInterrupted)!.title, '工作已中斷，本次尚未完成');
+assert.match(adminRunProblem(workerInterrupted)!.next, /補跑/);
+const interruptedMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={workerInterrupted} />);
+assert.match(interruptedMarkup, /工作收到中斷訊號，尚未完成/);
+assert.doesNotMatch(interruptedMarkup, /根因待查|原因未知/);
 const validationRun = { ...run, job_name: 'rag', diagnostics: { run_id: 7, error_category: 'stage_nonzero',
   failed_stages: [{ stage: 'news-impact-batch', exit_code: 1, reason: 'article_failures', failure_reasons: { validation_failed: 3 } }],
   stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown' as const, worker_progress: 'unknown' as const } };

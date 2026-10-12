@@ -237,6 +237,10 @@ class JobRuntime:
             error = "; ".join(failures) or ("Job failed" if result else None)
         except Exception as exc:
             result, status, error = 1, "failed", "; ".join(failures) or f"Job failed ({type(exc).__name__})"
+        # A worker can receive Ctrl+C before ASGI reaches lifespan shutdown.
+        # The worker CLI reports KeyboardInterrupt as 130 independently of stop_event.
+        if result == 130:
+            status, error = "interrupted", "Worker interrupted before this run completed"
         if self.stop_event.is_set() and result != 0:
             status, error = "interrupted", "Service stopped before this run completed"
         try:

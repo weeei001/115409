@@ -389,6 +389,47 @@ def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknow
         engine.dispose()
 
 
+@pytest.mark.parametrize("stopping", [False, True])
+def test_indexing_interrupt_before_lifespan_stop_is_retryable(tmp_path, settings, monkeypatch, stopping):
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    jobs.status = "running"
+    calls = []
+
+    def worker(command):
+        calls.append(command[0])
+        if command[0] == "news-ingest":
+            if stopping:
+                jobs.stop_event.set()
+            return 130
+        return 0
+
+    monkeypatch.setattr(jobs, "_worker", worker)
+    try:
+        with factory() as db:
+            run_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "run", None)["run_id"]
+        assert jobs._execute(run_id) == 130
+        assert calls == ["migrate-news-impact-schema", "news-ingest"]
+        with factory() as db:
+            data = service.get_run(db, run_id, jobs)
+            assert data["status"] == "interrupted" and data["exit_code"] == 130
+            assert data["diagnostics"]["error_category"] == ("service_stop" if stopping else "worker_interrupted")
+            assert data["diagnostics"]["failed_stages"] == []
+            overview = service.overview(db, jobs, "development")
+            card = next(item for item in overview["jobs"] if item["name"] == "rag")
+            assert card["result_summary"]["last_failure"] is None
+            assert card["result_summary"]["consecutive_failed"] == 0
+            jobs.stop_event.clear()
+            retry_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "retry", run_id)["run_id"]
+        monkeypatch.setattr(jobs, "_worker", lambda command: 0)
+        assert jobs._execute(retry_id) == 0
+        with factory() as db:
+            retry = service.get_run(db, retry_id, jobs)
+            assert retry["status"] == "succeeded" and retry["retry_of"] == run_id
+        assert jobs.snapshot()["run_activity"] == {}
+    finally:
+        engine.dispose()
+
+
 def test_exception_and_service_stop_have_safe_distinct_diagnostics(tmp_path, settings, monkeypatch):
     jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
     jobs.status = "running"
