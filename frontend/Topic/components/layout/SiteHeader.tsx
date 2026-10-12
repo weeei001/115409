@@ -26,6 +26,8 @@ export interface SiteHeaderProps {
   titleNode?: React.ReactNode;
   /** 緊接在標題右側的動作（例如個股頁的收藏星號） */
   titleAction?: React.ReactNode;
+  /** 標題區右側的頁面動作（例如個股頁的完整報告）；手機排到副標下方 */
+  actions?: React.ReactNode;
   /**
    * 工作台頁面（AI 對話）：lg 以上收起標題區（h1 仍留給螢幕報讀器），內容直接接在頁首下方；
    * 頁首改成滿版，左右緣和工作台的外框對齊（工作台四周留 16px）
@@ -38,7 +40,7 @@ export interface SiteHeaderProps {
  * 1024 以下沒有放搜尋框的空間：按搜尋鈕在平列下方展開一列全寬搜尋（P1-19、04-U3），換頁或按 Esc 收起。
  * 底下是不跟著捲動的標題區（麵包屑、襯線 h1、副標）。標題區的粗線在換頁時由左到右畫出（光束掃過）。
  */
-export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap = false, titleAction, workspace = false }: SiteHeaderProps) {
+export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap = false, titleAction, actions, workspace = false }: SiteHeaderProps) {
   const router = useRouter();
   const headerRef = useRef<HTMLElement>(null);
   useSyncAppHeaderHeight(headerRef);
@@ -112,23 +114,26 @@ export function SiteHeader({ title, titleNode, subtitle, breadcrumbs, titleWrap 
       <div className={cn('shrink-0 bg-card', workspace && 'lg:sr-only')}>
         <div className="mx-auto max-w-[1320px] px-4 pt-4 pb-4 sm:px-6 lg:px-10 lg:pt-6 lg:pb-6">
           {crumbs.length ? <Breadcrumbs items={crumbs} className="-my-2.5" /> : null}
-          <div className="flex min-w-0 items-center gap-2">
-            <div className={cn('min-w-0', !titleAction && 'flex-1')}>
-              <h1
-                className={cn(
-                  'font-serif text-[clamp(1.625rem,3.2vw,2.75rem)] leading-[1.2] font-black tracking-[0.04em]',
-                  titleWrap ? '[word-break:keep-all] [overflow-wrap:anywhere] text-balance' : 'truncate',
-                )}
-              >
-                {titleNode ?? title}
-              </h1>
-              {subtitle ? (
-                <p className="mt-1 truncate text-[13px] text-muted-foreground" title={subtitle}>
-                  {subtitle}
-                </p>
-              ) : null}
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className={cn('min-w-0', !titleAction && 'flex-1')}>
+                <h1
+                  className={cn(
+                    'font-serif text-[clamp(1.625rem,3.2vw,2.75rem)] leading-[1.2] font-black tracking-[0.04em]',
+                    titleWrap ? '[word-break:keep-all] [overflow-wrap:anywhere] text-balance' : 'truncate',
+                  )}
+                >
+                  {titleNode ?? title}
+                </h1>
+                {subtitle ? (
+                  <p className="mt-1 truncate text-[13px] text-muted-foreground" title={subtitle}>
+                    {subtitle}
+                  </p>
+                ) : null}
+              </div>
+              {titleAction}
             </div>
-            {titleAction}
+            {actions ? <div className="shrink-0">{actions}</div> : null}
           </div>
         </div>
         <div key={router.asPath} className="anim-beam-draw h-px w-full bg-border-strong" aria-hidden />

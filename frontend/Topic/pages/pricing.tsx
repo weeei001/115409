@@ -47,6 +47,7 @@ export default function PricingPage() {
           <AnimatedSection className="min-w-0">
             <Notice tone="info" className="mb-6">{PRICING_DEMO_NOTICE}</Notice>
             <Ledger
+              data-tour="pricing-plans"
               aria-labelledby="pricing-plans-heading"
               title={<span id="pricing-plans-heading">選擇方案</span>}
               stamp={current.signedIn ? `目前方案 ${currentName}` : '訪客 · 免費版'}
@@ -63,7 +64,7 @@ export default function PricingPage() {
           </AnimatedSection>
 
           <AnimatedSection delay={0.05} className="min-w-0">
-            <Ledger aria-labelledby="pricing-compare-heading" title={<span id="pricing-compare-heading">方案比較</span>}>
+            <Ledger data-tour="pricing-compare" aria-labelledby="pricing-compare-heading" title={<span id="pricing-compare-heading">方案比較</span>}>
               <ComparisonTable billing={billing} currentPlanId={current.planId} />
             </Ledger>
           </AnimatedSection>
@@ -72,6 +73,7 @@ export default function PricingPage() {
           <AnimatedSection delay={0.05} className="min-w-0">
             <Ledger
               id={DESKTOP_MASCOT.anchor}
+              data-tour="pricing-desktop"
               aria-labelledby="pricing-desktop-heading"
               title={<span id="pricing-desktop-heading">桌面小燈</span>}
               actions={<span className="flex items-center gap-2"><PlannedBadge /><MinPlanBadge planId={DESKTOP_MASCOT.minPlan} /></span>}
@@ -90,7 +92,7 @@ export default function PricingPage() {
 
           <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
             <AnimatedSection delay={0.1} className="min-w-0 lg:col-span-7">
-              <Ledger aria-labelledby="pricing-faq-heading" title={<span id="pricing-faq-heading">常見問題</span>}>
+              <Ledger data-tour="pricing-faq" aria-labelledby="pricing-faq-heading" title={<span id="pricing-faq-heading">常見問題</span>}>
                 {PRICING_FAQ.map((item) => (
                   <FoldSection key={item.id} title={item.question}>
                     <p className="px-4 py-3 text-[15px] leading-[1.8] text-pretty sm:px-5">{item.answer}</p>
@@ -100,7 +102,7 @@ export default function PricingPage() {
             </AnimatedSection>
 
             <AnimatedSection delay={0.15} className="min-w-0 lg:col-span-5">
-              <Ledger aria-labelledby="pricing-scope-heading" title={<span id="pricing-scope-heading">付費方案的範圍</span>}>
+              <Ledger data-tour="pricing-scope" aria-labelledby="pricing-scope-heading" title={<span id="pricing-scope-heading">付費方案的範圍</span>}>
                 <LedgerPanel>
                   <ul className="list-disc space-y-2 pl-5 text-[15px] leading-[1.8] marker:text-muted-foreground">
                     {PRICING_SCOPE_NOTES.map((note) => (

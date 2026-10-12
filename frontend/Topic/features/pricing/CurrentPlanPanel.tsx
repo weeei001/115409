@@ -58,7 +58,7 @@ export function CurrentPlanPanel() {
   }
 
   return (
-    <Ledger aria-labelledby="me-plan-heading" title={<span id="me-plan-heading">目前方案</span>} stamp={DEMO_TAG}>
+    <Ledger data-tour="me-plan" aria-labelledby="me-plan-heading" title={<span id="me-plan-heading">目前方案</span>} stamp={DEMO_TAG}>
       <LedgerPanel>
         <p className="text-lg font-bold tracking-[0.04em]">{plan.name}</p>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">

@@ -5,6 +5,8 @@ import type { UseStockTextBriefResult } from '../../lib/hooks/useStockTextBrief'
 import type { Brief, EvidenceItem, TextBriefResponse } from '../../lib/types/textBrief';
 import { renderedText } from '../../lib/testing/markup';
 import { BriefReport } from './BriefReport';
+import { BriefReportActions, stockReportHref } from './BriefReportActions';
+import { AIBriefSummaryCard } from './AIBriefSummaryCard';
 import { StockTextBriefPanel } from './StockTextBriefPanel';
 
 const CATALOG: EvidenceItem[] = [
@@ -59,4 +61,21 @@ const DATA = {
   assert.ok(renderedText(html).includes('分析版本abc123'));
 }
 
-console.log('Brief report render passed: provenance, every item expanded, cited sources, drawer link.');
+{
+  // 個股頁頁首：查看與下載兩個入口，都開新分頁；下載帶 print=1 讓報告頁自動開列印視窗
+  assert.equal(stockReportHref('2330'), '/stock/2330/report');
+  assert.equal(stockReportHref('2330', true), '/stock/2330/report?print=1');
+  const html = renderToStaticMarkup(React.createElement(BriefReportActions, { symbol: '2330' }));
+  assert.ok(html.includes('href="/stock/2330/report"') && html.includes('href="/stock/2330/report?print=1"'));
+  assert.equal(html.match(/target="_blank"/g)?.length, 2);
+  assert.ok(renderedText(html).includes('AI 分析報告') && renderedText(html).includes('下載 PDF'));
+
+  // AI 摘要卡也有完整報告的入口
+  const brief = {
+    loading: false, error: null, data: DATA, seconds: 0, run: async () => {}, reset: () => {},
+  } as unknown as UseStockTextBriefResult;
+  const card = renderToStaticMarkup(React.createElement(AIBriefSummaryCard, { symbol: '2330', brief, onOpenDetail: () => {} }));
+  assert.ok(card.includes('href="/stock/2330/report"') && renderedText(card).includes('完整報告（可存 PDF）'));
+}
+
+console.log('Brief report render passed: provenance, every item expanded, cited sources, drawer, header and summary-card links.');

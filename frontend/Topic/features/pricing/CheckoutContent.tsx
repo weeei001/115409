@@ -119,6 +119,7 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
     <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
       <AnimatedSection className="min-w-0 lg:col-span-7">
         <Ledger
+          data-tour="checkout-summary"
           aria-labelledby="checkout-summary-heading"
           title={<span id="checkout-summary-heading">訂單摘要</span>}
           actions={<BillingToggle value={billing} onChange={changeBilling} />}
@@ -167,7 +168,7 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
       </AnimatedSection>
 
       <AnimatedSection delay={0.05} className="min-w-0 lg:col-span-5">
-        <Ledger aria-labelledby="checkout-payment-heading" title={<span id="checkout-payment-heading">付款</span>} stamp={DEMO_TAG}>
+        <Ledger data-tour="checkout-payment" aria-labelledby="checkout-payment-heading" title={<span id="checkout-payment-heading">付款</span>} stamp={DEMO_TAG}>
           <LedgerPanel>
             <div className="flex items-start gap-3 border px-3 py-3">
               <CreditCard size={20} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
