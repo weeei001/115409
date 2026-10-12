@@ -17,6 +17,16 @@ def test_retired_jobs_never_dispatch(job, tmp_path):
             run=lambda command: pytest.fail("Retired job dispatched"))
 
 
+def test_interrupted_impact_stage_does_not_start_sync(tmp_path):
+    calls = []
+    def run(command):
+        calls.append(command[0])
+        return 130 if command[0] == "news-impact-batch" else 0
+    assert scheduler.run_pipeline("impact", start=date(2026, 7, 1), symbols=None,
+        output=tmp_path, run=run) == 130
+    assert calls == ["migrate-news-impact-schema", "news-impact-batch"]
+
+
 def test_text_brief_without_symbols_lets_warmup_read_stock_info(tmp_path):
     commands = []
     assert scheduler.run_pipeline("text-brief", start=date(2026, 7, 1), symbols=None, output=tmp_path,

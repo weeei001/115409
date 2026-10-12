@@ -7,6 +7,7 @@ const CATEGORIES: Record<string, string> = {
   service_stop: '服務停止前未完成', completion_unknown: '未能記錄完成結果',
   execution_exception: '執行發生例外；詳細原因未知', unknown: '原因未知',
   job_retired: '這項工作已移除',
+  worker_interrupted: '工作收到中斷訊號，尚未完成',
 };
 
 const PHASES: Record<string, string> = {
@@ -45,6 +46,9 @@ export function adminRunProblem(run: AdminRun): { title: string; next: string } 
   if (['pipeline', 'all'].includes(run.job_name)) return { title: '完整更新已移除', next: '此為歷史紀錄；請分別執行需要更新的工作。' };
   if (run.job_name === 'ltn') return { title: '此新聞來源已停用', next: '保留歷史紀錄，不再執行。' };
   const data = run.diagnostics;
+  if (data?.error_category === 'worker_interrupted') {
+    return { title: '工作已中斷，本次尚未完成', next: '確認排程器恢復後，再補跑需要更新的工作。' };
+  }
   if (run.status === 'interrupted' || ['service_stop', 'service_restart'].includes(data?.error_category ?? '')) {
     return { title: '服務停止，本次工作未完成', next: '確認排程器恢復後，再補跑需要更新的工作。' };
   }

@@ -20,6 +20,7 @@ _INTERRUPTIONS = {
     "Job retired before this run started": "job_retired",
     "Service restarted before this run completed": "service_restart",
     "Service stopped before this run completed": "service_stop",
+    "Worker interrupted before this run completed": "worker_interrupted",
     "Run completion could not be recorded": "completion_unknown",
 }
 

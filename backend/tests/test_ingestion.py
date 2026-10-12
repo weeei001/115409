@@ -309,6 +309,58 @@ def test_cli_dry_run_and_chunk_failure_stops_combined_job(ingestion_db, settings
     assert '"failed": 1' in output and "private SQL" not in output
 
 
+def test_interrupted_ingestion_resumes_without_reembedding_confirmed_points(
+        ingestion_db, settings, monkeypatch, tmp_path, capsys):
+    import httpx
+
+    from app.clients import vector_writer
+    from app.jobs.__main__ import main as worker_main
+    from app.jobs.locking import worker_lock
+
+    engine, factory = ingestion_db
+    _seed(factory, [_article("first"), _article("second")])
+    configured = settings.model_copy(update={
+        "NEWS_INDEX_VERSION": "news-v1", "QDRANT_COLLECTION": "news_chunks_v1_dev"})
+    monkeypatch.setattr(cli, "get_settings", lambda: configured)
+    monkeypatch.setattr(cli, "make_engine", lambda _: engine)
+    monkeypatch.setattr(engine, "dispose", lambda: None)
+    monkeypatch.setattr(cli, "worker_lock", lambda name: worker_lock(name, directory=tmp_path))
+    monkeypatch.setattr(cli, "make_http_client", lambda _: httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: pytest.fail("Unexpected external request"))))
+
+    class InterruptedWriter(FakeWriter):
+        interrupt = True
+
+        async def upsert_chunks(self, chunks, vectors):
+            written = await super().upsert_chunks(chunks, vectors)
+            if self.interrupt:
+                self.interrupt = False
+                raise KeyboardInterrupt
+            return written
+
+    writer = InterruptedWriter()
+    monkeypatch.setattr(vector_writer, "VectorWriter", lambda http, config: writer)
+
+    assert worker_main(["news-ingest", "--batch-size", "1"]) == 130
+    assert "Worker interrupted" in capsys.readouterr().err
+    stored = _stored(factory)
+    assert [row["article_id"] for row in stored] == ["first", "second"]
+    assert writer.existing == {stored[0]["chunk_id"]}
+    assert writer.embedding_calls == [[embedding_text(stored[0])]]
+    assert writer.deleted == []
+
+    assert worker_main(["news-ingest", "--batch-size", "1"]) == 0
+    reports = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert reports[0]["written"] == 0 and reports[0]["skipped"] == 2
+    assert reports[1]["written"] == 1 and reports[1]["skipped"] == 1
+    assert reports[1]["failed"] == 0
+    assert _stored(factory) == stored
+    assert writer.existing == {row["chunk_id"] for row in stored}
+    assert writer.embedding_calls == [[embedding_text(row)] for row in stored]
+    assert [row["article_id"] for row in writer.written] == ["first", "second"]
+    assert [article_id for article_id, _, _ in writer.deleted] == ["first", "second"]
+
+
 @pytest.mark.parametrize("args", [["--limit", "0"], ["--batch-size", "0"],
     ["--start", "2026-07-14", "--end", "2026-07-13"], ["--symbols", ","],
     ["--create-collection"], ["--index-version", ""]])

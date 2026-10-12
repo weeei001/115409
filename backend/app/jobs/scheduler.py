@@ -81,6 +81,8 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
     for command in commands:
         result = run(command)
         print(f"job={command[0]} exit_code={result}", flush=True)
+        if result == 130:
+            return result
         if result:
             # Source and per-article failures can coexist with usable committed data.
             if command[0] not in {"crawl-cnyes", "crawl-ltn", "news-impact-batch"}:
