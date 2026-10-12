@@ -647,3 +647,152 @@ export function aiBacktestOption(result: AIBacktestResult, isDark: boolean): ECh
     series,
   };
 }
+
+// ── 基本面、信用交易與持股（個股頁「基本面明細」「信用交易與持股」抽屜） ──────────────────────────────────────
+// 營收、EPS、估值、餘額都不是漲跌或買賣超：一律用類別色（getMaColors），不上紅綠。
+
+/** 圖上最多畫幾個月的月營收（約兩年） */
+export const REVENUE_CHART_MONTHS = 24;
+/** 圖上最多畫幾季 */
+export const QUARTER_CHART_QUARTERS = 12;
+
+const fixedValue = (digits: number, suffix = '') => (v: unknown): string =>
+  typeof v === 'number' && Number.isFinite(v) ? `${uMinus(v.toFixed(digits))}${suffix}` : '--';
+const percentAxis = { formatter: (value: number) => `${uMinus(String(Number(Number(value).toFixed(1))))}%` };
+const countAxis = { formatter: (value: number) => fmtLotsAxisLabel(Number(value)) };
+const countValue = (unit: string) => (v: unknown): string =>
+  typeof v === 'number' && Number.isFinite(v) ? `${uMinus(Math.round(v).toLocaleString('zh-TW'))} ${unit}` : '--';
+
+/** 兩條線（或柱＋線）分左右軸的共用外框 */
+function dualAxisOption(
+  palette: ChartPalette,
+  categories: string[],
+  series: Array<LegendSeries & Record<string, unknown>>,
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): EChartsOption {
+  return {
+    animation: false,
+    // 圖例一列、軸名一列；軸名也算進外框（contain='all'）
+    grid: chartGrid({ top: 24, outerBoundsContain: 'all' }),
+    tooltip: tooltip(palette),
+    legend: legend(palette, series),
+    xAxis: baseAxis(palette, categories),
+    yAxis: [
+      valueAxis(palette, { position: 'left', nameGap: 8, nameTextStyle: { align: 'left' }, ...left }),
+      valueAxis(palette, { position: 'right', nameGap: 8, nameTextStyle: { align: 'right' }, splitLine: { show: false }, ...right }),
+    ],
+    series: series as EChartsOption['series'],
+  };
+}
+
+/** 月營收（億元，柱）與年增率（%，線，右軸） */
+export function monthlyRevenueOption(
+  months: Array<{ period: string; revenue: number; yoy: number | null }>,
+  isDark: boolean,
+): EChartsOption | null {
+  const rows = months.slice(-REVENUE_CHART_MONTHS);
+  if (!rows.length) return null;
+  const palette = getChartPalette(isDark);
+  const colors = getMaColors(isDark);
+  return dualAxisOption(
+    palette,
+    rows.map((r) => r.period),
+    [
+      { ...barLook, name: '月營收', yAxisIndex: 0, data: rows.map((r) => r.revenue / 1e8), itemStyle: { ...barLook.itemStyle, color: colors.MA5 }, tooltip: { valueFormatter: fixedValue(2, ' 億元') } },
+      { ...lineLook(palette.text, 1.5), name: '年增率', yAxisIndex: 1, data: rows.map((r) => r.yoy), connectNulls: false, tooltip: { valueFormatter: fixedValue(2, '%') } },
+    ],
+    { name: '億元' },
+    { name: '年增率', axisLabel: percentAxis },
+  );
+}
+
+/** 單季 EPS（元，柱）與毛利率、營業利益率（%，線，右軸） */
+export function quarterProfitOption(
+  quarters: Array<{ label: string; eps: number | null; grossMargin: number | null; operatingMargin: number | null }>,
+  isDark: boolean,
+): EChartsOption | null {
+  const rows = quarters.slice(-QUARTER_CHART_QUARTERS);
+  if (!rows.some((r) => r.eps != null || r.grossMargin != null || r.operatingMargin != null)) return null;
+  const palette = getChartPalette(isDark);
+  const colors = getMaColors(isDark);
+  const series = [
+    { ...barLook, name: 'EPS', yAxisIndex: 0, data: rows.map((r) => r.eps), itemStyle: { ...barLook.itemStyle, color: colors.MA5 }, tooltip: { valueFormatter: fixedValue(2, ' 元') } },
+    { ...lineLook(colors.MA10, 1.5), name: '毛利率', yAxisIndex: 1, data: rows.map((r) => r.grossMargin), connectNulls: false, tooltip: { valueFormatter: fixedValue(2, '%') } },
+    { ...lineLook(colors.MA20, 1.5), name: '營業利益率', yAxisIndex: 1, data: rows.map((r) => r.operatingMargin), connectNulls: false, tooltip: { valueFormatter: fixedValue(2, '%') } },
+  ].filter((s) => s.data.some((v) => v != null));
+  return dualAxisOption(palette, rows.map((r) => r.label), series, { name: 'EPS（元）' }, { name: '利潤率', axisLabel: percentAxis });
+}
+
+/** 本益比（左軸）與股價淨值比（右軸） */
+export function valuationOption(days: Array<{ date: string; per: number | null; pbr: number | null }>, isDark: boolean): EChartsOption | null {
+  if (!days.some((d) => d.per != null || d.pbr != null)) return null;
+  const palette = getChartPalette(isDark);
+  const colors = getMaColors(isDark);
+  return dualAxisOption(
+    palette,
+    days.map((d) => d.date),
+    [
+      { ...lineLook(palette.text, 1.5), name: '本益比', yAxisIndex: 0, data: days.map((d) => d.per), connectNulls: false, tooltip: { valueFormatter: fixedValue(2, ' 倍') } },
+      { ...lineLook(colors.MA5, 1.5), name: '股價淨值比', yAxisIndex: 1, data: days.map((d) => d.pbr), connectNulls: false, tooltip: { valueFormatter: fixedValue(2, ' 倍') } },
+    ],
+    { name: '本益比', scale: true },
+    { name: '淨值比', scale: true },
+  );
+}
+
+/** 融資餘額（左軸）與融券餘額（右軸），單位張 */
+export function marginBalanceOption(
+  days: Array<{ date: string; marginBalance: number | null; shortBalance: number | null }>,
+  isDark: boolean,
+): EChartsOption | null {
+  if (!days.some((d) => d.marginBalance != null || d.shortBalance != null)) return null;
+  const palette = getChartPalette(isDark);
+  const colors = getMaColors(isDark);
+  return dualAxisOption(
+    palette,
+    days.map((d) => d.date),
+    [
+      { ...lineLook(colors.MA5, 1.5), name: '融資餘額', yAxisIndex: 0, data: days.map((d) => d.marginBalance), connectNulls: false, tooltip: { valueFormatter: countValue('張') } },
+      { ...lineLook(colors.MA10, 1.5), name: '融券餘額', yAxisIndex: 1, data: days.map((d) => d.shortBalance), connectNulls: false, tooltip: { valueFormatter: countValue('張') } },
+    ],
+    { name: '融資（張）', scale: true, axisLabel: countAxis },
+    { name: '融券（張）', scale: true, axisLabel: countAxis },
+  );
+}
+
+/** 外資持股比例（%） */
+export function foreignHoldingOption(days: Array<{ date: string; ratio: number | null }>, isDark: boolean): EChartsOption | null {
+  if (!days.some((d) => d.ratio != null)) return null;
+  const palette = getChartPalette(isDark);
+  const series = [{ ...lineLook(palette.text, 1.5), name: '外資持股比例', data: days.map((d) => d.ratio), connectNulls: false }];
+  return {
+    animation: false,
+    grid: chartGrid(),
+    tooltip: tooltip(palette, { valueFormatter: fixedValue(2, '%') }),
+    legend: legend(palette, series),
+    xAxis: baseAxis(palette, days.map((d) => d.date)),
+    yAxis: valueAxis(palette, { scale: true, axisLabel: percentAxis }),
+    series,
+  };
+}
+
+/** 每週集保：持股超過 1,000 張的股權比例（%，左軸）與集保股東總人數（右軸，虛線） */
+export function holdingTopLevelOption(
+  weeks: Array<{ date: string; topPercent: number | null; totalPeople: number | null }>,
+  isDark: boolean,
+): EChartsOption | null {
+  if (!weeks.some((w) => w.topPercent != null || w.totalPeople != null)) return null;
+  const palette = getChartPalette(isDark);
+  const colors = getMaColors(isDark);
+  return dualAxisOption(
+    palette,
+    weeks.map((w) => w.date),
+    [
+      { ...lineLook(palette.text, 1.5), name: '超過 1,000 張持股比例', yAxisIndex: 0, data: weeks.map((w) => w.topPercent), connectNulls: false, tooltip: { valueFormatter: fixedValue(2, '%') } },
+      { ...lineLook(colors.MA5, 1.5, true), name: '集保股東人數', yAxisIndex: 1, data: weeks.map((w) => w.totalPeople), connectNulls: false, tooltip: { valueFormatter: countValue('人') } },
+    ],
+    { name: '比例', scale: true, axisLabel: percentAxis },
+    { name: '人數', scale: true, axisLabel: countAxis },
+  );
+}

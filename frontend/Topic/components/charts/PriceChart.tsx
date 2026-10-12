@@ -33,6 +33,9 @@ import {
 } from '@/lib/charts/priceChart';
 import { getChartPalette, getMaColors } from '@/lib/charts/theme';
 import { useTheme } from '@/lib/theme/ThemeContext';
+import { composeChartImage } from '@/lib/export/chartImage';
+import type { ExportMeta } from '@/lib/export/csv';
+import { ImageExportButton } from '@/components/common/ExportButtons';
 import { cn } from '@/lib/cn';
 import { buildVolumeInsight, volumeVsMa20Text, type VolumeInsight } from '@/lib/charts/volumeInsight';
 import { NeatlineSoundings, SOUNDING_FRAME_STYLE, SOUNDING_PAD, sameMarks, type SoundingMarks } from './NeatlineSoundings';
@@ -51,6 +54,8 @@ interface Props {
   frame?: 'neatline' | 'plain';
   /** 繪圖區高度（Tailwind class） */
   heightClassName?: string;
+  /** 給了就在完整版的圖上方放「存成圖片」（專業版工具）；精簡版不放 */
+  exportImage?: ExportMeta & { fileName: string };
 }
 
 /** 窄螢幕（< 640px）預設只顯示最後幾根 K 棒，K 棒較寬、日期刻度不擠；仍可左右拖曳與雙指縮放 */
@@ -133,6 +138,7 @@ export function PriceChart({
   compact = false,
   frame = 'neatline',
   heightClassName = 'h-[340px] sm:h-[460px]',
+  exportImage,
 }: Props) {
   const volumeInsight = loadedVolumeInsight ?? buildVolumeInsight([], '');
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -410,7 +416,23 @@ export function PriceChart({
   return (
     <div className="space-y-4">
       <div className="text-xs text-muted-foreground">
-        <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">價格圖</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">價格圖</p>
+          {exportImage ? (
+            <ImageExportButton
+              fileName={exportImage.fileName}
+              capture={async () => {
+                const chart = chartRef.current;
+                const element = containerRef.current;
+                if (!chart || !element) return null;
+                // takeScreenshot 依裝置像素比輸出，文字也照同一個比例放大
+                const canvas = chart.takeScreenshot();
+                const scale = element.clientWidth ? canvas.width / element.clientWidth : 1;
+                return composeChartImage(canvas, exportImage, { isDark, scale: Math.max(1, scale) });
+              }}
+            />
+          ) : null}
+        </div>
         {legendButtons}
         <p className="mt-1 text-[13px] leading-relaxed">
           柱狀為成交量（紅：上漲日，綠：下跌日）。

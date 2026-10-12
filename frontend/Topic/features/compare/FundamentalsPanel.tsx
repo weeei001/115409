@@ -2,6 +2,11 @@ import { LedgerPanel } from '@/components/common/Ledger';
 import type { CompareFundamentalsData } from '@/lib/api/compareFundamentals';
 import { buildFundamentalsComparison, epsPeriodLabel } from '@/lib/utils/compareFundamentals';
 import { fmtAmount, fmtPercent, fmtPrice } from '@/lib/utils/format';
+import { CsvExportButton } from '@/components/common/ExportButtons';
+import { exportFileName } from '@/lib/export/csv';
+import { DATA_SOURCES } from '@/lib/export/sources';
+
+const round2 = (value: number | null | undefined) => (value == null || !Number.isFinite(value) ? null : Number(value.toFixed(2)));
 
 const cell = 'px-3 py-3 text-right font-mono text-[13.5px] tabular-nums sm:px-4';
 const note = 'mt-1 block font-sans text-[11px] font-normal text-muted-foreground';
@@ -17,7 +22,24 @@ export function FundamentalsPanel({ symbols, data, endDate }: {
   return (
       <div className="grid gap-px bg-border">
       <LedgerPanel className="space-y-1 text-[13px] leading-relaxed text-muted-foreground">
-        <p>資料期間截至 {endDate}，各項優先採所有股票都有資料的最近共同期間。</p>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <p>資料期間截至 {endDate}，各項優先採所有股票都有資料的最近共同期間。</p>
+          <CsvExportButton
+            fileName={exportFileName([symbols.join('-'), '基本面比較', endDate], 'csv')}
+            build={() => ({
+              title: '多股基本面比較',
+              source: `月營收、EPS：${DATA_SOURCES.revenue}；估值：${DATA_SOURCES.valuation}`,
+              period: `截至 ${endDate}`,
+              columns: ['股票', '月營收期間', '月營收（元）', '營收年增率（%）', 'EPS 期間', '基本 EPS（元）', 'EPS 年增率（%）', '估值日期', '本益比（倍）', '股價淨值比（倍）', '殖利率（%）'],
+              rows: comparison.rows.map((row) => [
+                row.symbol, row.revenue?.period, row.revenue?.value, round2(row.revenueYoy),
+                row.eps ? epsPeriodLabel(row.eps) : null, row.eps?.value, round2(row.epsYoy),
+                row.valuation?.period, row.valuation?.per, row.valuation?.pbr, row.valuation?.yield,
+              ]),
+              notes: ['年增率只和去年同期、同編製基礎比較；財報實際公布日未保存。'],
+            })}
+          />
+        </div>
         {/* 同一段的全形標點後不換行，避免 JSX 換行多出半形空格（P2-109） */}
         <p>
           {`月營收：${comparison.aligned.revenue ? '同月份' : '無共同月份或資料不足，各自標示'}；`}

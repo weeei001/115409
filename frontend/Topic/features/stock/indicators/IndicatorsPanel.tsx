@@ -12,6 +12,20 @@ import { Button } from '@/components/ui/button';
 import { LedgerHeading, LightGlyph } from '@/components/common/Ledger';
 import { cn } from '@/lib/cn';
 import { EmptyRangeActions } from '../EmptyRangeActions';
+import { CsvExportButton } from '@/components/common/ExportButtons';
+import { exportFileName, type CsvTable } from '@/lib/export/csv';
+import { DATA_SOURCES } from '@/lib/export/sources';
+
+/** 匯出載入期間的全部指標欄位 */
+function indicatorsCsv(rows: TechnicalDay[], stockLabel: string, period: string | null): CsvTable {
+  return {
+    title: `${stockLabel} 技術指標`,
+    source: DATA_SOURCES.indicators,
+    period,
+    columns: ['日期', '收盤', 'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'MA240', 'RSI5', 'RSI10', 'K9', 'D9', 'DIF', 'DEA', 'MACD 柱', '布林上軌', '布林中軌', '布林下軌'],
+    rows: rows.map((r) => [r.date, r.close, r.ma5, r.ma10, r.ma20, r.ma60, r.ma120, r.ma240, r.rsi5, r.rsi10, r.kd_k9, r.kd_d9, r.macd_dif, r.macd_dea ?? r.macd_signal, r.macd_hist, r.boll_upper20, r.boll_mid20, r.boll_lower20]),
+  };
+}
 
 interface Actions {
   onRetry: () => void;
@@ -117,7 +131,14 @@ function buildIndicators(rows: TechnicalDay[], isDark: boolean): Indicator[] {
  * 「技術指標明細」抽屜：先放一張全寬的主圖（RSI，和頁面上「指標訊號」卡的第一列一致），
  * 其餘指標排成有線分隔的清單，每列左邊用文字寫判讀、右邊是較小的圖。
  */
-export function IndicatorsPanel({ rows, loading, error = null, onRetry, onWidenRange }: { rows: TechnicalDay[] | null; loading: boolean; error?: string | null } & Actions) {
+export function IndicatorsPanel({ rows, loading, error = null, onRetry, onWidenRange, symbol, stockLabel }: {
+  rows: TechnicalDay[] | null;
+  loading: boolean;
+  error?: string | null;
+  /** 匯出用；沒給就不放匯出鈕 */
+  symbol?: string;
+  stockLabel?: string;
+} & Actions) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const indicators = useMemo(() => (rows?.length ? buildIndicators(rows, isDark) : null), [rows, isDark]);
@@ -172,6 +193,14 @@ export function IndicatorsPanel({ rows, loading, error = null, onRetry, onWidenR
           as="h3"
           title={primary.title}
           headingProps={{ id: 'indicator-primary' }}
+          actions={
+            symbol && rows ? (
+              <CsvExportButton
+                build={() => indicatorsCsv(rows, stockLabel ?? symbol, span)}
+                fileName={exportFileName([symbol, '技術指標', latestDate], 'csv')}
+              />
+            ) : null
+          }
           stamp={
             span ? (
               <span className="inline-flex items-center gap-1.5">
@@ -190,7 +219,12 @@ export function IndicatorsPanel({ rows, loading, error = null, onRetry, onWidenR
           </p>
         </div>
         <div className="mt-3">
-          <EChart title={`${primary.title}走勢`} option={primary.option as EChartsOption} height={280} />
+          <EChart
+            title={`${primary.title}走勢`}
+            option={primary.option as EChartsOption}
+            height={280}
+            exportImage={symbol ? { title: `${stockLabel ?? symbol} ${primary.title}`, source: DATA_SOURCES.indicators, period: span, fileName: exportFileName([symbol, primary.title.replace(/\s/g, ''), latestDate], 'png') } : undefined}
+          />
         </div>
       </section>
 
