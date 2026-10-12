@@ -7,7 +7,7 @@ import { createConversation, deleteConversation, getConversation, listConversati
 import { rateChatMessage } from '@/lib/api/aiEffectiveness';
 import type { ChatAction, ChatMessage, ChatSource } from '@/lib/types/chat';
 import type { ChatDashboard } from '@/lib/types/chatDashboard';
-import { recordAiAsk } from '@/features/pricing/quota';
+import { refreshPlan } from '@/features/pricing/currentPlan';
 
 const newId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -245,8 +245,6 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
     ]);
     setLoading(true);
     setStreamingMessageId(assistantId);
-    // 方案額度提示用：這台裝置實際送出的提問次數（只提示、不擋）
-    if (owner) recordAiAsk(owner);
 
     try {
       const result = await ragAsk({ query: text, history, stock_id: stockId ?? null }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
@@ -270,6 +268,8 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
       if (activeRef.current?.ctrl === ctrl) activeRef.current = null;
       if (abortRef.current === ctrl) abortRef.current = null;
       setStreamingMessageId((previous) => previous === assistantId ? null : previous);
+      // 後端已計入（或退回）這次提問的額度，重讀用量
+      void refreshPlan();
       if (wasCurrent) {
         setLoading(false);
         if (selectedId) setRevision((value) => value + 1);

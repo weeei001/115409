@@ -9,8 +9,10 @@ def conversation(db, user_id, conversation_id, *, lock=False):
     return db.scalar(statement.with_for_update() if lock else statement)
 
 
-def list_conversations(db, user_id, query, offset, limit):
+def list_conversations(db, user_id, query, offset, limit, since=None):
     statement = select(Conversation).where(Conversation.user_id == user_id)
+    if since is not None:
+        statement = statement.where(Conversation.updated_at >= since)
     if query:
         pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         matching_message = exists(select(ConversationMessage.id).where(

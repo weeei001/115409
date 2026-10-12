@@ -16,6 +16,7 @@ from .market_extra import (
 from .user import User
 from .password_reset_token import PasswordResetToken
 from .favorite_stock import FavoriteStock
+from .subscription import AiAskUsage, UserSubscription
 from .notification import NotificationPreference, PushDevice, Notification, NotificationDelivery
 from .conversation import Conversation, ConversationMessage
 from .ai_usage import AiUsageLog
@@ -46,6 +47,8 @@ __all__ = [
     "User",
     "PasswordResetToken",
     "FavoriteStock",
+    "UserSubscription",
+    "AiAskUsage",
     "NotificationPreference",
     "PushDevice",
     "Notification",

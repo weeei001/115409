@@ -14,7 +14,7 @@ import { usePrefersReducedMotion } from '@/lib/hooks/useClientEnv';
 import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import { cn } from '@/lib/cn';
 import { PlanBadge } from '@/features/pricing/PlanBadges';
-import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { useCurrentPlan } from '@/features/pricing/currentPlan';
 
 const NAV_ICONS: Record<(typeof PRIMARY_NAV)[number]['path'], LucideIcon> = {
   '/': House,

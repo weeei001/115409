@@ -38,10 +38,9 @@ import {
   technicalFinding,
 } from '@/features/compare/analysisFindings';
 import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
-import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { useCurrentPlan } from '@/features/pricing/currentPlan';
 import { QuotaNotice } from '@/features/pricing/QuotaNotice';
 import { compareLimitText } from '@/features/pricing/quota';
-import { PLAN_LIMITS } from '@/features/pricing/plans';
 import { COMPARE_FROM_PARAM, COMPARE_SYMBOLS_PARAM, COMPARE_TO_PARAM, COMPARE_URL_MAX_SYMBOLS, compareHref, parseCompareQuery } from '@/lib/utils/compareQuery';
 import { STOCK_SEARCH_BULK_HINT_COMPARE } from '@/components/common/StockSearch';
 
@@ -88,21 +87,27 @@ function CompareOutputs() {
 export default function ComparePage() {
   const c = useCompare();
   const router = useRouter();
+  // 方案的同時比較檔數：超過時不能開始比較（還沒讀到方案時不擋）
+  const plan = useCurrentPlan();
+  const compareLimit = plan.limits?.compare ?? null;
+  const overLimit = compareLimit != null && c.selected.length > compareLimit;
+  const planSettled = plan.ready || Boolean(plan.error);
   /** 已經套用過（或自己寫進去）的網址條件；網址再變成別的條件（例如頁首貼上多個代號）才重新比較 */
   const appliedQuery = useRef<string | null>(null);
   const queryKey = [COMPARE_SYMBOLS_PARAM, COMPARE_FROM_PARAM, COMPARE_TO_PARAM].map((key) => String(router.query[key] ?? '')).join('|');
 
   // 網址帶著上一次的比較條件（上一頁、重新整理、分享連結）：股票清單載入後自動還原並比較（P1-26、03-F16）
+  // 等方案讀到再還原，超過方案的比較檔數時只還原選股、不自動比較
   useEffect(() => {
-    if (!router.isReady || !c.symbolsLoaded || appliedQuery.current === queryKey) return;
+    if (!router.isReady || !c.symbolsLoaded || !planSettled || appliedQuery.current === queryKey) return;
     appliedQuery.current = queryKey;
     if (!router.query[COMPARE_SYMBOLS_PARAM]) return;
     const query = parseCompareQuery(router.query, c.allSymbols);
     const requested = parseCompareQuery(router.query)?.symbols ?? [];
     const dropped = requested.filter((symbol) => !query?.symbols.includes(symbol));
     if (dropped.length) toast.warning(`網址裡有 ${dropped.length} 個代號不在股票清單，已略過：${dropped.slice(0, 4).join('、')}${dropped.length > 4 ? ' 等' : ''}`);
-    if (query) c.restore(query);
-  }, [router.isReady, router.query, queryKey, c.symbolsLoaded, c.allSymbols, c.restore]);
+    if (query) c.restore(query, { run: compareLimit == null || query.symbols.length <= compareLimit });
+  }, [router.isReady, router.query, queryKey, c.symbolsLoaded, c.allSymbols, c.restore, planSettled, compareLimit]);
 
   /** 把這次比較的條件寫進網址（取代目前這一筆紀錄，不多一筆上一頁） */
   const writeQuery = useCallback((href: string) => {
@@ -112,6 +117,7 @@ export default function ComparePage() {
   }, [router]);
 
   const startCompare = () => {
+    if (overLimit) return;
     writeQuery(compareHref(c.selected, { startDate: c.startDate, endDate: c.endDate }));
     void c.compare();
   };
@@ -130,9 +136,6 @@ export default function ComparePage() {
   }, [reduceMotion]);
 
   const availableSymbols = c.allSymbols.filter((s) => !c.selected.includes(s));
-  // 方案的同時比較檔數（展示）：超過只提示、不擋
-  const { planId } = useCurrentPlan();
-  const compareLimit = PLAN_LIMITS[planId].compare;
   const stockInfos = useMemo(() => Object.values(c.stockInfos), [c.stockInfos]);
   const result = c.result;
   const metrics = result?.metrics ?? null;
@@ -266,7 +269,7 @@ export default function ComparePage() {
                   <Notice
                     tone="danger"
                     action={
-                      <Button size="sm" variant="outline" onClick={startCompare} disabled={loading || c.selected.length === 0}>
+                      <Button size="sm" variant="outline" onClick={startCompare} disabled={loading || c.selected.length === 0 || overLimit}>
                         <RefreshCw aria-hidden />
                         重試
                       </Button>
@@ -275,7 +278,7 @@ export default function ComparePage() {
                     {c.metricsError}
                   </Notice>
                 ) : null}
-                {c.selected.length > compareLimit ? <QuotaNotice>{compareLimitText(c.selected.length, compareLimit, planId)}</QuotaNotice> : null}
+                {overLimit && compareLimit != null ? <QuotaNotice>{compareLimitText(c.selected.length, compareLimit, plan.planId)}</QuotaNotice> : null}
                 {c.warnings.length > 0 ? (
                   <Notice tone="warning">
                     <span className="block space-y-1 text-xs">
@@ -294,7 +297,7 @@ export default function ComparePage() {
                     type="button"
                     size="lg"
                     onClick={startCompare}
-                    disabled={loading || c.selected.length === 0}
+                    disabled={loading || c.selected.length === 0 || overLimit}
                     className="w-full sm:w-auto sm:min-w-40"
                   >
                     {c.chartLoading ? '載入主圖資料…' : c.metricsLoading ? '計算比較指標…' : '開始比較'}

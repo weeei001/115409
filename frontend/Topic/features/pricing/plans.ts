@@ -1,9 +1,9 @@
 import { COMPARE_URL_MAX_SYMBOLS } from '@/lib/utils/compareQuery';
 
 /**
- * 方案、價格、額度的唯一來源（docs/business-model.md 第 4、5 節）。
- * 後端沒有方案或額度 API（商業模式 F34），openapi.json 也沒有相關欄位：這裡全是前端靜態展示，不會呼叫 API。
- * /pricing 與 /me 的「目前方案」都只從這份常數讀資料。
+ * 方案卡、價格與比較表的資料（docs/business-model.md 第 4、5 節），前端靜態展示。
+ * 額度數字和後端 backend/app/features/subscriptions/plans.py 的 PLAN_LIMITS 相同，改的時候兩邊一起改；
+ * 目前方案、用量與實際生效的上限讀 GET /subscription（currentPlan.ts），後端也會照方案擋。
  */
 
 export type PlanId = 'free' | 'plus' | 'pro';
@@ -117,7 +117,7 @@ export interface PlanLimits {
   alertRules: number;
 }
 
-/** 方案的額度數字（程式判斷與比較表共用，數字只寫在這裡） */
+/** 方案的額度數字（比較表、方案卡與提示文字用；實際限制以後端為準） */
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
   free: { ask: { per: 'day', member: 5, guest: 3 }, favorites: 10, compare: 5, alertRules: 0 },
   plus: { ask: { per: 'month', member: 300 }, favorites: null, compare: COMPARE_URL_MAX_SYMBOLS, alertRules: 5 },
@@ -230,10 +230,7 @@ export const DEMO_TAG = '展示';
 /** 個股頁 AI 投資分析卡的一行說明（商業模式第 8 節 #9） */
 export const AI_BRIEF_ALL_PLANS = '所有方案皆可完整檢視';
 
-/** 額度提示的共同說明：展示期間只提示，不擋任何操作 */
-export const QUOTA_NOT_ENFORCED = '展示期間不限制';
-
-/** 推播（Web、Android）規劃為進階版起；展示期間所有帳號都能使用 */
+/** 推播（Web、Android）是進階版起的工具，後端只替付費方案註冊裝置、送推播 */
 export const PUSH_MIN_PLAN: PlanId = 'plus';
 
 /** 通知中心列出的規劃中通知功能（商業模式 F37、F38） */
@@ -256,7 +253,7 @@ export const DESKTOP_MASCOT = {
 
 /** 方案頁頂端的聲明（商業模式第 7.3 節） */
 export const PRICING_DEMO_NOTICE =
-  '專題展示：本頁的方案與價格只供報告展示，金流尚未串接，不會實際收費。系統目前也沒有額度限制，所有功能照現況開放。';
+  '專題展示：本頁的價格只供報告展示，金流尚未串接，不會實際收費。登入後可以「模擬開通」付費方案（不付款），額度與工具會照方案實際生效。';
 
 /** 付費內容的範圍（商業模式第 7.1 節） */
 export const PAID_SCOPE_NOTE =
@@ -270,7 +267,7 @@ export const AI_FREE_NOTE = 'AI 投資分析、判斷回顧與新聞事件影響
 export const PRICING_SCOPE_NOTES = [PAID_SCOPE_NOTE, AI_FREE_NOTE];
 /** 投資免責聲明「付費方案的範圍」的最後一段：展示性質 */
 export const PRICING_DEMO_DISCLAIMER =
-  '方案頁與結帳頁是專題展示：金流尚未串接，不會實際收費；「模擬開通」只切換這台瀏覽器顯示的方案，額度只提示、不限制。';
+  '方案頁與結帳頁是專題展示：金流尚未串接，不會實際收費；「模擬開通」不付款，會把帳號切換成該方案，額度與工具照方案生效，隨時可以恢復免費版。';
 
 export interface PricingFaq {
   id: string;
@@ -295,7 +292,7 @@ export const PRICING_FAQ: PricingFaq[] = [
     id: 'quota',
     question: 'AI 對話的額度怎麼算？',
     answer:
-      'AI 對話與小燈共用額度。免費版以每日計：訪客每日 3 次且對話不保存，會員每日 5 次；付費版以每月計，方便集中使用。想看某檔股票的 AI 判讀不用問 AI 對話，個股頁的 AI 投資分析不受額度限制。',
+      'AI 對話與小燈共用額度，以帳號計算，換裝置也一樣。免費版以每日計：訪客每日 3 次（依連線來源計算）且對話不保存，會員每日 5 次；付費版以每月計，方便集中使用。日期以台灣時間為準。想看某檔股票的 AI 判讀不用問 AI 對話，個股頁的 AI 投資分析不受額度限制。',
   },
   {
     id: 'billing',
@@ -306,13 +303,13 @@ export const PRICING_FAQ: PricingFaq[] = [
     id: 'payment',
     question: '現在可以付款升級嗎？',
     answer:
-      '還不行。這是專題展示，金流尚未串接，不會收費。升級按鈕會帶你到結帳示意頁，登入後可以「模擬開通」付費方案，只會在這台瀏覽器切換顯示的方案，隨時可以在個人中心恢復免費版。',
+      '還不行。這是專題展示，金流尚未串接，不會收費。升級按鈕會帶你到結帳示意頁，登入後可以「模擬開通」付費方案：不付款，帳號直接切換成該方案，額度與工具立即生效，隨時可以在個人中心恢復免費版。',
   },
   {
     id: 'limits',
     question: '額度用完會怎樣？',
     answer:
-      '展示期間只會出現提示，不會擋住任何操作，所有功能照現況開放。AI 對話的次數算的是這台裝置實際送出的提問；收藏股檔數來自你的帳號。',
+      'AI 對話與小燈的額度用完後會暫停提問，免費版隔天、付費版下個月 1 日恢復；伺服器沒能完成的回答不扣次數。收藏股到上限後不能再加入新的，多股比較超過檔數要先移除幾檔才能開始比較。免費版的歷史對話只顯示最近 30 天，較舊的只是隱藏，升級後就會回來。',
   },
   {
     id: 'planned',

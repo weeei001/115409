@@ -9,7 +9,7 @@ import { ConversationHistory } from '@/features/ai/ConversationHistory';
 import { ChatArea, type ExampleQuestionGroup } from '@/features/ai/ChatArea';
 import { ChatInput } from '@/features/ai/ChatInput';
 import { useChat } from '@/features/ai/useChat';
-import { AskQuota } from '@/features/pricing/AskQuota';
+import { AskQuota, useAskQuotaReached } from '@/features/pricing/AskQuota';
 import { useHydrated, useIsMobile, useMediaQuery } from '@/lib/hooks/useClientEnv';
 import { parseFlag, serializeFlag, useStoredPreference } from '@/lib/hooks/useStoredPreference';
 import { HISTORY_COLLAPSED_KEY } from '@/features/ai/layout';
@@ -24,6 +24,7 @@ const EXAMPLE_QUESTIONS: ExampleQuestionGroup[] = [
 
 export default function AiPage() {
   const chat = useChat();
+  const askReached = useAskQuotaReached();
   const router = useRouter();
   /** 其他頁（例如模擬投資）用 /ai?prompt= 帶入的預填問題；只在新對話時填入輸入框 */
   const initialPrompt = typeof router.query.prompt === 'string' ? router.query.prompt.slice(0, 6000) : '';
@@ -200,7 +201,7 @@ export default function AiPage() {
                 <ChatInput key={`${chat.conversationId ?? 'new'}:${initialPrompt}`} initialValue={chat.conversationId ? '' : initialPrompt} onSend={(text) => {
                   if (initialPrompt) void router.replace('/ai', undefined, { shallow: true });
                   chat.send(text);
-                }} disabled={chat.loading || !chat.ready}
+                }} disabled={chat.loading || !chat.ready || askReached}
                   onStop={chat.streamingMessageId ? chat.stop : undefined} stopNotice={chat.stopNotice} quota={<AskQuota />} />
               }
             />

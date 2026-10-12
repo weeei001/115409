@@ -7,13 +7,17 @@ from sqlalchemy import select
 
 from app.clients.fcm import FCMClient, InvalidPushToken, PushDeliveryError
 from app.db.models.notification import Notification, NotificationDelivery, NotificationPreference, PushDevice
+from app.db.models.subscription import UserSubscription
 from app.db.models.user import User
 from app.features.auth.service import create_access_token
 
 
-def account(db, settings, email):
+def account(db, settings, email, plan=None):
     user = User(email=email, is_active=True)
     db.add(user)
+    db.flush()
+    if plan:
+        db.add(UserSubscription(user_id=user.id, plan=plan, billing="monthly", started_on=datetime(2026, 10, 1).date()))
     db.commit()
     token, _ = create_access_token(user.id, settings)
     return user, {"Authorization": "Bearer " + token}
@@ -39,9 +43,16 @@ def test_preferences_are_opt_in_validated_and_private(client, db_session, settin
     assert row.news_enabled_at is None
 
 
+def test_push_registration_requires_a_paid_plan(client, db_session, settings):
+    _, headers = account(db_session, settings, "free@example.com")
+    response = client.post("/notifications/devices", headers=headers, json={"token": "free-device", "platform": "web"})
+    assert response.status_code == 403
+    assert db_session.scalar(select(PushDevice)) is None
+
+
 def test_device_transfer_clears_previous_account_delivery(client, db_session, settings):
-    user, headers = account(db_session, settings, "a@example.com")
-    other_user, other = account(db_session, settings, "b@example.com")
+    user, headers = account(db_session, settings, "a@example.com", "plus")
+    other_user, other = account(db_session, settings, "b@example.com", "pro")
     payload = {"token": "private-device-token", "platform": "web"}
     for _ in range(2):
         response = client.post("/notifications/devices", headers=headers, json=payload)

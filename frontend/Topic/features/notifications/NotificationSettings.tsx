@@ -4,7 +4,7 @@ import { Bell, CalendarDays, Newspaper, RefreshCw, TrendingUp } from 'lucide-rea
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, LedgerPanel, LightGlyph, NextStep } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
-import { Button } from '@/components/ui/button';
+import { Button, textLinkClass } from '@/components/ui/button';
 import { fieldLabelClass, inputClass } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import { cn } from '@/lib/cn';
@@ -15,8 +15,8 @@ import { userFacingMessage } from '@/lib/api/errorDetail';
 import { authAccountSnapshot, useAuthAccount } from '@/lib/auth/account';
 import { formatTaipei } from '@/lib/utils/date';
 import { MinPlanBadge, PlannedBadge } from '@/features/pricing/PlanBadges';
-import { useCurrentPlan } from '@/features/pricing/demoPlan';
-import { PLANNED_NOTIFICATION_FEATURES, PLANS, PUSH_MIN_PLAN, QUOTA_NOT_ENFORCED, planById } from '@/features/pricing/plans';
+import { useCurrentPlan } from '@/features/pricing/currentPlan';
+import { PLANNED_NOTIFICATION_FEATURES, PUSH_MIN_PLAN, planById } from '@/features/pricing/plans';
 
 /** 標籤下方的輸入框（全站同一套外觀，見 components/ui/input） */
 const fieldInput = cn('mt-1.5', inputClass);
@@ -78,9 +78,9 @@ function AccountNotificationSettings({ account }: { account: string }) {
   /** 最近一次載入或儲存成功的偏好；和目前的表單不同就標「尚未儲存」 */
   const [savedPrefs, setSavedPrefs] = useState('');
   const [revision, setRevision] = useState(0);
-  const { planId } = useCurrentPlan();
-  /** 推播規劃為進階版起；目前方案還沒到時說明展示期間照樣可用 */
-  const belowPushPlan = PLANS.findIndex((plan) => plan.id === planId) < PLANS.findIndex((plan) => plan.id === PUSH_MIN_PLAN);
+  const plan = useCurrentPlan();
+  /** 推播是進階版起的工具（後端也會擋註冊、不送推播）；還沒讀到方案時不擋 */
+  const pushLocked = plan.ready && plan.limits?.push === false;
   useEffect(() => {
     let active = true;
     setEnabled(deviceEnabled());
@@ -177,8 +177,15 @@ function AccountNotificationSettings({ account }: { account: string }) {
           <LedgerPanel>
             <p className="text-sm leading-relaxed text-subtle">{enabled ? '已啟用，重要消息會推播到此裝置。' : '啟用後，不必開啟網站也能收到提醒。'}</p>
             {!pushConfigured() && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">推播服務尚未設定完成；仍可查看通知紀錄。</p>}
-            {belowPushPlan ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">推播規劃為{planById(PUSH_MIN_PLAN).name}起的工具；{QUOTA_NOT_ENFORCED}，{planById(planId).name}也能啟用。</p> : null}
-            <Button variant="outline" className="mt-4 w-full sm:w-auto" disabled={busy || !pushConfigured()} onClick={() => void run('device', async () => {
+            {pushLocked ? (
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {enabled
+                  ? `目前是${planById(plan.planId).name}，不含推播，這台裝置不會再收到推播，可以關閉。`
+                  : `推播是${planById(PUSH_MIN_PLAN).name}起的工具，目前是${planById(plan.planId).name}；通知紀錄照常會收到。`}
+                <Link href="/pricing" className={`ml-1 ${textLinkClass}`}>查看方案</Link>
+              </p>
+            ) : null}
+            <Button variant="outline" className="mt-4 w-full sm:w-auto" disabled={busy || !pushConfigured() || (pushLocked && !enabled)} onClick={() => void run('device', async () => {
               if (enabled) await disablePush(); else await enablePush();
               setEnabled(deviceEnabled());
               return enabled ? '已關閉此裝置推播。' : '此裝置已啟用推播。';

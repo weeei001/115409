@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { SiteHeader } from '@/components/layout/SiteHeader';
 import { LoadingRows } from '@/components/common/Notice';
 import { CheckoutContent } from '@/features/pricing/CheckoutContent';
-import { isBillingPeriod, isPaidPlanId } from '@/features/pricing/demoPlan';
+import { isBillingPeriod, isPaidPlanId } from '@/features/pricing/currentPlan';
 import { DEFAULT_BILLING } from '@/features/pricing/plans';
 import { useHydrated } from '@/lib/hooks/useClientEnv';
 import { breadcrumbsTrail } from '@/lib/nav';

@@ -1,54 +1,59 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Ledger, LedgerPanel } from '@/components/common/Ledger';
 import { Button } from '@/components/ui/button';
+import { userFacingMessage } from '@/lib/api/errorDetail';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
-import { demoRenewalDate, endDemoSubscription, useCurrentPlan } from './demoPlan';
-import { askQuota, askUsageText, limitStatus, useAskUsage } from './quota';
-import { BILLING_PERIODS, DEMO_TAG, PLAN_LIMITS, QUOTA_NOT_ENFORCED, formatCount, formatTwd, planById } from './plans';
+import { cancelPlan, useCurrentPlan } from './currentPlan';
+import { askUsageText, limitStatus } from './quota';
+import { BILLING_PERIODS, DEMO_TAG, formatCount, formatTwd, planById } from './plans';
 
 const rowClass = 'flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5';
 
 /**
- * 個人中心的「目前方案」：後端沒有方案資料（商業模式 F34），顯示的是這台瀏覽器的展示方案（預設免費版，
- * 結帳示意頁可以模擬開通）。用量只放有真實來源的數字：AI 提問是這台裝置實際送出的次數、收藏股檔數來自帳號。
+ * 個人中心的「目前方案」：方案、額度與 AI 提問次數來自後端 GET /subscription（預設免費版，結帳示意頁可以模擬開通），
+ * 收藏股檔數來自收藏清單。
  */
 export function CurrentPlanPanel() {
   const current = useCurrentPlan();
   const favorites = useFavorites();
-  const usage = useAskUsage(current.owner);
+  const [restoring, setRestoring] = useState(false);
   const plan = planById(current.planId);
-  const limits = PLAN_LIMITS[plan.id];
-  const subscription = current.subscription;
-  const ask = askQuota(plan.id, current.signedIn, usage);
+  const { ask, limits, subscription } = current;
   const favoriteCount = favorites.status === 'ready' ? favorites.items.length : null;
-  const favoriteQuota = favoriteCount == null ? null : limitStatus(favoriteCount, limits.favorites);
+  const favoriteQuota = favoriteCount == null || !limits ? null : limitStatus(favoriteCount, limits.favorites);
   const billing = subscription ? BILLING_PERIODS.find((period) => period.value === subscription.billing) : null;
+  const loading = <span className="text-muted-foreground">{current.error ? '載入失敗' : '讀取中…'}</span>;
 
   const restoreFree = () => {
-    if (endDemoSubscription()) toast.success('已恢復免費版。');
-    else toast.error('這個瀏覽器無法儲存展示方案，請稍後再試。');
+    setRestoring(true);
+    cancelPlan()
+      .then(() => toast.success('已恢復免費版。'))
+      .catch((error) => toast.error(userFacingMessage(error, '沒有恢復成免費版，請稍後再試。')))
+      .finally(() => setRestoring(false));
   };
 
   const rows: Array<[string, React.ReactNode]> = [
-    ['AI 對話與小燈提問', <>{askUsageText(ask)}<span className="block text-xs text-muted-foreground">這台裝置的實際次數</span></>],
+    ['AI 對話與小燈提問', ask ? askUsageText(ask) : loading],
     [
       '收藏股',
       favoriteQuota == null
-        ? <span className="text-muted-foreground">{favorites.status === 'error' ? '載入失敗' : '讀取中…'}</span>
+        ? <span className="text-muted-foreground">{favorites.status === 'error' || current.error ? '載入失敗' : '讀取中…'}</span>
         : favoriteQuota.limit == null
           ? `${formatCount(favoriteQuota.used)} 檔（不限）`
           : `${formatCount(favoriteQuota.used)}／${formatCount(favoriteQuota.limit)} 檔`,
     ],
-    ['多股比較同時檔數', `${formatCount(limits.compare)} 檔`],
+    ['多股比較同時檔數', limits ? `${formatCount(limits.compare)} 檔` : loading],
+    ['歷史對話保存', limits ? (limits.historyDays == null ? '不限' : `最近 ${formatCount(limits.historyDays)} 天`) : loading],
+    ['Web、Android 推播', limits ? (limits.push ? '可以使用' : `${planById('plus').name}起`) : loading],
   ];
   if (subscription && billing) {
     rows.unshift(
       ['計費週期', `${billing.label} ${formatTwd(plan.price[subscription.billing])}`],
       ['開通日（展示）', <span className="font-mono text-[13.5px] tabular-nums">{subscription.startedOn}</span>],
-      ['下次續訂（展示）', <span className="font-mono text-[13.5px] tabular-nums">{demoRenewalDate(subscription)}</span>],
+      ['下次續訂（展示）', <span className="font-mono text-[13.5px] tabular-nums">{subscription.renewsOn}</span>],
     );
   }
 
@@ -58,8 +63,8 @@ export function CurrentPlanPanel() {
         <p className="text-lg font-bold tracking-[0.04em]">{plan.name}</p>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           {subscription
-            ? `這是模擬開通的展示方案，沒有付款，也沒有實際開通服務；額度只提示，${QUOTA_NOT_ENFORCED}。`
-            : `系統目前沒有方案與額度機制，所有帳號預設是免費版，功能照現況開放。可以到方案頁模擬開通付費方案，看看付費版的畫面。`}
+            ? '這是模擬開通的方案，沒有付款；額度與工具已照這個方案生效。恢復免費版後收藏都會保留，超過 30 天的歷史對話只是隱藏，不會刪除。'
+            : '所有帳號預設是免費版，額度用完會暫停 AI 提問到下次歸零。可以到方案頁模擬開通付費方案（不付款）。'}
         </p>
         <dl className="mt-4 grid gap-px border-y bg-border text-sm">
           {rows.map(([label, value]) => (
@@ -77,8 +82,8 @@ export function CurrentPlanPanel() {
             </Link>
           </Button>
           {subscription ? (
-            <Button type="button" variant="outline" onClick={restoreFree}>
-              恢復免費版
+            <Button type="button" variant="outline" onClick={restoreFree} disabled={restoring} aria-busy={restoring || undefined}>
+              {restoring ? '處理中…' : '恢復免費版'}
             </Button>
           ) : null}
         </div>

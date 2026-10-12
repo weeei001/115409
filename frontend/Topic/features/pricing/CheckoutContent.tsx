@@ -6,25 +6,27 @@ import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, LedgerPanel, figureClass } from '@/components/common/Ledger';
 import { EmptyState, Notice } from '@/components/common/Notice';
 import { Button, textLinkClass } from '@/components/ui/button';
+import { userFacingMessage } from '@/lib/api/errorDetail';
 import { useAuthAccount } from '@/lib/auth/account';
 import { clearAuth } from '@/lib/auth/storage';
 import { DISCLAIMER_PATH } from '@/lib/disclaimers';
 import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { BillingToggle, planPriceText } from './PlanCards';
 import { PlannedBadge } from './PlanBadges';
-import { demoRenewalDate, startDemoSubscription, taipeiToday, useCurrentPlan, type PaidPlanId } from './demoPlan';
+import { activatePlan, renewalDate, taipeiToday, useCurrentPlan, type PaidPlanId } from './currentPlan';
 import { BILLING_PERIODS, DEMO_TAG, PAYMENT_UNAVAILABLE, PRICING_SCOPE_NOTES, planById, type BillingPeriod } from './plans';
 
 /**
  * 結帳示意頁（pages/checkout.tsx）的內容：方案摘要與金額，付款區寫明金流尚未串接。
- * 登入後可以「模擬開通」：不付款、不呼叫 API，只切換這個帳號在這台瀏覽器的展示方案（demoPlan.ts）。
+ * 登入後可以「模擬開通」：不付款，呼叫 PUT /subscription 把帳號切換成這個方案（額度立即生效，任何裝置都一樣）。
  * planId 是 null（網址沒帶或帶了免費版、不認得的方案）時請使用者回方案頁選。
  */
 export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null; billing: BillingPeriod }) {
   const router = useRouter();
   const current = useCurrentPlan();
   const account = useAuthAccount();
-  const [result, setResult] = useState<'done' | 'failed' | null>(null);
+  const [result, setResult] = useState<'done' | { error: string } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   if (!planId) {
     return (
@@ -48,13 +50,20 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
     void router.replace({ pathname: '/checkout', query: { plan: planId, billing: next } }, undefined, { shallow: true, scroll: false });
   };
 
-  const activate = () => setResult(startDemoSubscription(planId, billing) ? 'done' : 'failed');
+  const activate = () => {
+    setSaving(true);
+    setResult(null);
+    activatePlan(planId, billing)
+      .then(() => setResult('done'))
+      .catch((error) => setResult({ error: userFacingMessage(error, '模擬開通沒有完成，請稍後再試。') }))
+      .finally(() => setSaving(false));
+  };
 
   let action: React.ReactNode;
   if (result === 'done') {
     action = (
       <Notice tone="success">
-        已切換為{plan.name}（{DEMO_TAG}，{periodLabel}）。沒有付款，也沒有實際開通任何服務。
+        已切換為{plan.name}（{DEMO_TAG}，{periodLabel}），新的額度已生效。這是模擬開通，沒有付款。
         <span className="mt-1 flex flex-wrap gap-x-4">
           <Link href="/me" className={textLinkClass}>到個人中心看目前方案</Link>
           <Link href="/pricing" className={textLinkClass}>回到方案頁</Link>
@@ -88,6 +97,8 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
         </Button>
       </>
     );
+  } else if (!current.ready && !current.error) {
+    action = <p className="flex min-h-11 items-center text-sm text-subtle" role="status">讀取目前方案中…</p>;
   } else if (sameAsCurrent) {
     action = (
       <p className="flex min-h-11 items-center gap-2 border border-dashed border-input px-3 text-sm text-subtle">
@@ -98,8 +109,8 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
   } else {
     action = (
       // 這個畫面唯一的燈色主要按鈕；按下去只改展示方案，不付款
-      <Button type="button" size="lg" className="w-full" onClick={activate}>
-        {current.planId === planId ? `改為${periodLabel}（模擬，不付款）` : '模擬開通（不付款）'}
+      <Button type="button" size="lg" className="w-full" onClick={activate} disabled={saving} aria-busy={saving || undefined}>
+        {saving ? '開通中…' : current.planId === planId ? `改為${periodLabel}（模擬，不付款）` : '模擬開通（不付款）'}
       </Button>
     );
   }
@@ -125,7 +136,7 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
               {[
                 ['計費週期', periodLabel],
                 ['開通日（展示）', today],
-                ['下次續訂（展示）', demoRenewalDate({ plan: planId, billing, startedOn: today })],
+                ['下次續訂（展示）', renewalDate(today, billing)],
               ].map(([label, value]) => (
                 <div key={label} className="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-card py-2.5">
                   <dt className="text-muted-foreground">{label}</dt>
@@ -170,14 +181,12 @@ export function CheckoutContent({ planId, billing }: { planId: PaidPlanId | null
             </div>
 
             <Notice tone="warning" className="mt-4">
-              {PAYMENT_UNAVAILABLE}。「模擬開通」不會付款，只會把這個帳號在這台瀏覽器顯示的方案切換成{plan.name}，隨時可以在個人中心恢復免費版。
+              {PAYMENT_UNAVAILABLE}。「模擬開通」不會付款，會直接把這個帳號切換成{plan.name}，額度立即生效；隨時可以在個人中心恢復免費版。
             </Notice>
 
             {/* 結果一直放在同一個 live region：按下模擬開通後讀屏器會念出來 */}
             <div className="mt-4" aria-live="polite">
-              {result === 'failed' ? (
-                <Notice tone="danger" className="mb-3">這個瀏覽器無法儲存展示方案（可能是無痕模式或封鎖了網站資料），請換一般視窗再試。</Notice>
-              ) : null}
+              {result && result !== 'done' ? <Notice tone="danger" className="mb-3">{result.error}</Notice> : null}
               {action}
             </div>
 
