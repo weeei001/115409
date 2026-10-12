@@ -10,7 +10,7 @@ import { Notice } from '@/components/common/Notice';
 import { ChatMessage } from '@/features/ai/ChatMessage';
 import { ChatDashboard } from '@/features/ai/ChatDashboard';
 import { ChatInput } from '@/features/ai/ChatInput';
-import { AskQuota } from '@/features/pricing/AskQuota';
+import { AskQuota, useAskQuotaReached } from '@/features/pricing/AskQuota';
 import type { useChat } from '@/features/ai/useChat';
 import { LighthouseMascot } from './LighthouseMascot';
 import type { AssistantContext } from './context';
@@ -49,6 +49,7 @@ export function AssistantPanel({ chat, context, mood, stockOnly, onStockOnlyChan
   onStartTour?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const askReached = useAskQuotaReached();
   const empty = chat.messages.length === 0;
   const last = chat.messages.at(-1);
 
@@ -128,7 +129,7 @@ export function AssistantPanel({ chat, context, mood, stockOnly, onStockOnlyChan
                   <button
                     key={question}
                     type="button"
-                    disabled={chat.loading}
+                    disabled={chat.loading || askReached}
                     onClick={() => onSend(question)}
                     className="lamp-row group flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-foreground focus-lamp-inset"
                   >
@@ -179,7 +180,7 @@ export function AssistantPanel({ chat, context, mood, stockOnly, onStockOnlyChan
         id={ASSISTANT_INPUT_ID}
         placeholder="問小燈…"
         onSend={onSend}
-        disabled={chat.loading}
+        disabled={chat.loading || askReached}
         onStop={chat.loading ? chat.stop : undefined}
         stopNotice={chat.stopNotice}
         quota={<AskQuota stock={context.stock} />}

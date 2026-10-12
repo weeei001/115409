@@ -5,6 +5,7 @@ from app.db.models.notification import NotificationPreference, PushDevice, utcno
 from app.db.models.user import User
 from app.features.notifications import repository
 from app.features.notifications.schemas import NotificationInbox, NotificationItem, NotificationPreferences, RegisterDevice
+from app.features.subscriptions.service import ensure_push_allowed
 
 
 def _commit(db: Session):
@@ -43,6 +44,7 @@ def update_preferences(db: Session, user: User, body: NotificationPreferences):
 
 def register_device(db: Session, user: User, body: RegisterDevice):
     user_id = user.id
+    ensure_push_allowed(db, user_id)
     for attempt in range(2):
         row = repository.device(db, body.token)
         if row is None:

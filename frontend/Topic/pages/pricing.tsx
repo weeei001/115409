@@ -10,7 +10,7 @@ import { textLinkClass } from '@/components/ui/button';
 import { BillingToggle, PlanCard } from '@/features/pricing/PlanCards';
 import { ComparisonTable } from '@/features/pricing/ComparisonTable';
 import { MinPlanBadge, PlannedBadge } from '@/features/pricing/PlanBadges';
-import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { useCurrentPlan } from '@/features/pricing/currentPlan';
 import {
   DEFAULT_BILLING,
   DEMO_TAG,
@@ -27,7 +27,7 @@ import {
 import { DISCLAIMER_PATH, INVESTMENT_RISK_NOTICE } from '@/lib/disclaimers';
 
 /**
- * 方案頁：純前端靜態展示（後端沒有方案或額度 API），資料只來自 features/pricing/plans.ts。
+ * 方案頁：方案卡與比較表是 features/pricing/plans.ts 的靜態資料，「目前方案」讀 GET /subscription。
  * 順序：專題展示聲明 → 方案卡（含月繳／年繳切換）→ 比較表 → 桌面小燈（規劃中，#desktop）→ 常見問題與付費範圍的免責文字。
  */
 export default function PricingPage() {

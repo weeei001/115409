@@ -8,6 +8,7 @@ from app.db.models.favorite_stock import FavoriteStock
 from app.db.models.user import User
 from app.features.favorites import repository
 from app.features.favorites.schemas import FavoriteStockListResponse, FavoriteStockResponse
+from app.features.subscriptions.service import ensure_favorite_capacity
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -37,6 +38,7 @@ def add_favorite(db: Session, user: User, symbol: str) -> FavoriteStockResponse:
     name = stock.name
     favorite = repository.favorite(db, user_id, symbol)
     if favorite is None:
+        ensure_favorite_capacity(db, user_id)
         favorite = FavoriteStock(user_id=user_id, symbol=symbol,
                                  created_at=datetime.now(timezone.utc).replace(tzinfo=None))
         db.add(favorite)

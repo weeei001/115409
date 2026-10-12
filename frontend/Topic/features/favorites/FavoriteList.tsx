@@ -5,10 +5,10 @@ import { LightEntry } from '@/components/common/LightEntry';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
 import { Button } from '@/components/ui/button';
 import { useFavorites } from '@/lib/favorites/FavoritesContext';
-import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { useCurrentPlan } from '@/features/pricing/currentPlan';
 import { QuotaNotice } from '@/features/pricing/QuotaNotice';
 import { favoritesLimitText, limitStatus } from '@/features/pricing/quota';
-import { PLAN_LIMITS, formatCount } from '@/features/pricing/plans';
+import { formatCount } from '@/features/pricing/plans';
 import { userFacingMessage } from '@/lib/api/errorDetail';
 import { shiftYmdMonths, toYmdLocal } from '@/lib/utils/date';
 import { fetchFavoriteQuotes, favoriteLabel, latestQuoteDate, toastRemoved, type FavoriteQuote } from './favoriteFeedback';
@@ -53,9 +53,9 @@ function useFavoriteQuotes(symbols: string[]) {
  */
 export function FavoriteList() {
   const { status, items, loadError, reload, remove, add, isPending } = useFavorites();
-  // 方案的收藏上限（展示）：只提示、不擋
-  const { planId } = useCurrentPlan();
-  const quota = limitStatus(items.length, PLAN_LIMITS[planId].favorites);
+  // 方案的收藏上限（後端擋，這裡提示）；還沒讀到方案時當成不限，付費帳號不會先看到上限
+  const { planId, limits } = useCurrentPlan();
+  const quota = limitStatus(items.length, limits?.favorites ?? null);
   // 只抓後端確認過的收藏（加入中的那筆還沒有名稱，回應後就會進來）
   const savedSymbols = useMemo(() => items.filter((item) => item.created_at).map((item) => item.symbol).sort(), [items]);
   const quotes = useFavoriteQuotes(status === 'ready' ? savedSymbols : []);

@@ -4,8 +4,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
 import type { NextRouter } from 'next/router';
 import { comparisonGroups, DESKTOP_MASCOT, PAYMENT_UNAVAILABLE, PLANS, PRICING_DEMO_NOTICE, formatTwd, planById, yearlyInMonths, yearlyPerMonth, type PlanCell } from './plans';
-import { askQuota, askReachedText, askUsageText, compareLimitText, favoritesLimitText, limitStatus, msUntilTaipeiMidnight, readAskUsage, recordAskUsage } from './quota';
-import { demoRenewalDate, parseCurrentPlan, readDemoSubscription, taipeiToday, writeDemoSubscription, type DemoSubscription } from './demoPlan';
+import { askReachedText, askUsageText, compareLimitText, favoritesLimitText, limitStatus } from './quota';
+import { isBillingPeriod, isPaidPlanId, renewalDate, taipeiToday, toCurrentPlan, type AskQuota } from './currentPlan';
+import type { SubscriptionStatus } from '@/lib/types/api';
 import { REVENUE_SCENARIOS, payersToCover, scenarioAssumptions, simulateMonthlyRevenue, unitEconomics } from './revenue';
 import { PlanCard } from './PlanCards';
 import PricingPage from '../../pages/pricing';
@@ -29,11 +30,6 @@ const router = (pathname: string, query: Record<string, string> = {}) => ({
 const render = (node: React.ReactElement, path = '/pricing', query: Record<string, string> = {}) =>
   renderToStaticMarkup(<RouterContext.Provider value={router(path, query)}>{node}</RouterContext.Provider>);
 
-const memoryStorage = () => {
-  const values = new Map<string, string>();
-  return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
-};
-const blocked = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('QuotaExceededError'); } };
 
 /** 方案不是漲跌資料：不能用 up／down token（台股紅漲綠跌只給漲跌與多空） */
 const UP_DOWN = /\b(?:text|bg|border)-(?:up|down)(?:-[a-z]+)?\b/;
@@ -72,66 +68,59 @@ const FORBIDDEN_COPY = /投資顧問|明牌|勝率|保證獲利/;
   assert.match(highlights('pro'), /每月 1,000 次/);
 }
 
-// AI 提問次數：依身分分開，台北時間跨日、跨月歸零；儲存空間不能用時不丟錯
+// GET /subscription 的回應轉成畫面用的形狀；用到上限（含剛好等於）才算用完
 {
-  const storage = memoryStorage();
-  const day1 = new Date('2026-10-11T03:00:00Z');
-  recordAskUsage(storage, 'user:7', day1);
-  assert.deepEqual(recordAskUsage(storage, 'user:7', day1), { today: 2, thisMonth: 2 });
-  assert.deepEqual(readAskUsage(storage, 'guest', day1), { today: 0, thisMonth: 0 }, 'guests are counted separately');
-  // UTC 10/11 16:30 是台北 10/12 00:30：已經是隔天
-  const day2 = new Date('2026-10-11T16:30:00Z');
-  assert.equal(taipeiToday(day2), '2026-10-12');
-  assert.deepEqual(readAskUsage(storage, 'user:7', day2), { today: 0, thisMonth: 2 });
-  assert.deepEqual(recordAskUsage(storage, 'user:7', day2), { today: 1, thisMonth: 3 });
-  assert.deepEqual(readAskUsage(storage, 'user:7', new Date('2026-11-01T01:00:00Z')), { today: 0, thisMonth: 0 });
-  storage.values.set('tei:ai-ask-usage:v1', '{bad json');
-  assert.deepEqual(readAskUsage(storage, 'user:7', day1), { today: 0, thisMonth: 0 });
-  assert.doesNotThrow(() => recordAskUsage(blocked, 'user:7', day1));
-  assert.deepEqual(readAskUsage(blocked, 'user:7', day1), { today: 0, thisMonth: 0 });
+  const response: SubscriptionStatus = {
+    plan: 'plus', signed_in: true,
+    subscription: { plan: 'plus', billing: 'yearly', started_on: '2026-10-11', renews_on: '2027-10-11' },
+    ask: { per: 'month', limit: 300, used: 300, remaining: 0, resets_at: '2026-10-31T16:00:00Z', guest: false },
+    limits: { favorites: null, compare: 30, history_days: null, push: true },
+    favorites_used: 12,
+  };
+  const plan = toCurrentPlan('user:7', response);
+  assert.equal(plan.planId, 'plus');
+  assert.equal(plan.ready, true);
+  assert.deepEqual(plan.subscription, { plan: 'plus', billing: 'yearly', startedOn: '2026-10-11', renewsOn: '2027-10-11' });
+  assert.equal(plan.ask?.reached, true);
+  assert.equal(plan.ask?.resetsAt, '2026-10-31T16:00:00Z');
+  assert.deepEqual(plan.limits, { favorites: null, compare: 30, historyDays: null, push: true });
+  const guest = toCurrentPlan('guest', { ...response, plan: 'free', signed_in: false, subscription: null,
+    ask: { per: 'day', limit: 3, used: 2, remaining: 1, resets_at: '2026-10-11T16:00:00Z', guest: true },
+    limits: { favorites: 10, compare: 5, history_days: 30, push: false }, favorites_used: null });
+  assert.equal(guest.signedIn, false);
+  assert.equal(guest.subscription, null);
+  assert.equal(guest.ask?.reached, false);
+  assert.equal(guest.limits?.historyDays, 30);
 }
 
-// 額度判斷：訪客 3 次、會員 5 次（每日），付費版每月；用完只提示
+// 額度提示：訪客 3 次、會員 5 次（每日），付費版每月；用完時說明何時恢復與升級後的額度
 {
-  const guest = askQuota('free', false, { today: 3, thisMonth: 9 });
-  assert.equal(guest.limit, 3);
-  assert.equal(guest.reached, true);
-  assert.match(askReachedText(guest, 'free'), /^已用完訪客每日 3 次的 AI 提問額度。登入後每日 5 次；展示期間不限制/);
-  const member = askQuota('free', true, { today: 2, thisMonth: 40 });
-  assert.equal(askUsageText(member), '今天已問 2／5 次');
-  assert.equal(member.reached, false);
-  const plus = askQuota('plus', true, { today: 50, thisMonth: 301 });
-  assert.equal(askUsageText(plus), '本月已問 301 次（額度每月 300 次）');
-  assert.match(askReachedText(plus, 'plus'), /^已用完進階版每月 300 次/);
+  const quota = (per: AskQuota['per'], limit: number, used: number, guest = false): AskQuota =>
+    ({ per, limit, used, remaining: Math.max(0, limit - used), resetsAt: '', guest, reached: used >= limit });
+  assert.equal(askReachedText(quota('day', 3, 3, true), 'free'),
+    '已用完訪客每日 3 次的 AI 提問額度，明天（台北時間）恢復；登入後每日可問 5 次。個股頁的 AI 投資分析不受額度限制。');
+  assert.match(askReachedText(quota('day', 5, 5), 'free'), /^已用完免費版每日 5 次.*；進階版每月可問 300 次。/);
+  assert.equal(askUsageText(quota('day', 5, 2)), '今天已問 2／5 次');
+  assert.equal(askUsageText(quota('month', 300, 301)), '本月已問 301 次（額度每月 300 次）');
+  assert.match(askReachedText(quota('month', 300, 300), 'plus'), /^已用完進階版每月 300 次.*下個月 1 日恢復；專業版每月可問 1,000 次。/);
+  assert.doesNotMatch(askReachedText(quota('month', 1000, 1000), 'pro'), /可問/);
   assert.equal(limitStatus(99, null).reached, false, 'unlimited never reaches');
-  assert.match(favoritesLimitText(10, 10, 'free'), /^已達到免費版的 10 檔收藏上限（目前 10 檔）。展示期間不限制/);
-  assert.match(favoritesLimitText(11, 10, 'free'), /^已超過/);
-  assert.match(compareLimitText(7, 5, 'free'), /免費版一次比較 5 檔，目前選了 7 檔。.*進階版起可以比到 30 檔。$/);
+  assert.equal(favoritesLimitText(10, 10, 'free'), '免費版最多收藏 10 檔，已經收藏 10 檔，要加入新的請先移除其他收藏；進階版起收藏不限檔數。');
+  assert.match(favoritesLimitText(11, 10, 'free'), /^目前 11 檔，超過免費版的 10 檔上限：已收藏的會保留/);
+  assert.equal(compareLimitText(7, 5, 'free'), '免費版一次比較 5 檔，目前選了 7 檔，請先移除 2 檔再開始比較；進階版起可以比到 30 檔。');
   // 進階版、專業版已經是系統上限：不寫「進階版起…」，不然選到 31 檔時提示會自相矛盾
   assert.doesNotMatch(compareLimitText(31, 30, 'plus'), /進階版起/);
-  assert.match(compareLimitText(31, 30, 'pro'), /^專業版一次比較 30 檔，目前選了 31 檔。展示期間不限制，仍可照常比較。$/);
+  assert.equal(compareLimitText(31, 30, 'pro'), '專業版一次比較 30 檔，目前選了 31 檔，請先移除 1 檔再開始比較。');
 }
 
-// 展示方案：依帳號分開記，訪客不能開通，壞掉的資料當成免費版
+// 結帳頁的續訂日預覽和後端同一個算法；網址參數的方案與繳費週期要驗證
 {
-  const storage = memoryStorage();
-  const sub: DemoSubscription = { plan: 'plus', billing: 'yearly', startedOn: '2026-10-11' };
-  assert.equal(writeDemoSubscription(storage, 'guest', sub), false);
-  assert.equal(writeDemoSubscription(storage, 'user:7', sub), true);
-  assert.deepEqual(readDemoSubscription(storage, 'user:7'), sub);
-  assert.equal(readDemoSubscription(storage, 'user:8'), null);
-  assert.equal(readDemoSubscription(storage, 'guest'), null);
-  assert.equal(writeDemoSubscription(storage, 'user:7', null), true);
-  assert.equal(readDemoSubscription(storage, 'user:7'), null);
-  storage.values.set('tei:demo-plan:v1', JSON.stringify({ 'user:7': { plan: 'enterprise', billing: 'yearly', startedOn: '2026-10-11' } }));
-  assert.equal(readDemoSubscription(storage, 'user:7'), null);
-  assert.equal(writeDemoSubscription(blocked, 'user:7', sub), false);
-  assert.equal(demoRenewalDate({ ...sub, billing: 'monthly' }), '2026-11-11');
-  assert.equal(demoRenewalDate(sub), '2027-10-11');
-  assert.equal(demoRenewalDate({ plan: 'pro', billing: 'monthly', startedOn: '2026-01-31' }), '2026-02-28');
-  assert.deepEqual(parseCurrentPlan(''), { owner: 'guest', signedIn: false, planId: 'free', subscription: null, ready: false });
-  assert.equal(parseCurrentPlan(JSON.stringify(['user:7', sub])).planId, 'plus');
-  assert.equal(parseCurrentPlan(JSON.stringify(['user:7', null])).planId, 'free');
+  assert.equal(taipeiToday(new Date('2026-10-11T16:30:00Z')), '2026-10-12', 'UTC 16:30 is already the next day in Taipei');
+  assert.equal(renewalDate('2026-10-11', 'monthly'), '2026-11-11');
+  assert.equal(renewalDate('2026-10-11', 'yearly'), '2027-10-11');
+  assert.equal(renewalDate('2026-01-31', 'monthly'), '2026-02-28');
+  assert.ok(isPaidPlanId('pro') && !isPaidPlanId('free') && !isPaidPlanId('enterprise'));
+  assert.ok(isBillingPeriod('yearly') && !isBillingPeriod('weekly'));
 }
 
 // 營收試算重現商業模式第 6.3 節的表
@@ -214,11 +203,4 @@ const FORBIDDEN_COPY = /投資顧問|明牌|勝率|保證獲利/;
   assert.ok(render(<CheckoutContent planId={null} billing="yearly" />, '/checkout').includes('找不到要結帳的方案'));
 }
 
-// 頁面開著跨過台北午夜時重讀次數：倒數到下一個台北 00:00
-{
-  assert.equal(msUntilTaipeiMidnight(Date.parse('2026-10-11T15:59:00Z')), 60_000, 'Taipei 23:59 → 1 minute');
-  assert.equal(msUntilTaipeiMidnight(Date.parse('2026-10-11T16:00:00Z')), 24 * 60 * 60 * 1000, 'Taipei 00:00 → next midnight');
-  assert.equal(msUntilTaipeiMidnight(Date.parse('2026-10-11T04:00:00Z')), 12 * 60 * 60 * 1000, 'Taipei noon → 12 hours');
-}
-
-console.log('Pricing passed: prices, derived quotas, local ask usage, quota hints, demo plan store, revenue model vs business-model §6.3, plan cards, pricing and checkout pages.');
+console.log('Pricing passed: prices, derived quotas, subscription response mapping, quota hints, renewal preview, revenue model vs business-model §6.3, plan cards, pricing and checkout pages.');

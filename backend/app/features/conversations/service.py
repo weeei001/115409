@@ -28,9 +28,9 @@ class ConversationService:
         self.session_factory = session_factory
         self.chat = chat
 
-    def _owned(self, db, user_id, conversation_id, *, lock=False):
+    def _owned(self, db, user_id, conversation_id, *, lock=False, since=None):
         row = repository.conversation(db, user_id, conversation_id, lock=lock)
-        if row is None:
+        if row is None or (since is not None and row.updated_at < since):
             raise NotFound("找不到對話")
         return row
 
@@ -40,14 +40,15 @@ class ConversationService:
             db.add(row)
             return ConversationDetail(**summary(row).model_dump(), messages=[])
 
-    def list(self, user_id, query="", offset=0, limit=30):
+    def list(self, user_id, query="", offset=0, limit=30, since=None):
+        """since: the plan's history window; older conversations are hidden, not deleted."""
         with self.session_factory() as db:
-            rows = repository.list_conversations(db, user_id, query.strip(), offset, limit)
+            rows = repository.list_conversations(db, user_id, query.strip(), offset, limit, since=since)
             return ConversationList(items=[summary(row) for row in rows[:limit]], has_more=len(rows) > limit)
 
-    def get(self, user_id, conversation_id):
+    def get(self, user_id, conversation_id, since=None):
         with self.session_factory() as db:
-            row = self._owned(db, user_id, conversation_id)
+            row = self._owned(db, user_id, conversation_id, since=since)
             stale = row.lease_until is None or row.lease_until <= utcnow()
             ratings = repository.feedback_ratings(db, conversation_id)
             messages = [SavedMessage(

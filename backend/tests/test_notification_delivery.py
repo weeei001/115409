@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.clients.fcm import InvalidPushToken, PushDeliveryError
 from app.db.models.favorite_stock import FavoriteStock
 from app.db.models.notification import Notification, NotificationDelivery, NotificationPreference, PushDevice
+from app.db.models.subscription import UserSubscription
 from app.db.models.user import User
 from app.features.notifications.delivery import dispatch_notifications
 from app.jobs import notifications
@@ -26,9 +27,14 @@ def setup(db, *, quiet_start=22, quiet_end=8):
         created_at=NOW, expires_at=NOW + timedelta(hours=24))
     devices = [PushDevice(user_id=user.id, token=f"token-{i}", token_hash=str(i), platform="web",
         created_at=NOW - timedelta(days=1)) for i in range(2)]
-    db.add_all([preference, favorite, notice, *devices])
+    db.add_all([preference, favorite, notice, *devices, paid(user)])
     db.commit()
     return user, preference, favorite, notice, devices
+
+
+def paid(user):
+    # Push is a paid-plan tool.
+    return UserSubscription(user_id=user.id, plan="plus", billing="monthly", started_on=NOW.date())
 
 
 class Sender:
@@ -64,7 +70,7 @@ def test_invalid_registration_is_removed(db_session):
     assert len(list(db_session.scalars(select(NotificationDelivery)))) == 1
 
 
-@pytest.mark.parametrize("reason", ["disabled", "inactive", "unfavorited", "expired", "quiet", "new_device"])
+@pytest.mark.parametrize("reason", ["disabled", "inactive", "unfavorited", "expired", "quiet", "new_device", "free_plan"])
 def test_delivery_rechecks_eligibility(db_session, reason):
     user, preference, favorite, notice, devices = setup(db_session)
     if reason == "disabled":
@@ -77,6 +83,8 @@ def test_delivery_rechecks_eligibility(db_session, reason):
         notice.expires_at = NOW
     elif reason == "quiet":
         preference.quiet_start, preference.quiet_end = 16, 18
+    elif reason == "free_plan":
+        db_session.delete(db_session.get(UserSubscription, user.id))
     else:
         for device in devices:
             device.created_at = NOW + timedelta(minutes=1)
@@ -93,7 +101,7 @@ def test_quiet_notifications_do_not_block_another_user(db_session):
     db_session.flush()
     db_session.add_all([
         NotificationPreference(user_id=other.id, price_alert=True, quiet_start=0, quiet_end=0),
-        FavoriteStock(user_id=other.id, symbol="2330"),
+        FavoriteStock(user_id=other.id, symbol="2330"), paid(other),
         PushDevice(user_id=other.id, token="other", token_hash="other", platform="web", created_at=NOW),
         Notification(user_id=other.id, kind="price_alert", symbol="2330", title="Price", body="Change",
             url="/stock/2330", dedupe_key="y", created_at=NOW, expires_at=NOW + timedelta(hours=1)),

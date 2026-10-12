@@ -10,7 +10,7 @@
 - AI 多空立場、趨勢判讀（AI 投資分析、判斷回顧、新聞事件影響）全部免費開放，不放在付費牆後面。理由有兩個：
   - 收費提供個股分析意見需要投顧執照（第 7 節）。
   - 產品定位是「可解釋、不賣明牌」。
-- 後端目前沒有方案或額度機制。金流之後用綠界測試環境展示，這個階段不做。
+- 後端已有方案與額度機制（F34）：付費方案用「模擬開通」切換，不經金流。金流之後用綠界測試環境展示，這個階段不做。
 - 投顧法規、新聞與行情授權只寫進報告的「風險控管」，程式不處理。
 
 ## 和上學期報告的用語對照
@@ -58,7 +58,7 @@
 | F15 | 歷史對話：保存、搜尋、刪除、回答回饋 | `/ai` | `BE/features/conversations` | 完成 | `FE/features/ai/ConversationHistory.tsx`、`FE/lib/api/conversations.ts`、`BE/features/conversations/router.py` |
 | F16 | 小燈站內助手：對話面板、「這頁怎麼看」導覽、選取文字後「問小燈」 | 全站（`/ai` 除外） | `BE/features/chat` | 完成 | `FE/features/assistant/AssistantDock.tsx`、`FE/features/assistant/AssistantPanel.tsx`、`FE/features/assistant/tours.ts` |
 | F17 | 在對話中建立模擬單草稿（使用者確認後才送出） | `/ai`、小燈 | `BE/features/chat/personal_context.py`、`BE/features/paper_portfolio` | 完成 | `FE/features/order/PaperOrderDraft.tsx`、`FE/features/ai/ChatMessage.tsx`、`BE/features/chat/personal_context.py` |
-| F18 | 收藏股（目前沒有數量上限） | `/favorites`、各頁星號 | `BE/features/favorites` | 完成 | `FE/pages/favorites.tsx`、`FE/features/favorites/FavoriteList.tsx`、`BE/features/favorites/service.py` |
+| F18 | 收藏股（數量上限依方案，F34） | `/favorites`、各頁星號 | `BE/features/favorites` | 完成 | `FE/pages/favorites.tsx`、`FE/features/favorites/FavoriteList.tsx`、`BE/features/favorites/service.py` |
 | F19 | 通知中心：站內通知與通知偏好（收藏股每日摘要、單日漲跌幅提醒、重大新聞／公告、安靜時段） | `/notifications` | `BE/features/notifications`、`BE/jobs/notifications.py` | 部分完成：程式完整，但範例設定 `NOTIFICATIONS_ENABLED=false` | `FE/features/notifications/NotificationSettings.tsx`、`BE/features/notifications/engine.py`、`backend/.env.example:49` |
 | F20 | 推播（Web、Android，透過 Firebase Cloud Messaging） | `/notifications`（此裝置推播） | `BE/features/notifications/delivery.py`、`BE/clients/fcm.py` | 部分完成：前端沒設 `NEXT_PUBLIC_FIREBASE_*` 時按鈕停用；後端範例設定 `FCM_ENABLED=false` | `FE/lib/notifications/push.ts`、`FE/features/notifications/NotificationSettings.tsx`、`BE/clients/fcm.py`、`backend/.env.example:50` |
 | F21 | 模擬投資：設定資金、下單、持股、交易紀錄、取消委託 | `/order` | `BE/features/paper_portfolio`、`BE/jobs/paper_portfolio.py` | 完成 | `FE/pages/order.tsx`、`FE/features/order/PaperFunds.tsx`、`FE/features/order/PaperOrderDraft.tsx`、`BE/features/paper_portfolio/service.py` |
@@ -74,7 +74,7 @@
 | F31 | AI 趨勢預測與分析彙整端點（`/api/trend_predict`、`/api/analysis_digest`） | 沒有畫面 | `BE/features/analysis/prediction.py` | 部分完成：前端沒有使用；`analysis_digests` 表在 app 內沒有寫入程式 | `BE/features/analysis/prediction.py`、`BE/features/analysis/repository.py` |
 | F32 | Android App（Capacitor 包裝） | 沒有路由（Next.js 靜態匯出） | 和網頁共用 | 部分完成：骨架已有，推播缺 `google-services.json` | `FE/capacitor.config.ts`、`FE/android/`、`FE/package.json:26-28` |
 | F33 | 一般使用者的歷史回測 | 沒有 | 沒有 | 規劃中：上學期列為特色，但程式只有管理員版（F29）；舊的公開回測端點已刪除 | `FE/openapi.json`（沒有 `/api/simulate_trading_stream`）、`FE/pages/admin.tsx` |
-| F34 | 方案、額度、訂閱 | 沒有 | 沒有 | 規劃中 | `BE/db/models/user.py:6-16`（`users` 表沒有方案欄位）、`FE/openapi.json`（沒有相關路徑） |
+| F34 | 方案、額度、訂閱（不含金流，付費方案用模擬開通） | `/pricing`、`/checkout`、`/me`，`/ai`、小燈、`/favorites`、`/compare`、`/notifications` 的額度提示 | `BE/features/subscriptions` | 完成：後端擋 AI 提問次數（429）、收藏檔數（403）、推播註冊與發送、免費版歷史對話 30 天；多股比較檔數只在前端擋（`/stocks/compare/multiple` 是公開端點，另有其他畫面共用） | `BE/db/models/subscription.py`（`user_subscriptions`、`ai_ask_usage`）、`FE/features/pricing/currentPlan.ts`（讀 `GET /subscription`） |
 | F35 | 金流（綠界測試環境） | 沒有 | 沒有 | 規劃中 | `backend/requirements.txt`（沒有金流套件）、`FE/openapi.json`（沒有付款路徑） |
 | F36 | CSV 匯出、圖表存成圖片 | 沒有 | 沒有 | 規劃中：目前唯一的匯出是 F13 的瀏覽器列印 | `FE/features/brief/BriefReport.tsx:196-200` |
 | F37 | Email、LINE 通知通道 | 沒有 | 沒有 | 規劃中 | `BE/features/notifications/schemas.py:23`（`platform` 只有 `web`、`android`） |
@@ -147,7 +147,7 @@
 | **價值主張** | 1. 收盤後一次看清楚：行情、法人、指標、新聞放在同一張桌上（F02、F03–F05、F08）<br>2. 可解釋的 AI 判讀：多空立場附證據，還公開歷史命中率，而且全部免費（F11、F12）<br>3. 新聞不只列標題，也整理事件和可能影響（F09、F10）<br>4. 用虛擬資金練習，事後和大盤比較（F21、F22）<br>5. 不賣明牌：付費只買量和工具 |
 | **通路** | 1. 網站，首頁燈塔旅程作為品牌入口（F01）<br>2. Android App（F32）<br>3. 推播和站內通知，讓使用者回訪（F19、F20）<br>4. 小燈導覽，降低新手上手門檻（F16）<br>5. 規劃中的桌面小燈（F39） |
 | **顧客關係** | 1. 自助式加會員制（F23、F24）<br>2. 小燈陪伴式導覽（F16）<br>3. 回答回饋與後台 AI 成效統計，持續改善 AI 品質（F15、F27）<br>4. 公開命中率建立信任（F12）<br>5. 免責聲明與風險提示（F25） |
-| **收益流** | 1. 進階版、專業版訂閱，月繳或年繳（F34、F35 規劃中）<br>2. 年繳優惠，提高續訂率與現金流<br>3. 不放廣告，和上學期報告不同（理由見開頭的用語對照）<br>4. 不收取任何個股分析或推介費用 |
+| **收益流** | 1. 進階版、專業版訂閱，月繳或年繳（F34 完成；金流 F35 規劃中）<br>2. 年繳優惠，提高續訂率與現金流<br>3. 不放廣告，和上學期報告不同（理由見開頭的用語對照）<br>4. 不收取任何個股分析或推介費用 |
 | **關鍵資源** | 1. 每日自動資料排程（F30）<br>2. 新聞向量庫（Qdrant）和事件判讀資料（F09、F10）<br>3. AI 分析與證據流程（F11）<br>4. 命中率、訊號檢驗、回測等驗證工具（F12、F28、F29）<br>5. 自建的台股圖表介面（F02–F07） |
 | **關鍵活動** | 1. 每日資料更新與新聞判讀（F30、F09）<br>2. 監控 AI 品質與成本（F27、F12）<br>3. 平台維運與排程管理（F26）<br>4. 維護合規文案（F25） |
 | **關鍵合作夥伴** | 1. LLM 與 Embedding 供應商（目前是 NVIDIA NIM 端點，`BE/core/config.py:58-59,86-88`）<br>2. 公開資料來源：證交所、櫃買中心、公開資訊觀測站、集保（F30）<br>3. 新聞來源：鉅亨網；自由財經的爬蟲預設暫停（F08）<br>4. Firebase（推播）、Google（登入）（F20、F23）<br>5. 綠界（金流，規劃中，F35） |
@@ -386,8 +386,9 @@
 4. 退費規則：數位內容適用的消費者保護法例外條款 [待查證]。
 
 **成本風險：**
-- 目前 `/api/ask`、`/analyze/stock-behavior/text-brief`（帶 `force_refresh`）、`/api/trend_predict` 都不需登入，也沒有限流，任何人都能觸發 LLM 呼叫（`BE/features/chat/router.py`、`BE/features/analysis/router.py`）。
-- 真的要實作方案時，額度機制要先擋住這些入口。
+- `/api/ask`（訪客）與 `/api/conversations/{id}/ask`（會員）已受方案的提問額度限制；訪客依連線來源計算，部署在反向代理後面時，uvicorn 要加 `--proxy-headers`，不然所有訪客會共用同一份額度（`BE/features/subscriptions/router.py`）。
+- `/analyze/stock-behavior/text-brief`（帶 `force_refresh`）、`/api/trend_predict` 仍不需登入、沒有限流（`BE/features/analysis/router.py`）。AI 投資分析依第 4 節不設額度，但要另外限流。
+- 模擬開通不經金流，任何登入帳號都能自行切到付費方案；串接綠界前，額度只是展示用的控管。
 
 ---
 
@@ -402,12 +403,12 @@
 |---|---|---|---|---|
 | 1 | `/pricing` | 新增 | 三級方案表（第 4 節）、月繳和年繳切換（預設年繳）、「AI 判讀為什麼全部免費」說明、常見問題、專題展示不實際收費的聲明 | 不需要 |
 | 2 | `/pricing` 方案按鈕 → `/checkout` | 新增 | 選定方案摘要、金額、綠界測試環境說明；這個階段按鈕顯示「專題展示，未開放付款」 | 後續（綠界測試環境，`https://payment-stage.ecpay.com.tw`，文件：https://developers.ecpay.com.tw/2900/） |
-| 3 | `/me` | 調整：新增「我的方案」區塊 | 目前方案、本月 AI 提問用量、收藏股已用和上限（例如 7／10）、到期日、前往 `/pricing` | 展示用靜態資料；後續接額度 API |
-| 4 | `/ai` | 調整 | 輸入框旁顯示剩餘提問次數；用完時的提示卡說明可升級，也說明 AI 投資分析（F11）不受限，附個股頁連結 | 展示用靜態資料；後續 |
-| 5 | 全站小燈面板 | 調整 | 和 `/ai` 共用剩餘次數與用完提示 | 展示用靜態資料；後續 |
-| 6 | `/favorites` | 調整 | 「已收藏 x／10 檔」；免費版加到第 11 檔時的提示 | 展示用靜態資料；後續 |
-| 7 | `/compare` | 調整 | 免費版超過 5 檔時提示上限，並說明付費版可以比到 30 檔 | 展示用靜態資料；後續 |
-| 8 | `/notifications` | 調整 | 「此裝置推播」標示進階版起；Email、LINE、自訂提醒規則以「規劃中」加方案徽章呈現 | 展示用靜態資料；後續 |
+| 3 | `/me` | 調整：新增「我的方案」區塊 | 目前方案、本月 AI 提問用量、收藏股已用和上限（例如 7／10）、到期日、前往 `/pricing` | `GET /subscription`（F34 完成） |
+| 4 | `/ai` | 調整 | 輸入框旁顯示剩餘提問次數；用完時的提示卡說明可升級，也說明 AI 投資分析（F11）不受限，附個股頁連結 | F34 完成 |
+| 5 | 全站小燈面板 | 調整 | 和 `/ai` 共用剩餘次數與用完提示 | F34 完成 |
+| 6 | `/favorites` | 調整 | 「已收藏 x／10 檔」；免費版加到第 11 檔時的提示 | F34 完成 |
+| 7 | `/compare` | 調整 | 免費版超過 5 檔時提示上限，並說明付費版可以比到 30 檔 | F34 完成 |
+| 8 | `/notifications` | 調整 | 「此裝置推播」標示進階版起；Email、LINE、自訂提醒規則以「規劃中」加方案徽章呈現 | F34 完成 |
 | 9 | `/stock/[id]` | 調整 | AI 投資分析卡加一行「所有方案皆可完整檢視」 | 不需要 |
 | 10 | `/disclaimer` | 調整 | 新增「付費方案的範圍」：只差量與工具，不提供投資建議，專題展示不實際收費；更新 `LAST_UPDATED` | 不需要 |
 | 11 | 頁尾導覽、選單抽屜 | 調整 | 新增「方案」連結（`FE/lib/nav.ts` 的 `FOOTER_NAV`） | 不需要 |

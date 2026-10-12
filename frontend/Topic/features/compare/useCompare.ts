@@ -283,15 +283,15 @@ export function useCompare() {
 
   /**
    * 從網址還原上一次的比較（P1-26）：代號已經過股票清單驗證；沒帶期間就用頁面預設的期間。
-   * 直接用參數比較，不等 state 更新。
+   * 直接用參數比較，不等 state 更新。run: false 只還原選股與期間（例如超過方案的比較檔數），不比較。
    */
-  const restore = useCallback((query: { symbols: string[]; startDate: string | null; endDate: string | null }) => {
+  const restore = useCallback((query: { symbols: string[]; startDate: string | null; endDate: string | null }, { run = true } = {}) => {
     const start = query.startDate ?? defaults.start;
     const end = query.endDate ?? defaults.end;
     setSelected(query.symbols);
     setStartDate(start);
     setEndDate(end);
-    void runCompare(query.symbols, start, end);
+    if (run) void runCompare(query.symbols, start, end);
   }, [defaults, runCompare]);
 
   return {

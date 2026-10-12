@@ -300,6 +300,55 @@ export interface FavoriteStockListResponse {
   items: FavoriteStockResponse[];
 }
 
+// ── 方案與額度（/subscription） ──
+
+export type PlanIdResponse = 'free' | 'plus' | 'pro';
+export type BillingPeriodResponse = 'monthly' | 'yearly';
+
+export interface ActivateSubscriptionRequest {
+  plan: Exclude<PlanIdResponse, 'free'>;
+  billing: BillingPeriodResponse;
+}
+
+export interface SubscriptionInfo {
+  plan: Exclude<PlanIdResponse, 'free'>;
+  billing: BillingPeriodResponse;
+  /** 開通日（台北時間 YYYY-MM-DD） */
+  started_on: string;
+  /** 下次續訂日（YYYY-MM-DD） */
+  renews_on: string;
+}
+
+export interface AskQuotaStatus {
+  per: 'day' | 'month';
+  limit: number;
+  used: number;
+  remaining: number;
+  /** 下次歸零的時間（UTC ISO） */
+  resets_at: string;
+  /** 未登入，用訪客額度 */
+  guest: boolean;
+}
+
+export interface PlanLimitsStatus {
+  /** null＝不限 */
+  favorites: number | null;
+  compare: number;
+  /** null＝不限 */
+  history_days: number | null;
+  push: boolean;
+}
+
+export interface SubscriptionStatus {
+  plan: PlanIdResponse;
+  signed_in: boolean;
+  subscription: SubscriptionInfo | null;
+  ask: AskQuotaStatus;
+  limits: PlanLimitsStatus;
+  /** 未登入是 null */
+  favorites_used: number | null;
+}
+
 // ── AI 成效（AI 摘要命中率、對話回饋） ──
 
 export type TrackRecordHorizonKey = 'short_1_5' | 'swing_6_20' | 'medium_21_40';

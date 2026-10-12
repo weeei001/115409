@@ -7,9 +7,8 @@ import { safeReturnUrl } from '@/lib/utils/returnUrl';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 import { addedMessage, toastRemoved } from './favoriteFeedback';
-import { useCurrentPlan } from '@/features/pricing/demoPlan';
+import { useCurrentPlan } from '@/features/pricing/currentPlan';
 import { favoritesLimitText } from '@/features/pricing/quota';
-import { PLAN_LIMITS } from '@/features/pricing/plans';
 
 /**
  * 個股頁標題旁的收藏星號：已登入就樂觀切換，未登入帶 returnUrl 導到登入頁。
@@ -18,7 +17,7 @@ import { PLAN_LIMITS } from '@/features/pricing/plans';
 export function FavoriteToggle({ symbol }: { symbol: string }) {
   const router = useRouter();
   const favorites = useFavorites();
-  const { planId } = useCurrentPlan();
+  const { planId, limits } = useCurrentPlan();
   const pressed = favorites.isFavorite(symbol);
   const busy = favorites.isPending(symbol) || favorites.status === 'idle' || favorites.status === 'loading';
 
@@ -30,13 +29,19 @@ export function FavoriteToggle({ symbol }: { symbol: string }) {
     }
     const wasFavorite = pressed;
     const name = favorites.items.find((item) => item.symbol === symbol)?.name;
-    // 加入後的檔數超過方案上限（展示）：成功提示附一句說明，不擋
-    const limit = PLAN_LIMITS[planId].favorites;
-    const nextCount = favorites.items.length + 1;
+    // 已達方案的收藏上限：後端會回 403，這裡先擋下來，不讓星號亮起又熄掉
+    const limit = limits?.favorites;
+    if (!wasFavorite && limit != null && favorites.items.length >= limit) {
+      toast.error('沒有加入收藏', {
+        description: favoritesLimitText(favorites.items.length, limit, planId),
+        action: { label: '查看方案', onClick: () => void router.push('/pricing') },
+      });
+      return;
+    }
     void favorites.toggle(symbol).then((ok) => {
       if (!ok) return;
       if (wasFavorite) toastRemoved(symbol, name, favorites.add);
-      else toast.success(addedMessage(symbol, name), limit != null && nextCount > limit ? { description: favoritesLimitText(nextCount, limit, planId) } : undefined);
+      else toast.success(addedMessage(symbol, name));
     });
   };
 

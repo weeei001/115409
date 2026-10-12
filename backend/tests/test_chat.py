@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import nullcontext
 import json
 from datetime import datetime
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.clients.llm import LlmResult
 from app.core.errors import ServiceUnavailable, UpstreamTimeout, install_error_handlers
 from app.features.chat import service as chat_module
-from app.features.chat.router import get_service, router
+from app.features.chat.router import get_guest_quota, get_service, router
 from app.features.chat.schemas import AskRequest, Intent, SourceChunk
 from app.features.chat.service import ChatService, _intent_time_range
 from app.features.chat.prompts import INSUFFICIENT_EVIDENCE_ANSWER
@@ -87,6 +88,11 @@ class FakeRetrieval:
         return SimpleNamespace(hits=self.hits, time_from=time_from, time_to=time_to)
 
 
+class UnlimitedQuota:
+    def reserve(self):
+        return nullcontext()
+
+
 @pytest.fixture
 def chat(monkeypatch, chat_session_factory):
     monkeypatch.setattr(chat_module, "taipei_now", lambda: NOW)
@@ -98,6 +104,8 @@ def chat(monkeypatch, chat_session_factory):
     install_error_handlers(app)
     app.include_router(router)
     app.dependency_overrides[get_service] = lambda: service
+    # Chat behaviour tests ask many times as one guest; quotas are covered in test_subscriptions.py.
+    app.dependency_overrides[get_guest_quota] = lambda: UnlimitedQuota()
     with TestClient(app) as client:
         yield client, service, llm, retrieval
 
