@@ -48,6 +48,9 @@ const render = (node: React.ReactElement, path = '/favorites') =>
   assert.ok(html.includes('交易與決策紀錄存在你的帳號裡'));
   assert.ok(html.includes('收盤日載入中 · 非即時'));
   assert.ok(html.includes('加權指數（不含息）') && !html.includes('TWSE'));
+  // 免責聲明的入口只在風險提示列出現一次，導覽不重複列
+  assert.equal(html.split('href="/disclaimer"').length, 2);
+  assert.ok(html.includes('投資有風險'));
   assert.ok(!render(<SiteFooter />, '/stock/2330').includes('aria-current="page"'), 'Pages outside the footer nav mark nothing');
 }
 
