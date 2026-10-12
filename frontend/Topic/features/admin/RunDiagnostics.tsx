@@ -24,6 +24,9 @@ const REASONS: Record<string, string> = {
   indexing_configuration: '索引設定或向量集合不相容', indexing_content: '新聞內容或日期無法建立索引',
   indexing_storage: '索引資料庫寫入失敗', indexing_service: '向量或嵌入服務無法完成請求',
   indexing_incomplete: '向量寫入未確認完成',
+  crawl_timeout: '新聞來源回應逾時', crawl_http: '新聞來源連線或 HTTP 請求失敗',
+  crawl_content: '新聞內容或分頁格式異常', crawl_storage: '新聞資料庫寫入失敗',
+  crawl_incomplete: '部分新聞擷取失敗',
 };
 
 export function adminStageLabel(stage?: string | null): string {
@@ -48,6 +51,16 @@ export function adminRunProblem(run: AdminRun): { title: string; next: string } 
   const stages = data?.failed_stages ?? [];
   const failed = stages[0];
   const reasons = stages.flatMap((stage) => [stage.reason ?? '', ...Object.keys(stage.failure_reasons ?? {})]);
+  const crawlActions: Record<string, string> = {
+    crawl_timeout: '已成功寫入的新聞會保留；確認新聞來源連線恢復後再重跑。',
+    crawl_http: '查看服務日誌中的文章 ID 與 HTTP 狀態碼，確認新聞來源恢復後再重跑。',
+    crawl_content: '查看服務日誌中的文章 ID 或分頁，確認來源內容與解析格式後再重跑。',
+    crawl_storage: '確認資料庫連線與寫入權限，再重跑新聞擷取。',
+    crawl_incomplete: '已成功寫入的新聞會保留；展開技術紀錄查看分類，並以執行編號追查服務日誌。',
+  };
+  const crawlReason = reasons.find((reason) => reason !== 'crawl_incomplete' && reason in crawlActions)
+    ?? reasons.find((reason) => reason === 'crawl_incomplete');
+  if (crawlReason) return { title: REASONS[crawlReason], next: crawlActions[crawlReason] };
   const indexActions: Record<string, string> = {
     indexing_configuration: '確認索引版本、嵌入模型與向量集合設定相符，再執行新聞索引。',
     indexing_content: '確認原始新聞內容與日期，修正後再執行新聞索引。',
@@ -93,7 +106,7 @@ export function AdminRunDiagnostics({ run }: { run: AdminRun }) {
         <p className="font-mono">{stage.stage} · 結束碼 {stage.exit_code}</p>
         {stage.phase ? <p>失敗階段：{PHASES[stage.phase] ?? '未知'}{stage.error_type ? <> · <span className="font-mono">{stage.error_type}</span></> : null}</p> : null}
         {stage.reason ? <p>原因：{REASONS[stage.reason] ?? '未知'}</p> : null}
-        {stage.failure_reasons ? <p>文章失敗：{Object.entries(stage.failure_reasons).map(([reason, count]) => `${REASONS[reason] ?? '未知'} ${count} 篇`).join('、')}</p> : null}
+        {stage.failure_reasons ? <p>{stage.reason === 'crawl_incomplete' ? '擷取失敗：' : '文章失敗：'}{Object.entries(stage.failure_reasons).map(([reason, count]) => `${REASONS[reason] ?? '未知'} ${count} ${stage.reason === 'crawl_incomplete' ? '筆' : '篇'}`).join('、')}</p> : null}
       </li>)}</ul> : null}
       {run.error ? <p className="border-l-2 border-l-danger-border font-mono break-words text-danger">{run.error}</p> : null}
       <p className="text-muted-foreground">服務日誌：<code className="font-mono">admin_run={run.id}</code></p>

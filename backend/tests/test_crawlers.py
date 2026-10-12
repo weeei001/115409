@@ -52,6 +52,64 @@ def test_cnyes_article_body_reads_full_public_body_from_json_ld():
     assert crawlers.cnyes_article_url("invalid") is None
 
 
+@pytest.mark.parametrize("failure", ["timeout", "connection", "protocol", 408, 429, 500, 502, 503, 504])
+def test_cnyes_detail_retries_transient_failures_with_bounded_backoff(failure, monkeypatch, caplog):
+    attempts, delays = [], []
+    monkeypatch.setattr(crawlers, "sleep", delays.append)
+    def provider(request):
+        attempts.append(request)
+        if len(attempts) == 3:
+            return httpx.Response(200, text=cnyes_detail_html())
+        errors = {"timeout": httpx.ReadTimeout, "connection": httpx.ConnectError,
+                  "protocol": httpx.RemoteProtocolError}
+        if failure in errors:
+            raise errors[failure]("private upstream details")
+        return httpx.Response(failure, text="private response")
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        assert crawlers.cnyes_detail_article(http, "0012345")["content"]
+    assert len(attempts) == 3 and delays == [1, 2]
+    assert "news_id=12345 attempt=1 error_type=" in caplog.text
+    assert "status=" in caplog.text and "private" not in caplog.text
+    assert "https://" not in caplog.text
+
+
+@pytest.mark.parametrize("status", [403, 404, 200])
+def test_cnyes_detail_does_not_retry_permanent_http_or_content_errors(status, monkeypatch):
+    calls, delays = [], []
+    monkeypatch.setattr(crawlers, "sleep", delays.append)
+    def provider(request):
+        calls.append(request)
+        return httpx.Response(status, text="missing article body")
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        with pytest.raises(ValueError if status == 200 else httpx.HTTPStatusError):
+            crawlers.cnyes_detail_article(http, "12345")
+    assert len(calls) == 1 and delays == []
+
+
+@pytest.mark.parametrize("failure,reason", [("timeout", "crawl_timeout"), (503, "crawl_http")])
+def test_cnyes_exhausted_detail_counts_one_failure_and_preserves_exception(failure, reason, db_session, monkeypatch):
+    requests, delays, reasons = [], [], {}
+    monkeypatch.setattr(crawlers, "sleep", delays.append)
+    def provider(request):
+        if request.url.host == "api.cnyes.com":
+            return httpx.Response(200, json={"items": [cnyes_raw()]})
+        requests.append(request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("private timeout")
+        return httpx.Response(failure)
+    with httpx.Client(transport=httpx.MockTransport(provider)) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3),
+                                     limit=1, fetch_details=True, failure_reasons=reasons)
+    assert result == {"inserted": 0, "updated": 0, "skipped": 0, "failed": 1}
+    assert reasons == {reason: 1} and len(requests) == 3 and delays == [1, 2]
+
+
+def test_cnyes_invalid_article_id_is_not_logged_or_requested(caplog):
+    with httpx.Client(transport=httpx.MockTransport(lambda request: pytest.fail("Unexpected request"))) as http:
+        assert crawlers.cnyes_detail_article(http, "private\nmalicious-id") is None
+    assert "private" not in caplog.text
+
+
 @pytest.mark.parametrize("headline,heading,name,expected", [
     ("公司公布財報", "其他標題", "公司公布財報 | 鉅亨網", "公司公布財報"),
     (None, "公司更新營運展望", "公司公布財報 | 鉅亨網", "公司更新營運展望"),
@@ -270,7 +328,7 @@ def test_cnyes_skip_existing_cli_is_opt_in_and_incompatible_with_refresh(setting
     monkeypatch.setattr(crawlers, "get_settings", lambda: settings)
     monkeypatch.setattr(crawlers, "make_engine", lambda value: engine)
     monkeypatch.setattr(impact_migrate, "migrate_news_impact", lambda value: None)
-    monkeypatch.setattr(crawlers, "crawl_cnyes", lambda *args: calls.append(args) or {"failed": 0})
+    monkeypatch.setattr(crawlers, "crawl_cnyes", lambda *args, **kwargs: calls.append(args) or {"failed": 0})
     assert crawlers.crawler_main("cnyes", ["--skip-existing", "--start", "2026-01-01", "--end", "2026-10-10"]) == 0
     assert calls[0][-1] is True
     assert calls[0][2].isoformat() == "2026-01-01T00:00:00+08:00"
@@ -279,12 +337,15 @@ def test_cnyes_skip_existing_cli_is_opt_in_and_incompatible_with_refresh(setting
         crawlers.crawler_main("cnyes", ["--skip-existing", "--refresh-existing"])
 
 
-def test_cnyes_detail_failure_is_reported_and_existing_body_survives(db_session):
+def test_cnyes_detail_failure_is_reported_and_existing_body_survives(db_session, monkeypatch):
+    monkeypatch.setattr(crawlers, "sleep", lambda seconds: None)
     item = crawlers.cnyes_item(cnyes_raw())
     crawlers.store_news(db_session, [item])
+    reasons = {}
     with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(503))) as http:
-        report = crawlers.refresh_cnyes_existing(db_session.bind, http)
+        report = crawlers.refresh_cnyes_existing(db_session.bind, http, failure_reasons=reasons)
     assert report == {"read": 1, "updated": 0, "skipped": 0, "failed": 1}
+    assert reasons == {"crawl_http": 1}
     assert db_session.get(NewsArticle, item["article_id"]).content == item["content"]
 
 
@@ -293,7 +354,7 @@ def test_cnyes_cli_explicit_dates_are_inclusive(settings, monkeypatch):
     monkeypatch.setattr(crawlers, "get_settings", lambda: settings)
     monkeypatch.setattr(crawlers, "make_engine", lambda value: engine)
     monkeypatch.setattr(impact_migrate, "migrate_news_impact", lambda value: None)
-    def crawl(*args):
+    def crawl(*args, **kwargs):
         calls.append(args)
         return {"failed": 0}
     monkeypatch.setattr(crawlers, "crawl_cnyes", crawl)
@@ -320,6 +381,7 @@ def test_refresh_cnyes_existing_uses_coherent_detail_title_and_body(db_session):
 @pytest.mark.parametrize("failure", ["timeout", "malformed", "invalid_articles", "repeated_page"])
 def test_cnyes_worker_exposes_failure_and_stops_broken_pagination(db_session, failure):
     requests = []
+    reasons = {}
     def provider(request):
         requests.append(request)
         if failure == "timeout":
@@ -329,8 +391,23 @@ def test_cnyes_worker_exposes_failure_and_stops_broken_pagination(db_session, fa
         rows = [{}] * 30 if failure == "invalid_articles" else [cnyes_raw()] * 30
         return httpx.Response(200, json={"items": rows})
     with httpx.Client(transport=httpx.MockTransport(provider)) as http:
-        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3))
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3),
+                                     failure_reasons=reasons)
     assert result["failed"] > 0 and len(requests) <= 2 * len(crawlers.CNYES_CATEGORIES)
+    assert reasons == {"crawl_timeout" if failure == "timeout" else "crawl_content": result["failed"]}
+
+
+def test_cnyes_storage_failure_is_counted_without_hiding_partial_work(db_session, monkeypatch):
+    reasons = {}
+    def fail(*args):
+        raise RuntimeError("private database details")
+    monkeypatch.setattr(crawlers, "store_news", fail)
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200,
+            json={"items": [cnyes_raw()]}))) as http:
+        result = crawlers.crawl_cnyes(db_session.bind, http, datetime(2024, 1, 1), datetime(2024, 1, 3),
+                                     limit=1, failure_reasons=reasons)
+    assert result == {"inserted": 0, "updated": 0, "skipped": 0, "failed": 1}
+    assert reasons == {"crawl_storage": 1}
 
 
 @pytest.fixture
@@ -430,7 +507,7 @@ def test_cli_preserves_lookback_options_and_disposes_engine(source, arguments, d
         @classmethod
         def now(cls, tz=None):
             return cls(2024, 4, 1, 8, tzinfo=tz)
-    def run(*args):
+    def run(*args, **kwargs):
         captured.append(args)
         return {"inserted": 1, "skipped": 0, "failed": 0}
     monkeypatch.setattr(crawlers, "datetime", FixedDateTime)
@@ -448,7 +525,7 @@ def test_cli_preserves_lookback_options_and_disposes_engine(source, arguments, d
 @pytest.mark.parametrize("raise_error", [False, True])
 def test_cli_partial_and_unexpected_failure_return_nonzero_and_sanitize_logs(raise_error, settings, monkeypatch, caplog):
     engine = Mock()
-    def run(*args):
+    def run(*args, **kwargs):
         if raise_error:
             raise RuntimeError("private database credentials")
         return {"inserted": 2, "skipped": 0, "failed": 1}
@@ -459,6 +536,40 @@ def test_cli_partial_and_unexpected_failure_return_nonzero_and_sanitize_logs(rai
     assert crawlers.crawler_main("cnyes", ["--scheduled-once"]) == 1
     assert "private" not in caplog.text
     engine.dispose.assert_called_once()
+
+
+def test_cnyes_cli_records_partial_failure_diagnostics(settings, monkeypatch, tmp_path):
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV, read_failure
+    target = tmp_path / "failure.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+    engine = Mock()
+    monkeypatch.setattr(crawlers, "get_settings", lambda: settings)
+    monkeypatch.setattr(crawlers, "make_engine", lambda value: engine)
+    monkeypatch.setattr(impact_migrate, "migrate_news_impact", lambda value: None)
+    def crawl(*args, failure_reasons):
+        failure_reasons.update(crawl_timeout=1, crawl_content=2)
+        return {"inserted": 2, "updated": 0, "skipped": 0, "failed": 3}
+    monkeypatch.setattr(crawlers, "crawl_cnyes", crawl)
+    assert crawlers.crawler_main("cnyes", ["--scheduled-once"]) == 1
+    assert read_failure(target) == {"phase": "http", "reason": "crawl_incomplete",
+                                    "failure_reasons": {"crawl_timeout": 1, "crawl_content": 2}}
+
+
+@pytest.mark.parametrize("phase", ["settings", "database", "schema"])
+def test_cnyes_cli_records_initialization_failure_phase(phase, settings, monkeypatch, tmp_path, caplog):
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV, read_failure
+    target = tmp_path / "failure.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+    engine = Mock()
+    def fail(*args):
+        raise RuntimeError("private configuration")
+    monkeypatch.setattr(crawlers, "get_settings", fail if phase == "settings" else lambda: settings)
+    monkeypatch.setattr(crawlers, "make_engine", fail if phase == "database" else lambda value: engine)
+    monkeypatch.setattr(impact_migrate, "migrate_news_impact", fail)
+    assert crawlers.crawler_main("cnyes", []) == 1
+    assert read_failure(target) == {"phase": phase, "reason": "worker_exception", "error_type": "RuntimeError"}
+    assert "private" not in caplog.text
+    assert engine.dispose.call_count == int(phase == "schema")
 
 
 def test_ltn_empty_catalog_does_not_restore_legacy_stocks():

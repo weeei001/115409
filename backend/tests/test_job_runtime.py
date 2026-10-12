@@ -39,6 +39,80 @@ def wait_until(predicate):
         time.sleep(0.01)
 
 
+def test_crawler_timeout_reaches_admin_api_and_preserves_successful_articles(tmp_path, settings, monkeypatch):
+    import json
+    from pathlib import Path
+    import httpx
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.db.session import get_db
+    from app.db.models.news_article import NewsArticle
+    from app.features.admin.router import get_administrator
+    from app.jobs import crawlers
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV
+    from app.jobs.impact import migrate
+
+    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
+    jobs.status = 'running'
+    attempts, paths = [], []
+    def provider(request):
+        if request.url.host == 'api.cnyes.com':
+            return httpx.Response(200, json={'items': [
+                {'newsId': number, 'title': f'News {number}', 'publishAt': 1704067200}
+                for number in (12345, 12346)]})
+        if request.url.path.endswith('/12346'):
+            attempts.append(request.url.path)
+            raise httpx.ReadTimeout('private upstream credentials', request=request)
+        payload = {'@type': 'NewsArticle', 'headline': 'News 12345',
+            'articleBody': 'Company revenue and operating results increased this quarter. ' * 5}
+        return httpx.Response(200, text=f'<script type="application/ld+json">{json.dumps(payload)}</script>')
+
+    monkeypatch.setattr(crawlers, 'CNYES_CATEGORIES', ('tw_stock_news',))
+    monkeypatch.setattr(crawlers, 'get_settings', lambda: settings)
+    monkeypatch.setattr(crawlers, 'make_engine', lambda _: engine)
+    monkeypatch.setattr(crawlers, 'make_sync_http_client',
+        lambda _: httpx.Client(transport=httpx.MockTransport(provider)))
+    monkeypatch.setattr(crawlers, 'sleep', lambda _: None)
+    monkeypatch.setattr(migrate, 'migrate_news_impact', lambda _: None)
+
+    class Child:
+        def __init__(self, command, *, cwd, env):
+            paths.append(Path(env[DIAGNOSTICS_ENV]))
+            with monkeypatch.context() as child_env:
+                child_env.setenv(DIAGNOSTICS_ENV, env[DIAGNOSTICS_ENV])
+                self.result = crawlers.crawler_main('cnyes', command[4:])
+        def wait(self, timeout):
+            return self.result
+
+    monkeypatch.setattr(runtime.subprocess, 'Popen', Child)
+    try:
+        with factory() as db:
+            run_id = service.perform_job(db, db.get(User, user_id), jobs, 'cnyes', 'run', None)['run_id']
+        assert jobs._execute(run_id) == 1
+        settings.JOBS_ENABLED = False
+        app = create_app(settings)
+        def database():
+            with factory() as db:
+                yield db
+        app.dependency_overrides[get_db] = database
+        app.dependency_overrides[get_administrator] = lambda: User(id=user_id)
+        with TestClient(app) as client:
+            response = client.get(f'/admin/runs/{run_id}')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['status'] == 'failed' and data['exit_code'] == 1
+        assert data['diagnostics']['failed_stages'] == [{'stage': 'crawl-cnyes', 'exit_code': 1,
+            'phase': 'http', 'reason': 'crawl_incomplete', 'failure_reasons': {'crawl_timeout': 1}}]
+        assert 'private' not in response.text
+        assert len(attempts) == 3
+        assert all(not path.exists() for path in paths)
+        with factory() as db:
+            articles = list(db.scalars(select(NewsArticle)))
+            assert len(articles) == 1 and articles[0].content_kind == 'full_text'
+    finally:
+        engine.dispose()
+
+
 @pytest.mark.parametrize("existing_pause", [None, False, True])
 def test_ltn_is_retired_even_with_legacy_enabled_controls(
         tmp_path, settings, monkeypatch, existing_pause):
