@@ -146,6 +146,22 @@ def test_overlapping_daily_calls_are_thinned_to_one_review_per_window(db_session
         ("medium_21_40", days[3]), ("short_1_5", days[7])]
 
 
+def test_historical_rerun_is_available_for_review_and_comparison(db_session, factory):
+    days = add_prices(db_session, "2330", [100 + i for i in range(41)])
+    add_brief(db_session, "2330", days[0], medium="bullish",
+              created=datetime.combine(days[-1], datetime.min.time()) + timedelta(days=30))
+    db_session.commit()
+    today = days[-1] + timedelta(days=30)
+
+    due, _ = brief_lessons._load_due(factory, ["2330"], today, 365)
+    medium = next(item for item in due if item.horizon == "medium_21_40")
+    assert medium.result == "hit"
+    assert medium.resolved_on == days[40]
+    report = brief_lessons.compare(factory, None, today, 365)
+    assert report["without_reviews"]["briefs"] == 1
+    assert report["without_reviews"]["horizons"][2]["hit_rate"] == 1.0
+
+
 def test_settle_writes_reviews_once_and_rejects_advice(db_session, factory):
     days = seed_daily_briefs(db_session, count=1)
     reviewer = FakeReviewer()

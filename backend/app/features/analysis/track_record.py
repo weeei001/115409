@@ -1,7 +1,6 @@
 """Score saved text-brief stances against the closes that followed them.
 
-Only briefs generated within a few days of their analysis date count, so a later
-historical re-run cannot grade itself with hindsight.
+Historical re-runs are included. Keep the latest saved brief per stock and analysis date.
 """
 from __future__ import annotations
 
@@ -17,13 +16,12 @@ from .schemas import AITrackRecordResponse, TrackRecordHorizon, TrackRecordItem,
 HORIZONS = (("short_1_5", 5), ("swing_6_20", 20), ("medium_21_40", 40))
 UP_STANCES = {"bullish", "mildly_bullish"}
 DOWN_STANCES = {"bearish", "mildly_bearish"}
-LIVE_GENERATION_DAYS = 4
 MAX_BASE_GAP_DAYS = 7
 RECENT_LIMIT = 10
 METHOD_NOTE = (
     "以 AI 摘要在分析基準日給出的各區間立場，對照基準日收盤到第 5、20、40 個交易日收盤的實際漲跌："
     "看多或偏多而上漲、看空或偏空而下跌算命中；中性、多空分歧、不確定不算方向判斷，不列入命中率。"
-    "只計入基準日後 4 天內產生的摘要，排除事後重跑的歷史分析。"
+    "包含歷史補跑的摘要；同一股票、同一分析基準日採最新儲存的一份，依基準日後的行情評分。"
     "「每次都猜漲」是同一批樣本中實際上漲的比例，用來比較 AI 是否優於單純看多。"
     "「相對大盤」改用同期間加權指數（未含息）作基準：看多且漲幅勝過大盤、看空且表現落後大盤算命中，"
     "用來分辨 AI 是否只是跟著大盤方向走。"
@@ -35,16 +33,9 @@ def _call(stance: str | None) -> str:
     return "up" if stance in UP_STANCES else "down" if stance in DOWN_STANCES else "none"
 
 
-def _is_live(snapshot: dict) -> bool:
-    created = snapshot.get("created_at")
-    if not isinstance(created, datetime):
-        return False
-    return created.date() - snapshot["as_of_date"] <= timedelta(days=LIVE_GENERATION_DAYS)
-
-
-def _latest_live(snapshots: list[dict]) -> list[dict]:
-    # Drop re-runs before keeping the newest row per day, so a later re-run cannot hide the live brief.
-    latest = {(item["symbol"], item["as_of_date"]): item for item in snapshots if _is_live(item)}
+def _latest_snapshots(snapshots: list[dict]) -> list[dict]:
+    # Repository rows are ordered by id, so the last saved row for each day wins.
+    latest = {(item["symbol"], item["as_of_date"]): item for item in snapshots}
     return sorted(latest.values(), key=lambda item: (item["as_of_date"], item["symbol"]))
 
 
@@ -134,7 +125,7 @@ def summarize(items: list[TrackRecordItem]) -> list[TrackRecordHorizon]:
 def track_record(db: Session, *, symbol: str | None, days: int, today: date | None = None) -> AITrackRecordResponse:
     today = today or datetime.now(TAIPEI).date()
     since = today - timedelta(days=days)
-    snapshots = _latest_live(repository.track_record_snapshots(db, symbol=symbol, since=since))
+    snapshots = _latest_snapshots(repository.track_record_snapshots(db, symbol=symbol, since=since))
     series = repository.close_series(db, {item["symbol"] for item in snapshots},
                                      since - timedelta(days=MAX_BASE_GAP_DAYS))
     benchmark = repository.benchmark_series(db, since - timedelta(days=MAX_BASE_GAP_DAYS))

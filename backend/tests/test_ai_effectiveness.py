@@ -47,7 +47,7 @@ def add_brief(db, symbol, as_of, *, short="bullish", swing="neutral", medium="be
                        created_at=created or datetime.combine(as_of, datetime.min.time()) + timedelta(hours=18)))
 
 
-def test_track_record_scores_only_live_directional_calls_against_later_closes(client, db_session):
+def test_track_record_includes_historical_directional_calls_against_later_closes(client, db_session):
     # Prices rise for 30 sessions, then fall: a short bullish call hits and a 40-day bearish call is judged too.
     days = add_prices(db_session, "2330", [100 + i for i in range(30)] + [129 - 3 * i for i in range(30)])
     add_brief(db_session, "2330", days[0])                                  # short hit, swing no call, medium judged
@@ -61,13 +61,13 @@ def test_track_record_scores_only_live_directional_calls_against_later_closes(cl
     db_session.commit()
 
     result = tr.track_record(db_session, symbol="2330", days=365, today=days[-1])
-    assert result.snapshot_count == 3
+    assert result.snapshot_count == 4
     short, swing, medium = result.horizons
-    assert (short.directional_calls, short.hits, short.hit_rate, short.pending) == (2, 2, 1.0, 1)
+    assert (short.directional_calls, short.hits, short.hit_rate, short.pending) == (3, 3, 1.0, 1)
     assert short.up_baseline_rate == 1.0
-    assert (swing.directional_calls, swing.no_call, swing.hit_rate) == (0, 2, None)
+    assert (swing.directional_calls, swing.no_call, swing.hit_rate) == (0, 3, None)
     # Day 0 to day 40 closes: 100 -> 99, so the bearish 40-day call is a hit.
-    assert (medium.directional_calls, medium.hits) == (2, 2)
+    assert (medium.directional_calls, medium.hits) == (3, 3)
     assert result.recent[0].as_of_date == days[55].isoformat()
     assert [outcome.result for outcome in result.recent[-1].outcomes] == ["hit", "no_call", "hit"]
     assert result.recent[-1].outcomes[0].return_pct == 5.0
@@ -90,7 +90,7 @@ def test_track_record_without_prices_is_pending_not_scored(db_session):
                for item in result.horizons)
 
 
-def test_later_rerun_does_not_hide_the_live_brief_for_the_same_day(db_session):
+def test_later_rerun_replaces_the_earlier_brief_for_the_same_day(db_session):
     days = add_prices(db_session, "2330", [100 + i for i in range(10)])
     add_brief(db_session, "2330", days[0])
     add_brief(db_session, "2330", days[0], short="bearish",
@@ -98,8 +98,24 @@ def test_later_rerun_does_not_hide_the_live_brief_for_the_same_day(db_session):
     db_session.commit()
     result = tr.track_record(db_session, symbol="2330", days=365, today=days[-1])
     assert result.snapshot_count == 1
-    assert result.recent[0].outcomes[0].stance == "bullish"
-    assert (result.horizons[0].directional_calls, result.horizons[0].hits) == (1, 1)
+    assert result.recent[0].outcomes[0].stance == "bearish"
+    assert (result.horizons[0].directional_calls, result.horizons[0].hits) == (1, 0)
+
+
+def test_historical_brief_scores_forty_days_from_analysis_date(db_session):
+    days = add_prices(db_session, "2330", [100 + i for i in range(41)])
+    add_brief(db_session, "2330", days[0], swing="bullish", medium="bullish",
+              created=datetime.combine(days[-1], datetime.min.time()) + timedelta(days=30))
+    db_session.commit()
+
+    result = tr.track_record(db_session, symbol="2330", days=365, today=days[-1] + timedelta(days=30))
+
+    assert result.snapshot_count == 1
+    for outcome, offset in zip(result.recent[0].outcomes, (5, 20, 40)):
+        assert outcome.result == "hit"
+        assert outcome.return_pct == float(offset)
+        assert outcome.resolved_on == days[offset].isoformat()
+    assert all(horizon.directional_calls == 1 and horizon.pending == 0 for horizon in result.horizons)
 
 
 @pytest.fixture
