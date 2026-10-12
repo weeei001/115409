@@ -52,7 +52,8 @@ def job_results(db: Session, job_name: str):
     streak = db.scalar(select(func.count()).select_from(AdminJobRun).where(AdminJobRun.job_name == job_name,
         AdminJobRun.status == "failed", AdminJobRun.id > boundary))
     total = db.scalar(select(func.count()).select_from(terminal.subquery()))
-    return latest("succeeded"), latest("failed"), streak, total
+    last_run = db.scalar(terminal.order_by(AdminJobRun.id.desc()).limit(1))
+    return latest("succeeded"), latest("failed"), streak, total, last_run
 
 
 def audit_logs(db: Session, limit: int, offset: int = 0):

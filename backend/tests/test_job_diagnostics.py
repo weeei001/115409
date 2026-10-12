@@ -31,3 +31,31 @@ def test_bounded_record_and_unwritable_diagnostic_cannot_mask_worker_failure(tmp
     assert detail == {"phase": "settings", "reason": "worker_exception", "error_type": "ValueError"}
     assert failure_stages(format_failure("news-impact-batch", 1, detail)) == [
         {"stage": "news-impact-batch", "exit_code": 1, **detail}]
+
+
+@pytest.mark.parametrize("stage", ["market-fetch", "market-backfill"])
+def test_stock_backfill_preserves_safe_nested_worker_diagnostics(stage, tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from app.jobs import stock_backfill, market_history
+    from app.jobs.__main__ import dispatch
+    from app.jobs.market import fetch
+
+    target = tmp_path / "failure.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+
+    def fail(*args):
+        raise ValueError("private connection credentials")
+
+    monkeypatch.setattr(fetch, "get_settings", lambda: None)
+    monkeypatch.setattr(fetch, "make_sync_http_client", lambda *args, **kwargs: nullcontext(None))
+    monkeypatch.setattr(fetch, "export", fail)
+    monkeypatch.setattr(market_history, "backfill", fail)
+
+    def run(job, args):
+        return dispatch(job, args) if job == stage else 0
+
+    from datetime import date
+    assert stock_backfill.backfill("1101", end=date(2026, 10, 12), output=tmp_path / "market", run=run) == 1
+    assert read_failure(target) == {
+        "phase": "dispatch", "reason": "worker_exception", "error_type": "ValueError"}
+    assert "private" not in target.read_text()

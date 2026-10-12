@@ -10,7 +10,8 @@ from app.core.http import make_http_client
 from app.db.engine import make_engine, make_session_factory
 from app.jobs.impact.migrate import migrate_news_impact
 from app.jobs.locking import worker_lock
-from .service import chunk_news, failure_reason, vectorize_news
+from app.jobs.diagnostics import report_failure
+from .service import chunk_news, failure_reason, indexing_failure_code, vectorize_news
 
 
 MODES = ("chunk-news", "vectorize-news", "news-ingest")
@@ -67,18 +68,24 @@ def main(mode: str, argv: list[str] | None = None) -> int:
     engine = make_engine(settings)
     session_factory = make_session_factory(engine)
     reports = []
+    phase = "lock"
     try:
         # All writable ingestion commands share the existing process lock.
         with nullcontext() if args.dry_run else worker_lock("news-ingestion"):
             if not args.dry_run:
+                phase = "schema"
                 migrate_news_impact(engine)
             if mode in {"chunk-news", "news-ingest"}:
+                phase = "chunking"
                 reports.append(chunk_news(session_factory, max_chars=settings.NEWS_CHUNK_MAX_CHARS,
                     overlap_chars=settings.NEWS_CHUNK_OVERLAP_CHARS, embedding_model=settings.EMBED_MODEL, **options))
                 print(json.dumps(reports[-1].as_dict(), ensure_ascii=False))
                 if reports[-1].failed:
+                    report_failure(phase, reason=next(iter(reports[-1].failure_reasons)),
+                                   failure_reasons=reports[-1].failure_reasons)
                     return 1
             if mode in {"vectorize-news", "news-ingest"}:
+                phase = "vectorization"
                 async def vectorize():
                     from app.clients.vector_writer import VectorWriter
                     async with make_http_client(settings) as http:
@@ -87,7 +94,11 @@ def main(mode: str, argv: list[str] | None = None) -> int:
                                                      cleanup_stale=not args.skip_stale_cleanup, **options)
                 reports.append(asyncio.run(vectorize()))
                 print(json.dumps(reports[-1].as_dict(), ensure_ascii=False))
+                if reports[-1].failed:
+                    report_failure(phase, reason=next(iter(reports[-1].failure_reasons)),
+                                   failure_reasons=reports[-1].failure_reasons)
     except Exception as exc:
+        report_failure(phase, reason=indexing_failure_code(failure_reason(exc)), error=exc)
         print(json.dumps({"job": mode, "failed": 1, "error": failure_reason(exc)}))
         return 1
     finally:

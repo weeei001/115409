@@ -40,7 +40,7 @@ def wait_until(predicate):
 
 
 @pytest.mark.parametrize("existing_pause", [None, False, True])
-def test_ltn_is_disabled_by_default_without_overriding_explicit_controls(
+def test_ltn_is_retired_even_with_legacy_enabled_controls(
         tmp_path, settings, monkeypatch, existing_pause):
     jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
     if existing_pause is not None:
@@ -57,60 +57,16 @@ def test_ltn_is_disabled_by_default_without_overriding_explicit_controls(
     try:
         wait_until(lambda: jobs.status == "running")
         with factory() as db:
-            assert db.get(AdminJobControl, "ltn").paused is (existing_pause is not False)
-        assert jobs._enabled("ltn") is (existing_pause is False)
+            assert db.get(AdminJobControl, "ltn").paused is True
+            actor = db.get(User, user_id)
+            for action in ("run", "retry", "resume"):
+                with pytest.raises(AppError, match="retired"):
+                    jobs.perform(db, actor, "ltn", action)
+        jobs.apply_control("ltn", "resume")
+        assert not jobs._enabled("ltn")
         assert jobs._enabled("cnyes")
     finally:
         jobs.stop()
-        engine.dispose()
-
-
-def test_scheduler_retries_database_failure_before_queueing(tmp_path, settings, monkeypatch):
-    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
-    attempts, calls = [], []
-
-    def session_factory():
-        attempts.append(True)
-        if len(attempts) == 1:
-            raise SQLAlchemyError("Temporary database failure")
-        return factory()
-
-    jobs.session_factory = session_factory
-    monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: calls.append(name) or 0)
-    deadline = datetime.now(runtime.TAIPEI)
-    jobs.scheduler.next_market = deadline
-    try:
-        with pytest.raises(SQLAlchemyError):
-            jobs.scheduler.tick(deadline)
-        assert jobs.scheduler.next_market == deadline
-        jobs.scheduler.tick(deadline + timedelta(seconds=5))
-        jobs.scheduler.tick(deadline + timedelta(seconds=6))
-        assert calls == ["pipeline"]
-        with factory() as db:
-            runs = list(db.scalars(select(AdminJobRun)))
-            assert len(runs) == 1 and runs[0].status == "succeeded"
-    finally:
-        engine.dispose()
-
-
-def test_durably_queued_schedule_is_not_redispatched_on_execution_error(tmp_path, settings, monkeypatch):
-    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
-    calls = []
-
-    def execute(run_id):
-        calls.append(run_id)
-        raise SQLAlchemyError("Could not record worker result")
-
-    monkeypatch.setattr(jobs, "_execute", execute)
-    deadline = datetime.now(runtime.TAIPEI)
-    jobs.scheduler.next_market = deadline
-    try:
-        with pytest.raises(SQLAlchemyError):
-            jobs.scheduler.tick(deadline)
-        jobs.scheduler.tick(deadline + timedelta(seconds=5))
-        assert len(calls) == 1
-        assert jobs.scheduler.next_market > deadline
-    finally:
         engine.dispose()
 
 
@@ -147,73 +103,28 @@ def test_manual_rag_does_not_enqueue_a_brief(tmp_path, settings, monkeypatch,
         engine.dispose()
 
 
-def test_pause_during_run_prevents_sibling_jobs_and_survives_restart(tmp_path, settings, monkeypatch):
-    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
-    entered, finish = Event(), Event()
-    calls = []
-
-    @contextmanager
-    def lock(name):
-        yield
-
-    def pipeline(name, **kwargs):
-        calls.append(name)
-        entered.set()
-        assert finish.wait(5)
-        return 0
-
-    monkeypatch.setattr(runtime, "worker_lock", lock)
-    monkeypatch.setattr(runtime, "run_pipeline", pipeline)
-    jobs.scheduler.next_market = datetime.now(runtime.TAIPEI) - timedelta(seconds=1)
-    jobs.start()
-    try:
-        assert entered.wait(5)
-        with factory() as db:
-            actor = db.get(User, user_id)
-            service.perform_job(db, actor, jobs, "ltn", "pause", None)
-            service.perform_job(db, actor, jobs, "pipeline", "pause", None)
-        assert jobs.snapshot()["jobs"][0]["active_run_id"] is not None
-        finish.set()
-        wait_until(lambda: not jobs.active)
-        jobs.stop()
-        assert calls == ["pipeline"]
-        with factory() as db:
-            run = db.scalar(select(AdminJobRun))
-            assert run.status == "succeeded" and run.exit_code == 0
-            assert db.get(AdminJobControl, "ltn").paused
-        restarted = runtime.JobRuntime(settings, factory)
-        restarted.start()
-        try:
-            wait_until(lambda: restarted.status == "running")
-            assert {item["name"] for item in restarted.snapshot()["jobs"] if item["paused"]} == {"pipeline", "ltn"}
-        finally:
-            restarted.stop()
-    finally:
-        finish.set()
-        jobs.stop()
-        engine.dispose()
-
-
-def test_duplicate_rejected_and_completed_run_can_rerun_while_paused(tmp_path, settings, monkeypatch):
+def test_duplicate_rejected_and_completed_manual_run_can_rerun(tmp_path, settings, monkeypatch):
     jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
     jobs.status = "running"
     monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: 7)
     try:
         with factory() as db:
             actor = db.get(User, user_id)
-            service.perform_job(db, actor, jobs, "pipeline", "pause", None)
-            first = service.perform_job(db, actor, jobs, "pipeline", "run", None)["run_id"]
+            for action in ("pause", "resume"):
+                with pytest.raises(AppError, match="manually"):
+                    jobs.perform(db, actor, "cnyes", action)
+            first = service.perform_job(db, actor, jobs, "cnyes", "run", None)["run_id"]
             with pytest.raises(AppError) as exc:
-                service.perform_job(db, actor, jobs, "pipeline", "run", None)
+                service.perform_job(db, actor, jobs, "cnyes", "run", None)
             assert exc.value.status_code == 409
         assert jobs._execute(first) == 7
         with factory() as db:
             previous = db.get(AdminJobRun, first)
             assert previous.status == "failed" and previous.error == "Job failed"
-            next_id = service.perform_job(db, db.get(User, user_id), jobs, "pipeline", "retry", first)["run_id"]
+            next_id = service.perform_job(db, db.get(User, user_id), jobs, "cnyes", "retry", first)["run_id"]
             assert db.get(AdminJobRun, next_id).retry_of == first
             with pytest.raises(AppError) as exc:
-                service.perform_job(db, db.get(User, user_id), jobs, "pipeline", "pause", first)
+                service.perform_job(db, db.get(User, user_id), jobs, "cnyes", "pause", first)
             assert exc.value.status_code == 422
     finally:
         engine.dispose()
@@ -296,7 +207,7 @@ def test_shutdown_can_stop_a_child_while_database_control_holds_lock(tmp_path, s
         engine.dispose()
 
 
-def test_manual_run_advances_due_schedule_instead_of_running_twice(tmp_path, settings, monkeypatch):
+def test_manual_job_runs_once_without_automatic_followup(tmp_path, settings, monkeypatch):
     jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
     entered, finish = Event(), Event()
     calls = []
@@ -317,12 +228,12 @@ def test_manual_run_advances_due_schedule_instead_of_running_twice(tmp_path, set
     try:
         wait_until(lambda: jobs.status == "running")
         with factory() as db:
-            service.perform_job(db, db.get(User, user_id), jobs, "pipeline", "run", None)
+            service.perform_job(db, db.get(User, user_id), jobs, "market", "run", None)
         assert entered.wait(5)
         jobs.scheduler.next_market = datetime.now(runtime.TAIPEI) - timedelta(seconds=1)
         finish.set()
-        wait_until(lambda: jobs.scheduler.next_market > datetime.now(runtime.TAIPEI))
-        assert calls == ["pipeline"]
+        wait_until(lambda: not jobs.active)
+        assert calls == ["market"]
     finally:
         finish.set()
         jobs.stop()
@@ -371,7 +282,7 @@ def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknow
 
     monkeypatch.setattr(jobs, "_worker", worker)
     with factory() as db:
-        run_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "run", None)["run_id"]
+        run_id = service.perform_job(db, db.get(User, user_id), jobs, "impact", "run", None)["run_id"]
     thread = Thread(target=jobs._execute, args=(run_id,))
     try:
         thread.start()
@@ -381,7 +292,7 @@ def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknow
             assert live["stage"] == "news-impact-sync" and live["activity_kind"] == "stage_started"
             assert live["last_activity_at"] == live["stage_started_at"]
             assert live["worker_progress"] == "unknown"
-            card = next(job for job in service.overview(db, jobs, "development")["jobs"] if job["name"] == "rag")
+            card = next(job for job in service.overview(db, jobs, "development")["jobs"] if job["name"] == "impact")
             assert card["active_run"]["id"] == run_id
             assert card["active_run"]["diagnostics"]["stage"] == "news-impact-sync"
             jobs.heartbeat = "2026-10-01T13:00:00Z"
@@ -389,7 +300,7 @@ def test_stage_diagnostics_keep_partial_failure_and_long_running_progress_unknow
         finish.set()
         thread.join(5)
         assert not thread.is_alive()
-        assert calls == ["migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync"]
+        assert calls == ["migrate-news-impact-schema", "news-impact-batch", "news-impact-sync"]
         with factory() as db:
             result = service.get_run(db, run_id, jobs)
             assert result["status"] == "failed" and result["exit_code"] == 3
@@ -457,7 +368,7 @@ def test_worker_failure_reason_is_retained_after_child_and_later_stage_finish(tm
     monkeypatch.setattr(runtime.subprocess, "Popen", lambda command, *, cwd, env: Child(command, env))
     try:
         with factory() as db:
-            run_id = service.perform_job(db, db.get(User, user_id), jobs, "rag", "run", None)["run_id"]
+            run_id = service.perform_job(db, db.get(User, user_id), jobs, "impact", "run", None)["run_id"]
         assert jobs._execute(run_id) == 1
         assert all(not path.parent.exists() for path in paths), "Per-child diagnostics must be cleaned up."
         with factory() as db:
@@ -470,96 +381,27 @@ def test_worker_failure_reason_is_retained_after_child_and_later_stage_finish(tm
         engine.dispose()
 
 
-def test_cnyes_only_policy_keeps_durable_source_pause_in_daily_pipeline(tmp_path, settings, monkeypatch):
-    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
-    with factory() as db:
-        db.add(AdminJobControl(job_name="ltn", paused=True))
-        old = AdminJobRun(job_name="ltn", status="failed", trigger="scheduled", exit_code=1)
-        db.add(old)
-        db.commit()
-        old_id = old.id
-    calls = []
-
-    @contextmanager
-    def lock(name):
-        yield
-
-    monkeypatch.setattr(runtime, "worker_lock", lock)
-    monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: calls.append(name) or 0)
-    jobs.scheduler.next_market = datetime.now(runtime.TAIPEI) - timedelta(seconds=1)
-    jobs.start()
-    try:
-        wait_until(lambda: calls == ["pipeline"] and not jobs.active)
-        snapshot = jobs.snapshot()
-        ltn = next(item for item in snapshot["jobs"] if item["name"] == "ltn")
-        cnyes = next(item for item in snapshot["jobs"] if item["name"] == "cnyes")
-        assert ltn["paused"] and ltn["next_run_at"] is None
-        assert not cnyes["paused"] and cnyes["next_run_at"] is None
-        with factory() as db:
-            assert db.get(AdminJobRun, old_id).status == "failed"
-            names = [row.job_name for row in db.scalars(select(AdminJobRun).order_by(AdminJobRun.id))]
-            assert names == ["ltn", "pipeline"]
-    finally:
-        jobs.stop()
-    restarted = runtime.JobRuntime(settings, factory)
-    restarted.start()
-    try:
-        wait_until(lambda: restarted.status == "running")
-        assert "ltn" in restarted.paused and not restarted._enabled("ltn")
-        assert restarted._enabled("cnyes") and calls == ["pipeline"]
-    finally:
-        restarted.stop()
-        engine.dispose()
-
-
-@pytest.mark.parametrize("legacy_paused,explicit_pipeline,expected", [
-    ("market", None, True), ("rag", None, True), ("text-brief", None, True),
-    ("ltn", None, False), ("market", False, False), (None, True, True),
-])
-def test_pipeline_pause_migration_is_conservative_and_only_runs_once(
-        tmp_path, settings, monkeypatch, legacy_paused, explicit_pipeline, expected):
-    jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
-    with factory() as db:
-        if legacy_paused:
-            db.add(AdminJobControl(job_name=legacy_paused, paused=True))
-        if explicit_pipeline is not None:
-            db.add(AdminJobControl(job_name="pipeline", paused=explicit_pipeline))
-        db.commit()
-    @contextmanager
-    def lock(name):
-        yield
-    monkeypatch.setattr(runtime, "worker_lock", lock)
-    jobs.start()
-    try:
-        wait_until(lambda: jobs.status == "running")
-        with factory() as db:
-            assert db.get(AdminJobControl, "pipeline").paused is expected
-        assert ("pipeline" in jobs.paused) is expected
-    finally:
-        jobs.stop()
-        engine.dispose()
-
-
-def test_pipeline_owns_all_stages_in_one_run_and_keeps_partial_failures(tmp_path, settings, monkeypatch):
+@pytest.mark.parametrize("retired", ["pipeline", "all", "ltn"])
+def test_retired_jobs_keep_history_but_cannot_execute_queued_runs(tmp_path, settings, monkeypatch, retired):
     jobs, factory, user_id, engine = make_runtime(tmp_path, settings)
     jobs.status = "running"
-    jobs.paused.add("ltn")
-    calls = []
-    def worker(command):
-        calls.append(command[0])
-        return 3 if command[0] == "news-impact-batch" else 0
-    monkeypatch.setattr(jobs, "_worker", worker)
+    monkeypatch.setattr(runtime, "run_pipeline", lambda *a, **k: pytest.fail("Retired worker ran"))
     try:
         with factory() as db:
-            run_id = service.perform_job(db, db.get(User, user_id), jobs, "pipeline", "run", None)["run_id"]
-        assert jobs._execute(run_id) == 3
-        assert calls == ["market-backfill", "market-fetch", "market-import", "market-supplemental-backfill",
-            "market-supplemental-backfill", "paper-reconcile",
-            "crawl-cnyes", "migrate-news-impact-schema", "news-ingest", "news-impact-batch",
-            "news-impact-sync", "cache-warmup"]
+            old = AdminJobRun(job_name=retired, status="failed", trigger="scheduled", exit_code=1)
+            queued = AdminJobRun(job_name=retired, status="queued", trigger="manual")
+            db.add_all([old, queued]); db.commit()
+            old_id, queued_id = old.id, queued.id
+            for action in ("run", "retry", "resume"):
+                with pytest.raises(AppError):
+                    jobs.perform(db, db.get(User, user_id), retired, action)
+        assert jobs._execute(queued_id) == 1
+        assert not jobs._enabled(retired)
+        assert retired not in {job["name"] for job in jobs.snapshot()["jobs"]}
+        assert all(job["schedule"] == "Manual" for job in jobs.snapshot()["jobs"])
         with factory() as db:
-            runs = list(db.scalars(select(AdminJobRun)))
-            assert len(runs) == 1 and runs[0].status == "failed"
-            assert "news-impact-batch" in runs[0].error
+            assert db.get(AdminJobRun, old_id).status == "failed"
+            assert db.get(AdminJobRun, queued_id).status == "interrupted"
+            assert service.get_run(db, queued_id)["diagnostics"]["error_category"] == "job_retired"
     finally:
         engine.dispose()

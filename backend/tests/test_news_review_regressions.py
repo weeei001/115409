@@ -116,12 +116,12 @@ def test_question_refills_after_duplicate_articles_with_bounded_candidates():
     assert [args["limit"] for _, args in vector.calls] == [40, 120]
 
 
-def test_sync_failure_stops_cache_warmup(tmp_path):
+def test_independent_impact_sync_failure_preserves_failure(tmp_path):
     calls = []
     def run(command):
         calls.append(command[0])
         return 7 if command[0] == "news-impact-sync" else 0
-    assert run_pipeline("rag", start=date(2026, 1, 1), symbols="2330", output=tmp_path, run=run) == 7
+    assert run_pipeline("impact", start=date(2026, 1, 1), symbols="2330", output=tmp_path, run=run) == 7
     assert "cache-warmup" not in calls
 
 
