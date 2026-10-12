@@ -3,7 +3,7 @@ import { isTaiwanStockCode } from './utils/stockValidation';
 import type { ChatAction } from './types/chat';
 import { DISCLAIMER_PATH } from './disclaimers';
 
-/** 主選單導覽（路徑與標籤唯一來源）；頁尾沿用並另加免責聲明，見 FOOTER_NAV */
+/** 主選單導覽（路徑與標籤唯一來源）；頁尾導覽沿用，免責聲明的入口在頁尾的風險提示列 */
 export const PRIMARY_NAV = [
   { path: '/', label: '首頁' },
   { path: '/favorites', label: '收藏股' },
@@ -59,8 +59,6 @@ export function isNavPathActive(path: string, pathname: string): boolean {
   return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
 }
 
-/** 頁尾連結：主選單全部項目，再加上投資免責聲明 */
-export const FOOTER_NAV = [...PRIMARY_NAV, { path: DISCLAIMER_PATH, label: '投資免責聲明' }] as const;
 
 /** 靜態路由 → 頁面標題（麵包屑與文件標題對照） */
 export const ROUTE_PAGE_LABELS: Record<string, string> = {
