@@ -69,6 +69,8 @@ function timeText(value?: string | null): string {
 
 function scheduleText(value: string | null): string {
   return value?.replace(/^Daily (\d{2}:\d{2}) Asia\/Taipei$/, '每日 $1（台灣時間）')
+    .replace(/^Hourly :00 Asia\/Taipei$/, '每小時整點（台灣時間）')
+    .replace(/^Hourly :(\d{2}) Asia\/Taipei$/, '每小時 $1 分（台灣時間）')
     .replace(/^Every ([\d.]+) minutes$/, '每 $1 分鐘')
     .replace(/^After data jobs \+ ([\d.]+) minutes$/, '資料工作完成後 $1 分鐘')
     .replace(/^After news indexing$/, '新聞索引完成後自動執行').replace(/^Pipeline source$/, '手動執行').replace(/^Manual$/, '手動執行') || '未設定排程';
@@ -146,7 +148,7 @@ export function AdminJobs({ jobs, disabled, onAction, checkedAt, schedulerStatus
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
             <div className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h3 className="text-[15px] font-semibold">{label}</h3><span className="text-sm text-muted-foreground">{source ? '新聞來源' : manual ? '手動執行' : '自動排程'}</span>{!manual ? <Status value={job.paused ? 'paused' : 'enabled'} label={source ? (job.paused ? '來源已停用' : '來源已啟用') : undefined} /> : null}{job.active_run_id != null ? <Status value="running" /> : job.queued_run_id != null ? <Status value="queued" /> : null}</div>
-              <p className="text-sm leading-5 text-subtle" hidden={manual || source}>{job.name === 'text-brief' && !manual ? '新聞索引完成後自動執行' : scheduleText(job.schedule)}{job.next_run_at ? <> · 下次 <span className="font-mono tabular-nums">{timeText(job.next_run_at)}</span></> : null}</p>
+              <p className="text-sm leading-5 text-subtle" hidden={manual || source}>{scheduleText(job.schedule)}{job.name === 'text-brief' && !manual ? ' · 全部支援股票' : ''}{!job.paused && schedulerStatus === 'running' && job.next_run_at ? <> · 下次 <span className="font-mono tabular-nums">{timeText(job.next_run_at)}</span></> : null}</p>
               {(!manual && !source && (job.paused || schedulerStatus !== 'running' || !job.next_run_at || (checkedAt && Date.parse(job.next_run_at) <= Date.parse(checkedAt)))) || current ? <p className="text-sm leading-5">{adminScheduleState(job, jobs, checkedAt, schedulerStatus)}</p> : null}
               {job.active_run_id != null ? <p className="text-sm font-medium">目前階段：{adminStageLabel(current?.diagnostics?.stage)}{current ? <> · 工作耗時 <span className="font-mono tabular-nums">{adminDuration(current.duration_seconds)}</span></> : null}</p> : null}
               {current && adminRunScope(current) ? <p className="text-sm">執行範圍：{adminRunScope(current)}</p> : null}

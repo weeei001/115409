@@ -63,9 +63,11 @@ def test_daily_deadline_is_future_taipei_time(now, at, expected):
 
 def test_daily_tick_never_dispatches_retired_pipeline():
     start = datetime(2026, 7, 13, 16, tzinfo=scheduler.TAIPEI)
-    worker = scheduler.Scheduler(lambda job: pytest.fail("Automatic dispatch"), start)
+    calls = []
+    worker = scheduler.Scheduler(lambda job: calls.append(job), start)
     for days in (0, 1, 30):
         worker.tick(start + timedelta(days=days, hours=3))
+    assert set(calls) == {"cnyes", "rag", "impact", "text-brief"}
 
 
 @pytest.mark.parametrize("symbols", [None, "2330,2317"])
