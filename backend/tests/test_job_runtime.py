@@ -111,8 +111,8 @@ def test_duplicate_rejected_and_completed_manual_run_can_rerun(tmp_path, setting
         with factory() as db:
             actor = db.get(User, user_id)
             for action in ("pause", "resume"):
-                with pytest.raises(AppError, match="manually"):
-                    jobs.perform(db, actor, "cnyes", action)
+                with pytest.raises(AppError, match="Manual"):
+                    jobs.perform(db, actor, "market", action)
             first = service.perform_job(db, actor, jobs, "cnyes", "run", None)["run_id"]
             with pytest.raises(AppError) as exc:
                 service.perform_job(db, actor, jobs, "cnyes", "run", None)
@@ -230,7 +230,6 @@ def test_manual_job_runs_once_without_automatic_followup(tmp_path, settings, mon
         with factory() as db:
             service.perform_job(db, db.get(User, user_id), jobs, "market", "run", None)
         assert entered.wait(5)
-        jobs.scheduler.next_market = datetime.now(runtime.TAIPEI) - timedelta(seconds=1)
         finish.set()
         wait_until(lambda: not jobs.active)
         assert calls == ["market"]
@@ -398,7 +397,7 @@ def test_retired_jobs_keep_history_but_cannot_execute_queued_runs(tmp_path, sett
         assert jobs._execute(queued_id) == 1
         assert not jobs._enabled(retired)
         assert retired not in {job["name"] for job in jobs.snapshot()["jobs"]}
-        assert all(job["schedule"] == "Manual" for job in jobs.snapshot()["jobs"])
+        assert {job["name"] for job in jobs.snapshot()["jobs"] if job["schedule"] == "Manual"} == {"market", "stock-backfill"}
         with factory() as db:
             assert db.get(AdminJobRun, old_id).status == "failed"
             assert db.get(AdminJobRun, queued_id).status == "interrupted"

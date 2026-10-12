@@ -96,14 +96,32 @@ def next_daily(now: datetime, at: time) -> datetime:
 
 
 class Scheduler:
-    def __init__(self, run, now: datetime, *, market_at: time = time(17), enabled=None):
+    def __init__(self, run, now: datetime, *, market_at: time = time(17),
+                 brief_at: time = time(22, 30), enabled=None):
         self.run, self.market_at = run, market_at
         self.enabled = enabled or (lambda name: True)
-        self.next_market = next_daily(now, market_at)
+        self.brief_at = brief_at
+        self.hourly_minutes = {"cnyes": 0, "rag": 10, "impact": 20}
+        self.schedules = {name: f"Hourly :{minute:02d} Asia/Taipei"
+                          for name, minute in self.hourly_minutes.items()}
+        self.schedules["text-brief"] = f"Daily {brief_at:%H:%M} Asia/Taipei"
+        self.next_runs = {name: self.next_time(name, now) for name in self.schedules}
+
+    def next_time(self, name: str, now: datetime) -> datetime:
+        if name == "text-brief":
+            return next_daily(now, self.brief_at)
+        now = now.astimezone(TAIPEI)
+        candidate = now.replace(minute=self.hourly_minutes[name], second=0, microsecond=0)
+        return candidate if candidate > now else candidate + timedelta(hours=1)
 
     def tick(self, now: datetime):
-        # Automatic orchestration is retired; the runtime still serves manual jobs.
-        return None
+        # Queue each due job once; missed intervals never become a replay storm.
+        for name, due in sorted(self.next_runs.items(), key=lambda item: item[1]):
+            if now >= due:
+                if self.enabled(name):
+                    self.run(name)
+                # A failed queue transaction raises and leaves this deadline due.
+                self.next_runs[name] = self.next_time(name, now)
 
 
 def main(argv: list[str] | None = None) -> int:

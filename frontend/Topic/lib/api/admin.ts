@@ -128,8 +128,7 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
     }
     return '預定時間；實際開始依序列排程而定';
   }
-  return job.schedule === 'Manual' ? '僅手動執行，沒有下次排程' : job.name === 'rag'
-    ? '目前沒有後續排程；等待資料工作完成後安排' : job.name === 'text-brief' ? '等待新聞索引完成後安排；也可指定股票手動執行' : '尚無下次排程資訊';
+  return '尚無下次排程資訊';
 }
 
 export function adminDuration(seconds?: number | null): string {

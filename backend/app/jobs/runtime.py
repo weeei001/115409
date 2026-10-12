@@ -19,7 +19,7 @@ from app.db.models.stock_info import StockInfo
 from app.features.admin.diagnostics import STAGES, format_failure
 from app.jobs.diagnostics import DIAGNOSTICS_ENV, failure_record, read_failure
 from app.jobs.locking import JobAlreadyRunning, worker_lock
-from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
+from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, run_pipeline
 
 
 JOBS = {
@@ -53,13 +53,13 @@ class JobRuntime:
         self.run_activity = {}
         self.next_notifications = 0.0
         self.scheduler = Scheduler(self._scheduled, datetime.now(TAIPEI),
-            market_at=settings.JOBS_MARKET_TIME, enabled=self._enabled)
+            market_at=settings.JOBS_MARKET_TIME, brief_at=settings.JOBS_BRIEF_TIME, enabled=self._enabled)
 
     def start(self):
         if not self.settings.JOBS_ENABLED:
             return
-        if self.settings.JOBS_MARKET_TIME.tzinfo is not None:
-            self.status, self.error = "unavailable", "JOBS_MARKET_TIME must be Taiwan local time"
+        if self.settings.JOBS_BRIEF_TIME.tzinfo is not None:
+            self.status, self.error = "unavailable", "JOBS_BRIEF_TIME must be Taiwan local time"
             return
         self.thread = Thread(target=self._loop, name="admin-jobs", daemon=True)
         self.thread.start()
@@ -130,10 +130,10 @@ class JobRuntime:
                             self.status, self.error = "running", None
                             self.heartbeat = datetime.now(timezone.utc).isoformat()
                         self._notification_tick()
+                        with self.lock:
+                            self.scheduler.tick(datetime.now(TAIPEI))
                         if queued_id is not None:
                             self._execute(queued_id)
-                        else:
-                            self.scheduler.tick(datetime.now(TAIPEI))
                     except SQLAlchemyError:
                         with self.lock:
                             self.status = "unavailable"
@@ -162,7 +162,7 @@ class JobRuntime:
 
     def _scheduled(self, name):
         with self.lock, self.session_factory() as db:
-            if not self._enabled(name):
+            if name not in self.scheduler.schedules or not self._enabled(name):
                 return 0
             # A queued manual run takes precedence over the same scheduled job.
             existing = db.scalar(select(AdminJobRun).where(AdminJobRun.job_name == name,
@@ -172,10 +172,9 @@ class JobRuntime:
             row = AdminJobRun(job_name=name, status="queued", trigger="scheduled", created_at=utcnow())
             db.add(row)
             db.commit()
-            run_id = row.id
-        # The durable queue owns this attempt now, even if recording its result fails.
-        self.scheduler.next_market = next_daily(datetime.now(TAIPEI), self.scheduler.market_at)
-        return self._execute(run_id)
+            self.pending[name] = row.id
+        # Execute via the same serial queue as manual work, after the deadline advances.
+        return 0
 
     def _notification_tick(self):
         if not self.settings.NOTIFICATIONS_ENABLED or self.stop_event.is_set() or clock.monotonic() < self.next_notifications:
@@ -294,8 +293,8 @@ class JobRuntime:
                 raise AppError("A symbol is supported only for text-brief or stock-backfill run", 422)
             if db.get(StockInfo, symbol) is None:
                 raise NotFound("Stock not found")
-        if action in {"pause", "resume"} and job_name not in RETIRED_JOBS:
-            raise AppError("Independent jobs run manually and cannot be paused", 422)
+        if action in {"pause", "resume"} and job_name not in self.scheduler.schedules and job_name not in RETIRED_JOBS:
+            raise AppError("Manual jobs cannot be paused", 422)
         if job_name == "stock-backfill":
             if action == "run" and symbol is None:
                 raise AppError("Stock backfill requires a symbol", 422)
@@ -345,13 +344,13 @@ class JobRuntime:
             for name, label in JOBS.items():
                 if name in RETIRED_JOBS:
                     continue
-                next_at = None
-                schedule = "Manual"
+                next_at = self.scheduler.next_runs.get(name)
+                schedule = self.scheduler.schedules.get(name, "Manual")
                 jobs.append({"name": name, "label": label, "schedule": schedule,
-                    "retired": name == "ltn",
-                    "paused": False,
+                    "retired": False,
+                    "paused": name in self.paused,
                     "next_run_at": (next_at.isoformat() if next_at and self.status == "running"
-                        and name not in self.paused and name not in self.active and name not in self.pending else None),
+                        and name not in self.paused else None),
                     "active_run_id": self.active.get(name), "queued_run_id": self.pending.get(name)})
             return {"status": self.status, "heartbeat": self.heartbeat, "error": self.error, "jobs": jobs,
                 "run_activity": {name: dict(value) for name, value in self.run_activity.items()}}
