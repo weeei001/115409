@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { FoldSection } from '@/components/common/CollapsibleSection';
 import { RefreshCw } from 'lucide-react';
 import { cellClass, figureClass, headCellClass, Ledger, LedgerPanel, LightGlyph, type LightState } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
@@ -12,7 +13,7 @@ import { formatTaipei } from '@/lib/utils/date';
 import { fmtNum, fmtPercent } from '@/lib/utils/format';
 import { cn } from '@/lib/cn';
 
-const numCell = cn(cellClass, 'text-right font-mono text-[13.5px] tabular-nums');
+const numCell = cn(cellClass, 'text-right font-mono text-sm tabular-nums');
 
 /** ai_usage_logs 依功能彙整的模型呼叫：AI 對話（含小燈）、AI 摘要、新聞事件判讀 */
 export function FeatureUsageLedger({ usage }: { usage: AIUsageSummary }) {
@@ -42,7 +43,7 @@ export function FeatureUsageLedger({ usage }: { usage: AIUsageSummary }) {
                     <td className={numCell}>{featureCallsText(feature)}</td>
                     <td className={numCell}>
                       {avgTokensText(feature)}
-                      <span className="block text-[12px] text-muted-foreground">{tokenSplitText(feature)}</span>
+                      <span className="block text-sm text-muted-foreground">{tokenSplitText(feature)}</span>
                     </td>
                     <td className={numCell}>{usdText(feature.avg_cost_usd)}</td>
                     <td className={numCell}>{usdText(feature.total_cost_usd)}</td>
@@ -52,9 +53,9 @@ export function FeatureUsageLedger({ usage }: { usage: AIUsageSummary }) {
             </table>
           </div>
         </LedgerPanel>
-        <LedgerPanel>
-          <p className="text-[13px] leading-relaxed text-muted-foreground">{featureUsageNote(usage)}</p>
-        </LedgerPanel>
+        <FoldSection title="用量計算方式" contentClassName="px-4 py-3 text-sm leading-relaxed text-muted-foreground sm:px-5">
+          <p>{featureUsageNote(usage)}</p>
+        </FoldSection>
       </>}
     </Ledger>
   );
@@ -104,9 +105,9 @@ export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error:
             return (
               <LedgerPanel key={horizon.horizon} title={HORIZON_LABEL[horizon.horizon]} unit={`第 ${horizon.trading_days} 個交易日`}>
                 <p className={cn(figureClass,!hasEnoughSamples(horizon) && 'text-muted-foreground')}>{hitRateText(horizon)}</p>
-                <p className="mt-2 text-[13px] leading-relaxed text-subtle">{hitRateSummary(horizon)}</p>
-                {relative ? <p className="mt-1 text-[13px] leading-relaxed text-subtle">{relative}</p> : null}
-                <p className="mt-1 text-xs text-muted-foreground">未表態 {horizon.no_call} 次 · 未到期 {horizon.pending} 次</p>
+                <p className="mt-2 text-sm leading-relaxed text-subtle">{hitRateSummary(horizon)}</p>
+                {relative ? <p className="mt-1 text-sm leading-relaxed text-subtle">{relative}</p> : null}
+                <p className="mt-1 text-sm text-muted-foreground">未表態 {horizon.no_call} 次 · 未到期 {horizon.pending} 次</p>
               </LedgerPanel>
             );
           })}
@@ -119,23 +120,23 @@ export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error:
       >
         {errors.usage ? <LedgerPanel className="sm:col-span-3"><Notice tone="danger" action={retry}>{errors.usage}</Notice></LedgerPanel>
           : !usage ? <LedgerPanel padded={false} className="sm:col-span-3"><LoadingRows className="h-32" /></LedgerPanel>
-          : !usage.briefs ? <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">近 {usage.days} 天沒有產生 AI 摘要；排程每天產生後，用量會出現在這裡。</EmptyState></LedgerPanel>
+          : !usage.briefs ? <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">近 {usage.days} 天沒有 AI 摘要紀錄。</EmptyState></LedgerPanel>
           : <>
             <LedgerPanel title="每份平均 token">
               <p className={figureClass}>{avgTokensText(usage)}</p>
-              <p className="mt-2 text-[13px] text-subtle">{tokenSplitText(usage)}</p>
+              <p className="mt-2 text-sm text-subtle">{tokenSplitText(usage)}</p>
             </LedgerPanel>
             <LedgerPanel title="每份平均產生時間">
               <p className={figureClass}>{latencyText(usage)}</p>
-              <p className="mt-2 text-[13px] text-subtle">{retryText(usage)}</p>
+              <p className="mt-2 text-sm text-subtle">{retryText(usage)}</p>
             </LedgerPanel>
             <LedgerPanel title="每份估算成本">
               <p className={figureClass}>{usdText(usage.avg_cost_usd)}</p>
-              <p className="mt-2 text-[13px] text-subtle">近 {usage.days} 天合計 {usdText(usage.total_cost_usd)}</p>
+              <p className="mt-2 text-sm text-subtle">近 {usage.days} 天合計 {usdText(usage.total_cost_usd)}</p>
             </LedgerPanel>
-            <LedgerPanel className="sm:col-span-3">
-              <p className="text-[13px] leading-relaxed text-muted-foreground">{costNote(usage)}</p>
-            </LedgerPanel>
+            <FoldSection title="成本估算方式" className="sm:col-span-3" contentClassName="px-4 py-3 text-sm leading-relaxed text-muted-foreground sm:px-5">
+              <p>{costNote(usage)}</p>
+            </FoldSection>
           </>}
       </Ledger>
 
@@ -153,18 +154,18 @@ export function AIEffectivenessPanel({ onAccessError }: { onAccessError: (error:
           : <>
             <LedgerPanel title="有幫助比例">
               <p className={figureClass}>{fmtPercent(feedback.helpful_rate, { fromRatio: true, decimals: 1 })}</p>
-              <p className="mt-2 text-[13px] text-subtle">有幫助 {feedback.helpful} · 沒有幫助 {feedback.unhelpful}</p>
+              <p className="mt-2 text-sm text-subtle">有幫助 {feedback.helpful} · 沒有幫助 {feedback.unhelpful}</p>
             </LedgerPanel>
             <LedgerPanel title="回饋率">
               <p className={figureClass}>{fmtPercent(feedback.completed_answers ? feedback.rated / feedback.completed_answers : null, { fromRatio: true, decimals: 1 })}</p>
-              <p className="mt-2 text-[13px] text-subtle">{feedback.completed_answers} 則完成的回覆中，{feedback.rated} 則有回饋</p>
+              <p className="mt-2 text-sm text-subtle">{feedback.completed_answers} 則完成的回覆中，{feedback.rated} 則有回饋</p>
             </LedgerPanel>
             <LedgerPanel title="最近「沒有幫助」的回覆" className="sm:col-span-2">
               {feedback.recent_unhelpful.length ? (
                 <ul className="divide-y border-y text-sm">
                   {feedback.recent_unhelpful.map((item) => (
                     <li key={item.message_id} className="py-2.5">
-                      <p className="font-mono text-xs text-muted-foreground tabular-nums">{formatTaipei(item.rated_at)}</p>
+                      <p className="font-mono text-sm text-muted-foreground tabular-nums">{formatTaipei(item.rated_at)}</p>
                       <p className="mt-1 leading-relaxed break-words">{item.answer_excerpt || '（回覆沒有文字內容）'}</p>
                     </li>
                   ))}

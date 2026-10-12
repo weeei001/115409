@@ -6,7 +6,6 @@ import math
 import signal
 import subprocess
 import sys
-import time as clock
 
 from app.core.config import state_directory
 
@@ -34,19 +33,16 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
                  impact_execute=True, impact_limit=100, impact_max_cost_usd=0.50,
                  impact_since: date | None = None, source_enabled=None) -> int:
     run = run or run_worker
+    if job == "ltn":
+        raise ValueError("Liberty Times source has been retired")
+    if job in {"pipeline", "all"}:
+        raise ValueError("Full update pipeline has been retired; select an independent job")
     commands = []
-    source_enabled = source_enabled or (lambda name: name != "ltn")
-    if job == "pipeline":
-        job = "all"
-    if job == "all":
-        for source in ("cnyes", "ltn"):
-            if not source_enabled(source):
-                print(f"job=crawl-{source} skipped=source_paused", flush=True)
     if job == "stock-backfill":
         if not symbols:
             raise ValueError("Stock backfill requires a symbol")
         commands.append(["stock-backfill", "--symbol", symbols])
-    if job in {"market", "all"}:
+    if job == "market":
         today = datetime.now(TAIPEI).date()
         previous_month = today.replace(day=1) - timedelta(days=1)
         revenue_start = (previous_month.replace(day=1) - timedelta(days=1)).replace(day=1)
@@ -64,15 +60,13 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
              "--datasets", "financial_metrics", "--out", str(output / "financial_metrics_report.json")],
             ["paper-reconcile", "--execute"],
         ])
-    if job == "cnyes" or job == "all" and source_enabled("cnyes"):
+    if job == "cnyes":
         commands.append(["crawl-cnyes", "--scheduled-once"])
-    if job == "ltn" or job == "all" and source_enabled("ltn"):
-        commands.append(["crawl-ltn", "--scheduled-once", "--lookback-days", "30"])
-    if job in {"rag", "all", "impact"}:
+    if job in {"rag", "impact"}:
         commands.append(["migrate-news-impact-schema"])
-    if job in {"rag", "all"}:
+    if job == "rag":
         commands.append(["news-ingest"])
-    if job == "impact" or impact_execute and job in {"rag", "all"}:
+    if job == "impact":
         commands.append(["news-impact-batch", "--limit", str(impact_limit),
                          "--max-cost-usd", str(impact_max_cost_usd),
                          *(["--since", impact_since.isoformat()] if impact_since else []),
@@ -81,7 +75,7 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
             commands.append(["news-impact-sync", "--execute",
                 *(["--backfill-days", str(max(1, (datetime.now(TAIPEI).date() - impact_since).days + 1))]
                   if impact_since else [])])
-    if job in {"text-brief", "all"}:
+    if job == "text-brief":
         commands.append(["cache-warmup", *(["--symbols", symbols] if symbols else [])])
     exit_code = 0
     for command in commands:
@@ -108,11 +102,8 @@ class Scheduler:
         self.next_market = next_daily(now, market_at)
 
     def tick(self, now: datetime):
-        # One scheduled run owns the entire dependency chain.
-        if now >= self.next_market and self.enabled("pipeline"):
-            self.run("pipeline")
-            # A failed dispatch must remain due so the runtime can retry it.
-            self.next_market = next_daily(now, self.market_at)
+        # Automatic orchestration is retired; the runtime still serves manual jobs.
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -120,12 +111,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", type=date.fromisoformat, default=date(2021, 1, 1))
     parser.add_argument("--symbols", help="Limit market fetch and brief warmup to these codes; default is every stock_info company")
     parser.add_argument("--out", type=Path, default=state_directory() / "market")
-    parser.add_argument("--run-now", action="store_true")
-    parser.add_argument("--job", choices=["pipeline", "market", "cnyes", "ltn", "rag", "text-brief", "impact", "all"])
+    parser.add_argument("--job", required=True, choices=["market", "cnyes", "rag", "text-brief", "impact"])
     parser.add_argument("--market-time", dest="market_time", type=time.fromisoformat, default=time(17))
     parser.add_argument("--impact-execute", dest="impact_execute",
                         action=argparse.BooleanOptionalAction, default=True,
-                        help="Execute event impact analysis in rag/all pipelines (default: enabled)")
+                        help="Execute the independent event impact job (default: enabled)")
     parser.add_argument("--impact-limit", dest="impact_limit",
                         type=int, default=100, help="Maximum articles per event impact run")
     parser.add_argument("--impact-max-cost-usd",
@@ -156,16 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 previous[sig] = signal.signal(sig, stop)
-            if args.job:
-                return run(args.job)
-            scheduler = Scheduler(run, datetime.now(TAIPEI), market_at=args.market_time)
-            if args.run_now:
-                result = run("pipeline")
-                if result:
-                    print(f"job=pipeline exit_code={result} scheduler=continue", flush=True)
-            while True:
-                scheduler.tick(datetime.now(TAIPEI))
-                clock.sleep(1)
+            return run(args.job)
         except KeyboardInterrupt:
             return 0
         finally:

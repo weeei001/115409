@@ -460,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = backfill(args)
     except Exception as exc:
+        from app.jobs.diagnostics import report_failure
+        report_failure("dispatch", error=exc)
         detail = str(exc) if isinstance(exc, OfficialRequestError) else type(exc).__name__
         print(f"Official market backfill failed ({detail})")
         return 1

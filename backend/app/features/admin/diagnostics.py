@@ -7,14 +7,16 @@ STAGES = frozenset({"market-fetch", "market-import", "market-backfill", "paper-r
     "market-supplemental-backfill", "market-chips-backfill", "verify-news-index",
     "migrate-news-impact-schema", "news-ingest", "news-impact-batch", "news-impact-sync", "cache-warmup", "stock-backfill"})
 _FAILURE = re.compile(r"([a-z-]+) exited with code (-?\d{1,10})(?: (\{.*\}))?")
-PHASES = frozenset({"arguments", "dispatch", "settings", "catalog", "lock", "database", "schema", "http", "analysis"})
+PHASES = frozenset({"arguments", "dispatch", "settings", "catalog", "lock", "database", "schema", "http", "analysis", "chunking", "vectorization"})
 REASONS = frozenset({"worker_exception", "invalid_arguments", "catalog_unavailable", "article_failures",
     "budget_exhausted", "consecutive_failures", "timeout", "auth_error_401", "model_not_found",
-    "rate_limit_429", "client_uninitialized", "upstream_model_error", "truncated_output", "validation_failed"})
+    "rate_limit_429", "client_uninitialized", "upstream_model_error", "truncated_output", "validation_failed",
+    "indexing_configuration", "indexing_content", "indexing_storage", "indexing_service", "indexing_incomplete"})
 ERROR_TYPES = frozenset({"Exception", "RuntimeError", "ValueError", "ValidationError", "OSError",
     "PermissionError", "FileNotFoundError", "JobAlreadyRunning", "AppError", "SQLAlchemyError",
     "OperationalError", "ProgrammingError", "IntegrityError", "DBAPIError", "TimeoutError"})
 _INTERRUPTIONS = {
+    "Job retired before this run started": "job_retired",
     "Service restarted before this run completed": "service_restart",
     "Service stopped before this run completed": "service_stop",
     "Run completion could not be recorded": "completion_unknown",

@@ -334,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, ensure_ascii=False))
         return 0
     except Exception as exc:
+        from app.jobs.diagnostics import report_failure
+        report_failure("dispatch", error=exc)
         log.error("Official market export failed (%s)", type(exc).__name__)
         return 1
 

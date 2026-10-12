@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { acceptedJobAudit, adminDuration, adminJobAlerts, adminRetryBlockedReason, adminRunScope, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob, filterAdminRuns } from '../../lib/api/admin';
+import { acceptedJobAudit, adminDuration, adminJobAlerts, adminLatestResult, adminRetryBlockedReason, adminRunScope, adminRunId, adminScheduleState, auditRunId, canRetryAdminRun, canStartAdminJob, filterAdminRuns } from '../../lib/api/admin';
 import type { AdminAudit, AdminJob, AdminRun } from '../../lib/api/admin';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { adminLoginHref, AdminAuditResult, AdminJobAlertSummary, AdminJobs, AdminRunHistory } from '../../pages/admin';
-import { AdminRunDiagnostics } from './RunDiagnostics';
+import { adminRunProblem, AdminRunDiagnostics } from './RunDiagnostics';
 import { FeatureUsageLedger } from './AIEffectivenessPanel';
 import { renderedElements, renderedText } from '../../lib/testing/markup';
 
@@ -21,13 +21,17 @@ const run: AdminRun = {
 const pipeline: AdminJob = { ...job, name: 'pipeline', schedule: 'Daily 20:00 Asia/Taipei', paused: false };
 const source: AdminJob = { ...job, name: 'ltn', schedule: 'Pipeline source' };
 const pipelineMarkup = renderToStaticMarkup(<AdminJobs jobs={[pipeline, { ...job, schedule: 'Manual' }, source]} disabled={false} onAction={() => undefined} />);
-assert.match(pipelineMarkup, /每日 20:00/);
-assert.equal((pipelineMarkup.match(/自動排程/g) ?? []).length, 1);
-assert.match(pipelineMarkup, /立即執行完整更新流水線/);
+assert.doesNotMatch(pipelineMarkup, /每日 20:00|完整資料更新|job-pipeline/);
+assert.equal((pipelineMarkup.match(/自動排程/g) ?? []).length, 0);
+assert.equal(canStartAdminJob(pipeline), false);
+assert.equal(canRetryAdminRun({ ...run, job_name: 'pipeline' }, [pipeline]), false);
+assert.match(adminRetryBlockedReason({ ...run, job_name: 'pipeline' }, [pipeline], '完整更新')!, /已移除/);
 assert.match(pipelineMarkup, /立即執行行情更新/);
-assert.match(pipelineMarkup, /啟用自由財經新聞來源/);
+assert.doesNotMatch(pipelineMarkup, /自由財經新聞/);
+assert.equal(canStartAdminJob(source), false);
+assert.equal(canRetryAdminRun({ ...run, job_name: 'ltn' }, [source]), false);
 assert.doesNotMatch(pipelineMarkup, /恢復行情更新排程/);
-assert.match(adminScheduleState(source, [pipeline, source]), /完整流水線會略過/);
+assert.match(adminScheduleState(source, [pipeline, source]), /手動執行新聞擷取/);
 assert.match(adminScheduleState({ ...job, schedule: 'Manual' }, [pipeline]), /補跑不會接續/);
 
 assert.equal(canStartAdminJob(job), true, 'Pausing automatic schedules still allows a manual run.');
@@ -61,7 +65,7 @@ assert.match(historyMarkup, /2026\/9\/30 10:00:00/);
 assert.match(historyMarkup, /5 秒/);
 assert.equal(renderedElements(historyMarkup, 'script').length, 0);
 // P2-148：診斷收在列內的按鈕，按了才展開；名稱是「執行診斷」（錯誤訊息的跳脫在下方 diagnosticMarkup 驗證）
-assert.match(historyMarkup, /aria-expanded="false"[^>]*>執行診斷/);
+assert.match(historyMarkup, /aria-expanded="false"[^>]*>查看原因/);
 assert.doesNotMatch(historyMarkup, /安全診斷/);
 // P2-142：手機版一筆一張，起訖時間寫在同一行
 assert.match(historyMarkup, /<ul class="divide-y sm:hidden"/);
@@ -71,11 +75,12 @@ const diagnosticMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={{ ...run
   stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',
 } }} />);
 assert.match(diagnosticMarkup, /根因待查/);
-assert.match(diagnosticMarkup, /執行診斷/);
+assert.match(diagnosticMarkup, /技術紀錄/);
 assert.match(diagnosticMarkup, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/);
 assert.equal(renderedElements(diagnosticMarkup, 'script').length, 0);
 assert.ok(renderedText(diagnosticMarkup).includes(run.error!));
-assert.match(diagnosticMarkup, /子工作處理進度未知/);
+assert.match(diagnosticMarkup, /原因未記錄/);
+assert.doesNotMatch(diagnosticMarkup, /目前階段：等待/);
 assert.match(diagnosticMarkup, /admin_run=7/);
 assert.match(diagnosticMarkup, /news-impact-batch/);
 assert.doesNotMatch(diagnosticMarkup, /死鎖|已恢復/);
@@ -179,14 +184,14 @@ const alerts = adminJobAlerts([
   { ...job, name: 'ltn', paused: true, schedule: 'Every 30 minutes', result_summary: { history_scope: 'all_stored_runs', terminal_runs: 30, last_success: null, last_failure: run, consecutive_failed: 24 } },
   { ...job, name: 'impact', paused: true, schedule: 'Manual' },
 ]);
-assert.deepEqual(alerts, { failing: [{ name: 'rag', count: 43 }, { name: 'ltn', count: 24 }], paused: ['ltn'] });
+assert.deepEqual(alerts, { failing: [{ name: 'rag', count: 43 }], paused: [] });
 const alertMarkup = renderToStaticMarkup(<AdminJobAlertSummary jobs={[
   { ...job, name: 'rag', paused: false, schedule: 'Every 30 minutes', result_summary: { history_scope: 'all_stored_runs', terminal_runs: 50, last_success: null, last_failure: run, consecutive_failed: 43 } },
   { ...job, name: 'ltn', paused: true, schedule: 'Every 30 minutes' },
 ]} />);
-assert.match(alertMarkup, /2 項工作：1 項連續失敗 · 1 項暫停/);
-assert.match(alertMarkup, /href="#job-rag"[^>]*>新聞索引 連續失敗 43 次/);
-assert.match(alertMarkup, /href="#job-ltn"[^>]*>自由財經新聞 已暫停/);
+assert.match(alertMarkup, /1 項工作：1 項工作有失敗紀錄/);
+assert.match(alertMarkup, /href="\/admin#job-rag"[^>]*>新聞索引 · 43 次/);
+assert.doesNotMatch(alertMarkup, /job-ltn|自由財經新聞/);
 // P2-149：後端英文標籤不直接上畫面
 const backfill = renderToStaticMarkup(<AdminJobs jobs={[{ ...job, name: 'stock-backfill', label: 'Stock market history', schedule: 'Manual', paused: false }]} disabled={false} onAction={() => undefined} />);
 assert.match(backfill, /個股市場資料回補/);
@@ -224,3 +229,45 @@ assert.match(featureMarkup, /US\$0\.0032/);
 assert.match(featureMarkup, /AI 對話與小燈 2 次中有 1 次/);
 assert.match(renderToStaticMarkup(<FeatureUsageLedger usage={usageBase} />), /近 30 天沒有模型呼叫紀錄/);
 console.log('AI usage by feature passed: feature labels, calls per request, estimated cost, partial measurement note, empty state.');
+
+// A newer interruption must not be replaced by an older failure.
+const latestInterrupted = { ...run, id: 8, status: 'interrupted' };
+const latestJob = { ...job, result_summary: { history_scope: 'all_stored_runs' as const,
+  terminal_runs: 2, last_success: null, last_failure: run, last_run: latestInterrupted, consecutive_failed: 0 } };
+assert.equal(adminLatestResult(latestJob)?.id, 8);
+const latestMarkup = renderToStaticMarkup(<AdminJobs jobs={[latestJob]} disabled={false} onAction={() => undefined} />);
+assert.match(latestMarkup, /最近執行：.*已中斷/);
+assert.match(adminRunProblem(latestInterrupted)!.title, /服務停止/);
+const validationRun = { ...run, job_name: 'rag', diagnostics: { run_id: 7, error_category: 'stage_nonzero',
+  failed_stages: [{ stage: 'news-impact-batch', exit_code: 1, reason: 'article_failures', failure_reasons: { validation_failed: 3 } }],
+  stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown' as const, worker_progress: 'unknown' as const } };
+assert.match(adminRunProblem(validationRun)!.title, /舊版索引的 AI 分析：模型回覆未通過驗證/);
+assert.doesNotMatch(adminRunProblem(validationRun)!.title, /索引失敗/);
+assert.match(adminRunProblem(validationRun)!.next, /補跑新聞影響分析/);
+assert.equal(adminRunProblem({ ...run, status: 'succeeded' }), null);
+assert.match(adminRunProblem({ ...run, job_name: 'ltn' })!.title, /來源已停用/);
+assert.match(adminRunProblem(run)!.title, /原因未記錄/);
+console.log('Admin diagnosis checks passed: retired source, latest interruption, failed stage and unknown cause.');
+
+const retiredAlerts = renderToStaticMarkup(<AdminJobAlertSummary jobs={[{ ...pipeline, result_summary: {
+  history_scope: 'all_stored_runs', terminal_runs: 4, last_success: null, last_failure: run, consecutive_failed: 4,
+} }]} />);
+assert.doesNotMatch(retiredAlerts, /job-pipeline|完整更新/);
+const legacySourceMarkup = renderToStaticMarkup(<AdminJobs jobs={[{ ...source, name: 'cnyes' }]} disabled={false} onAction={() => undefined} />);
+assert.match(legacySourceMarkup, /立即執行鉅亨新聞/);
+assert.doesNotMatch(legacySourceMarkup, /完整流水線|啟用來源|停用來源/);
+
+for (const [reason, expected] of [
+  ['indexing_configuration', '索引設定或向量集合不相容'],
+  ['indexing_content', '新聞內容或日期無法建立索引'],
+  ['indexing_storage', '索引資料庫寫入失敗'],
+  ['indexing_service', '向量或嵌入服務無法完成請求'],
+  ['indexing_incomplete', '向量寫入未確認完成'],
+]) {
+  const indexedRun = { ...validationRun, diagnostics: { ...validationRun.diagnostics,
+    failed_stages: [{ stage: 'news-ingest', exit_code: 1, reason }] } };
+  assert.equal(adminRunProblem(indexedRun)!.title, expected);
+  assert.match(adminRunProblem(indexedRun)!.next, /索引/);
+  assert.doesNotMatch(adminRunProblem(indexedRun)!.title, /舊版|AI 分析/);
+}
+console.log('Index failures distinguish configuration, content, storage, service and incomplete writes.');

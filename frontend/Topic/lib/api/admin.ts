@@ -21,6 +21,7 @@ export interface Administrator {
 export interface AdminJob {
   name: string;
   label?: string;
+  retired?: boolean;
   schedule: string | null;
   paused: boolean;
   next_run_at: string | null;
@@ -33,6 +34,7 @@ export interface AdminJob {
     terminal_runs: number;
     last_success: AdminRun | null;
     last_failure: AdminRun | null;
+    last_run?: AdminRun | null;
     consecutive_failed: number;
   };
 }
@@ -93,8 +95,12 @@ export async function adminMe(signal?: AbortSignal): Promise<Administrator> {
   return data;
 }
 
+export function isRetiredAdminJob(job: Pick<AdminJob, 'name' | 'retired'>): boolean {
+  return job.retired === true || ['pipeline', 'all', 'ltn'].includes(job.name);
+}
+
 export function canStartAdminJob(job: AdminJob): boolean {
-  return job.active_run_id == null && job.queued_run_id == null;
+  return !isRetiredAdminJob(job) && job.active_run_id == null && job.queued_run_id == null;
 }
 
 export function canRetryAdminRun(run: AdminRun, jobs: AdminJob[]): boolean {
@@ -108,7 +114,7 @@ export function adminScheduleState(job: AdminJob, jobs: AdminJob[], checkedAt?: 
     const active = jobs.find((item) => item.active_run_id != null);
     return `已排入等待 #${job.queued_run_id}；${active ? `等待工作 #${active.active_run_id} 完成` : '等待排程器依序啟動'}`;
   }
-  if (job.schedule === 'Pipeline source') return job.paused ? '已停用此新聞來源；完整流水線會略過，仍可單獨補跑' : '隨完整流水線執行，也可單獨補跑';
+  if (job.schedule === 'Pipeline source') return '手動執行新聞擷取';
   if (job.schedule === 'Manual') return '僅手動執行，沒有下次排程；補跑不會接續其他工作';
   if (job.paused) return '排程已暫停；手動執行不受影響';
   if (schedulerStatus !== 'running') return '排程器未運作；下次時間尚無法確認';
@@ -134,6 +140,8 @@ export function adminDuration(seconds?: number | null): string {
 
 /** 「重跑」停用的原因（P2-145、03-F20）；可以重跑時回 null */
 export function adminRetryBlockedReason(run: AdminRun, jobs: AdminJob[], label: string): string | null {
+  if (['pipeline', 'all'].includes(run.job_name)) return '完整更新已移除，請分別執行所需工作。';
+  if (run.job_name === 'ltn') return '此新聞來源已停用，僅保留歷史紀錄。';
   const job = jobs.find((item) => item.name === run.job_name);
   if (!job) return '這項工作已不在排程裡，無法重跑。';
   if (job.active_run_id != null) return `${label}執行中，完成後可重跑。`;
@@ -156,12 +164,19 @@ export function filterAdminRuns(runs: AdminRun[], filter: AdminRunFilter): Admin
  * 回傳每項有狀況的工作（連續失敗、已暫停），由畫面做成可以跳到該工作的連結。
  */
 export function adminJobAlerts(jobs: AdminJob[]): { failing: Array<{ name: string; count: number }>; paused: string[] } {
+  jobs = jobs.filter((job) => !isRetiredAdminJob(job));
   return {
     failing: jobs.filter((job) => (job.result_summary?.consecutive_failed ?? 0) > 0)
       .map((job) => ({ name: job.name, count: job.result_summary?.consecutive_failed ?? 0 }))
       .sort((a, b) => b.count - a.count),
     paused: jobs.filter((job) => job.paused && job.schedule !== 'Manual').map((job) => job.name),
   };
+}
+
+export function adminLatestResult(job: AdminJob): AdminRun | undefined {
+  const summary = job.result_summary;
+  return summary?.last_run ?? [summary?.last_success, summary?.last_failure]
+    .filter((run): run is AdminRun => Boolean(run)).sort((a, b) => b.id - a.id)[0];
 }
 
 export function adminRunScope(run: Pick<AdminRun, 'job_name' | 'symbol'>): string {

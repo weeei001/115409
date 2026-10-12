@@ -26,8 +26,8 @@ function GroupPanel({ group, result, className }: { group: BacktestGroupResult; 
   return (
     <LedgerPanel className={className} title={<span className="inline-flex items-center gap-2"><span aria-hidden className="inline-block h-0.5 w-3.5" style={{ background: BACKTEST_GROUP_COLORS[group.key] }} />{group.label}</span>}>
       <p className={cn(figureClass, valueToneText(group.total_return_pct, 2))}>{signedText(group.total_return_pct, 2, '%')}</p>
-      <p className="mt-1 text-[13px] text-muted-foreground">扣成本後總報酬</p>
-      <ul className="mt-3 space-y-0.5 text-[13px] leading-relaxed text-subtle">
+      <p className="mt-1 text-sm text-muted-foreground">扣成本後總報酬</p>
+      <ul className="mt-3 space-y-0.5 text-sm leading-relaxed text-subtle">
         <li>{returnGapText(group.total_return_pct, buyAndHold, '買進持有')}</li>
         <li>{returnGapText(group.total_return_pct, market, '加權指數')}</li>
         <li>最大回撤 {uMinus(group.max_drawdown_pct.toFixed(2))}% · 平均持股 {rateText(group.avg_exposure)}</li>
@@ -54,7 +54,7 @@ function TierTable({ result }: { result: AIBacktestResult }) {
               {result.groups.map((group) => {
                 const tier = group.tiers.find((item) => item.stance === stance);
                 return (
-                  <td key={group.key} className={cn(cellClass, 'text-[13px] leading-relaxed')}>
+                  <td key={group.key} className={cn(cellClass, 'text-sm leading-relaxed')}>
                     {tier?.count ? (
                       <>
                         <span className="font-mono tabular-nums">{tier.count} 次</span>
@@ -89,7 +89,7 @@ function CitationTable({ result }: { result: AIBacktestResult }) {
           {rows.map((row) => {
             const ruleRow = rule?.citations?.find((item) => item.key === row.key);
             return (
-              <tr key={row.key} className="border-b last:border-b-0 text-[13px]">
+              <tr key={row.key} className="border-b last:border-b-0 text-sm">
                 <th scope="row" className={cn(cellClass, 'font-semibold')}>{row.label}</th>
                 <td className={cn(cellClass, 'font-mono tabular-nums')}>{row.available} 次</td>
                 <td className={cn(cellClass, 'font-mono tabular-nums')}>{signedText(row.avg_edge_pct, 2, ' 個百分點')}</td>
@@ -111,7 +111,7 @@ function DecisionLog({ result }: { result: AIBacktestResult }) {
     <ol className="divide-y">
       {result.decisions.map((record) => (
         <li key={record.date} className="px-4 py-3 sm:px-5">
-          <p className="flex flex-wrap items-baseline gap-x-3 text-[13px]">
+          <p className="flex flex-wrap items-baseline gap-x-3 text-sm">
             <span className="font-mono font-semibold tabular-nums">{record.date}</span>
             <span className="text-muted-foreground">
               之後 5 日 <span className={cn('font-mono tabular-nums', valueToneText(record.forward_return_pct ?? 0))}>{signedText(record.forward_return_pct, 2, '%')}</span>
@@ -122,13 +122,13 @@ function DecisionLog({ result }: { result: AIBacktestResult }) {
             {GROUP_ORDER.filter((key) => record.groups[key]).map((key) => {
               const decision = record.groups[key]!;
               return (
-                <div key={key} className="min-w-0 text-[13px] leading-relaxed">
+                <div key={key} className="min-w-0 text-sm leading-relaxed">
                   <dt className="text-muted-foreground">{result.groups.find((group) => group.key === key)?.label ?? key}</dt>
                   <dd>
                     <span className="font-semibold">{decision.stance ? STANCE_LABEL[decision.stance] : '沒有判斷'}</span>
                     <span className="block text-subtle">{tradeText(decision.target_exposure, decision.traded_shares, record.execution_date)}</span>
-                    {decision.signal_keys?.length ? <span className="block text-xs text-muted-foreground">用到：{decision.signal_keys.map((name) => labels[name] ?? name).join('、')}</span> : null}
-                    {decision.reason ? <span className="block text-xs text-muted-foreground">{decision.reason}</span> : null}
+                    {decision.signal_keys?.length ? <span className="block text-sm text-muted-foreground">用到：{decision.signal_keys.map((name) => labels[name] ?? name).join('、')}</span> : null}
+                    {decision.reason ? <span className="block text-sm text-muted-foreground">{decision.reason}</span> : null}
                   </dd>
                 </div>
               );
@@ -150,11 +150,11 @@ export function BacktestResults({ result }: { result: AIBacktestResult }) {
   return (
     <>
       <LedgerPanel className="sm:col-span-3">
-        <p className="text-[13px] leading-relaxed text-subtle">
+        <p className="text-sm leading-relaxed text-subtle">
           {result.symbol} · {result.start} ~ {result.end} · 每 {result.decision_every} 個交易日判斷一次 · 持股規則「{PRESET_RULES[result.preset].label}」（{presetText(result.preset)}）
           {result.model_name ? ` · 模型 ${result.model_name}` : ''}
         </p>
-        <p className="mt-1 text-[13px] text-subtle">
+        <p className="mt-1 text-sm text-subtle">
           基準：買進持有 <span className={cn('font-mono tabular-nums', valueToneText(buyAndHold ?? 0))}>{signedText(buyAndHold, 2, '%')}</span>
           {' · '}加權指數 <span className={cn('font-mono tabular-nums', valueToneText(market ?? 0))}>{signedText(market, 2, '%')}</span>
         </p>
@@ -173,7 +173,7 @@ export function BacktestResults({ result }: { result: AIBacktestResult }) {
       <FoldSection className="sm:col-span-3" title="逐次紀錄" summary={`${result.decisions.length} 次判斷，各組的等級、持股變化與理由`}>
         <DecisionLog result={result} />
       </FoldSection>
-      <FoldSection className="sm:col-span-3" title="計算方式" summary="怎麼成交、怎麼算命中、為什麼要匿名" contentClassName="px-4 py-3 text-[13px] leading-relaxed text-subtle sm:px-5">
+      <FoldSection className="sm:col-span-3" title="計算方式" summary="怎麼成交、怎麼算命中、為什麼要匿名" contentClassName="px-4 py-3 text-sm leading-relaxed text-subtle sm:px-5">
         <p>{result.method_note}</p>
       </FoldSection>
     </>
@@ -240,15 +240,17 @@ export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unkn
               </NativeSelect>
             </label>
           </div>
-          <p className="text-xs leading-5 text-muted-foreground">
+          <FoldSection title="持股規則與交易成本" className="border-y" contentClassName="p-4 text-sm leading-relaxed text-muted-foreground">
+          <p>
             「{PRESET_RULES[form.preset].label}」：{presetText(form.preset)}。三組都套用同一套規則，AI 只決定等級。
             間隔也是命中率看的天數；間隔越短，換股越頻繁，每次買賣的手續費與稅占的比例越高。
           </p>
-          <label className="flex items-center gap-2 text-[13px] text-subtle">
+          </FoldSection>
+          <label className="flex items-center gap-2 text-sm text-subtle">
             <input type="checkbox" checked={form.ai} onChange={(event) => update('ai', event.target.checked)} className="size-4" />
-            包含兩組 AI（每次判斷各呼叫一次模型；取消勾選只跑純規則）
+            加入 AI 對照（每次判斷呼叫模型 2 次）
           </label>
-          {formError ? <p id="backtest-form-error" role="alert" className="text-[13px] text-danger">{formError}</p> : null}
+          {formError ? <p id="backtest-form-error" role="alert" className="text-sm text-danger">{formError}</p> : null}
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={running}><Play aria-hidden />開始回測</Button>
             <Button type="button" variant="outline" disabled={running} onClick={() => start('load')()}><History aria-hidden />讀取已跑完的結果</Button>
@@ -258,7 +260,7 @@ export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unkn
       </LedgerPanel>
       {progress && running ? (
         <LedgerPanel className="sm:col-span-3" aria-live="polite">
-          <p className="text-[13px] text-subtle">
+          <p className="text-sm text-subtle">
             {progress.total ? `第 ${progress.done}／${progress.total} 次判斷${progress.date ? `（${progress.date}）` : ''}` : '準備資料中…'}
             {progress.cached ? ' · 相同條件已有結果，直接讀取' : progress.calls ? ` · 共會呼叫模型 ${progress.calls} 次` : ''}
           </p>
@@ -269,7 +271,7 @@ export function AIBacktestPanel({ onAccessError }: { onAccessError: (error: unkn
       ) : null}
       {error ? <LedgerPanel className="sm:col-span-3"><Notice tone="danger">{error}</Notice></LedgerPanel> : null}
       {!result && !running && !error ? (
-        <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">選好股票與期間後按「開始回測」。{yearlyRunText(form.horizon, form.ai)}。</EmptyState></LedgerPanel>
+        <LedgerPanel className="sm:col-span-3"><EmptyState className="py-4">{yearlyRunText(form.horizon, form.ai)}。</EmptyState></LedgerPanel>
       ) : null}
       {!result && running && !progress ? <LedgerPanel padded={false} className="sm:col-span-3"><LoadingRows label="讀取結果中…" className="h-32" /></LedgerPanel> : null}
       {result ? <BacktestResults result={result} /> : null}

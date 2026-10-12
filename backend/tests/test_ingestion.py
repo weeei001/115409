@@ -340,3 +340,72 @@ def test_collection_failure_reports_only_controlled_error(ingestion_db):
     assert report.failed == 1
     assert report.errors == ["collection: Collection missing; use --create-collection explicitly"]
 
+
+@pytest.mark.parametrize(("message", "code"), [
+    ("index_configuration_changed_use_new_index_version", "indexing_configuration"),
+    ("Qdrant collection does not exist; use --create-collection explicitly", "indexing_configuration"),
+    ("Embedding dimension does not match the existing Qdrant collection", "indexing_configuration"),
+    ("invalid_pub_time", "indexing_content"),
+    ("empty_content_preserved_previous_revision", "indexing_content"),
+    ("IntegrityError", "indexing_storage"),
+    ("Embedding service unavailable", "indexing_service"),
+    ("Vector database timed out", "indexing_service"),
+    ("Article vector publication is incomplete", "indexing_incomplete"),
+    ("private message containing credentials", "worker_exception"),
+])
+def test_ingestion_failure_diagnostics_are_allowlisted(message, code):
+    from app.jobs.ingestion.service import IngestionReport
+    from app.features.admin.diagnostics import safe_worker_diagnostic
+
+    report = IngestionReport("vectorize-news")
+    report.fail("private-article-id", message, 3)
+    diagnostic = {"phase": "vectorization", "reason": code, "failure_reasons": report.failure_reasons}
+    assert report.failed == 3
+    assert report.failure_reasons == {code: 3}
+    assert safe_worker_diagnostic(diagnostic) == diagnostic
+    assert "private" not in json.dumps(diagnostic)
+
+
+def test_cli_publishes_chunk_failure_diagnostic(ingestion_db, settings, monkeypatch, tmp_path):
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV, read_failure
+    from sqlalchemy.exc import IntegrityError
+
+    engine, factory = ingestion_db
+    _seed(factory, [_article("a")])
+    configured = settings.model_copy(update={"NEWS_INDEX_VERSION": "news-v1", "QDRANT_COLLECTION": "news_chunks_v1_dev"})
+    monkeypatch.setattr(cli, "get_settings", lambda: configured)
+    monkeypatch.setattr(cli, "make_engine", lambda _: engine)
+    monkeypatch.setattr(engine, "dispose", lambda: None)
+    target = tmp_path / "diagnostic.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+
+    def fail(db, chunks):
+        raise IntegrityError("private SQL", {}, Exception("private database password"))
+
+    monkeypatch.setattr(repository, "insert_article_chunks", fail)
+    assert cli.main("news-ingest", []) == 1
+    assert read_failure(target) == {"phase": "chunking", "reason": "indexing_storage",
+                                    "failure_reasons": {"indexing_storage": 1}}
+    assert "private" not in target.read_text()
+    assert _stored(factory) == []
+
+
+def test_cli_publishes_vector_collection_failure_diagnostic(ingestion_db, settings, monkeypatch, tmp_path):
+    from app.clients.vector_writer import VectorWriter
+    from app.jobs.diagnostics import DIAGNOSTICS_ENV, read_failure
+
+    engine, _ = ingestion_db
+    configured = settings.model_copy(update={"NEWS_INDEX_VERSION": "news-v1", "QDRANT_COLLECTION": "news_chunks_v1_dev"})
+    monkeypatch.setattr(cli, "get_settings", lambda: configured)
+    monkeypatch.setattr(cli, "make_engine", lambda _: engine)
+    monkeypatch.setattr(engine, "dispose", lambda: None)
+    target = tmp_path / "diagnostic.json"
+    monkeypatch.setenv(DIAGNOSTICS_ENV, str(target))
+
+    async def missing_collection(self, *, create=False):
+        raise AppError("Qdrant collection does not exist; use --create-collection explicitly", 503)
+
+    monkeypatch.setattr(VectorWriter, "require_collection", missing_collection)
+    assert cli.main("vectorize-news", []) == 1
+    assert read_failure(target) == {"phase": "vectorization", "reason": "indexing_configuration",
+                                    "failure_reasons": {"indexing_configuration": 1}}

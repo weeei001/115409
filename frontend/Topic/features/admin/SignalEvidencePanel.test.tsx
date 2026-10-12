@@ -38,7 +38,7 @@ const item = (patch: Partial<SignalEvidenceItem>): SignalEvidenceItem => ({
 
 {
   const plain = renderedText(renderToStaticMarkup(React.createElement(SignalEvidencePanel, { onAccessError: () => false })));
-  assert.ok(plain.includes('指定日期的證據清單') && plain.includes('產生證據清單') && plain.includes('AI 回測用的是同一份統計（觀察天數等於判斷間隔）'));
+  assert.ok(plain.includes('指定日期的證據清單') && plain.includes('產生證據清單') && plain.includes('僅使用判斷日已知資料'));
 }
 
 console.log('Signal evidence panel passed: ids, fired timing, point-in-time history and peer gap copy, thin samples.');

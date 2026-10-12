@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import { FoldSection } from '@/components/common/CollapsibleSection';
 import { Ledger, LedgerPanel, cellClass, headCellClass } from '@/components/common/Ledger';
 import { Notice } from '@/components/common/Notice';
 import { textLinkClass } from '@/components/ui/button';
@@ -21,19 +22,19 @@ const MARKET_DATA_LICENSE_TWD = 50_000;
 
 const money = (value: number, digits = 0): string => uMinus(value.toLocaleString('zh-TW', { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 const percent = (ratio: number): string => `${money(ratio * 100)}%`;
-const numCell = cn(cellClass, 'text-right font-mono text-[13.5px] tabular-nums');
+const numCell = cn(cellClass, 'text-right font-mono text-sm tabular-nums');
 
 const SCENARIO_ROWS: Array<{ label: string; value: (r: MonthlyRevenue, members: number) => string; strong?: boolean }> = [
-  { label: '註冊會員（A1）', value: (_, members) => formatCount(members) },
-  { label: '付費人數（A2）', value: (r) => formatCount(r.paid) },
-  { label: '其中進階版、專業版（A3）', value: (r) => `${formatCount(r.plus)}、${formatCount(r.pro)}` },
+  { label: '註冊會員', value: (_, members) => formatCount(members) },
+  { label: '付費人數', value: (r) => formatCount(r.paid) },
+  { label: '進階版／專業版', value: (r) => `${formatCount(r.plus)}、${formatCount(r.pro)}` },
   { label: '訂閱收入', value: (r) => money(r.revenue), strong: true },
   { label: '金流手續費', value: (r) => money(r.fees) },
   { label: 'AI 對話：免費會員', value: (r) => money(r.aiFree) },
   { label: 'AI 對話：進階版', value: (r) => money(r.aiPlus) },
   { label: 'AI 對話：專業版', value: (r) => money(r.aiPro) },
-  { label: '固定 LLM（摘要預熱加新聞判讀上限）', value: (r) => money(r.fixedLlm) },
-  { label: '貢獻毛利（還沒扣主機、授權、人力）', value: (r) => money(r.contribution), strong: true },
+  { label: '固定 AI 成本', value: (r) => money(r.fixedLlm) },
+  { label: '貢獻毛利（未扣固定營運費）', value: (r) => money(r.contribution), strong: true },
 ];
 
 /**
@@ -49,10 +50,10 @@ export function PlanRevenuePanel({ onViewAiUsage }: { onViewAiUsage?: () => void
   return (
     <div className="space-y-10 lg:space-y-16">
       <Notice tone="warning">
-        以下數字全部是商業模式第 6 節的假設試算，不是實際營收、付費人數或實測成本；後端目前沒有方案或訂閱資料。
+        以下是假設試算，非實際營收；尚未串接訂閱資料。
         {onViewAiUsage ? (
           <button type="button" onClick={onViewAiUsage} className={cn('ml-1', textLinkClass)}>
-            實際的 AI 用量與估算成本見「AI 成效」
+            查看實際 AI 用量
           </button>
         ) : null}
       </Notice>
@@ -86,7 +87,7 @@ export function PlanRevenuePanel({ onViewAiUsage }: { onViewAiUsage?: () => void
       </Ledger>
 
       <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-x-16">
-        <Ledger aria-labelledby="revenue-units-heading" title={<span id="revenue-units-heading">每位付費者的單位經濟</span>} stamp="月繳 · 新臺幣" className="lg:col-span-7">
+        <Ledger aria-labelledby="revenue-units-heading" title={<span id="revenue-units-heading">每位付費者的收入與成本</span>} stamp="月繳 · 新臺幣" className="lg:col-span-7">
           <LedgerPanel padded={false}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[520px] text-left text-sm">
@@ -108,7 +109,7 @@ export function PlanRevenuePanel({ onViewAiUsage }: { onViewAiUsage?: () => void
                       <td className={numCell}>{money(unit.contribution, 1)}</td>
                       <td className={numCell}>
                         {money(unit.fullQuotaContribution, 1)}
-                        <span className="block font-sans text-xs text-muted-foreground">{formatCount(unit.quota)} 次</span>
+                        <span className="block font-sans text-sm text-muted-foreground">{formatCount(unit.quota)} 次</span>
                       </td>
                     </tr>
                   ))}
@@ -128,16 +129,16 @@ export function PlanRevenuePanel({ onViewAiUsage }: { onViewAiUsage?: () => void
                 {formatCount(Math.ceil(licensePayers / base.scenario.conversion))} 位註冊會員。
               </li>
             </ul>
-            <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
-              貢獻毛利只說明變動成本能不能被收入涵蓋，不代表整體獲利；主機、資料與新聞授權、人力都還沒有計入。
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              尚未扣除主機、授權與人力成本。
               <Link href="/pricing" className={cn('ml-1', textLinkClass)}>查看方案頁</Link>
             </p>
           </LedgerPanel>
         </Ledger>
       </div>
 
-      <Ledger aria-labelledby="revenue-assumptions-heading" title={<span id="revenue-assumptions-heading">假設值</span>} stamp="商業模式第 6.1 節">
-        <LedgerPanel>
+      <FoldSection title="試算假設與單價" className="border-y" contentClassName="p-4 sm:p-5">
+        <div>
           <dl className="grid grid-cols-1 gap-px border-y bg-border text-sm md:grid-cols-2">
             {[
               ['A1 註冊會員數', REVENUE_SCENARIOS.map((s) => `${s.label} ${formatCount(s.members)}`).join('、')],
@@ -157,11 +158,11 @@ export function PlanRevenuePanel({ onViewAiUsage }: { onViewAiUsage?: () => void
               </div>
             ))}
           </dl>
-          <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
-            依上面的假設，每次 AI 提問約 NT${money(base.result.costPerAsk, 2)}。A4 計費方式全部以月繳計算；A9 取自專案設定的預設單價，不是供應商報價。
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            固定 AI 成本包含摘要預熱與新聞判讀上限。每次 AI 提問約 NT${money(base.result.costPerAsk, 2)}。A4 計費方式全部以月繳計算；A9 取自專案設定的預設單價，不是供應商報價。
           </p>
-        </LedgerPanel>
-      </Ledger>
+        </div>
+      </FoldSection>
     </div>
   );
 }
