@@ -93,6 +93,16 @@ assert.match(reasonMarkup, /失敗階段：事件分析/);
 assert.match(reasonMarkup, /連續分析失敗，已停止本次工作/);
 assert.match(reasonMarkup, /模型回覆未通過驗證 3 篇/);
 assert.doesNotMatch(reasonMarkup, /根因待查/);
+const crawlRun: AdminRun = { ...run, job_name: 'cnyes', error: null, diagnostics: {
+  run_id: 7, error_category: 'stage_nonzero', failed_stages: [{ stage: 'crawl-cnyes', exit_code: 1,
+    phase: 'http', reason: 'crawl_incomplete', failure_reasons: { crawl_timeout: 1 } }],
+  stage: null, stage_started_at: null, last_activity_at: null, activity_kind: 'unknown', worker_progress: 'unknown',
+} };
+const crawlMarkup = renderToStaticMarkup(<AdminRunDiagnostics run={crawlRun} />);
+assert.equal(adminRunProblem(crawlRun)?.title, '新聞來源回應逾時');
+assert.match(crawlMarkup, /已成功寫入的新聞會保留/);
+assert.match(crawlMarkup, /新聞來源回應逾時 1 筆/);
+assert.doesNotMatch(crawlMarkup, /模型|原因未記錄|根因待查/);
 const now = '2026-10-01T13:00:00Z';
 const future = { ...job, paused: false, next_run_at: '2026-10-01T13:30:00Z' };
 const due = { ...future, next_run_at: '2026-10-01T12:30:00Z' };
