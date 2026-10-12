@@ -9,6 +9,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, time, timedelta, timezone
+from time import sleep
 from urllib.parse import urlparse
 
 import httpx
@@ -21,6 +22,7 @@ from app.core.http import make_sync_http_client
 from app.core.text import strip_tags
 from app.db.engine import make_engine
 from app.db.models.news_article import NewsArticle
+from app.jobs.diagnostics import report_failure
 from app.features.news.versions import (source_identity,
                                         update_article, acceptable_update, canonical_url)
 
@@ -142,10 +144,11 @@ def cnyes_article_fields(raw_html: str) -> dict:
 
 
 def cnyes_detail_article(http: httpx.Client, news_id: object) -> dict | None:
+    news_id = _cnyes_news_id(news_id)
     url = cnyes_article_url(news_id)
     if not url:
         return None
-    for attempt in range(2):
+    for attempt in range(1, 4):
         try:
             response = http.get(url, headers=CNYES_HEADERS, timeout=20)
             response.raise_for_status()
@@ -154,9 +157,24 @@ def cnyes_detail_article(http: httpx.Client, news_id: object) -> dict | None:
                 raise ValueError("Cnyes detail lacks a usable title or body")
             return content
         except (httpx.HTTPError, ValueError) as exc:
-            if attempt:
-                log.warning("Cnyes article detail unavailable (%s)", type(exc).__name__)
-    raise ValueError("Cnyes article detail unavailable")
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            transient = isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)) or status in {
+                408, 429, 500, 502, 503, 504}
+            log.warning("Cnyes article detail failed news_id=%s attempt=%d error_type=%s status=%s",
+                        news_id, attempt, type(exc).__name__, status)
+            if not transient or attempt == 3:
+                raise
+            sleep(2 ** (attempt - 1))
+
+
+def _record_crawl_failure(reasons: dict[str, int] | None, error: Exception | None = None,
+                          *, reason: str | None = None, count: int = 1) -> None:
+    if reasons is None:
+        return
+    if reason is None:
+        reason = ("crawl_timeout" if isinstance(error, httpx.TimeoutException) else
+                  "crawl_http" if isinstance(error, httpx.HTTPError) else "crawl_content")
+    reasons[reason] = reasons.get(reason, 0) + count
 
 
 def _cnyes_news_id_from_url(url: str | None) -> int | None:
@@ -264,7 +282,8 @@ def store_news(db: Session, items: list[dict]) -> dict[str, int]:
 
 def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                 limit: int | None = None, fetch_details: bool = False,
-                skip_existing: bool = False) -> dict[str, int]:
+                skip_existing: bool = False, *,
+                failure_reasons: dict[str, int] | None = None) -> dict[str, int]:
     inspected = 0
     existing_urls = set()
     if skip_existing:
@@ -305,10 +324,12 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                     if page > 1 and exc.response.status_code == 422:
                         break
                     log.error("Cnyes %s page %d failed (%s)", category, page, type(exc).__name__)
+                    _record_crawl_failure(failure_reasons, exc)
                     result["failed"] += 1
                     break
                 except Exception as exc:
                     log.error("Cnyes %s page %d failed (%s)", category, page, type(exc).__name__)
+                    _record_crawl_failure(failure_reasons, exc)
                     result["failed"] += 1
                     break
                 if not rows:
@@ -326,6 +347,7 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                 for candidate in candidates:
                     if isinstance(candidate, Exception):
                         log.warning("Invalid Cnyes article (%s)", type(candidate).__name__)
+                        _record_crawl_failure(failure_reasons, candidate)
                         result["failed"] += 1
                     else:
                         items.append(candidate)
@@ -334,6 +356,7 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                     break
                 if ids and ids == previous_ids:
                     log.error("Cnyes repeated a page; pagination stopped")
+                    _record_crawl_failure(failure_reasons, reason="crawl_content")
                     result["failed"] += 1
                     break
                 previous_ids = ids
@@ -354,6 +377,7 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
                                 if item.get("content_kind") == "full_text" and (canonical := canonical_url(item.get("url"))))
                 except Exception as exc:
                     log.error("Cnyes page write failed (%s)", type(exc).__name__)
+                    _record_crawl_failure(failure_reasons, reason="crawl_storage", count=len(fresh))
                     result["failed"] += len(fresh)
                 if skip_existing:
                     print(json.dumps({"source": "cnyes", "category": category, "page": page,
@@ -378,7 +402,8 @@ def crawl_cnyes(engine, http: httpx.Client, start: datetime, end: datetime,
 
 
 def refresh_cnyes_existing(engine, http: httpx.Client, limit: int | None = None,
-                           start: datetime | None = None, end: datetime | None = None) -> dict[str, int]:
+                            start: datetime | None = None, end: datetime | None = None, *,
+                            failure_reasons: dict[str, int] | None = None) -> dict[str, int]:
     """Refresh stored CNYES bodies from the public article pages."""
     with Session(engine) as db:
         articles = list(db.scalars(select(NewsArticle).where(NewsArticle.source == "cnyes")
@@ -409,6 +434,7 @@ def refresh_cnyes_existing(engine, http: httpx.Client, limit: int | None = None,
                     print(f"cnyes refresh progress={completed}/{len(articles)}", flush=True)
                 article = db.get(NewsArticle, article_id)
                 if isinstance(detail, Exception):
+                    _record_crawl_failure(failure_reasons, detail)
                     result["failed"] += 1
                     continue
                 if article is None or not attempted or not detail or not detail.get("title"):
@@ -561,26 +587,37 @@ def crawler_main(source: str, argv: list[str] | None = None) -> int:
             end = datetime.combine(args.end, time(23, 59, 59), TAIPEI)
         if start > end:
             parser.error("--start must be on or before --end")
-    settings = get_settings()
-    engine = make_engine(settings)
+    engine = None
+    phase = "settings"
+    failure_reasons = {}
     try:
+        settings = get_settings()
+        phase = "database"
+        engine = make_engine(settings)
+        phase = "schema"
         from app.jobs.impact.migrate import migrate_news_impact
         migrate_news_impact(engine)
+        phase = "http"
         with make_sync_http_client(settings) as http:
             if source == "cnyes":
                 if args.refresh_existing:
                     result = refresh_cnyes_existing(engine, http, args.limit,
-                        start if args.start else None, end if args.end else None)
+                        start if args.start else None, end if args.end else None,
+                        failure_reasons=failure_reasons)
                 else:
                     result = crawl_cnyes(engine, http, start, end,
-                                         args.limit, True, args.skip_existing)
+                                         args.limit, True, args.skip_existing, failure_reasons=failure_reasons)
             else:
                 result = crawl_ltn(engine, http, (now - timedelta(days=days)).replace(tzinfo=None))
         log.info("%s crawl result: %s", source, result)
         print(json.dumps({"source": source, **result}, sort_keys=True))
+        if result["failed"]:
+            report_failure(phase, reason="crawl_incomplete", failure_reasons=failure_reasons)
         return int(result["failed"] > 0)
     except Exception as exc:
+        report_failure(phase, error=exc)
         log.error("%s crawler failed (%s)", source, type(exc).__name__)
         return 1
     finally:
-        engine.dispose()
+        if engine is not None:
+            engine.dispose()

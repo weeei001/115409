@@ -11,7 +11,8 @@ PHASES = frozenset({"arguments", "dispatch", "settings", "catalog", "lock", "dat
 REASONS = frozenset({"worker_exception", "invalid_arguments", "catalog_unavailable", "article_failures",
     "budget_exhausted", "consecutive_failures", "timeout", "auth_error_401", "model_not_found",
     "rate_limit_429", "client_uninitialized", "upstream_model_error", "truncated_output", "validation_failed",
-    "indexing_configuration", "indexing_content", "indexing_storage", "indexing_service", "indexing_incomplete"})
+    "indexing_configuration", "indexing_content", "indexing_storage", "indexing_service", "indexing_incomplete",
+    "crawl_timeout", "crawl_http", "crawl_content", "crawl_storage", "crawl_incomplete"})
 ERROR_TYPES = frozenset({"Exception", "RuntimeError", "ValueError", "ValidationError", "OSError",
     "PermissionError", "FileNotFoundError", "JobAlreadyRunning", "AppError", "SQLAlchemyError",
     "OperationalError", "ProgrammingError", "IntegrityError", "DBAPIError", "TimeoutError"})
