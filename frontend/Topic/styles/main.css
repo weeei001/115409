@@ -209,7 +209,7 @@
 
   --shadow-raised: var(--elev-raised);
 
-  /* --font-app-* 由 pages/_app.tsx 的 next/font 寫入（本站自架字型）；沒有時退回同一組字族名稱 */
+  /* Fontsource assets are bundled in pages/_app.tsx and served by this app. */
   --font-serif: var(--font-app-serif, "Noto Serif TC", "Songti TC", "PMingLiU", serif);
   --font-sans: var(--font-app-sans, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif);
   --font-mono: var(--font-app-mono, "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
