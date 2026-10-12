@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models.news_article import NewsArticle
-from app.db.models.news_chunk import news_chunks
+from app.db.models.news_chunk import news_chunks, news_chunk_state, news_vector_state
 from app.features.retrieval.chunking import DEFAULT_INDEX_VERSION
 from app.features.news.versions import source_states
 
@@ -32,17 +32,30 @@ def _scope(statement, table, symbols: list[str], start: date | None, end: date |
 def pending_articles(db: Session, *, after: str = "", page_size: int = 50,
                      symbols: list[str] = (), start: date | None = None,
                      end: date | None = None, index_version: str = DEFAULT_INDEX_VERSION,
-                     sources: list[str] = ()) -> list[dict]:
+                     sources: list[str] = (), fingerprint: str | None = None) -> list[dict]:
     articles = NewsArticle.__table__
     stored_revision = select(news_chunks.c.revision).where(
         news_chunks.c.article_id == articles.c.article_id,
-        news_chunks.c.index_version == index_version).limit(1).scalar_subquery()
+        news_chunks.c.index_version == index_version).correlate(articles).limit(1).scalar_subquery()
     stored_fingerprint = select(news_chunks.c.index_fingerprint).where(
         news_chunks.c.article_id == articles.c.article_id,
         news_chunks.c.index_version == index_version).limit(1).scalar_subquery()
+    stored_count = select(func.count()).select_from(news_chunks).where(
+        news_chunks.c.article_id == articles.c.article_id,
+        news_chunks.c.index_version == index_version).correlate(articles).scalar_subquery()
     statement = _scope(select(articles, stored_revision.label("_stored_revision"),
-                             stored_fingerprint.label("_stored_fingerprint")).where(
+                             stored_fingerprint.label("_stored_fingerprint"),
+                             stored_count.label("_stored_count")).where(
         articles.c.article_id > after), articles, symbols, start, end)
+    if fingerprint is not None:
+        completed = select(news_chunk_state.c.article_id).where(
+            news_chunk_state.c.article_id == articles.c.article_id,
+            news_chunk_state.c.index_version == index_version,
+            news_chunk_state.c.index_fingerprint == fingerprint,
+            news_chunk_state.c.source_revision.is_not_distinct_from(articles.c.ingestion_revision),
+            news_chunk_state.c.chunk_count == stored_count,
+        ).correlate(articles).exists()
+        statement = statement.where(~completed)
     if sources:
         statement = statement.where(articles.c.source.in_(sources))
     rows = [dict(row) for row in db.execute(statement.order_by(articles.c.article_id).limit(page_size)).mappings()]
@@ -53,11 +66,20 @@ def pending_articles(db: Session, *, after: str = "", page_size: int = 50,
 def chunk_page(db: Session, *, after: str = "", page_size: int = 50,
                symbols: list[str] = (), start: date | None = None,
                end: date | None = None, index_version: str = DEFAULT_INDEX_VERSION,
-               article_ids: list[str] | None = None, sources: list[str] = ()) -> list[dict]:
+               article_ids: list[str] | None = None, sources: list[str] = (),
+               target_key: str | None = None) -> list[dict]:
     """Page complete articles, so stale vectors are never removed mid-article."""
     selected = _scope(select(news_chunks.c.article_id).where(
         news_chunks.c.article_id > after, news_chunks.c.index_version == index_version),
         news_chunks, symbols, start, end)
+    if target_key is not None:
+        completed = select(news_vector_state.c.article_id).where(
+            news_vector_state.c.target_key == target_key,
+            news_vector_state.c.article_id == news_chunks.c.article_id,
+            news_vector_state.c.index_version == news_chunks.c.index_version,
+            news_vector_state.c.revision == news_chunks.c.revision,
+        ).exists()
+        selected = selected.where(~completed)
     if sources:
         selected = selected.where(news_chunks.c.source.in_(sources))
     if article_ids is not None:
@@ -84,4 +106,31 @@ def insert_article_chunks(db: Session, chunks: list[dict]) -> None:
         db.execute(delete(news_chunks).where(news_chunks.c.article_id == chunks[0]["article_id"],
             news_chunks.c.index_version == chunks[0]["index_version"]))
         db.execute(insert(news_chunks), [{**chunk, "stock_ids": json.dumps(chunk["stock_ids"])} for chunk in chunks])
+
+
+def clear_chunk_checkpoint(db: Session, index_version: str, article_ids: list[str]):
+    db.execute(delete(news_chunk_state).where(
+        news_chunk_state.c.article_id.in_(article_ids),
+        news_chunk_state.c.index_version == index_version))
+
+
+def mark_chunked(db: Session, article: dict, index_version: str, fingerprint: str, *, chunk_count: int):
+    clear_chunk_checkpoint(db, index_version, [article["article_id"]])
+    db.execute(insert(news_chunk_state).values(article_id=article["article_id"],
+        index_version=index_version, source_revision=article.get("ingestion_revision"),
+        index_fingerprint=fingerprint, chunk_count=chunk_count))
+
+
+def clear_publication(db: Session, target_key: str, index_version: str, article_ids: list[str] | None):
+    statement = delete(news_vector_state).where(news_vector_state.c.target_key == target_key,
+        news_vector_state.c.index_version == index_version)
+    if article_ids is not None:
+        statement = statement.where(news_vector_state.c.article_id.in_(article_ids))
+    db.execute(statement)
+
+
+def mark_published(db: Session, target_key: str, chunk: dict):
+    clear_publication(db, target_key, chunk["index_version"], [chunk["article_id"]])
+    db.execute(insert(news_vector_state).values(target_key=target_key,
+        article_id=chunk["article_id"], index_version=chunk["index_version"], revision=chunk["revision"]))
 

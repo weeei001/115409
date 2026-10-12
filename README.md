@@ -170,9 +170,46 @@ AI 對話直接發布模型回答，不做引用、數值或內容檢核，也�
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.jobs init-schema
+.\.venv\Scripts\python.exe -m app.jobs migrate-news-impact-schema
 ```
 
 Linux／macOS 等價指令為 `python -m app.jobs init-schema`。這會使用既有初始化流程建立缺少的資料表（例如 `ai_brief_lessons`、`chat_message_feedback`），不需要同步公司名單。API 不會在啟動時自動建表。GitHub 的 Windows 部署流程呼叫主機外部的 `WINDOWS_DEPLOY_SCRIPT`，請將這一步納入該主機的升級作業；僅推送程式碼不能證明正式 DB 已更新。
+
+### Incremental news indexing
+
+Before starting the updated API or workers against an existing database, run both
+upgrade commands above. `init-schema` creates missing tables;
+`migrate-news-impact-schema` also adds `news_articles.ingestion_revision` and
+creates the ingestion checkpoint tables. Include both commands in the host's
+deployment script. A dry run requires this schema upgrade but never performs it.
+
+Run these commands from `backend/` using the configured environment:
+
+```powershell
+# Default hourly job: new, changed, and unfinished articles only.
+python -m app.jobs news-ingest
+
+# Inspect pending work without writes or vector/embedding requests.
+python -m app.jobs news-ingest --dry-run
+
+# Separate full audit and repair, including missing vectors and stale revisions.
+python -m app.jobs news-ingest --full-scan
+
+# Read-only full verification of SQL chunks and vector payloads.
+python -m app.jobs verify-news-index
+```
+
+The first run after upgrading establishes checkpoints for historical articles.
+Existing vectors are confirmed and reused without re-embedding. Later runs skip
+completed source revisions and publish only unfinished chunk revisions. Publication
+checkpoints are isolated by vector endpoint, collection, and index version, and
+are saved only after current vectors and stale-vector cleanup are confirmed.
+`--skip-stale-cleanup` deliberately leaves publication pending for a later run.
+
+ORM and SQLAlchemy Core updates invalidate source checkpoints, including metadata
+changes and corrections to old articles. Direct SQL changes and external vector
+deletions require `--full-scan`; normal hourly runs do not audit external changes.
+An interrupted or failed audit leaves inspected, unfinished articles pending.
 
 ## 貢獻指南
 

@@ -32,6 +32,8 @@ def main(mode: str, argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--index-version", help="Explicit target index version")
     parser.add_argument("--dry-run", action="store_true", help="Read MySQL only; do not write or call embedding/Qdrant")
+    parser.add_argument("--full-scan", action="store_true",
+                        help="Audit all articles in scope and repair vectors, ignoring completion checkpoints")
     if mode != "chunk-news":
         parser.add_argument("--collection", help="Explicit target Qdrant collection")
         parser.add_argument("--create-collection", action="store_true", help="Create a missing collection; never replace one")
@@ -64,7 +66,8 @@ def main(mode: str, argv: list[str] | None = None) -> int:
         if not settings.NEWS_INDEX_VERSION or settings.QDRANT_COLLECTION == "news_chunks":
             parser.error("Set an explicit index version and a new collection before vectorization")
     options = dict(symbols=symbols, start=args.start, end=args.end, limit=args.limit,
-                   page_size=args.batch_size, dry_run=args.dry_run, index_version=version, sources=sources)
+                   page_size=args.batch_size, dry_run=args.dry_run, index_version=version, sources=sources,
+                   full_scan=args.full_scan)
     engine = make_engine(settings)
     session_factory = make_session_factory(engine)
     reports = []

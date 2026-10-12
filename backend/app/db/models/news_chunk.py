@@ -29,3 +29,21 @@ news_chunks = Table(
     Index("idx_v1_stock_id", "stock_id"),
     Index("idx_v1_pub_time", "pub_time"),
 )
+
+# Source checkpoints are independent of vector destinations. Publication is
+# complete only after all current points and stale-revision cleanup are confirmed.
+news_chunk_state = Table(
+    "news_chunk_state", chunk_metadata,
+    Column("article_id", String(64), primary_key=True),
+    Column("index_version", String(80), primary_key=True),
+    Column("source_revision", String(32), nullable=True),
+    Column("index_fingerprint", String(64), nullable=False),
+    Column("chunk_count", Integer, nullable=False),
+)
+news_vector_state = Table(
+    "news_vector_state", chunk_metadata,
+    Column("target_key", String(64), primary_key=True),
+    Column("article_id", String(64), primary_key=True),
+    Column("index_version", String(80), primary_key=True),
+    Column("revision", String(64), nullable=False),
+)

@@ -515,10 +515,13 @@ def test_schema_migration_backfills_legacy_hash_once():
                                     "title TEXT, content TEXT, pub_time VARCHAR(40))"))
             connection.execute(text("INSERT INTO news_articles (article_id, title, content, pub_time) "
                                     "VALUES ('old', 'Old', 'Source', '2026-09-20 10:00:00')"))
-        assert migrate_news_impact(engine) == {"columns_added": 2, "hashes_updated": 1}
+        assert migrate_news_impact(engine) == {"columns_added": 3, "hashes_updated": 1}
         assert migrate_news_impact(engine) == {"columns_added": 0, "hashes_updated": 0}
         with engine.connect() as connection:
             assert connection.scalar(text("SELECT analysis_input_hash FROM news_articles WHERE article_id='old'"))
+            assert connection.scalar(text("SELECT ingestion_revision FROM news_articles WHERE article_id='old'")) is None
+            assert connection.scalar(text("SELECT COUNT(*) FROM news_chunk_state")) == 0
+            assert connection.scalar(text("SELECT COUNT(*) FROM news_vector_state")) == 0
     finally:
         engine.dispose()
 

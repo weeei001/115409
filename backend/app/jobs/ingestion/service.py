@@ -8,6 +8,7 @@ from itertools import groupby
 from typing import Any
 
 from app.core.errors import AppError
+from app.core.config import news_index_fingerprint
 from app.features.news.eligibility import contains_simulation
 from app.features.retrieval.common import parse_timestamp
 from . import repository
@@ -88,6 +89,12 @@ def _read_page(session_factory, query, **kwargs):
         return query(db, **kwargs)
 
 
+def _write_checkpoint(session_factory, operation, *args, **kwargs):
+    with session_factory() as db:
+        operation(db, *args, **kwargs)
+        db.commit()
+
+
 def _in_scope(row: dict, start: date | None, end: date | None, symbols: list[str] = ()) -> bool:
     if not row.get("_source_eligible", True):
         return False
@@ -105,19 +112,26 @@ def chunk_news(session_factory, *, symbols: list[str] = (), start: date | None =
                end: date | None = None, limit: int | None = None, page_size: int = 50,
                dry_run: bool = False, index_version: str = DEFAULT_INDEX_VERSION,
                max_chars: int = CHUNK_SIZE, overlap_chars: int = CHUNK_OVERLAP,
-               embedding_model: str = DEFAULT_EMBED_MODEL, sources: list[str] = ()) -> IngestionReport:
+               embedding_model: str = DEFAULT_EMBED_MODEL, sources: list[str] = (),
+               full_scan: bool = False) -> IngestionReport:
     _validate_options(page_size, limit, start, end)
     # Validate configuration even when the source table is empty.
     article_chunks({"article_id": ""}, index_version=index_version, max_chars=max_chars,
                    overlap_chars=overlap_chars, embedding_model=embedding_model)
+    fingerprint = news_index_fingerprint(index_version=index_version, model=embedding_model,
+        max_chars=max_chars, overlap_chars=overlap_chars)
     report = IngestionReport("chunk-news", dry_run=dry_run)
     after = ""
     while limit is None or report.read < limit:
         size = min(page_size, limit - report.read) if limit is not None else page_size
         page = _read_page(session_factory, repository.pending_articles, after=after, page_size=size,
-                          symbols=symbols, start=start, end=end, index_version=index_version, sources=sources)
+                          symbols=symbols, start=start, end=end, index_version=index_version, sources=sources,
+                          fingerprint=None if full_scan else fingerprint)
         if not page:
             break
+        if full_scan and not dry_run:
+            _write_checkpoint(session_factory, repository.clear_chunk_checkpoint, index_version,
+                              [article["article_id"] for article in page])
         for article in page:
             report.read += 1
             after = article["article_id"]
@@ -131,9 +145,16 @@ def chunk_news(session_factory, *, symbols: list[str] = (), start: date | None =
                     report.fail(after, "empty_content_preserved_previous_revision")
                 else:
                     report.skipped += 1
+                    if not dry_run:
+                        _write_checkpoint(session_factory, repository.mark_chunked, article, index_version,
+                                          fingerprint, chunk_count=0)
                 continue
-            if article.get("_stored_revision") == chunks[0]["revision"]:
+            if (article.get("_stored_revision") == chunks[0]["revision"]
+                    and article["_stored_count"] == len(chunks)):
                 report.skipped += 1
+                if not dry_run:
+                    _write_checkpoint(session_factory, repository.mark_chunked, article, index_version,
+                                      fingerprint, chunk_count=len(chunks))
                 continue
             if (article.get("_stored_fingerprint")
                     and article["_stored_fingerprint"] != chunks[0]["index_fingerprint"]):
@@ -146,6 +167,7 @@ def chunk_news(session_factory, *, symbols: list[str] = (), start: date | None =
             with session_factory() as db:
                 try:
                     repository.insert_article_chunks(db, chunks)
+                    repository.mark_chunked(db, article, index_version, fingerprint, chunk_count=len(chunks))
                     db.commit()
                 except Exception as exc:
                     db.rollback()
@@ -160,16 +182,23 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
                          limit: int | None = None, page_size: int = 50,
                          dry_run: bool = False, create_collection: bool = False,
                          retry_delay: float = 5, index_version: str = DEFAULT_INDEX_VERSION,
-                         cleanup_stale: bool = True, sources: list[str] = ()) -> IngestionReport:
+                         cleanup_stale: bool = True, sources: list[str] = (),
+                         full_scan: bool = False, target_key: str | None = None) -> IngestionReport:
     _validate_options(page_size, limit, start, end)
     if retry_delay < 0:
         raise ValueError("retry_delay must not be negative")
     if not index_version:
         raise ValueError("A nonempty index_version is required")
     report = IngestionReport("vectorize-news", dry_run=dry_run)
+    # Custom writers without a durable destination identity keep the safe full
+    # scan behavior. Production writers always supply a destination key.
+    target_key = target_key or getattr(writer, "index_target_key", None)
     if not dry_run:
         try:
             await writer.require_collection(create=create_collection)
+            if target_key and getattr(writer, "_missing", False):
+                _write_checkpoint(session_factory, repository.clear_publication,
+                                  target_key, index_version, None)
         except Exception as exc:
             report.fail("collection", failure_reason(exc))
             return report
@@ -177,9 +206,14 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
     while limit is None or report.read < limit:
         size = min(page_size, limit - report.read) if limit is not None else page_size
         page = await asyncio.to_thread(_read_page, session_factory, repository.chunk_page,
-            after=after, page_size=size, symbols=symbols, start=start, end=end, index_version=index_version, sources=sources)
+            after=after, page_size=size, symbols=symbols, start=start, end=end, index_version=index_version,
+            sources=sources, target_key=None if full_scan else target_key)
         if not page:
             break
+        if target_key and full_scan and not dry_run:
+            # A failed audit must remain pending even if it had a checkpoint.
+            _write_checkpoint(session_factory, repository.clear_publication, target_key, index_version,
+                              list({chunk["article_id"] for chunk in page}))
         articles = []
         for article_id, grouped in groupby(page, key=lambda chunk: chunk["article_id"]):
             chunks = list(grouped)
@@ -200,12 +234,14 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
             continue
 
         initial_existing = {}
+        completed = set()
         for attempt in range(3):
             try:
-                all_ids = [chunk["chunk_id"] for _, chunks in articles for chunk in chunks]
+                remaining = [(article_id, chunks) for article_id, chunks in articles if article_id not in completed]
+                all_ids = [chunk["chunk_id"] for _, chunks in remaining for chunk in chunks]
                 existing_ids = await writer.existing_chunk_ids(all_ids)
                 states = []
-                for article_id, chunks in articles:
+                for article_id, chunks in remaining:
                     ids = [chunk["chunk_id"] for chunk in chunks]
                     existing = existing_ids.intersection(ids)
                     initial_existing.setdefault(article_id, existing)
@@ -226,10 +262,12 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
                 for article_id, _, ids, _ in states:
                     if not set(ids).issubset(confirmed_ids):
                         raise AppError("Article vector publication is incomplete", 503)
-                if cleanup_stale:
-                    for article_id, _, ids, _ in states:
+                for article_id, chunks, ids, _ in states:
+                    if cleanup_stale:
                         await writer.delete_stale_article_chunks(article_id, index_version, ids)
-                for article_id, _, ids, _ in states:
+                        if target_key:
+                            _write_checkpoint(session_factory, repository.mark_published, target_key, chunks[0])
+                    completed.add(article_id)
                     skipped = len(initial_existing[article_id])
                     written = len(ids) - skipped
                     report.skipped += skipped
@@ -238,8 +276,8 @@ async def vectorize_news(session_factory, writer: Any, *, symbols: list[str] = (
                 break
             except Exception as exc:
                 if attempt == 2:
-                    article_id, chunks = articles[0]
-                    report.fail(article_id, failure_reason(exc), sum(len(items) for _, items in articles))
+                    unfinished = [(article_id, chunks) for article_id, chunks in articles if article_id not in completed]
+                    report.fail(unfinished[0][0], failure_reason(exc), sum(len(items) for _, items in unfinished))
                 else:
                     report.retries += 1
                     await asyncio.sleep(retry_delay * (attempt + 1))
