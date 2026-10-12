@@ -43,12 +43,18 @@ function SheetOverlay({
   )
 }
 
+/** sonner 的 toast 掛在抽屜外面 */
+const isToastTarget = (target: EventTarget | null) =>
+  target instanceof Element && Boolean(target.closest("[data-sonner-toaster]"))
+
 function SheetContent({
   className,
   children,
   side = "right",
   showCloseButton = true,
   closeLabel = "關閉",
+  onPointerDownOutside,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
@@ -72,6 +78,15 @@ function SheetContent({
             "inset-x-0 bottom-0 h-auto border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
           className
         )}
+        // 點 toast（例如匯出提示的「查看方案」）不算點到抽屜外面：不關抽屜，按鈕照常作用
+        onPointerDownOutside={(event) => {
+          if (isToastTarget(event.target)) event.preventDefault()
+          onPointerDownOutside?.(event)
+        }}
+        onInteractOutside={(event) => {
+          if (isToastTarget(event.target)) event.preventDefault()
+          onInteractOutside?.(event)
+        }}
         {...props}
       >
         {children}

@@ -75,6 +75,7 @@ jobs:
       - run: npm run test:notifications
       - run: npm run test:assistant
       - run: npm run test:pricing
+      - run: npm run test:fundamentals
       # Next generates next-env.d.ts and route types on a fresh checkout.
       - run: npm run build
       - run: npm run lint -- --incremental false

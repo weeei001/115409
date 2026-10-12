@@ -5,12 +5,21 @@ import type {
   ChipsVolumeChartResponse,
   DailyPriceResponse,
   DateRangeResponse,
+  DividendResultResponse,
+  FinancialStatementKind,
+  FinancialStatementRowResponse,
+  ForeignShareholdingResponse,
   HistoricalPriceList,
+  HoldingShareLevelResponse,
   InstitutionalTradeListResponse,
+  MarginTradeResponse,
+  MonthlyRevenueResponse,
   MultiStockResponse,
   PriceChangeResponse,
   PriceStatistics,
   StockInfo,
+  StockListResponse,
+  StockValuationResponse,
   TechnicalIndicatorListResponse,
   VolumeAnalysisResponse,
 } from '../types/api';
@@ -133,3 +142,37 @@ export async function fetchVolumeWithChips(symbol: string, start_date: string, e
   });
   return data;
 }
+
+async function fetchStockList<T>(symbol: string, path: string, params: Record<string, string>): Promise<T[]> {
+  const { data } = await apiClient.get<StockListResponse<T>>(`/stocks/${stockPathSegment(symbol)}/${path}`, { params });
+  if (!Array.isArray(data?.data)) throw new Error('Invalid list response');
+  return data.data;
+}
+
+/** openapi: GET /stocks/{symbol}/fundamentals/monthly-revenues */
+export const fetchMonthlyRevenues = (symbol: string, start_date: string, end_date: string) =>
+  fetchStockList<MonthlyRevenueResponse>(symbol, 'fundamentals/monthly-revenues', { start_date, end_date });
+
+/** openapi: GET /stocks/{symbol}/fundamentals/valuations */
+export const fetchValuations = (symbol: string, start_date: string, end_date: string) =>
+  fetchStockList<StockValuationResponse>(symbol, 'fundamentals/valuations', { start_date, end_date });
+
+/** openapi: GET /stocks/{symbol}/fundamentals/financial-statements */
+export const fetchFinancialStatements = (symbol: string, statement: FinancialStatementKind, start_date: string, end_date: string) =>
+  fetchStockList<FinancialStatementRowResponse>(symbol, 'fundamentals/financial-statements', { statement, start_date, end_date });
+
+/** openapi: GET /stocks/{symbol}/fundamentals/dividend-results */
+export const fetchDividendResults = (symbol: string, start_date: string, end_date: string) =>
+  fetchStockList<DividendResultResponse>(symbol, 'fundamentals/dividend-results', { start_date, end_date });
+
+/** openapi: GET /stocks/{symbol}/chips/margin-trades */
+export const fetchMarginTrades = (symbol: string, start_date: string, end_date: string) =>
+  fetchStockList<MarginTradeResponse>(symbol, 'chips/margin-trades', { start_date, end_date });
+
+/** openapi: GET /stocks/{symbol}/chips/foreign-shareholding */
+export const fetchForeignShareholding = (symbol: string, start_date: string, end_date: string) =>
+  fetchStockList<ForeignShareholdingResponse>(symbol, 'chips/foreign-shareholding', { start_date, end_date });
+
+/** openapi: GET /stocks/{symbol}/chips/holding-share-levels */
+export const fetchHoldingShareLevels = (symbol: string, start_date: string, end_date: string) =>
+  fetchStockList<HoldingShareLevelResponse>(symbol, 'chips/holding-share-levels', { start_date, end_date });

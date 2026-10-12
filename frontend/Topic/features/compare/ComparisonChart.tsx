@@ -16,6 +16,10 @@ import type { BenchmarkHistoryResponse } from '@/lib/api/benchmark';
 import { buildBenchmarkComparison } from '@/lib/utils/compareBenchmark';
 import { getChartPalette } from '@/lib/charts/theme';
 import { fmtPercent, signedText, uMinus } from '@/lib/utils/format';
+import { ImageExportButton } from '@/components/common/ExportButtons';
+import { echartsImage } from '@/lib/export/chartImage';
+import { exportFileName } from '@/lib/export/csv';
+import { DATA_SOURCES } from '@/lib/export/sources';
 
 /** 大盤基準在比較資料裡的代號（lib/utils/compareBenchmark 併入的 benchmark.id） */
 const BENCHMARK_ID = 'TAIEX';
@@ -131,6 +135,8 @@ interface Props {
  */
 export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColors, benchmark = null, benchmarkLoading = false, sweptBeams }: Props) {
   const { theme } = useTheme();
+  /** 最近一次繪製的圖表（存成圖片用；主圖在圖廓裡，不用 EChart 自帶的按鈕） */
+  const chartRef = useRef<echarts.ECharts | null>(null);
   const isDark = theme === 'dark';
   const [hiddenSymbols, setHiddenSymbols] = useState<string[]>([]);
   const comparison = useMemo(() => buildBenchmarkComparison({ ...data, symbols }, benchmark), [data, symbols, benchmark]);
@@ -176,6 +182,7 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
   const [soundings, setSoundings] = useState<SoundingMarks | null>(null);
   const measure = useCallback(
     (chart: echarts.ECharts) => {
+      chartRef.current = chart;
       const px = (i: number, v: number) => {
         const p = chart.convertToPixel({ gridIndex: 0 }, [i, v]) as number[] | undefined;
         return Array.isArray(p) && p.every(Number.isFinite) ? p : null;
@@ -221,7 +228,20 @@ export function ComparisonChart({ data, symbols, mode, onModeChange, symbolColor
             {meta.yAxisLabel} · 圖上 {plottedSpanText(plottedSpan(series.dates))}
           </p>
         </div>
-        <ModeTabs mode={mode} onModeChange={onModeChange} />
+        <div className="flex flex-wrap items-center gap-2">
+          <ModeTabs mode={mode} onModeChange={onModeChange} />
+          <ImageExportButton
+            fileName={exportFileName([visibleSymbols.join('-'), '多股比較', meta.title, series.dates[lastIndex]], 'png')}
+            capture={async () =>
+              chartRef.current && !chartRef.current.isDisposed()
+                ? echartsImage(chartRef.current, {
+                    title: `多股比較 · ${meta.title}：${visibleSymbols.map((sym) => (sym === BENCHMARK_ID ? BENCHMARK_LABEL : sym)).join('、')}`,
+                    source: DATA_SOURCES.price,
+                    period: plottedSpanText(plottedSpan(series.dates)),
+                  }, isDark)
+                : null}
+          />
+        </div>
       </div>
 
       {/* 圖廓：全頁只有這一個 */}

@@ -75,7 +75,7 @@ export const PLANS: Plan[] = [
     highlights: [
       { text: 'AI 對話與小燈每月 1,000 次' },
       { text: 'Email、LINE 通知', planned: true },
-      { text: '表格匯出 CSV、圖表存成圖片', planned: true },
+      { text: '表格匯出 CSV、圖表存成圖片' },
       { text: '自訂提醒規則 30 條', planned: true },
       { text: '規則型歷史回測不限次數', planned: true },
     ],
@@ -216,7 +216,7 @@ export const comparisonGroups = (stockCount: number | null): ComparisonGroup[] =
       { feature: '自訂提醒規則', planned: true, cells: perPlan(alertRulesCell) },
       { feature: '桌面小燈', planned: true, cells: { free: no, plus: yes(), pro: yes() } },
       { feature: 'Email、LINE 通知', planned: true, cells: { free: no, plus: no, pro: yes() } },
-      { feature: '表格匯出 CSV、圖表存成圖片，附資料來源與日期', planned: true, cells: { free: no, plus: no, pro: yes() } },
+      { feature: '表格匯出 CSV、圖表存成圖片，附資料來源與日期', cells: { free: no, plus: no, pro: yes() } },
     ],
   },
 ];
@@ -229,6 +229,9 @@ export const DEMO_TAG = '展示';
 
 /** 個股頁 AI 投資分析卡的一行說明（商業模式第 8 節 #9） */
 export const AI_BRIEF_ALL_PLANS = '所有方案皆可完整檢視';
+
+/** 表格匯出 CSV、圖表存成圖片只開放給專業版（components/common/ExportButtons.tsx） */
+export const EXPORT_MIN_PLAN: PlanId = 'pro';
 
 /** 推播（Web、Android）是進階版起的工具，後端只替付費方案註冊裝置、送推播 */
 export const PUSH_MIN_PLAN: PlanId = 'plus';

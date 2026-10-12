@@ -237,6 +237,11 @@
   #__next {
     min-height: 100dvh;
   }
+  /* Radix 的 modal（抽屜、對話框）開著時 body 是 pointer-events: none，toast 會跟著點不到；
+     toast 本身要能點（例如「查看方案」），點到時抽屜也不會當成點外面（components/ui/sheet.tsx） */
+  [data-sonner-toast] {
+    pointer-events: auto;
+  }
   /* 中文標題：行長平均、避免行尾孤字；標點依嚴格規則換行 */
   h1,
   h2,

@@ -12,12 +12,30 @@ import { withDateRangeHint } from '@/lib/api/errorDetail';
 import { EmptyRangeActions } from '../EmptyRangeActions';
 import { MaPeriodSelector } from './MaPeriodSelector';
 import { HistoryTable, PriceChangeTable, StatisticsPanel, VolumeTable } from './PriceTables';
+import { CsvExportButton } from '@/components/common/ExportButtons';
+import { exportFileName, type CsvTable } from '@/lib/export/csv';
+import { DATA_SOURCES } from '@/lib/export/sources';
+import type { PriceChartData } from '@/lib/types/view';
+
+/** 匯出圖上的每一根 K 棒：開高低收、成交量（股）與目前選的均線 */
+function priceCsv(data: PriceChartData, activeMa: MaKey[], stockLabel: string, period: string | null): CsvTable {
+  const volume = new Map(data.volume.map((v) => [v.time, v.value]));
+  const ma = activeMa.map((key) => new Map(data.overlays[key].map((p) => [p.time, p.value])));
+  return {
+    title: `${stockLabel} 日 K 線`,
+    source: DATA_SOURCES.price,
+    period,
+    columns: ['日期', '開盤', '最高', '最低', '收盤', '成交量（股）', ...activeMa],
+    rows: data.candles.map((c) => [c.time, c.open, c.high, c.low, c.close, volume.get(c.time), ...ma.map((m) => m.get(c.time))]),
+    notes: ['價格未還原除權息。'],
+  };
+}
 
 /**
  * 「K 線與量能」抽屜內容：控制列 → K 線 → 量能／漲跌表 → 所選日期區間統計 → 歷史股價。
  * 頁面首屏已有框在圖廓裡的 K 線，這裡的圖只用一般邊框（一頁只有一個圖廓）。
  */
-export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }) {
+export function PricePanel({ dashboard, stockLabel = dashboard.symbol }: { dashboard: UseStockDashboardResult; /** 匯出檔的標題：「台積電 2330」 */ stockLabel?: string }) {
   const {
     priceChart,
     chartLoading,
@@ -74,6 +92,14 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
             {span ? <span data-plotted-span>K 線 {plottedSpanText(span)}</span> : chartLoading ? '載入中…' : '尚無資料日期'}
           </span>
         }
+        actions={
+          priceChart && !chartLoading ? (
+            <CsvExportButton
+              build={() => priceCsv(priceChart, activeMa, stockLabel, plottedSpanText(span))}
+              fileName={exportFileName([dashboard.symbol, '日K線', span?.last], 'csv')}
+            />
+          ) : null
+        }
       >
         <LedgerPanel>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -93,7 +119,13 @@ export function PricePanel({ dashboard }: { dashboard: UseStockDashboardResult }
           {chartLoading ? (
             <LoadingRows label="載入 K 線中…" className="h-[50dvh] max-h-[420px] min-h-[280px] border-y" />
           ) : priceChart ? (
-            <PriceChart data={priceChart} activeMa={activeMa} volumeInsight={volumeInsight} frame="plain" />
+            <PriceChart
+              data={priceChart}
+              activeMa={activeMa}
+              volumeInsight={volumeInsight}
+              frame="plain"
+              exportImage={{ title: `${stockLabel} 日 K 線與成交量`, source: DATA_SOURCES.price, period: plottedSpanText(span), fileName: exportFileName([dashboard.symbol, '日K線', span?.last], 'png') }}
+            />
           ) : chartError ? (
             // 錯誤已在上方說明一次（含重試）：這裡只放靜止說明，不把載入失敗說成「沒有資料」
             <p className="py-16 text-center text-[13px] text-muted-foreground">K 線暫時無法顯示，請用上方的「重試」重新載入。</p>

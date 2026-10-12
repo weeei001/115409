@@ -33,6 +33,13 @@ export const roundTo = (value: number, decimals: number): number => {
   return rounded === 0 ? 0 : rounded;
 };
 
+/** 帶正負號的整數計數（千分位）：餘額增減這類不是漲跌的數字，呼叫端不上漲跌色 */
+export function signedCount(value: number | null | undefined, fallback = '--'): string {
+  if (!isNum(value)) return fallback;
+  const rounded = Math.round(value);
+  return withSign(rounded, Math.abs(rounded).toLocaleString('zh-TW'));
+}
+
 /** 帶正負號的漲跌；負號用 U+2212，和數字等寬。百分比 signedText(v, 2, '%')、百分點 signedText(v, 2, ' 個百分點') */
 export function signedText(value: number | null | undefined, decimals = 2, suffix = ''): string {
   if (value == null || !Number.isFinite(value)) return '--';
