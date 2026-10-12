@@ -104,7 +104,7 @@ assert.match(adminScheduleState({ ...due, active_run_id: 7 }, [due], now), /正�
 assert.match(adminScheduleState({ ...due, queued_run_id: 8 }, [due], now), /已排入等待 #8/);
 assert.match(adminScheduleState(job, [job], now), /已暫停/);
 assert.match(adminScheduleState({ ...future, schedule: 'Manual', next_run_at: null }, [], now), /僅手動/);
-assert.match(adminScheduleState({ ...future, name: 'rag', next_run_at: null }, [], now), /等待資料工作/);
+assert.equal(adminScheduleState({ ...future, name: 'rag', next_run_at: null }, [], now), '尚無下次排程資訊');
 assert.match(adminScheduleState(future, [], now, 'stopped'), /排程器未運作/);
 const summaryMarkup = renderToStaticMarkup(<AdminJobs jobs={[{ ...due, result_summary: {
   history_scope: 'all_stored_runs', terminal_runs: 41, last_success: { ...run, id: 1, status: 'succeeded' },
@@ -145,15 +145,38 @@ assert.equal(adminRunScope({ job_name: 'text-brief', symbol: '2330' }), '股票 
 assert.equal(adminRunScope({ job_name: 'text-brief' }), '全部股票');
 assert.match(adminScheduleState({ ...job, active_run_id: 9 }, [job]), /正在執行 #9/);
 assert.match(adminScheduleState({ ...job, queued_run_id: 10 }, [{ ...job, active_run_id: 9 }]), /等待工作 #9 完成/);
-const brief = { ...job, name: 'text-brief', paused: false, schedule: 'After news indexing' };
+const brief = { ...job, name: 'text-brief', paused: false, schedule: 'Daily 22:30 Asia/Taipei' };
 const briefMarkup = renderToStaticMarkup(<AdminJobs jobs={[brief]} disabled={false} onAction={() => undefined} />);
 assert.match(briefMarkup, /label for="brief-symbol"/);
 assert.match(briefMarkup, /select id="brief-symbol" required=""/);
 // P2-145：無障礙名稱包含看得到的文字
 assert.match(briefMarkup, /disabled=""[^>]*aria-label="立即執行個股摘要"/);
-assert.match(briefMarkup, /新聞索引完成後自動執行/);
+assert.match(briefMarkup, /每日 22:30（台灣時間） · 全部支援股票/);
+assert.doesNotMatch(briefMarkup, /新聞索引完成後自動執行/);
 assert.match(briefMarkup, /暫停個股摘要排程/);
 assert.doesNotMatch(briefMarkup, /option[^>]*>全部股票/);
+const automaticJobs: AdminJob[] = [
+  { ...future, name: 'cnyes', schedule: 'Hourly :00 Asia/Taipei' },
+  { ...future, name: 'rag', schedule: 'Hourly :10 Asia/Taipei' },
+  { ...future, name: 'impact', schedule: 'Hourly :20 Asia/Taipei', paused: true },
+  { ...brief, next_run_at: future.next_run_at },
+];
+const automaticMarkup = renderToStaticMarkup(<AdminJobs jobs={automaticJobs} disabled={false} schedulerStatus="running" checkedAt={now} onAction={() => undefined} />);
+assert.match(automaticMarkup, /每小時整點（台灣時間）/);
+assert.match(automaticMarkup, /每小時 10 分（台灣時間）/);
+assert.match(automaticMarkup, /每小時 20 分（台灣時間）/);
+assert.equal((automaticMarkup.match(/ · 下次 /g) ?? []).length, 3, 'Paused jobs must not advertise a stale next-run time.');
+assert.match(automaticMarkup, /2026\/10\/1 21:30:00/);
+for (const label of ['暫停鉅亨新聞排程', '暫停新聞索引排程', '恢復新聞影響分析排程', '暫停個股摘要排程']) {
+  const control = renderedElements(automaticMarkup, 'button').find((button) => button.attribs['aria-label'] === label);
+  assert.ok(control, `Missing independent schedule control: ${label}`);
+  assert.equal(control.attribs.disabled, undefined, 'Schedule controls do not require selecting a stock.');
+}
+assert.doesNotMatch(automaticMarkup, /等待資料工作完成後安排|等待新聞索引完成後安排/);
+const stoppedAutomaticMarkup = renderToStaticMarkup(<AdminJobs jobs={automaticJobs} disabled={true} schedulerStatus="stopped" onAction={() => undefined} />);
+assert.doesNotMatch(stoppedAutomaticMarkup, / · 下次 /);
+assert.match(stoppedAutomaticMarkup, /排程器未運作/);
+assert.match(stoppedAutomaticMarkup, /disabled=""[^>]*aria-label="暫停鉅亨新聞排程"/);
 const liveMarkup = renderToStaticMarkup(<AdminJobs jobs={[{ ...brief, active_run_id: 7, active_run: {
   ...run, job_name: 'text-brief', symbol: '2330', status: 'running', duration_seconds: 3744,
   diagnostics: { run_id: 7, error_category: null, failed_stages: [], stage: 'cache-warmup', stage_started_at: now,
