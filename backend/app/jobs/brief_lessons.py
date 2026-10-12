@@ -17,7 +17,7 @@ LOOKBACK_DAYS = 180
 
 
 def _snapshots(db, symbols: set[str] | None, since: date) -> list[dict]:
-    snapshots = tr._latest_live(repository.track_record_snapshots(db, symbol=None, since=since))
+    snapshots = tr._latest_snapshots(repository.track_record_snapshots(db, symbol=None, since=since))
     return [item for item in snapshots if symbols is None or item["symbol"] in symbols]
 
 
