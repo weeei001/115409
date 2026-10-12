@@ -7,6 +7,26 @@ import { sortMetricsRows, type CompareSortState } from '@/lib/utils/compare';
 import { fmtAmount, fmtPercent, fmtVolume, uMinus } from '@/lib/utils/format';
 import { valueToneText } from '@/lib/utils/tone';
 import { cn } from '@/lib/cn';
+import { CsvExportButton } from '@/components/common/ExportButtons';
+import { exportFileName, type CsvTable } from '@/lib/export/csv';
+import { DATA_SOURCES } from '@/lib/export/sources';
+
+const round2 = (value: number | null) => (value == null || !Number.isFinite(value) ? null : Number(value.toFixed(2)));
+
+/** 依目前的排序匯出；平均量照原始單位（股） */
+function metricsCsv(rows: CompareMetricsRow[], period: { startDate: string; endDate: string } | null, benchmarkReturnPct: number | null): CsvTable {
+  return {
+    title: '多股比較指標',
+    source: `${DATA_SOURCES.price}（股海明燈計算）`,
+    period: period ? `${period.startDate} → ${period.endDate}` : null,
+    columns: ['股票', '區間漲跌幅（%）', '年化波動（%）', '最大回撤（%）', '上漲日比例（%）', '最大單日漲（%）', '最大單日跌（%）', '平均量（股）', '平均成交值（元）'],
+    rows: rows.map((r) => [r.symbol, round2(r.totalReturnPct), round2(r.volatilityPct), round2(r.maxDrawdownPct), round2(r.winRatePct), round2(r.maxDailyGainPct), round2(r.maxDailyLossPct), r.avgVolume == null ? null : Math.round(r.avgVolume), r.avgAmount == null ? null : Math.round(r.avgAmount)]),
+    notes: [
+      '以共同起訖日的未還原收盤價計算，不含息。年化波動＝有效日漲跌幅的樣本標準差 × √252。',
+      ...(benchmarkReturnPct != null ? [`同期加權指數漲跌幅 ${benchmarkReturnPct.toFixed(2)}%。`] : []),
+    ],
+  };
+}
 
 const HEADERS: Array<{ key: keyof CompareMetricsRow; label: string; title?: string }> = [
   { key: 'symbol', label: '股票' },
@@ -104,7 +124,18 @@ export function MetricsTable({
   };
 
   return (
-    <Ledger data-tour="compare-metrics" title="比較指標表" aria-label="股票比較指標表" stamp="粗底線＝本欄較佳">
+    <Ledger
+      data-tour="compare-metrics"
+      title="比較指標表"
+      aria-label="股票比較指標表"
+      stamp="粗底線＝本欄較佳"
+      actions={
+        <CsvExportButton
+          build={() => metricsCsv(sorted, period, benchmarkReturnPct)}
+          fileName={exportFileName([rows.map((r) => r.symbol).join('-'), '多股比較指標', period?.endDate], 'csv')}
+        />
+      }
+    >
       <LedgerPanel padded={false}>
         {/* 表的圖說：區間漲跌幅等欄位的實際期間，只在這裡寫一次 */}
         <div className="flex items-baseline gap-2 px-4 pt-3 sm:px-5">

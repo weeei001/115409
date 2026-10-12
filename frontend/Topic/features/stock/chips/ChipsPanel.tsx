@@ -23,6 +23,9 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/cn';
+import { CsvExportButton } from '@/components/common/ExportButtons';
+import { exportFileName, type CsvTable, type ExportMeta } from '@/lib/export/csv';
+import { DATA_SOURCES } from '@/lib/export/sources';
 import { EmptyRangeActions, type EmptyRangeActionsProps as EmptyActions } from '../EmptyRangeActions';
 
 /** 這一塊的資料請求失敗：錯誤＋重試，不寫成「沒有資料」 */
@@ -111,7 +114,20 @@ function LatestCard({ latest, actions }: { latest: InstitutionalDay | null; acti
 /** 歷史明細表列出的列：由新到舊最多 30 筆 */
 const historyRows = (all: InstitutionalDay[]) => [...all].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
 
-function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
+/** 匯出整段期間的法人明細（股數照原始單位：股） */
+function institutionalCsv(all: InstitutionalDay[], stockLabel: string): CsvTable {
+  const sorted = [...all].sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    title: `${stockLabel} 三大法人買賣超`,
+    source: DATA_SOURCES.institutional,
+    period: plottedSpanText(plottedSpan(sorted.map((r) => r.date))),
+    columns: ['日期', '外資買進（股）', '外資賣出（股）', '外資買賣超（股）', '投信買進（股）', '投信賣出（股）', '投信買賣超（股）', '自營買進（股）', '自營賣出（股）', '自營買賣超（股）', '三大法人買賣超（股）'],
+    rows: sorted.map((r) => [r.date, r.foreign_buy, r.foreign_sell, r.foreign_net, r.investment_trust_buy, r.investment_trust_sell, r.investment_trust_net, r.dealer_buy, r.dealer_sell, r.dealer_net, r.total_institutional_net]),
+    notes: ['外資不含外資自營商；單位為股（1 張＝1,000 股）。'],
+  };
+}
+
+function HistoryTable({ rows: all, exportTo }: { rows: InstitutionalDay[]; exportTo: { stockLabel: string; symbol: string } }) {
   const [mode, setMode] = useState<'net' | 'detail'>('net');
   const rows = historyRows(all);
   const hasBuySell = rows.some((r) => r.foreign_buy != null || r.foreign_sell != null);
@@ -122,8 +138,17 @@ function HistoryTable({ rows: all }: { rows: InstitutionalDay[] }) {
   // 「歷史明細」分頁直接是表格，不再收合：抽屜 → 分頁 → 展開要三層（04-S6）
   return (
     <section aria-label="法人歷史明細" className="space-y-2">
-      <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">法人歷史明細</h3>
-      <p className="text-[13px] leading-relaxed text-muted-foreground">外資、投信、自營每日買賣超；單位 張</p>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div>
+          <h3 className="text-[13px] font-medium tracking-[0.04em] text-muted-foreground">法人歷史明細</h3>
+          <p className="text-[13px] leading-relaxed text-muted-foreground">外資、投信、自營每日買賣超；單位 張</p>
+        </div>
+        <CsvExportButton
+          label="匯出整段期間 CSV"
+          build={() => institutionalCsv(all, exportTo.stockLabel)}
+          fileName={exportFileName([exportTo.symbol, '三大法人', rows[0]?.date], 'csv')}
+        />
+      </div>
       {hasBuySell ? (
         <ToggleGroup type="single" variant="square" spacing={1} value={mode} onValueChange={(v) => v && setMode(v as 'net' | 'detail')} className="mb-2" aria-label="明細檢視方式">
           <ToggleGroupItem value="net" className="text-xs">
@@ -218,7 +243,7 @@ const TABS = [
   { key: 'history', label: '歷史明細', description: '逐日明細（由新到舊）· 單位 張' },
 ] as const;
 
-function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chipsVolumeError, actions }: {
+function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chipsVolumeError, actions, exportTo }: {
   rows: InstitutionalDay[] | null;
   latest: InstitutionalDay | null;
   chipsVolume: ChipsVolumeData[] | null;
@@ -228,6 +253,7 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chi
   /** /volume-with-chips 失敗（量價籌碼） */
   chipsVolumeError: string | null;
   actions: EmptyActions;
+  exportTo: { stockLabel: string; symbol: string };
 }) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -252,6 +278,12 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chi
             ? plottedSpanText(historySpan)
             : null;
 
+  const image = (name: string, title: string, period: string | null): ExportMeta & { fileName: string } => ({
+    title: `${exportTo.stockLabel} ${title}`,
+    source: DATA_SOURCES.institutional,
+    period,
+    fileName: exportFileName([exportTo.symbol, name, flowSpan?.last ?? chipsSpan?.last], 'png'),
+  });
   const body = (key: string) => {
     if (loading && key !== 'today') return <LoadingRows className="h-[300px] border-y" />;
     const empty = (text: string) => <EmptyState action={<EmptyRangeActions {...actions} />}>{text}</EmptyState>;
@@ -260,15 +292,15 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chi
     switch (key) {
       case 'flow':
         // 只用 ECharts 內建的可點圖例
-        return flow ? <EChart title="三大法人每日買賣超（張）" option={flow} height={280} /> : empty('尚無法人買賣超資料');
+        return flow ? <EChart title="三大法人每日買賣超（張）" option={flow} height={280} exportImage={image('法人每日買賣超', '三大法人每日買賣超（張）', plottedSpanText(flowSpan))} /> : empty('尚無法人買賣超資料');
       case 'cumulative':
-        return cumulative ? <EChart title="法人累積買賣超（張）" option={cumulative} height={260} /> : empty('尚無累積買賣超資料');
+        return cumulative ? <EChart title="法人累積買賣超（張）" option={cumulative} height={260} exportImage={image('法人累積買賣超', '法人累積買賣超（張）', plottedSpanText(flowSpan))} /> : empty('尚無累積買賣超資料');
       case 'chips':
-        return chips ? <EChart title="股價與法人合計" option={chips} height={300} /> : empty('尚無價量籌碼整合資料');
+        return chips ? <EChart title="股價與法人合計" option={chips} height={300} exportImage={image('量價籌碼', '股價與法人合計', plottedSpanText(chipsSpan))} /> : empty('尚無價量籌碼整合資料');
       case 'today':
         return <LatestCard latest={latest} actions={actions} />;
       default:
-        return rows?.length ? <HistoryTable rows={rows} /> : empty('尚無法人歷史明細');
+        return rows?.length ? <HistoryTable rows={rows} exportTo={exportTo} /> : empty('尚無法人歷史明細');
     }
   };
 
@@ -303,7 +335,7 @@ function ChipsTabs({ rows, latest, chipsVolume, loading, institutionalError, chi
 }
 
 /** 「籌碼明細」抽屜內容 */
-export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }) {
+export function ChipsPanel({ dashboard, stockLabel = dashboard.symbol }: { dashboard: UseStockDashboardResult; /** 匯出檔的標題：「台積電 2330」 */ stockLabel?: string }) {
   const { institutionalError, chipsVolumeError, reloadChips, chipsLoading, institutional, institutionalLatest, chipsVolume, widenDateRange } = dashboard;
   const actions: EmptyActions = { onRetry: reloadChips, onWidenRange: widenDateRange };
   // 錯誤寫在失敗的那一塊（法人或量價籌碼），另一支成功的照常顯示
@@ -337,6 +369,7 @@ export function ChipsPanel({ dashboard }: { dashboard: UseStockDashboardResult }
             institutionalError={institutionalError}
             chipsVolumeError={chipsVolumeError}
             actions={actions}
+            exportTo={{ stockLabel, symbol: dashboard.symbol }}
           />
         </LedgerPanel>
       </Ledger>

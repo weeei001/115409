@@ -191,6 +191,110 @@ export interface ChipsVolumeChartResponse {
   data: ChipsVolumeData[];
 }
 
+// ── 基本面、信用交易與持股（/stocks/{symbol}/fundamentals/*、/chips/*） ──
+
+/** openapi: ListResponse[...]（基本面與 chips 端點共用的外層） */
+export interface StockListResponse<T> {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  total: number;
+  data: T[];
+}
+
+export interface MonthlyRevenueResponse {
+  date: string;
+  symbol: string;
+  country: string | null;
+  /** 元 */
+  revenue: number | null;
+  revenue_month: number | null;
+  revenue_year: number | null;
+  /** 公布時間 */
+  create_time: string | null;
+}
+
+export interface StockValuationResponse {
+  date: string;
+  symbol: string;
+  dividend_yield: string | null;
+  per: string | null;
+  pbr: string | null;
+}
+
+export type FinancialStatementKind = 'income' | 'balance' | 'cashflow';
+
+export interface FinancialStatementRowResponse {
+  date: string;
+  symbol: string;
+  statement: string;
+  item_type: string;
+  origin_name: string;
+  value: string | null;
+}
+
+export interface DividendResultResponse {
+  date: string;
+  symbol: string;
+  before_price: string | null;
+  after_price: string | null;
+  stock_and_cash_dividend: string | null;
+  /** 「權」「息」或「權息」 */
+  stock_or_cash_dividend: string | null;
+  max_price: string | null;
+  min_price: string | null;
+  open_price: string | null;
+  reference_price: string | null;
+}
+
+/** 單位是張（交易所公布的原始單位，backend app/jobs/market/margin.py） */
+export interface MarginTradeResponse {
+  date: string;
+  symbol: string;
+  margin_purchase_buy: number | null;
+  margin_purchase_cash_repayment: number | null;
+  margin_purchase_limit: number | null;
+  margin_purchase_sell: number | null;
+  margin_purchase_today_balance: number | null;
+  margin_purchase_yesterday_balance: number | null;
+  note: string | null;
+  offset_loan_and_short: number | null;
+  short_sale_buy: number | null;
+  short_sale_cash_repayment: number | null;
+  short_sale_limit: number | null;
+  short_sale_sell: number | null;
+  short_sale_today_balance: number | null;
+  short_sale_yesterday_balance: number | null;
+}
+
+/** 股數欄位單位是股；比例是百分比字串 */
+export interface ForeignShareholdingResponse {
+  date: string;
+  symbol: string;
+  stock_name: string | null;
+  international_code: string | null;
+  foreign_investment_remaining_shares: number | null;
+  foreign_investment_shares: number | null;
+  foreign_investment_remain_ratio: string | null;
+  foreign_investment_shares_ratio: string | null;
+  foreign_investment_upper_limit_ratio: string | null;
+  chinese_investment_upper_limit_ratio: string | null;
+  number_of_shares_issued: number | null;
+  recently_declare_date: string | null;
+  note: string | null;
+}
+
+/** 集保每週股權分散：level 是持股股數級距（例如「1,000,001以上」），另有「合計」「差異數調整」列 */
+export interface HoldingShareLevelResponse {
+  date: string;
+  symbol: string;
+  holding_shares_level: string;
+  people: number | null;
+  percent: string | null;
+  /** 股 */
+  unit: number | null;
+}
+
 // ── News ──
 
 export type NewsImpactDirection = 'positive' | 'negative' | 'neutral' | 'mixed' | 'uncertain';

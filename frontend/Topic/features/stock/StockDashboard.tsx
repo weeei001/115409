@@ -4,6 +4,9 @@ import { parseStockNewsView, stockNewsViewHref, STOCK_NEWS_VIEW_PARAM } from '@/
 import { useDrawerHistory } from '@/lib/navigation/drawerHistory';
 import type { UseStockDashboardResult } from '@/lib/hooks/useStockDashboard';
 import { useStockTextBrief } from '@/lib/hooks/useStockTextBrief';
+import { useStockFundamentals } from '@/lib/hooks/useStockFundamentals';
+import { useStockHoldings } from '@/lib/hooks/useStockHoldings';
+import { stockExportLabel } from '@/lib/export/sources';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, NextStep, type LightState } from '@/components/common/Ledger';
 import { AIBriefSummaryCard } from '@/features/brief/AIBriefSummaryCard';
@@ -15,12 +18,15 @@ import { DetailDrawer } from './DetailDrawer';
 import { LatestInstitutionalCard } from './cards/LatestInstitutionalCard';
 import { IndicatorSignalsCard } from './cards/IndicatorSignalsCard';
 import { TopNewsCard } from './cards/TopNewsCard';
+import { HoldingsCard, RevenueProfitCard, ValuationDividendCard } from './cards/FundamentalsCards';
+import { FundamentalsPanel } from './fundamentals/FundamentalsPanel';
+import { HoldingsPanel } from './holdings/HoldingsPanel';
 import { PricePanel } from './price/PricePanel';
 import { ChipsPanel } from './chips/ChipsPanel';
 import { IndicatorsPanel } from './indicators/IndicatorsPanel';
 import { StockNewsPanel } from './StockNewsPanel';
 
-type DrawerKey = 'chart' | 'institutional' | 'indicators' | 'ai' | 'news';
+type DrawerKey = 'chart' | 'institutional' | 'holdings' | 'fundamentals' | 'indicators' | 'ai' | 'news';
 
 interface Props {
   dashboard: UseStockDashboardResult;
@@ -38,6 +44,10 @@ export function StockDashboard({ dashboard, stockName }: Props) {
   const indicatorsState: LightState = chipsLoading ? 'loading' : dashboard.indicatorsError ? 'error' : 'ready';
   // The latest analysis cutoff is independent of the last trading day.
   const textBrief = useStockTextBrief({ symbol });
+  // 基本面以資料最後一天往前推固定期間；信用交易與持股和法人一樣跟著頁面的日期區間
+  const fundamentals = useStockFundamentals(symbol, baseDate);
+  const holdings = useStockHoldings(symbol, dashboard.startDate, dashboard.endDate, !loading && Boolean(latest));
+  const stockLabel = stockExportLabel(symbol, stockName);
 
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   const newsView = parseStockNewsView(router.query[STOCK_NEWS_VIEW_PARAM], symbol);
@@ -103,6 +113,15 @@ export function StockDashboard({ dashboard, stockName }: Props) {
         </Ledger>
       </AnimatedSection>
 
+      {/* 帳頁：基本面兩格、信用交易與持股一格；手機單欄 */}
+      <AnimatedSection delay={0.05}>
+        <Ledger data-tour="stock-fundamentals" title="基本面與持股" stamp="官方公布資料" cols="grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+          <RevenueProfitCard data={fundamentals} onOpenDetail={() => setDrawer('fundamentals')} />
+          <ValuationDividendCard data={fundamentals} onOpenDetail={() => setDrawer('fundamentals')} />
+          <HoldingsCard data={holdings} onOpenDetail={() => setDrawer('holdings')} />
+        </Ledger>
+      </AnimatedSection>
+
       <AnimatedSection delay={0.06}>
         <AIBriefSummaryCard
           symbol={symbol}
@@ -128,10 +147,21 @@ export function StockDashboard({ dashboard, stockName }: Props) {
 
       {/* 抽屜標題和開啟它的按鈕用同一組字（05、04 一致性表） */}
       <DetailDrawer open={drawer === 'chart'} onClose={close} title="K 線與量能" subtitle={subtitle}>
-        <PricePanel dashboard={dashboard} />
+        <PricePanel dashboard={dashboard} stockLabel={stockLabel} />
       </DetailDrawer>
       <DetailDrawer open={drawer === 'institutional'} onClose={close} title="籌碼明細" subtitle="三大法人買賣超與量價籌碼">
-        <ChipsPanel dashboard={dashboard} />
+        <ChipsPanel dashboard={dashboard} stockLabel={stockLabel} />
+      </DetailDrawer>
+      <DetailDrawer open={drawer === 'holdings'} onClose={close} title="信用交易與持股" subtitle="融資融券、外資持股、集保股權分散">
+        <HoldingsPanel
+          symbol={symbol}
+          stockLabel={stockLabel}
+          data={holdings}
+          actions={{ onRetry: holdings.reload, onWidenRange: dashboard.widenDateRange }}
+        />
+      </DetailDrawer>
+      <DetailDrawer open={drawer === 'fundamentals'} onClose={close} title="基本面明細" subtitle="月營收、季度獲利、財務體質、估值、股利">
+        <FundamentalsPanel symbol={symbol} stockLabel={stockLabel} data={fundamentals} />
       </DetailDrawer>
       <DetailDrawer open={drawer === 'indicators'} onClose={close} title="技術指標明細" subtitle="RSI、MACD、KD、布林通道">
         <IndicatorsPanel
@@ -140,6 +170,8 @@ export function StockDashboard({ dashboard, stockName }: Props) {
           error={dashboard.indicatorsError}
           onRetry={dashboard.reloadChips}
           onWidenRange={dashboard.widenDateRange}
+          symbol={symbol}
+          stockLabel={stockLabel}
         />
       </DetailDrawer>
       <DetailDrawer open={drawer === 'ai'} onClose={close} title="AI 投資分析" subtitle="判斷、引用依據與分析限制">
