@@ -29,15 +29,45 @@ class IngestionReport:
     failed: int = 0
     retries: int = 0
     errors: list[str] = field(default_factory=list)
+    failure_reasons: dict[str, int] = field(default_factory=dict)
 
     def fail(self, identifier: str, reason: str, count: int = 1):
         self.failed += count
+        code = indexing_failure_code(reason)
+        self.failure_reasons[code] = self.failure_reasons.get(code, 0) + count
         # ponytail: retain 20 diagnostic samples; use a job log for full bulk diagnostics.
         if len(self.errors) < 20:
             self.errors.append(f"{identifier}: {reason}")
 
     def as_dict(self):
         return asdict(self)
+
+
+def indexing_failure_code(reason: str) -> str:
+    """Map controlled worker messages to public codes, never exception content."""
+    if reason in {
+        "index_configuration_changed_use_new_index_version",
+        "Select an explicit index version and a new collection for v1 ingestion",
+        "News indexing requires EMBED_TRUNCATE=NONE to preserve evidence",
+        "Qdrant collection does not exist; use --create-collection explicitly",
+        "Qdrant collection must have one unnamed dense Cosine vector",
+        "Collection contains a different model or indexing configuration; use a new collection",
+        "Embedding dimension does not match the existing Qdrant collection",
+    }:
+        return "indexing_configuration"
+    if reason in {"invalid_pub_time", "empty_content", "empty_content_preserved_previous_revision",
+                  "Embedding input is empty or exceeds the safe token bound"}:
+        return "indexing_content"
+    if reason in {"OperationalError", "ProgrammingError", "IntegrityError", "DBAPIError", "SQLAlchemyError"}:
+        return "indexing_storage"
+    if reason in {"Article vector publication is incomplete", "Vector database operation was not confirmed completed",
+                  "Replacement article is incomplete; old vectors were retained"}:
+        return "indexing_incomplete"
+    if reason in {"ServiceUnavailable", "Vector database request failed", "Vector database timed out",
+                  "Embedding service unavailable", "Embedding service timed out", "Invalid embedding response",
+                  "Invalid vector database scroll response", "Invalid vector database count response"}:
+        return "indexing_service"
+    return "worker_exception"
 
 
 def failure_reason(exc: Exception) -> str:

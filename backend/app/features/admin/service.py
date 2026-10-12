@@ -228,13 +228,14 @@ def overview(db: Session, runtime, environment: str) -> dict:
                 "jobs": snapshot["jobs"], "recent_runs": []}
     jobs = []
     for job in snapshot["jobs"]:
-        succeeded, failed, streak, total = repository.job_results(db, job["name"])
+        succeeded, failed, streak, total, last_run = repository.job_results(db, job["name"])
         active = repository.run_by_id(db, job["active_run_id"]) if job.get("active_run_id") else None
         queued = repository.run_by_id(db, job["queued_run_id"]) if job.get("queued_run_id") else None
         live = snapshot.get("run_activity", {}).get(job["name"])
         jobs.append({**job, "active_run": public_run(active, live) if active else None,
             "queued_run": public_run(queued) if queued else None, "result_summary": {"history_scope": "all_stored_runs", "terminal_runs": total,
             "last_success": public_run(succeeded) if succeeded else None,
+            "last_run": public_run(last_run) if last_run else None,
             "last_failure": public_run(failed) if failed else None, "consecutive_failed": streak}})
     return {"environment": environment, "checked_at": datetime.now(timezone.utc), "services": services,
             "scheduler": {key: snapshot.get(key) for key in ("status", "heartbeat", "error")},

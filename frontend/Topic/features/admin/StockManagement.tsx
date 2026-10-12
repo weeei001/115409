@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FoldSection } from '@/components/common/CollapsibleSection';
 import { Button } from '@/components/ui/button';
 import { Ledger } from '@/components/common/Ledger';
 import { Input } from '@/components/ui/input';
@@ -34,24 +35,24 @@ export function StockManagement({ checkedAt, disabled, backfillJob, schedulerRun
   return <Ledger aria-labelledby="stocks-heading" title={<span id="stocks-heading">股票管理</span>}>
     <div className="min-w-0 bg-card">
     <div className="space-y-2 border-b p-4 sm:p-5">
-      <p className="text-sm text-muted-foreground">從公司目錄加入股票，後續行情更新會一併處理。加入後可手動回補近兩年的開高低收、成交量、估值、技術指標與法人資料。</p>
-      <p className="text-xs text-muted-foreground">直接使用證交所與櫃買中心的歷史資料，並重新計算技術指標；新上市股票可能不足兩年。財報、月營收、融資融券、外資持股與集保分布依官方更新流程取得，不保證補齊兩年歷史。</p>
-      <Button variant="outline" onClick={onViewRuns}>查看回補進度與執行紀錄</Button>
+      <p className="text-sm text-muted-foreground">加入股票後自動更新行情，也可回補近兩年市場資料。</p>
+      <FoldSection title="回補範圍" contentClassName="p-4 text-sm leading-relaxed text-muted-foreground"><p>回補開高低收、成交量、估值、技術指標與法人資料。直接使用證交所與櫃買中心的歷史資料，並重新計算技術指標；新上市股票可能不足兩年。財報、月營收、融資融券、外資持股與集保分布依官方更新流程取得，不保證補齊兩年歷史。</p></FoldSection>
+      <Button variant="outline" onClick={onViewRuns}>查看回補進度</Button>
     </div>
     <div className="space-y-3 p-4 sm:p-5">
       <label htmlFor="stock-catalog-query" className="block text-sm font-medium">搜尋股票代碼或公司名稱</label>
       <Input id="stock-catalog-query" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：2330 或台積電" maxLength={100} className="min-h-11" />
-      {!canBackfill ? <p className="text-xs text-muted-foreground">{!schedulerRunning ? '排程器未運作，目前可加入股票，恢復後即可回補。' : '回補工作執行中、已排入等待，或尚未就緒；完成後即可提交下一檔。'}</p> : null}
-      {!catalogAvailable && !loading ? <Notice tone="warning">公司目錄尚未備妥，請先至工作與執行紀錄執行行情更新，再重新載入。現有股票仍可回補。</Notice> : null}
+      {!canBackfill ? <p className="text-sm text-muted-foreground">{!schedulerRunning ? '排程器未運作，目前可加入股票，恢復後即可回補。' : '回補工作執行中、已排入等待，或尚未就緒；完成後即可提交下一檔。'}</p> : null}
+      {!catalogAvailable && !loading ? <Notice tone="warning">公司目錄尚未備妥，請先至工作排程執行行情更新，再重新載入。現有股票仍可回補。</Notice> : null}
       {/* 載入失敗是錯誤（danger，Notice 自帶 role="alert"），不是警告 */}
       {error ? <Notice tone="danger" action={<Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((value) => value + 1)}>重新載入</Button>}>{error}</Notice> : null}
     </div>
     <div aria-busy={loading}>
       {loading ? <p role="status" className="px-4 pb-4 text-sm text-muted-foreground">載入股票目錄中…</p> : null}
       {!error ? <>
-        <p role="status" className="px-4 pb-3 text-xs text-muted-foreground">共 {stocks.length} 檔，已加入 {stocks.filter((stock) => stock.supported).length} 檔</p>
+        <p role="status" className="px-4 pb-3 text-sm text-muted-foreground">共 {stocks.length} 檔，已加入 {stocks.filter((stock) => stock.supported).length} 檔</p>
         <ul className="max-h-[36rem] divide-y overflow-y-auto border-t">{stocks.map((stock) => <li key={stock.symbol} className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5">
-          <div><p className="text-sm font-medium">{stock.symbol} {stock.name}</p><p className="mt-1 text-xs text-muted-foreground">{[stock.market, stock.industry, stock.supported ? '已加入' : '尚未加入'].filter(Boolean).join(' · ')}</p></div>
+          <div><p className="text-sm font-medium">{stock.symbol} {stock.name}</p><p className="mt-1 text-sm text-muted-foreground">{[stock.market, stock.industry, stock.supported ? '已加入' : '尚未加入'].filter(Boolean).join(' · ')}</p></div>
           {stock.supported ? <Button variant="outline" className="min-h-11" disabled={disabled || !canBackfill} aria-label={`回補 ${stock.symbol} ${stock.name} 近兩年市場資料`} onClick={() => onBackfill(stock)}>回補近兩年</Button>
             // 每一列都有一顆：用 outline，不用燈色主要按鈕（一個畫面只放一顆，DESIGN.md 第 6 節）
             : <Button variant="outline" className="min-h-11" disabled={disabled} aria-label={`加入 ${stock.symbol} ${stock.name}`} onClick={() => onAdd(stock)}>加入股票</Button>}

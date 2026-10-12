@@ -252,12 +252,21 @@ def test_job_summary_uses_all_retained_history_and_never_confuses_liveness(db_se
     db_session.commit()
     summary = service.overview(db_session, FakeRuntime(), "development")["jobs"][0]["result_summary"]
     assert summary["consecutive_failed"] == 1 and summary["terminal_runs"] == 43
+    assert summary["last_run"]["status"] == "failed"
+    interrupted = AdminJobRun(job_name="sample", status="interrupted", trigger="scheduled", finished_at=now,
+        error="Service stopped before this run completed")
+    db_session.add(interrupted)
+    db_session.commit()
+    summary = service.overview(db_session, FakeRuntime(), "development")["jobs"][0]["result_summary"]
+    assert summary["last_run"]["id"] == interrupted.id
+    assert summary["last_run"]["status"] == "interrupted"
+    assert summary["last_failure"]["id"] != interrupted.id
     runtime = FakeRuntime()
     runtime.snapshot = lambda: {"status": "running", "heartbeat": None, "error": None,
         "jobs": [{"name": "empty", "schedule": "Manual", "paused": False, "next_run_at": None, "active_run_id": None}]}
     empty = service.overview(db_session, runtime, "development")["jobs"][0]["result_summary"]
     assert empty == {"history_scope": "all_stored_runs", "terminal_runs": 0,
-                     "last_success": None, "last_failure": None, "consecutive_failed": 0}
+                     "last_success": None, "last_failure": None, "last_run": None, "consecutive_failed": 0}
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "succeeded", "failed", "interrupted"])

@@ -25,9 +25,10 @@ from app.jobs.scheduler import ROOT, TAIPEI, Scheduler, next_daily, run_pipeline
 JOBS = {
     "pipeline": "Market to AI pipeline",
     "market": "Market data", "cnyes": "Cnyes news", "ltn": "Liberty Times news",
-    "rag": "News indexing and analysis", "impact": "Event analysis", "text-brief": "Brief warmup",
+    "rag": "News indexing", "impact": "Event analysis", "text-brief": "Brief warmup",
     "stock-backfill": "Stock market history",
 }
+RETIRED_JOBS = frozenset({"pipeline", "all", "ltn"})
 logger = logging.getLogger(__name__)
 
 
@@ -88,7 +89,7 @@ class JobRuntime:
 
     def _enabled(self, name):
         with self.lock:
-            return not self.stop_event.is_set() and name not in self.paused
+            return name not in RETIRED_JOBS and not self.stop_event.is_set() and name not in self.paused
 
     def _loop(self):
         # ponytail: one owner per environment; use one ASGI worker for direct job controls.
@@ -103,13 +104,12 @@ class JobRuntime:
                                         AdminJobRun.status.in_(["queued", "running"]))):
                                     run.status, run.finished_at = "interrupted", utcnow()
                                     run.error = "Service restarted before this run completed"
-                                if db.get(AdminJobControl, "pipeline") is None:
-                                    legacy_paused = db.scalar(select(AdminJobControl.job_name).where(
-                                        AdminJobControl.job_name.in_(["market", "rag", "text-brief"]),
-                                        AdminJobControl.paused.is_(True)).limit(1)) is not None
-                                    db.add(AdminJobControl(job_name="pipeline", paused=legacy_paused))
-                                if db.get(AdminJobControl, "ltn") is None:
-                                    db.add(AdminJobControl(job_name="ltn", paused=True))
+                                for retired in RETIRED_JOBS:
+                                    control = db.get(AdminJobControl, retired)
+                                    if control is None:
+                                        db.add(AdminJobControl(job_name=retired, paused=True))
+                                    else:
+                                        control.paused = True
                                 db.commit()
                                 initialized = True
                             else:
@@ -127,14 +127,11 @@ class JobRuntime:
                             self.pending = {row.job_name: row.id for row in queued_runs}
                             queued = queued_runs[0] if queued_runs else None
                             queued_id = queued.id if queued else None
-                            queued_name = queued.job_name if queued else None
                             self.status, self.error = "running", None
                             self.heartbeat = datetime.now(timezone.utc).isoformat()
                         self._notification_tick()
                         if queued_id is not None:
                             self._execute(queued_id)
-                            if queued_name == "pipeline":
-                                self.scheduler.next_market = next_daily(datetime.now(TAIPEI), self.scheduler.market_at)
                         else:
                             self.scheduler.tick(datetime.now(TAIPEI))
                     except SQLAlchemyError:
@@ -197,6 +194,12 @@ class JobRuntime:
             if row is None or row.status != "queued" or self.stop_event.is_set():
                 return 1
             name, symbol = row.job_name, row.symbol
+            if name in RETIRED_JOBS:
+                row.status, row.finished_at = "interrupted", utcnow()
+                row.error = "Job retired before this run started"
+                db.commit()
+                self.pending.pop(name, None)
+                return 1
             row.status, row.started_at = "running", utcnow()
             db.commit()
             self.active[name] = run_id
@@ -282,6 +285,8 @@ class JobRuntime:
             raise NotFound("Unknown job")
         if action not in {"run", "retry", "pause", "resume"}:
             raise AppError("Unknown job action", 422)
+        if job_name in RETIRED_JOBS and action != "pause":
+            raise AppError("Job has been retired", 422)
         if action == "retry" and run_id is None or action != "retry" and run_id is not None:
             raise AppError("A run_id is required only for retry", 422)
         if symbol is not None:
@@ -289,8 +294,8 @@ class JobRuntime:
                 raise AppError("A symbol is supported only for text-brief or stock-backfill run", 422)
             if db.get(StockInfo, symbol) is None:
                 raise NotFound("Stock not found")
-        if action in {"pause", "resume"} and job_name not in {"pipeline", "cnyes", "ltn"}:
-            raise AppError("Only the pipeline and its news sources can be paused", 422)
+        if action in {"pause", "resume"} and job_name not in RETIRED_JOBS:
+            raise AppError("Independent jobs run manually and cannot be paused", 422)
         if job_name == "stock-backfill":
             if action == "run" and symbol is None:
                 raise AppError("Stock backfill requires a symbol", 422)
@@ -329,7 +334,8 @@ class JobRuntime:
             if action == "pause":
                 self.paused.add(job_name)
             elif action == "resume":
-                self.paused.discard(job_name)
+                if job_name not in RETIRED_JOBS:
+                    self.paused.discard(job_name)
             elif action in {"run", "retry"}:
                 self.pending[job_name] = run_id
 
@@ -337,14 +343,13 @@ class JobRuntime:
         with self.lock:
             jobs = []
             for name, label in JOBS.items():
+                if name in RETIRED_JOBS:
+                    continue
                 next_at = None
                 schedule = "Manual"
-                if name == "pipeline":
-                    next_at, schedule = self.scheduler.next_market, f"Daily {self.settings.JOBS_MARKET_TIME:%H:%M} Asia/Taipei"
-                elif name in {"cnyes", "ltn"}:
-                    schedule = "Pipeline source"
                 jobs.append({"name": name, "label": label, "schedule": schedule,
-                    "paused": name in self.paused,
+                    "retired": name == "ltn",
+                    "paused": False,
                     "next_run_at": (next_at.isoformat() if next_at and self.status == "running"
                         and name not in self.paused and name not in self.active and name not in self.pending else None),
                     "active_run_id": self.active.get(name), "queued_run_id": self.pending.get(name)})

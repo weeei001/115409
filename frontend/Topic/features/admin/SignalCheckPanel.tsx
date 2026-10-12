@@ -24,7 +24,7 @@ function PeriodCell({ stats, compare }: { stats: SignalPeriodStats; compare: boo
   if (!stats.events) return <p className="text-sm text-muted-foreground">沒有事件</p>;
   const thin = thinReason(stats);
   return (
-    <div className={cn('space-y-0.5 text-[13px] leading-relaxed', thin && 'text-muted-foreground')}>
+    <div className={cn('space-y-0.5 text-sm leading-relaxed', thin && 'text-muted-foreground')}>
       <p>平均 <span className={cn('font-mono font-semibold tabular-nums', !thin && valueToneText(stats.avg_return_pct ?? 0, 2))}>{signedText(stats.avg_return_pct, 2, '%')}</span></p>
       {compare ? <p className="text-subtle">{peersGapText(stats)}<span className="whitespace-nowrap">{marginText(stats)}</span></p> : null}
       <p className="text-subtle">
@@ -32,7 +32,7 @@ function PeriodCell({ stats, compare }: { stats: SignalPeriodStats; compare: boo
         {compare && stats.beat_peers_rate != null ? ` · 贏過其他股票 ${rateText(stats.beat_peers_rate)}` : ''}
         {stats.net_return_pct != null ? ` · 扣成本 ${signedText(stats.net_return_pct, 2, '%')}` : ''}
       </p>
-      <p className="font-mono text-xs tabular-nums text-muted-foreground">{stats.events} 次 · {stats.months ?? 0} 個月{thin ? `（${thin}）` : ''}</p>
+      <p className="font-mono text-sm tabular-nums text-muted-foreground">{stats.events} 次 · {stats.months ?? 0} 個月{thin ? `（${thin}）` : ''}</p>
     </div>
   );
 }
@@ -55,11 +55,11 @@ export function SignalTable({ result }: { result: SignalCheckResponse }) {
           <tr className="border-b bg-muted/40">
             <th scope="row" className={cn(cellClass, 'font-normal')}>
               <p className="font-semibold">{baseline.label}</p>
-              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{baseline.definition}</p>
+              <details className="mt-1 text-sm text-muted-foreground"><summary className="cursor-pointer">定義</summary><p className="mt-1 leading-relaxed">{baseline.definition}</p></details>
             </th>
             <td className={cellClass}><PeriodCell stats={baseline.discovery} compare={false} /></td>
             <td className={cellClass}><PeriodCell stats={baseline.validation} compare={false} /></td>
-            <td className={cn(cellClass, 'text-[13px] text-muted-foreground')}>參考：同期間的一般漲跌</td>
+            <td className={cn(cellClass, 'text-sm text-muted-foreground')}>參考：同期間的一般漲跌</td>
           </tr>
           {result.signals.map((signal: SignalStats) => {
             const verdict = signalVerdict(signal);
@@ -67,14 +67,14 @@ export function SignalTable({ result }: { result: SignalCheckResponse }) {
               <tr key={signal.key} className="border-b last:border-b-0">
                 <th scope="row" className={cn(cellClass, 'font-normal')}>
                   <p className="font-semibold">{signal.label}</p>
-                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{signal.definition}</p>
-                  <p className="mt-1 flex flex-wrap gap-x-2"><ReadingMark reading={signal.reading} /><span className="text-xs text-muted-foreground">{signal.source}</span></p>
+                  <details className="mt-1 text-sm text-muted-foreground"><summary className="cursor-pointer">定義與來源</summary><p className="mt-1 leading-relaxed">{signal.definition}</p><p>{signal.source}</p></details>
+                  <p className="mt-1 flex flex-wrap gap-x-2"><ReadingMark reading={signal.reading} /></p>
                 </th>
                 <td className={cellClass}><PeriodCell stats={signal.discovery} compare /></td>
                 <td className={cellClass}><PeriodCell stats={signal.validation} compare /></td>
-                <td className={cn(cellClass, 'text-[13px] leading-relaxed', verdict === 'thin' && 'text-muted-foreground')}>
+                <td className={cn(cellClass, 'text-sm leading-relaxed', verdict === 'thin' && 'text-muted-foreground')}>
                   {VERDICT_LABEL[verdict]}
-                  {signal.pending ? <span className="mt-0.5 block text-xs text-muted-foreground">另有 {signal.pending} 次未到期</span> : null}
+                  {signal.pending ? <span className="mt-0.5 block text-sm text-muted-foreground">另有 {signal.pending} 次未到期</span> : null}
                 </td>
               </tr>
             );
@@ -132,16 +132,16 @@ export function SignalCheckPanel({ onAccessError }: { onAccessError: (error: unk
                 </NativeSelect>
               </label>
             </div>
-            {formError ? <p id="signal-form-error" role="alert" className="text-[13px] text-danger">{formError}</p> : null}
+            {formError ? <p id="signal-form-error" role="alert" className="text-sm text-danger">{formError}</p> : null}
             <div className="flex flex-wrap items-center gap-3">
               <Button type="submit" disabled={loading}><Play aria-hidden />{loading ? '檢驗中…' : '開始檢驗'}</Button>
-              <p className="text-xs leading-5 text-muted-foreground">挑選期用來找訊號，驗證期用來確認；只在挑選期好看的訊號多半是運氣。全部股票約需數秒。</p>
+              <p className="text-sm leading-5 text-muted-foreground">先用挑選期找訊號，再用驗證期確認表現。</p>
             </div>
           </form>
         </LedgerPanel>
         {error ? <LedgerPanel><Notice tone="danger">{error}</Notice></LedgerPanel>
           : loading && !result ? <LedgerPanel padded={false}><LoadingRows label="計算各訊號的事後表現中…" className="h-40" /></LedgerPanel>
-          : !result ? <LedgerPanel><EmptyState className="py-4">選好期間後按「開始檢驗」，會列出每個訊號成立後的實際漲跌。</EmptyState></LedgerPanel>
+          : !result ? <LedgerPanel><EmptyState className="py-4">檢驗訊號成立後的漲跌與同期股票差距。</EmptyState></LedgerPanel>
           : (
             <>
               <LedgerPanel padded={false} aria-busy={loading || undefined}>
@@ -153,7 +153,7 @@ export function SignalCheckPanel({ onAccessError }: { onAccessError: (error: unk
                     <ul className="divide-y border-y text-sm">
                       {result.recent.map((item) => (
                         <li key={`${item.date}-${item.key}`} className="flex flex-wrap items-baseline gap-x-3 py-2.5">
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground">{item.date}</span>
+                          <span className="font-mono text-sm tabular-nums text-muted-foreground">{item.date}</span>
                           <span className="font-medium">{item.label}</span>
                           <ReadingMark reading={item.reading} />
                         </li>
@@ -162,7 +162,7 @@ export function SignalCheckPanel({ onAccessError }: { onAccessError: (error: unk
                   ) : <EmptyState className="py-4">最近 10 個交易日沒有訊號成立。</EmptyState>}
                 </LedgerPanel>
               ) : null}
-              <FoldSection title="計算方式" summary="怎麼算事件、為什麼要和同期其他股票比" contentClassName="px-4 py-3 text-[13px] leading-relaxed text-subtle sm:px-5">
+              <FoldSection title="計算方式" summary="怎麼算事件、為什麼要和同期其他股票比" contentClassName="px-4 py-3 text-sm leading-relaxed text-subtle sm:px-5">
                 <p>{result.method_note}</p>
                 <p className="mt-2">
                   判讀看兩段各自比同期其他股票高或低多少，以及它的 95% 誤差範圍：範圍整段落在一般解讀那一側才算明顯一致，
