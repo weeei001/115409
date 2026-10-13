@@ -25,7 +25,7 @@ from app.core.errors import AppError, ServiceUnavailable
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from . import repository, validation as gate
 from app.features.news.eligibility import contains_simulation
-from .evidence import (FIELD_GLOSSARY, NEWS_FIRST_PUBLIC_LIMITATION, TIMELINE_TRADING_DAYS,
+from .evidence import (EVIDENCE_PAYLOAD_VERSION, FIELD_GLOSSARY, NEWS_FIRST_PUBLIC_LIMITATION, TIMELINE_TRADING_DAYS,
                        build_evidence_bundle)
 from .lessons import PAST_REVIEWS_GUIDANCE, lessons_enabled
 from .prompts import TEXT_BRIEF_SYSTEM_PROMPT, few_shot_examples, select_examples
@@ -59,6 +59,7 @@ def text_brief_revision() -> str:
     return compute_config_hash({"prompt": TEXT_BRIEF_SYSTEM_PROMPT,
                                 "examples": few_shot_examples(),
                                 "glossary": FIELD_GLOSSARY,
+                                "evidence_payload": EVIDENCE_PAYLOAD_VERSION,
                                 "schema": StockBehaviorTextBrief.model_json_schema(),
                                 "pipeline": "backend-v2-structural-validation-only"})[:12]
 
@@ -289,7 +290,7 @@ class AnalysisService:
             bundle.missing_fields.append("已排除模擬測試新聞")
         task_packet = {"task": {"type": "stock_behavior_text_brief", "symbol": symbol,
                       "as_of_date": as_of.isoformat(), "timeline_trading_days": TIMELINE_TRADING_DAYS,
-                      "analysis_language": "zh-TW"}, **bundle.as_payload_sections()}
+                      "analysis_language": "zh-TW"}, **bundle.as_payload_sections(stock_name=self.stock_options[symbol])}
         evidence_fingerprint = compute_config_hash(task_packet)
         if refresh_sources and not req.force_refresh:
             cached = await _db_work(repository.load_cached, self.db, symbol=symbol,

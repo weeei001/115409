@@ -42,10 +42,17 @@ def test_unverified_first_publication_is_one_plain_limitation(db_session, settin
     assert not any(text.startswith("缺少：新聞") or "首次公開" in text for text in result.limitations)
 
 
-def test_ambiguous_opinion_words_preserve_the_brief_with_diagnostics(db_session, settings):
+def test_ambiguous_opinion_words_preserve_the_brief_without_content_checks(db_session, settings, monkeypatch):
     from app.db.models.stock_info import StockInfo
+    from app.features.analysis import validation
     from test_analysis_service import FakeLlm, brief_payload, run_service, seed_prices
 
+    def unexpected_content_check(*args, **kwargs):
+        pytest.fail("Generating a brief must not scan or gate its content")
+
+    monkeypatch.setattr(validation, "_scan_text_brief_compliance", unexpected_content_check)
+    monkeypatch.setattr(validation, "_apply_text_brief_compliance_gate", unexpected_content_check)
+    monkeypatch.setattr(validation, "scan_compliance_hits", unexpected_content_check)
     db_session.add(StockInfo(symbol="2330", name="TSMC"))
     db_session.commit()
     seed_prices(db_session)
@@ -55,7 +62,8 @@ def test_ambiguous_opinion_words_preserve_the_brief_with_diagnostics(db_session,
     response = run_service(db_session, settings, llm)
     assert response.status == "limited" and llm.calls == 1
     assert response.brief.current_status[0].text == payload["current_status"][0]["text"]
-    assert response.verification["soft_compliance_hits"] > 0
+    assert response.verification["soft_compliance_hits"] == 0
+    assert response.verification["compliance_violations"] == 0
     assert response.verification["removed_item_ids"] == 0
 
 

@@ -29,6 +29,10 @@ TEXT_BRIEF_SYSTEM_PROMPT = """
 資料缺漏就說明缺漏；未檢索到事件不代表事件不存在。資料期間與公布日期不可混用，公布時間不明時不要宣稱已完成精確時間核對。
 引用只使用本次 payload 真實存在的 id，包括日資料、籌碼累計、長期位置、基本面及新聞。範例只示範結構與表達，不能提供本次的事實、日期、門檻或立場；與本指令不一致時以本指令為準。
 daily_timeline 是近期交易日資料；chip_summary 只包含實際提供的累計；long_term_anchor 是長期價格位置；fundamental 是財務與估值；news 是新聞；missing_fields 是已知缺漏。欄位定義與單位以附加 field_glossary 為準。
+每筆 fundamental 的 subject、field、period、metric_basis、value、unit 共同構成一項不可拆換的事實；fact 是同項欄位的完整敘述，並非另一筆獨立證據。引用時保留這組關係，不能把同公司其他證據的期間或口徑接到該數值上。
+時間依各項 date_role 與 period_start／period_end 解讀：task.as_of_date 是分析截止日；財報期間結束日不是公告日；行情日期是交易日；新聞 published_at 是發布時間，新聞中報導的營運期間仍以原文明示為準。截止日落在第四季，不會把最新可用的第二季 EPS 變成第三季 EPS。
+財報用明確年份與季度，月營收用明確年月，不以「上一季」「本季」替代證據期間。單季、單月、年初至今累計與年度口徑分開敘述；第三季營收新聞只能支持該營收，不能補成第三季 EPS。qoq_pct、yoy_pct、mom_pct 分別搭配同項比較基期；歷史序列每筆的 period 與 value／yoy_pct 保持配對。
+本次 payload 的期間摘要只說明提供了哪些資料，不能據此宣稱較新的財報尚未公布；publication_basis 若為估計可用日，不能當成實際公告時間。
 
 二、證據與敘述
 先考量整包資料，再選擇重要資訊。不要先決定立場再挑證據。

@@ -1,6 +1,7 @@
 """Pure, deterministic evidence calculations; no database or HTTP access."""
 from __future__ import annotations
 
+from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -14,6 +15,7 @@ VALUATION_RANK_LOOKBACK_DAYS = 365
 FINANCIAL_LOOKBACK_DAYS = 900
 REVENUE_LOOKBACK_DAYS = 800
 SHARES_PER_LOT = 1000
+EVIDENCE_PAYLOAD_VERSION = "period-bound-facts-v1"
 # A full sentence in missing_fields; the brief shows it without the "缺少：" prefix.
 NEWS_FIRST_PUBLIC_LIMITATION = "新聞的首次發布時間無法確認，分析可能用到事後才公開的資訊。"
 
@@ -93,6 +95,95 @@ def _pct_rank(values: Sequence[float], current: float) -> int | None:
 def _quarter_label(period_end: date) -> str:
     return f"{period_end.year}Q{(period_end.month - 1) // 3 + 1}"
 
+def _period_context(period: str) -> dict[str, str]:
+    quarter = re.fullmatch(r"(\d{4})Q([1-4])", period)
+    month = re.fullmatch(r"(\d{4})-(0[1-9]|1[0-2])", period)
+    if quarter:
+        year, number = map(int, quarter.groups())
+        first, last = (number - 1) * 3 + 1, number * 3
+        label = f"{year} 年第 {number} 季（{first}–{last} 月）"
+    elif month:
+        year, first = map(int, month.groups())
+        last = first
+        label = f"{year} 年 {first} 月"
+    else:
+        return {}
+    return {"period_start": date(year, first, 1).isoformat(),
+            "period_end": date(year, last, monthrange(year, last)[1]).isoformat(),
+            "period_label": label}
+
+
+def _relative_period(period: str, offset: int) -> str | None:
+    quarter = re.fullmatch(r"(\d{4})Q([1-4])", period)
+    month = re.fullmatch(r"(\d{4})-(0[1-9]|1[0-2])", period)
+    match = quarter or month
+    if match is None:
+        return None
+    year, number = map(int, match.groups())
+    count = 4 if quarter else 12
+    year, index = divmod(year * count + number - 1 + offset, count)
+    return f"{year}Q{index + 1}" if quarter else f"{year}-{index + 1:02d}"
+
+
+def _publication_basis(item: dict[str, Any]) -> str:
+    return item.get("publication_basis") or (
+        "依財報期間與固定公告延遲推定可用日，未取得實際公告時間"
+        if item.get("field") in {"eps", "gross_margin_pct", "operating_margin_pct"}
+        else "依月營收公告期限推定可用日，未取得實際公告時間"
+        if item.get("field") in {"revenue_monthly", "revenue_yoy_positive_streak"}
+        else "市場資料日期；未保存精確發布與修訂時間"
+    )
+
+
+_FUNDAMENTAL_SEMANTICS = {
+    "eps": ("single_quarter", "TWD/share", "單季每股盈餘", "元/股"),
+    "gross_margin_pct": ("single_quarter", "percent", "單季毛利率", "%"),
+    "operating_margin_pct": ("single_quarter", "percent", "單季營業利益率", "%"),
+    "revenue_monthly": ("single_month", "TWD", "單月合併營收", "元"),
+    "revenue_yoy_positive_streak": ("consecutive_months", "months", "月營收年增率連續為正", "個月"),
+    "per": ("trading_day_snapshot", "times", "本益比", "倍"),
+    "pbr": ("trading_day_snapshot", "times", "股價淨值比", "倍"),
+    "dividend_yield": ("trading_day_snapshot", "percent", "現金殖利率", "%"),
+}
+
+
+def _fundamental_payload(item: dict[str, Any], *, symbol: str, stock_name: str | None) -> dict[str, Any]:
+    """Bind fact semantics for the model without changing the stored/UI evidence contract."""
+    payload = {**item, "subject": {"symbol": symbol}, "publication_basis": _publication_basis(item)}
+    if stock_name:
+        payload["subject"]["name"] = stock_name
+    period = str(item.get("period") or "")
+    payload.update(_period_context(period))
+    semantics = _FUNDAMENTAL_SEMANTICS.get(item.get("field"))
+    if semantics:
+        basis, unit, label, display_unit = semantics
+        payload.update(metric_basis=basis, unit=unit)
+        if item.get("date"):
+            payload["date_role"] = {"single_quarter": "reporting_period_end",
+                                    "trading_day_snapshot": "trading_date"}.get(basis, "source_row_date")
+        time_label = payload.get("period_label") or item.get("date") or "期間未提供"
+        if basis == "consecutive_months":
+            time_label = f"截至 {time_label}"
+        subject = f"{symbol} {stock_name}" if stock_name else symbol
+        payload["fact"] = f"{subject}｜{time_label}｜{label}：{item.get('value')} {display_unit}"
+    for key, offset, label in (("qoq", -1, "季增率"),
+                               ("yoy", -4 if "Q" in period else -12, "年增率"),
+                               ("mom", -1, "月增率")):
+        if item.get(f"{key}_pct") is not None:
+            base = _relative_period(period, offset)
+            if base:
+                payload[f"{key}_base_period"] = base
+                if "fact" in payload:
+                    payload["fact"] += f"；相較 {base} 的{label}：{item[f'{key}_pct']}%"
+    if "last4q" in item:
+        payload["last4q"] = [{"period": period, **_period_context(period), "value": value}
+                             for period, value in item["last4q"]]
+    if "yoy_last6" in item:
+        payload["yoy_last6"] = [{"period": period, "base_period": _relative_period(period, -12),
+                                 "yoy_pct": value} for period, value in item["yoy_last6"]]
+    return payload
+
+
 def _financial_is_published(period_end: date, as_of: date) -> bool:
     lag = ANNUAL_PUBLISH_LAG_DAYS if period_end.month == 12 else FINANCIAL_PUBLISH_LAG_DAYS
     return period_end + timedelta(days=lag) <= as_of
@@ -145,13 +236,28 @@ class EvidenceBundle:
     rag_fallback_mode: bool = False
     collected_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
-    def as_payload_sections(self) -> dict[str, Any]:
+    def as_payload_sections(self, *, stock_name: str | None = None) -> dict[str, Any]:
         sections = {
+            "temporal_context": {
+                "analysis_cutoff": self.as_of_date.isoformat(),
+                "latest_included": {
+                    "trading_date": max((row["date"] for row in self.daily_timeline if row.get("date")), default=None),
+                    "financial_period": max((row["period"] for row in self.fundamental
+                        if row.get("field") in {"eps", "gross_margin_pct", "operating_margin_pct"}
+                        and row.get("period")), default=None),
+                    "monthly_revenue_period": max((row["period"] for row in self.fundamental
+                        if row.get("field") == "revenue_monthly" and row.get("period")), default=None),
+                    "valuation_date": max((row["date"] for row in self.fundamental
+                        if row.get("field") in {"per", "pbr", "dividend_yield"} and row.get("date")), default=None),
+                },
+                "scope": "Only the evidence included in this request; not a statement that newer disclosures do not exist.",
+            },
             "daily_timeline": self.daily_timeline,
             "chip_summary": self.chip_summary,
             "long_term_anchor": self.long_term_anchor,
-            "fundamental": self.fundamental,
-            "news": self.news,
+            "fundamental": [_fundamental_payload(item, symbol=self.symbol, stock_name=stock_name)
+                            for item in self.fundamental],
+            "news": [{**item, "date_role": "news_publication_date"} for item in self.news],
             "missing_fields": self.missing_fields,
             "data_limitations": ["價格為未還原收盤價，報酬未排除除權息與拆股影響",
                                  "財報可用日為估計；原始累計財報不等於單季 EPS"],
@@ -194,13 +300,7 @@ class EvidenceBundle:
             )
         catalog.extend(self.chip_summary)
         catalog.extend(self.long_term_anchor)
-        catalog.extend({**item, "publication_basis": item.get("publication_basis") or (
-            "依財報期間與固定公告延遲推定可用日，未取得實際公告時間"
-            if item.get("field") in {"eps", "gross_margin_pct", "operating_margin_pct"}
-            else "依月營收公告期限推定可用日，未取得實際公告時間"
-            if item.get("field") in {"revenue_monthly", "revenue_yoy_positive_streak"}
-            else "市場資料日期；未保存精確發布與修訂時間"
-        )} for item in self.fundamental)
+        catalog.extend({**item, "publication_basis": _publication_basis(item)} for item in self.fundamental)
         catalog.extend(self.news)
         return [{**item, "collected_at": self.collected_at} for item in catalog]
 

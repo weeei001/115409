@@ -75,6 +75,20 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:8002
 
 ## 使用範例
 
+### Daily market refresh
+
+The API-managed `market` job refreshes daily prices, valuations, institutional trades,
+margin balances, foreign holdings, the benchmark, and technical indicators. It runs
+on weekdays at `JOBS_MARKET_TIME` and four more hourly intervals, plus a catch-up run
+Monday through Saturday at 08:40 (Asia/Taipei). Set `JOBS_MARKET_TIME=17:40` for the
+default 17:40–21:40 window; update an existing deployment's old value when upgrading.
+The admin job controls support pause, resume, and manual refresh without overlapping runs.
+
+These runs skip monthly/quarterly backfills and do not call AI services. They import
+the exchange's current daily snapshots; missed historical trading days still require
+the existing historical backfill tools. The full CLI market pipeline remains available
+by omitting `--daily-only` from `python -m app.jobs scheduler --job market`.
+
 ### 啟動後端
 
 在 `backend/` 執行：

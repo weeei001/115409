@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     APP_RELOAD: bool = False
 
     JOBS_ENABLED: bool = True
-    JOBS_MARKET_TIME: time = time(17)
+    JOBS_MARKET_TIME: time = time(17, 40)
     JOBS_BRIEF_TIME: time = time(22, 30)
     JOBS_START_DATE: date = date(2021, 1, 1)
     JOBS_IMPACT_SINCE: date | None = None

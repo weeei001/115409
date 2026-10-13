@@ -12,7 +12,7 @@ from app.jobs import runtime, scheduler
 from test_job_runtime import make_runtime, wait_until
 
 
-AUTO_JOBS = {"cnyes", "rag", "impact", "text-brief"}
+AUTO_JOBS = {"market", "cnyes", "rag", "impact", "text-brief"}
 
 
 def taipei(hour, minute=0, day=13):
@@ -24,10 +24,12 @@ def test_automatic_deadlines_are_staggered_and_strictly_future():
     assert worker.next_runs == {
         "cnyes": taipei(9), "rag": taipei(8, 10),
         "impact": taipei(8, 20), "text-brief": taipei(22, 30),
+        "market": taipei(8, 40),
     }
     assert worker.schedules == {
         "cnyes": "Hourly :00 Asia/Taipei", "rag": "Hourly :10 Asia/Taipei",
         "impact": "Hourly :20 Asia/Taipei", "text-brief": "Daily 22:30 Asia/Taipei",
+        "market": "Weekdays 17:40, 18:40, 19:40, 20:40, 21:40; Mon-Sat 08:40 Asia/Taipei",
     }
     for name, deadline in worker.next_runs.items():
         restarted = scheduler.Scheduler(lambda job: 0, deadline)
@@ -48,10 +50,10 @@ def test_overdue_jobs_coalesce_in_deadline_order_without_hot_loop():
     worker = scheduler.Scheduler(lambda name: calls.append(name) or 7, taipei(8, 1))
     delayed = taipei(23, day=15)
     worker.tick(delayed)
-    assert calls == ["rag", "impact", "cnyes", "text-brief"]
+    assert calls == ["rag", "impact", "market", "cnyes", "text-brief"]
     assert all(deadline > delayed for deadline in worker.next_runs.values())
     worker.tick(delayed)
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 def test_paused_deadlines_advance_without_catchup_on_resume():
@@ -65,7 +67,7 @@ def test_paused_deadlines_advance_without_catchup_on_resume():
     worker.tick(taipei(8, 11))
     assert calls == []
     worker.tick(taipei(9, 10))
-    assert calls == ["impact", "cnyes", "rag"]
+    assert calls == ["impact", "market", "cnyes", "rag"]
 
 
 def test_queue_failure_keeps_deadline_for_retry():
@@ -135,7 +137,7 @@ def test_pause_is_durable_and_manual_run_still_allowed(jobs_runtime, name):
         assert name not in jobs.paused
 
 
-@pytest.mark.parametrize("name", ["market", "stock-backfill"])
+@pytest.mark.parametrize("name", ["stock-backfill"])
 @pytest.mark.parametrize("action", ["pause", "resume"])
 def test_manual_only_jobs_reject_automatic_controls(jobs_runtime, name, action):
     jobs, factory, actor_id = jobs_runtime
@@ -156,11 +158,25 @@ def test_snapshot_exposes_automatic_deadlines_and_retirement(jobs_runtime):
     for name in AUTO_JOBS - {"rag"}:
         assert snapshot[name]["next_run_at"] == jobs.scheduler.next_runs[name].isoformat()
         assert snapshot[name]["schedule"] == jobs.scheduler.schedules[name]
-    for name in ("market", "stock-backfill"):
+    for name in ("stock-backfill",):
         assert snapshot[name]["schedule"] == "Manual"
         assert snapshot[name]["next_run_at"] is None
     jobs.status = "disabled"
     assert all(row["next_run_at"] is None for row in jobs.snapshot()["jobs"])
+
+
+def test_runtime_market_refresh_uses_daily_mode(jobs_runtime, monkeypatch):
+    jobs, factory, _ = jobs_runtime
+    calls = []
+    monkeypatch.setattr(runtime, "run_pipeline", lambda name, **kwargs: calls.append((name, kwargs)) or 0)
+    jobs._scheduled("market")
+    with factory() as db:
+        run_id = db.scalar(select(AdminJobRun.id))
+    assert jobs._execute(run_id) == 0
+    assert calls[0][0] == "market"
+    assert calls[0][1]["daily_only"] is True
+    with factory() as db:
+        assert db.get(AdminJobRun, run_id).status == "succeeded"
 
 
 def test_serial_runtime_continues_other_schedules_after_news_failure(
@@ -187,6 +203,7 @@ def test_serial_runtime_continues_other_schedules_after_news_failure(
             return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
 
     monkeypatch.setattr(runtime, "datetime", Clock)
+    jobs.scheduler.next_runs["market"] = taipei(17, 40)
     for offset, name in enumerate(("cnyes", "rag", "impact", "text-brief")):
         jobs.scheduler.next_runs[name] = fixed - timedelta(minutes=4 - offset)
 

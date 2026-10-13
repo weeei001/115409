@@ -49,6 +49,7 @@ FIELDS = {
     "dividend_result": corporate_actions.FIELDS["dividend_result"],
     "financial_statements": mops_financial.FIELDS,
 }
+DAILY_DATASETS = frozenset({"price_volume", "per_pbr", "foreign_shareholding", "institutional", "margin"})
 
 FINANCIAL_BATCH_SIZE = 100
 
@@ -186,6 +187,7 @@ class OfficialClient:
 
 
 def export(args: argparse.Namespace, client: OfficialClient) -> dict:
+    daily_only = getattr(args, "daily_only", False)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "market_manifest.json").unlink(missing_ok=True)
@@ -210,8 +212,14 @@ def export(args: argparse.Namespace, client: OfficialClient) -> dict:
                   "financial_statements": [mops_financial.URL]},
               "history": "Most daily datasets are official snapshots; TWSE ex-right results cover the requested interval, and financial statements process one recent-quarter batch per run. The requested start date does not imply complete historical backfill.",
               "single_quarter_metric_gap": ["EPS", "Revenue", "GrossProfit", "OperatingIncome"]}
+    if daily_only:
+        report["sources"] = {kind: urls for kind, urls in report["sources"].items() if kind in DAILY_DATASETS}
+        report["history"] = "Daily official snapshots only; the requested start date does not imply historical backfill."
+        report.pop("single_quarter_metric_gap")
     latest_twse = None
     for kind, sources in SOURCES.items():
+        if daily_only and kind not in DAILY_DATASETS:
+            continue
         count = 0
         for market, url in sources:
             rows = client.rows(url)
@@ -251,33 +259,37 @@ def export(args: argparse.Namespace, client: OfficialClient) -> dict:
             if not recognized:
                 raise ValueError(f"No mapped {market} {kind} rows")
         report["datasets"][kind] = count
-    holdings = client.call(lambda: tdcc_shareholding.fetch(client.http, selected))
-    for item in holdings:
-        if args.start <= item["date"] <= args.end:
-            output[item["symbol"]]["holding_shares_per"].append(item)
-    report["datasets"]["holding_shares_per"] = sum(
-        len(datasets.get("holding_shares_per", [])) for datasets in output.values())
-    results = client.call(lambda: corporate_actions.fetch_dividend_results(
-        client.http, date.fromisoformat(args.start), date.fromisoformat(args.end), catalog))
-    for item in results:
-        if item["symbol"] in selected:
-            output[item["symbol"]]["dividend_result"].append(item)
-    report["datasets"]["dividend_result"] = sum(
-        len(datasets.get("dividend_result", [])) for datasets in output.values())
-    batch, pending = financial_batch(out, selected, args.start, args.end)
-    if pending:
-        year, quarter = int(pending["quarter"][:4]), int(pending["quarter"][-1])
-        rows = client.call(lambda: mops_financial.fetch_quarter(
-            client.http, year, quarter, {symbol: catalog[symbol] for symbol in batch}))
-        for item in rows:
-            if item["symbol"] not in batch:
-                raise ValueError("Financial report returned an unselected company")
-            output[item["symbol"]]["financial_statements"].append(item)
-    report["datasets"]["financial_statements"] = sum(
-        len(datasets.get("financial_statements", [])) for datasets in output.values())
-    report["financial_progress"] = pending
+    pending = None
+    if not daily_only:
+        holdings = client.call(lambda: tdcc_shareholding.fetch(client.http, selected))
+        for item in holdings:
+            if args.start <= item["date"] <= args.end:
+                output[item["symbol"]]["holding_shares_per"].append(item)
+        report["datasets"]["holding_shares_per"] = sum(
+            len(datasets.get("holding_shares_per", [])) for datasets in output.values())
+        results = client.call(lambda: corporate_actions.fetch_dividend_results(
+            client.http, date.fromisoformat(args.start), date.fromisoformat(args.end), catalog))
+        for item in results:
+            if item["symbol"] in selected:
+                output[item["symbol"]]["dividend_result"].append(item)
+        report["datasets"]["dividend_result"] = sum(
+            len(datasets.get("dividend_result", [])) for datasets in output.values())
+        batch, pending = financial_batch(out, selected, args.start, args.end)
+        if pending:
+            year, quarter = int(pending["quarter"][:4]), int(pending["quarter"][-1])
+            rows = client.call(lambda: mops_financial.fetch_quarter(
+                client.http, year, quarter, {symbol: catalog[symbol] for symbol in batch}))
+            for item in rows:
+                if item["symbol"] not in batch:
+                    raise ValueError("Financial report returned an unselected company")
+                output[item["symbol"]]["financial_statements"].append(item)
+        report["datasets"]["financial_statements"] = sum(
+            len(datasets.get("financial_statements", [])) for datasets in output.values())
+        report["financial_progress"] = pending
     report["coverage"] = {}
     for kind in FIELDS:
+        if daily_only and kind not in DAILY_DATASETS:
+            continue
         dates = [row["date"] for datasets in output.values() for row in datasets.get(kind, [])]
         covered = sum(bool(datasets.get(kind)) for datasets in output.values())
         report["coverage"][kind] = {"companies": covered, "missing_companies": len(selected) - covered,
@@ -306,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stocks", help="Comma-separated company codes; omitted means all listed/OTC companies")
     parser.add_argument("--stock", help="One company code")
     parser.add_argument("--from-stock-info", action="store_true")
+    parser.add_argument("--daily-only", action="store_true",
+                        help="Fetch daily prices, valuations and chips without monthly or quarterly datasets")
     parser.add_argument("--start", default="2021-01-01")
     parser.add_argument("--end", default=date.today().isoformat())
     parser.add_argument("--out", required=True)

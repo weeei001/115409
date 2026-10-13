@@ -58,6 +58,9 @@ class JobRuntime:
     def start(self):
         if not self.settings.JOBS_ENABLED:
             return
+        if self.settings.JOBS_MARKET_TIME.tzinfo is not None:
+            self.status, self.error = "unavailable", "JOBS_MARKET_TIME must be Taiwan local time"
+            return
         if self.settings.JOBS_BRIEF_TIME.tzinfo is not None:
             self.status, self.error = "unavailable", "JOBS_BRIEF_TIME must be Taiwan local time"
             return
@@ -232,7 +235,8 @@ class JobRuntime:
                 output=state_directory() / "market", run=worker,
                 impact_limit=self.settings.JOBS_IMPACT_LIMIT,
                 impact_max_cost_usd=self.settings.JOBS_IMPACT_MAX_COST_USD,
-                impact_since=self.settings.JOBS_IMPACT_SINCE, source_enabled=self._enabled)
+                impact_since=self.settings.JOBS_IMPACT_SINCE, source_enabled=self._enabled,
+                **({"daily_only": True} if name == "market" else {}))
             status = "succeeded" if result == 0 else "failed"
             error = "; ".join(failures) or ("Job failed" if result else None)
         except Exception as exc:

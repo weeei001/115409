@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date, datetime
 from types import SimpleNamespace
 
@@ -92,6 +93,83 @@ def test_eps_growth_is_computed_for_adjacent_quarters():
     assert items[0]["period"] == "2026Q1"
     assert items[0]["qoq_pct"] == pytest.approx(33.3, abs=0.1)
     assert items[0]["yoy_pct"] == pytest.approx(100.0)
+
+
+def test_model_facts_bind_quarter_growth_to_explicit_cross_year_periods():
+    rows = [_statement(day, "EPS", value) for day, value in (
+        ("2025-03-31", 8), ("2025-12-31", 12), ("2026-03-31", 16))]
+    fundamental = _eps_items(rows, date(2026, 10, 12), _IdGen("fd"))
+    bundle = EvidenceBundle(symbol="2330", as_of_date=date(2026, 10, 12), fundamental=fundamental)
+    before, catalog = deepcopy(fundamental), bundle.catalog()
+
+    payload = bundle.as_payload_sections(stock_name="TSMC")
+    eps = payload["fundamental"][0]
+
+    assert eps["subject"] == {"symbol": "2330", "name": "TSMC"}
+    assert (eps["period_start"], eps["period_end"]) == ("2026-01-01", "2026-03-31")
+    assert eps["metric_basis"] == "single_quarter" and eps["unit"] == "TWD/share"
+    assert eps["date_role"] == "reporting_period_end"
+    assert eps["qoq_base_period"] == "2025Q4" and eps["yoy_base_period"] == "2025Q1"
+    assert eps["qoq_pct"] == fundamental[0]["qoq_pct"]
+    assert eps["yoy_pct"] == fundamental[0]["yoy_pct"]
+    assert "2026 年第 1 季" in eps["fact"] and "16.0 元/股" in eps["fact"]
+    assert eps["last4q"][0]["period"] == "2025Q1"
+    assert eps["last4q"][0]["value"] == 8
+    assert eps["publication_basis"] == catalog[0]["publication_basis"]
+    assert bundle.fundamental == before and bundle.catalog() == catalog
+    assert "last4q" in catalog[0] and catalog[0]["last4q"][0] == ["2025Q1", 8]
+    assert "2026-10-12" not in eps["fact"]
+
+
+def test_model_revenue_facts_name_monthly_comparisons_and_keep_catalog_series():
+    rows = [_revenue(day, year, month, value) for day, year, month, value in (
+        ("2025-01-01", 2025, 1, 100), ("2025-12-01", 2025, 12, 150),
+        ("2026-01-01", 2026, 1, 200))]
+    fundamental = _revenue_items(rows, date(2026, 3, 20), _IdGen("fd"))
+    bundle = EvidenceBundle(symbol="2330", as_of_date=date(2026, 3, 20), fundamental=fundamental)
+    before, catalog = deepcopy(fundamental), bundle.catalog()
+
+    revenue = bundle.as_payload_sections()["fundamental"][0]
+
+    assert revenue["subject"] == {"symbol": "2330"}
+    assert revenue["metric_basis"] == "single_month" and revenue["unit"] == "TWD"
+    assert (revenue["period_start"], revenue["period_end"]) == ("2026-01-01", "2026-01-31")
+    assert revenue["mom_base_period"] == "2025-12" and revenue["yoy_base_period"] == "2025-01"
+    assert revenue["yoy_last6"] == [{"period": "2026-01", "base_period": "2025-01", "yoy_pct": 100.0}]
+    assert revenue["available_at"] == "2026-02-10"
+    assert "2026 年 1 月" in revenue["fact"] and "200 元" in revenue["fact"]
+    assert "2026-02-10" not in revenue["fact"]
+    assert bundle.fundamental == before and bundle.catalog() == catalog
+    assert catalog[0]["yoy_last6"] == [["2026-01", 100.0]]
+
+
+@pytest.mark.parametrize("base", [None, 0, -2])
+def test_model_facts_do_not_invent_growth_when_base_is_missing_or_nonpositive(base):
+    rows = [_statement("2026-03-31", "EPS", 3)]
+    if base is not None:
+        rows.append(_statement("2025-12-31", "EPS", base))
+    bundle = EvidenceBundle(symbol="2330", as_of_date=date(2026, 7, 13),
+        fundamental=_eps_items(rows, date(2026, 7, 13), _IdGen("fd")))
+    eps = bundle.as_payload_sections()["fundamental"][0]
+    assert "qoq_pct" not in eps and "qoq_base_period" not in eps
+    assert "yoy_pct" not in eps and "yoy_base_period" not in eps
+    assert "季增率" not in eps["fact"] and "年增率" not in eps["fact"]
+
+
+def test_model_temporal_context_does_not_replace_missing_evidence_dates_with_cutoff():
+    bundle = EvidenceBundle(symbol="2330", as_of_date=date(2026, 10, 12))
+    context = bundle.as_payload_sections()["temporal_context"]
+    assert context["analysis_cutoff"] == "2026-10-12"
+    assert all(value is None for value in context["latest_included"].values())
+
+
+def test_model_month_period_uses_calendar_end_without_using_disclosure_date():
+    item = {"id": "fd_01", "field": "revenue_monthly", "period": "2024-02", "value": 100,
+            "available_at": "2024-03-10"}
+    bundle = EvidenceBundle(symbol="2330", as_of_date=date(2024, 3, 20), fundamental=[item])
+    revenue = bundle.as_payload_sections()["fundamental"][0]
+    assert revenue["period_end"] == "2024-02-29"
+    assert revenue["available_at"] == "2024-03-10"
 
 def test_negative_base_periods_do_not_produce_growth_percentages():
     rows = [
