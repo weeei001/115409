@@ -117,11 +117,12 @@ def test_full_market_export_and_sparse_import_preserve_existing_data(tmp_path, d
     assert db_session.get(StockValuation, (date(2026, 9, 23), "2330")).per == Decimal("18.2000")
 
 
-def test_unmapped_snapshot_fails_before_manifest_can_be_reused(tmp_path, monkeypatch):
+@pytest.mark.parametrize("daily_only", [False, True])
+def test_unmapped_snapshot_fails_before_manifest_can_be_reused(tmp_path, monkeypatch, daily_only):
     monkeypatch.setattr(fetch, "refresh_catalog", lambda http: {"2330": {"market": "TWSE"}, "5347": {"market": "TPEx"}})
     (tmp_path / "market_manifest.json").write_text('{"2330": ["price_volume"]}')
     (tmp_path / "financial_progress_pending.json").write_text('{"quarter":"2026Q2","offset":100}')
-    args = SimpleNamespace(symbols=[], start="2021-01-01", end="2026-09-24", out=tmp_path)
+    args = SimpleNamespace(symbols=[], start="2021-01-01", end="2026-09-24", out=tmp_path, daily_only=daily_only)
     def changed(request):
         if request.url.path.endswith("STOCK_DAY_ALL"):
             return httpx.Response(200, json=[{"Date": "1150923", "Code": "2330", "unexpected": "1"}])
@@ -163,7 +164,8 @@ def test_annual_financial_report_waits_for_filing_window(monkeypatch):
     assert fetch.latest_filed_quarter(date(2027, 4, 10)) == (2026, 4)
 
 
-def test_snapshot_market_date_does_not_require_selected_stock_to_trade(tmp_path, monkeypatch):
+@pytest.mark.parametrize("daily_only", [False, True])
+def test_snapshot_market_date_does_not_require_selected_stock_to_trade(tmp_path, monkeypatch, daily_only):
     monkeypatch.setattr(fetch, "refresh_catalog", lambda http: {
         "2317": {"market": "TWSE"}, "2330": {"market": "TWSE"}, "5347": {"market": "TPEx"}})
     observed = []
@@ -175,13 +177,68 @@ def test_snapshot_market_date_does_not_require_selected_stock_to_trade(tmp_path,
     monkeypatch.setattr(tdcc_shareholding, "fetch", lambda *args: [])
     monkeypatch.setattr(corporate_actions, "fetch_dividend_results", lambda *args: [])
     monkeypatch.setattr(mops_financial, "fetch_quarter", lambda *args: [])
-    args = SimpleNamespace(symbols=["2317"], start="2021-01-01", end="2026-09-24", out=tmp_path)
+    args = SimpleNamespace(symbols=["2317"], start="2021-01-01", end="2026-09-24", out=tmp_path,
+                           daily_only=daily_only)
     with httpx.Client(transport=httpx.MockTransport(official)) as http:
         report = fetch.export(args, fetch.OfficialClient(http, retries=0))
     assert observed == [date(2026, 9, 23)] * 3
     assert report["datasets"]["price_volume"] == 0
     assert json.loads((tmp_path / "market_manifest.json").read_text()) == {
         "2317": ["foreign_shareholding", "institutional", "margin"]}
+
+
+def test_daily_export_excludes_supplements_and_does_not_advance_financial_checkpoint(tmp_path, db_session, monkeypatch):
+    monkeypatch.setattr(fetch, "refresh_catalog", lambda http: company_catalog.refresh_catalog(http, tmp_path / "catalog.json"))
+    for module in (foreign_shareholding, institutional, margin):
+        monkeypatch.setattr(module, "fetch_twse", lambda http, day: [{"date": day.isoformat(), "symbol": "2330"}])
+        monkeypatch.setattr(module, "fetch_tpex", lambda http: [{"date": "2026-09-23", "symbol": "5347"}])
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Daily refresh must not fetch supplemental reports or select a financial batch")
+
+    monkeypatch.setattr(tdcc_shareholding, "fetch", unexpected)
+    monkeypatch.setattr(corporate_actions, "fetch_dividend_results", unexpected)
+    monkeypatch.setattr(mops_financial, "fetch_quarter", unexpected)
+    monkeypatch.setattr(fetch, "financial_batch", unexpected)
+    progress = tmp_path / "financial_progress.json"
+    progress.write_text('{"quarter":"2026Q2","offset":0}', encoding="utf-8")
+    pending = tmp_path / "financial_progress_pending.json"
+    pending.write_text('{"quarter":"2026Q2","offset":100}', encoding="utf-8")
+    (tmp_path / "2330_monthly_revenue.csv").write_text("invalid stale supplemental CSV", encoding="utf-8")
+    requested = []
+
+    def daily(request):
+        requested.append(request.url.path)
+        assert not request.url.path.endswith(("t187ap05_L.csv", "t187ap05_O.csv"))
+        return official(request)
+
+    args = SimpleNamespace(symbols=[], start="2026-09-01", end="2026-09-24", out=tmp_path, daily_only=True)
+    with httpx.Client(transport=httpx.MockTransport(daily)) as http:
+        report = fetch.export(args, fetch.OfficialClient(http, retries=0))
+    assert report["datasets"] == {kind: 2 for kind in fetch.DAILY_DATASETS}
+    assert set(report["sources"]) == set(report["coverage"]) == fetch.DAILY_DATASETS
+    assert "financial_progress" not in report
+    assert not pending.exists()
+    manifest = json.loads((tmp_path / "market_manifest.json").read_text())
+    assert manifest == {symbol: sorted(fetch.DAILY_DATASETS) for symbol in ("2330", "5347")}
+    assert any(path.endswith("STOCK_DAY_ALL") for path in requested)
+    monkeypatch.setattr(import_csv, "make_engine", lambda settings: db_session.bind)
+    monkeypatch.setattr(import_csv, "get_settings", lambda: None)
+    monkeypatch.setattr(db_session.bind, "dispose", lambda: None)
+    assert import_csv.main(["--input-dir", str(tmp_path), "--require-manifest"]) == 0
+    assert db_session.get(DailyPrice, (date(2026, 9, 23), "2330")).close == Decimal("101.00")
+    assert json.loads(progress.read_text()) == {"quarter": "2026Q2", "offset": 0}
+
+
+def test_market_fetch_cli_passes_daily_only_mode(tmp_path, monkeypatch):
+    received = []
+    monkeypatch.setattr(fetch, "stock_info_symbols", lambda: ["2330"])
+    monkeypatch.setattr(fetch, "get_settings", lambda: None)
+    monkeypatch.setattr(fetch, "make_sync_http_client", lambda *args, **kwargs: httpx.Client(
+        transport=httpx.MockTransport(lambda request: (_ for _ in ()).throw(AssertionError("Unexpected HTTP call")))))
+    monkeypatch.setattr(fetch, "export", lambda args, client: received.append(args) or {"selected": 1})
+    assert fetch.main(["--daily-only", "--from-stock-info", "--out", str(tmp_path)]) == 0
+    assert received[0].daily_only is True and received[0].symbols == ["2330"]
 
 
 @pytest.mark.parametrize("day,symbol", [("invalid-date", "2330"), ("2026-06-30", "2317")])
