@@ -44,6 +44,51 @@ def test_examples_exclude_all_future_and_same_stock_same_day_answers():
         assert StockBehaviorTextBrief.model_validate_json(answer)
 
 
+@pytest.mark.parametrize(("symbol", "as_of_date"), [
+    ("6446", "2026-10-12"),
+    ("2330", "2026-10-13"),
+    ("2615", "2026-03-20"),
+])
+def test_selected_example_teaches_separate_financial_and_news_periods(symbol, as_of_date):
+    examples = select_examples(symbol, as_of_date)
+    assert len(examples) == 1
+    source, output = map(json.loads, examples[0])
+    assert source["task"]["symbol"] == "EXAMPLE"
+    assert source["task"]["as_of_date"] == "2025-10-13"
+    eps, revenue, valuation = source["fundamental"]
+    assert (eps["period"], eps["value"]) == ("2025Q2", 2.4)
+    assert eps["subject"] == {"symbol": "EXAMPLE", "name": "範例公司"}
+    assert (eps["metric_basis"], eps["unit"]) == ("single_quarter", "TWD/share")
+    assert (eps["period_start"], eps["period_end"]) == ("2025-04-01", "2025-06-30")
+    assert eps["date_role"] == "reporting_period_end"
+    assert (eps["qoq_base_period"], eps["yoy_base_period"]) == ("2025Q1", "2024Q2")
+    assert [(row["period"], row["value"]) for row in eps["last4q"]][-1] == ("2025Q2", 2.4)
+    assert revenue["period"] == "2025-09"
+    assert (revenue["mom_base_period"], revenue["yoy_base_period"]) == ("2025-08", "2024-09")
+    assert valuation["date"] == source["task"]["as_of_date"]
+    assert valuation["date_role"] == "trading_date"
+    assert source["temporal_context"]["latest_included"] == {
+        "trading_date": "2025-10-13", "financial_period": "2025Q2",
+        "monthly_revenue_period": "2025-09", "valuation_date": "2025-10-13",
+    }
+    assert source["news"][0]["date_role"] == "news_publication_date"
+    claims = output["current_status"]
+    eps_claim = next(item for item in claims if item["evidence_ids"] == [eps["id"]])
+    assert "2025 年第二季（4 至 6 月）單季 EPS 為 2.4 元" in eps_claim["text"]
+    assert "2024 年第二季" in eps_claim["text"]
+    news_claim = next(item for item in claims if item["evidence_ids"] == ["nw_01"])
+    assert "2025 年第三季營收 18 億元" in news_claim["text"]
+    assert "2025 年前三季累計營收為 48 億元" in news_claim["text"]
+    assert news_claim["news_support"][0]["quote"] in source["news"][0]["value"]
+    assert "上一季" not in output["confidence_reason"]
+    assert "不能據此判定財報尚未公布" in output["limitations"][0]
+
+
+def test_mixed_period_example_preserves_date_exclusions():
+    assert select_examples("EXAMPLE", "2025-10-13") == []
+    assert select_examples("6446", "2025-10-12") == []
+
+
 def test_generation_uses_one_bounded_example_and_bounded_citations():
     from pydantic import ValidationError
     from app.features.analysis.schemas import TextBriefForwardView
