@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import { TAU, clamp, mulberry32, pnoise2 } from './noise';
+import { forEachStartupRow, throwIfStartupAborted } from './startup';
 
 /** 觀測室遮蔽用的方盒：中心、半邊長，w 是影響距離（公尺） */
 export interface AoBox {
@@ -246,10 +247,11 @@ function pfbm(u: number, v: number, base: number, oct: number, seed: number): nu
 }
 
 /** 灰泥／粉刷：抹刀留下的大起伏、細砂粒與零星的小凹洞 */
-export function plasterDetail(n: number, aniso: number): THREE.CanvasTexture {
+export async function plasterDetail(n: number, aniso: number, signal?: AbortSignal): Promise<THREE.CanvasTexture> {
+  throwIfStartupAborted(signal);
   const [c, x, img] = canvas(n);
   const d = img.data;
-  for (let j = 0; j < n; j++)
+  await forEachStartupRow(n, (j) => {
     for (let i = 0; i < n; i++) {
       const u = i / n;
       const v = j / n;
@@ -260,6 +262,7 @@ export function plasterDetail(n: number, aniso: number): THREE.CanvasTexture {
       d[k] = d[k + 1] = d[k + 2] = clamp(h, 0, 1) * 255;
       d[k + 3] = 255;
     }
+  }, signal);
   x.putImageData(img, 0, 0);
   // 零星的小凹洞（離邊緣遠一點，免得在接縫被切掉一半）
   const R = mulberry32(41);
@@ -277,11 +280,12 @@ export function plasterDetail(n: number, aniso: number): THREE.CanvasTexture {
 }
 
 /** 木紋：沿 u 方向的年輪條紋（被雜訊推彎）加上細纖維，v 方向有整數條年輪所以可以重複 */
-export function woodDetail(n: number, aniso: number): THREE.CanvasTexture {
+export async function woodDetail(n: number, aniso: number, signal?: AbortSignal): Promise<THREE.CanvasTexture> {
+  throwIfStartupAborted(signal);
   const [c, x, img] = canvas(n);
   const d = img.data;
   const rings = 14;
-  for (let j = 0; j < n; j++)
+  await forEachStartupRow(n, (j) => {
     for (let i = 0; i < n; i++) {
       const u = i / n;
       const v = j / n;
@@ -294,15 +298,17 @@ export function woodDetail(n: number, aniso: number): THREE.CanvasTexture {
       d[k] = d[k + 1] = d[k + 2] = clamp(h, 0, 1) * 255;
       d[k + 3] = 255;
     }
+  }, signal);
   x.putImageData(img, 0, 0);
   return toTexture(c, aniso);
 }
 
 /** 石材：粗顆粒與幾道細裂紋（窗台、托架、屋子的基座） */
-export function stoneDetail(n: number, aniso: number): THREE.CanvasTexture {
+export async function stoneDetail(n: number, aniso: number, signal?: AbortSignal): Promise<THREE.CanvasTexture> {
+  throwIfStartupAborted(signal);
   const [c, x, img] = canvas(n);
   const d = img.data;
-  for (let j = 0; j < n; j++)
+  await forEachStartupRow(n, (j) => {
     for (let i = 0; i < n; i++) {
       const u = i / n;
       const v = j / n;
@@ -314,6 +320,7 @@ export function stoneDetail(n: number, aniso: number): THREE.CanvasTexture {
       d[k] = d[k + 1] = d[k + 2] = clamp(h, 0, 1) * 255;
       d[k + 3] = 255;
     }
+  }, signal);
   x.putImageData(img, 0, 0);
   return toTexture(c, aniso);
 }

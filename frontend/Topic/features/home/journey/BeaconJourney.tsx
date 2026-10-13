@@ -1026,6 +1026,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
                     handoff={terminal.layout}
                     onReady={onSceneReady}
                     onLost={onSceneLost}
+                    onError={onSceneError}
                   />
                 </SceneBoundary>
               )}

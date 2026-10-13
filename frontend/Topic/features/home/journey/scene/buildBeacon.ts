@@ -30,6 +30,10 @@ import {
   type ScreenData,
   type ScreenSizes,
 } from './screens';
+import { forEachStartupRow, throwIfStartupAborted, waitForStartup, yieldStartup } from './startup';
+import { waterNormals } from './waterNormals';
+import { prepareScene } from './warmup';
+import { warmEnvironmentShaders } from './environmentWarmup';
 import { addSurfaceDetail, plasterDetail, roomAoUniforms, stoneDetail, woodDetail, type DetailOptions } from './surface';
 import {
   bezelWidth,
@@ -54,6 +58,8 @@ import {
 export interface BeaconOptions {
   /** 手機或低階：水面反射、陰影貼圖、島嶼網格都降解析度 */
   low: boolean;
+  dawn?: number;
+  signal?: AbortSignal;
 }
 
 export interface FrameInput {
@@ -136,7 +142,8 @@ const WIN_SPILL = 1.4;
 const DAWN_FLOOR = 0.62;
 const DAWN_DESK = 0.7;
 
-export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, { low }: BeaconOptions): BeaconWorld {
+export async function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, { low, dawn = 0, signal }: BeaconOptions): Promise<BeaconWorld> {
+  throwIfStartupAborted(signal);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
@@ -153,6 +160,14 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
   camera.layers.enable(HEADLAND_LAYER);
   const ext = new THREE.Scene();
   const int = new THREE.Scene();
+  const faceScene = new THREE.Scene();
+  const fadeScene = new THREE.Scene();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  let extEnv: THREE.WebGLRenderTarget | null = null;
+  let intEnv: THREE.WebGLRenderTarget | null = null;
+  let disposed = false;
+
+  try {
   const std = (o: THREE.MeshStandardMaterialParameters) => keep(new THREE.MeshStandardMaterial(o));
   /** canvas 貼圖：色彩貼圖標 sRGB，凹凸貼圖是資料，不轉色彩空間 */
   const tex = (c: HTMLCanvasElement, rep?: [number, number], color = true) => {
@@ -168,9 +183,9 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
   const ctx2d = (c: HTMLCanvasElement) => c.getContext('2d') as CanvasRenderingContext2D;
   // 近距離的細節（灰泥、木紋、石材）：三向投影，不吃模型的 UV
   const DET = low ? 256 : 512;
-  const plasterDet = keep(plasterDetail(DET, ANISO));
-  const woodDet = keep(woodDetail(DET, ANISO));
-  const stoneDet = keep(stoneDetail(DET, ANISO));
+  const plasterDet = keep(await plasterDetail(DET, ANISO, signal));
+  const woodDet = keep(await woodDetail(DET, ANISO, signal));
+  const stoneDet = keep(await stoneDetail(DET, ANISO, signal));
   const detail = (m: THREE.MeshStandardMaterial, o: Omit<DetailOptions, 'map'> & { map?: THREE.Texture }) => addSurfaceDetail(m, { map: plasterDet, ...o });
   /** 頁面上量到的觀測台三欄（BeaconJourney 量好傳進來；沒有就用固定的版面） */
   let measured: MeasuredTerminal | null = null;
@@ -198,12 +213,12 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
   const toLinear = (r: number, g: number, b: number) => linColor.setRGB(clamp(r, 0, 1), clamp(g, 0, 1), clamp(b, 0, 1), THREE.SRGBColorSpace);
 
   /* ---------- 程序貼圖 ---------- */
-  function noiseCanvas(size: number, base: number, oct: number, seed: number) {
+  async function noiseCanvas(size: number, base: number, oct: number, seed: number) {
     const c = makeCanvas(size, size);
     const x = ctx2d(c);
     const img = x.createImageData(size, size);
     const d = img.data;
-    for (let j = 0; j < size; j++)
+    await forEachStartupRow(size, (j) => {
       for (let i = 0; i < size; i++) {
         let s = 0;
         let a = 0.5;
@@ -218,11 +233,12 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
         d[k] = d[k + 1] = d[k + 2] = v;
         d[k + 3] = 255;
       }
+    }, signal);
     x.putImageData(img, 0, 0);
     return c;
   }
-  const NZ = noiseCanvas(256, 4, 5, 3);
-  const NZF = noiseCanvas(256, 16, 3, 9);
+  const NZ = await noiseCanvas(256, 4, 5, 3);
+  const NZF = await noiseCanvas(256, 16, 3, 9);
   function overlayNoise(
     x: CanvasRenderingContext2D,
     W: number,
@@ -243,83 +259,6 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       x.fillRect(0, 0, W / sx, H / sy);
     }
     x.restore();
-  }
-  /**
-   * 海面的法線貼圖：一組有方向的浪（風從同一側來，波峰比波谷尖）加上四面八方的細碎小浪。
-   * 波數都是整數，貼圖才能無縫重複；法線用解析的導數算（不是相鄰像素相減，所以高頻的浪也不會糊）。
-   * 原本的等向 Perlin 在中距離會被各向同性的 mipmap 抹平成一條條反光，看起來像拉長的污漬而不是水。
-   */
-  function waterNormals(N: number) {
-    const rnd = mulberry32(911);
-    const waves: { kx: number; ky: number; a: number; ph: number; sharp: boolean }[] = [];
-    const wind = 0.6;
-    const push = (mag: number, ang: number, sharp: boolean) => {
-      const kx = Math.round(Math.cos(ang) * mag);
-      const ky = Math.round(Math.sin(ang) * mag);
-      if (!kx && !ky) return;
-      const k = Math.hypot(kx, ky);
-      waves.push({ kx, ky, a: 1 / Math.pow(k, 1.3), ph: rnd() * TAU, sharp });
-    };
-    // 主浪：2–24 個週期、偏離風向 ±35°
-    for (let i = 0; i < 26; i++) push(2 + Math.pow(rnd(), 1.5) * 22, wind + (rnd() - 0.5) * 1.2, true);
-    // 碎浪：16–40 個週期、任意方向
-    for (let i = 0; i < 20; i++) push(16 + rnd() * 24, rnd() * TAU, false);
-    const gx = new Float32Array(N * N);
-    const gy = new Float32Array(N * N);
-    const su = new Float32Array(N);
-    const cu = new Float32Array(N);
-    const sv = new Float32Array(N);
-    const cv = new Float32Array(N);
-    for (const w of waves) {
-      // sin(θu + θv) = sin θu cos θv + cos θu sin θv：先算一列一行，再逐點組合
-      for (let i = 0; i < N; i++) {
-        const au = (TAU * w.kx * i) / N + w.ph;
-        const av = (TAU * w.ky * i) / N;
-        su[i] = Math.sin(au);
-        cu[i] = Math.cos(au);
-        sv[i] = Math.sin(av);
-        cv[i] = Math.cos(av);
-      }
-      const ax = w.a * TAU * w.kx;
-      const ay = w.a * TAU * w.ky;
-      for (let j = 0; j < N; j++) {
-        const sj = sv[j];
-        const cj = cv[j];
-        const row = j * N;
-        for (let i = 0; i < N; i++) {
-          const s = su[i] * cj + cu[i] * sj;
-          const c = cu[i] * cj - su[i] * sj;
-          // 尖峰的浪：h = a(1 + sin θ)² / 4，導數 a(1 + sin θ)cos θ / 2
-          const d = w.sharp ? (1 + s) * c * 0.5 : c;
-          gx[row + i] += ax * d;
-          gy[row + i] += ay * d;
-        }
-      }
-    }
-    // 依斜率的均方根決定強度：平均坡度約 0.3
-    let ss = 0;
-    for (let i = 0; i < N * N; i++) ss += gx[i] * gx[i] + gy[i] * gy[i];
-    const k = 0.3 / Math.sqrt(ss / (N * N));
-    const c = makeCanvas(N, N);
-    const x = ctx2d(c);
-    const img = x.createImageData(N, N);
-    const d = img.data;
-    for (let i = 0; i < N * N; i++) {
-      const nx = -gx[i] * k;
-      const ny = -gy[i] * k;
-      const L = Math.hypot(nx, ny, 1);
-      const q = i * 4;
-      d[q] = (nx / L) * 127.5 + 127.5;
-      d[q + 1] = (ny / L) * 127.5 + 127.5;
-      d[q + 2] = (1 / L) * 127.5 + 127.5;
-      d[q + 3] = 255;
-    }
-    x.putImageData(img, 0, 0);
-    const t = keep(new THREE.CanvasTexture(c));
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    // 掠射角看海面時，沒有各向異性過濾的 mipmap 會把浪抹平成一條條反光；開到 8 以上中距離反而碎成一格格的暗斑
-    t.anisotropy = Math.min(2, renderer.capabilities.getMaxAnisotropy());
-    return t;
   }
   function glowTex() {
     const c = makeCanvas(128, 128);
@@ -417,8 +356,6 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       );
   };
   ext.add(sky);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  let extEnv: THREE.WebGLRenderTarget | null = null;
   function rebuildSkyEnv() {
     const envScene = new THREE.Scene();
     envScene.add(sky);
@@ -429,8 +366,13 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     ext.environment = rt.texture;
   }
   const roomEnv = new RoomEnvironment();
-  const intEnv = pmrem.fromScene(roomEnv, 0.04);
-  roomEnv.dispose();
+  try {
+    await warmEnvironmentShaders(renderer, pmrem, roomEnv, 0.04, signal);
+    await yieldStartup(signal);
+    intEnv = pmrem.fromScene(roomEnv, 0.04);
+  } finally {
+    roomEnv.dispose();
+  }
   int.environment = intEnv.texture;
   const fog = new THREE.FogExp2(NIGHT.fog, NIGHT.fogDensity);
   ext.fog = fog;
@@ -455,7 +397,7 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
   const water = new Water(new THREE.PlaneGeometry(40000, 40000), {
     textureWidth: low ? 512 : 1024,
     textureHeight: low ? 512 : 1024,
-    waterNormals: waterNormals(low ? 256 : 512),
+    waterNormals: keep(await waterNormals(low ? 256 : 512, Math.min(2, renderer.capabilities.getMaxAnisotropy()), signal)),
     sunDirection: SUN.clone(),
     sunColor: NIGHT.waterSun,
     waterColor: NIGHT.waterColor,
@@ -622,20 +564,40 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     new THREE.Color(0.3, 0.32, 0.4),
     new THREE.Color(0.5, 0.55, 0.62),
   ];
-  function sampleHorizon(out: THREE.Color) {
+  async function sampleHorizon(out: THREE.Color) {
+    throwIfStartupAborted(signal);
     const size = 4;
     const rt = new THREE.WebGLRenderTarget(size, size, { type: THREE.HalfFloatType });
     const cam = new THREE.PerspectiveCamera(3, 1, 1, 20000);
     const scene = new THREE.Scene();
     scene.add(sky);
+    const previousTarget = renderer.getRenderTarget();
+    const previousFace = renderer.getActiveCubeFace();
+    const previousMip = renderer.getActiveMipmapLevel();
     try {
       const az = THREE.MathUtils.degToRad(214);
       cam.position.set(0, 10, 0);
       cam.lookAt(Math.sin(az) * 1000, 10 + Math.tan(THREE.MathUtils.degToRad(1.2)) * 1000, Math.cos(az) * 1000);
       renderer.setRenderTarget(rt);
-      renderer.render(scene, cam);
+      let compilation: Promise<THREE.Object3D>;
+      try {
+        compilation = renderer.compileAsync(scene, cam);
+      } finally {
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+      }
+      await waitForStartup(compilation, signal);
+      await yieldStartup(signal);
       const buf = new Uint16Array(size * size * 4);
-      renderer.readRenderTargetPixels(rt, 0, 0, size, size, buf);
+      let readback: ReturnType<THREE.WebGLRenderer['readRenderTargetPixelsAsync']>;
+      try {
+        renderer.setRenderTarget(rt);
+        renderer.render(scene, cam);
+        // A synchronous read waits for all queued GPU work, including PMREM.
+        readback = renderer.readRenderTargetPixelsAsync(rt, 0, 0, size, size, buf);
+      } finally {
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+      }
+      await waitForStartup(readback, signal);
       let r = 0;
       let gg = 0;
       let b = 0;
@@ -647,9 +609,9 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       const n = size * size;
       if (Number.isFinite(r + gg + b) && r + gg + b > 0) out.setRGB(r / n, gg / n, b / n);
     } catch {
+      throwIfStartupAborted(signal);
       // 讀不回來（例如不支援半精度浮點的讀取）：保留預設值
     } finally {
-      renderer.setRenderTarget(null);
       ext.add(sky);
       rt.dispose();
     }
@@ -701,16 +663,18 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
   })();
   const shipDir = V3(1, 0, 0);
 
+  await yieldStartup(signal);
+
   /* ---------- 島 ---------- */
   const rockBump = tex(NZF, [34, 34], false);
   const foamUniforms: Uniforms = { uH: { value: null }, uTime: { value: 0 } };
-  (() => {
+  await (async () => {
     const size = 130;
     const seg = low ? 170 : 250;
-    const g = new THREE.PlaneGeometry(size, size, seg, seg);
+    const g = keep(new THREE.PlaneGeometry(size, size, seg, seg));
     g.rotateX(-Math.PI / 2);
     const P = g.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < P.count; i++) P.setY(i, islandH(P.getX(i), P.getZ(i)));
+    await forEachStartupRow(P.count, (i) => P.setY(i, islandH(P.getX(i), P.getZ(i))), signal);
     g.computeVertexNormals();
     const N = g.attributes.normal as THREE.BufferAttribute;
     const cols = new Float32Array(P.count * 3);
@@ -726,7 +690,7 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       const t = clamp(((x - dA.x) * ax + (z - dA.z) * az) / (ax * ax + az * az), 0, 1);
       return Math.hypot(x - dA.x - ax * t, z - dA.z - az * t);
     };
-    for (let i = 0; i < P.count; i++) {
+    await forEachStartupRow(P.count, (i) => {
       const x = P.getX(i);
       const y = P.getY(i);
       const z = P.getZ(i);
@@ -762,7 +726,7 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       cols[i * 3] = c.r;
       cols[i * 3 + 1] = c.g;
       cols[i * 3 + 2] = c.b;
-    }
+    }, signal);
     g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     const m = new THREE.Mesh(
       g,
@@ -774,7 +738,7 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     // 浪花遮罩（依島的高度）
     const FN = 256;
     const fd = new Uint8Array(FN * FN * 4);
-    for (let j = 0; j < FN; j++)
+    await forEachStartupRow(FN, (j) => {
       for (let i = 0; i < FN; i++) {
         const x = (i / (FN - 1) - 0.5) * size;
         const z = (j / (FN - 1) - 0.5) * size;
@@ -784,6 +748,7 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
         fd[k] = fd[k + 1] = fd[k + 2] = v;
         fd[k + 3] = 255;
       }
+    }, signal);
     const ft = keep(new THREE.DataTexture(fd, FN, FN, THREE.RGBAFormat));
     ft.magFilter = ft.minFilter = THREE.LinearFilter;
     ft.needsUpdate = true;
@@ -900,6 +865,8 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       ext.add(wim);
     });
   })();
+
+  await yieldStartup(signal);
 
   /* ---------- 燈塔 ---------- */
   const TWIN = [
@@ -1439,6 +1406,8 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     beams.add(b);
   });
 
+  await yieldStartup(signal);
+
   /* ---------- 守燈人的屋子 ---------- */
   // 灰泥牆（圓角的牆角、深色的石基）、有厚度的山牆、出簷的屋頂（封簷板、山牆端的博風板、屋脊、簷溝），
   // 窗是凸出牆面的石框加窗台，木窗框退在框裡；門有門框、門楣上的小雨遮與踏石
@@ -1607,6 +1576,8 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     ext.add(g);
   })();
 
+  await yieldStartup(signal);
+
   /* ---------- 海鷗 ---------- */
   // 一隻海鷗：紡錘形的身體、兩段式翅膀（內翼與外翼，拍動時成 M 字）、深色翼尖；翼展約 1.3 公尺。
   // 繞著塔飛的半徑與高度避開鏡頭路徑（燈塔那一章鏡頭在半徑約 50 公尺、高 24 公尺），太靠近鏡頭的那一隻就先藏起來
@@ -1686,6 +1657,8 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       gulls.push({ g, inner, outer, r: 15 + R() * 15, y: 11 + R() * 10, w: (0.11 + R() * 0.08) * (R() < 0.5 ? 1 : -1), ph: R() * TAU, f: 4.5 + R() * 2 });
     }
   })();
+
+  await yieldStartup(signal);
 
   /* ---------- 觀測室 ---------- */
   const paneCanvas = makeCanvas(256, 512);
@@ -1933,7 +1906,6 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
   const screens = createScreenCanvases(screenSizes);
   const glassOff = std({ color: 0x07090b, roughness: 0.12, metalness: 0.0, envMapIntensity: 0.9 });
   const unitPlane = new THREE.PlaneGeometry(1, 1);
-  const faceScene = new THREE.Scene();
   interface Face {
     key: FaceKey;
     g: THREE.Group;
@@ -2530,14 +2502,17 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     return mat;
   })();
 
+  await yieldStartup(signal);
+
   /* ---------- 交接：溶成頁面底色的那一層 ---------- */
-  const fadeScene = new THREE.Scene();
   const fadeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const fadeMat = keep(new THREE.MeshBasicMaterial({ color: 0x080b0f, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
   const fadeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), fadeMat);
   fadeQuad.frustumCulled = false;
   fadeScene.add(fadeQuad);
   shaft.updateMatrixWorld(true);
+
+  await yieldStartup(signal);
 
   /* ---------- 鏡頭路徑 ---------- */
   const KF = createKeyframes();
@@ -2746,15 +2721,15 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     shadowsDirty = { ext: true, int: true };
   }
   // 岬角的霧色：四組天色各取樣一次地平線，之後直接內插（不在每格讀回 GPU）
-  LOOKS.forEach((_, i) => {
+  for (let i = 0; i < LOOKS.length; i++) {
     lookDawn = i >= 2 ? 1 : 0;
     lookHour = i % 2;
     refreshLook();
-    sampleHorizon(horizonSky[i]);
-  });
-  lookDawn = 0;
+    await sampleHorizon(horizonSky[i]);
+  }
   lookHour = 0;
-  refreshLook();
+  applyLook(dawn);
+  await yieldStartup(signal);
   rebuildEnvNow();
 
   /* ---------- 螢幕 ---------- */
@@ -3132,6 +3107,21 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
       draw(ext, 'ext', null);
     }
   }
+  await yieldStartup(signal);
+  keep(await prepareScene(renderer, ext, camera, null, signal));
+  keep(await prepareScene(renderer, ext, camera, rtInt, signal, { shadows: false }));
+  keep(await prepareScene(renderer, int, camera, rtInt, signal));
+  keep(await prepareScene(renderer, int, camera, null, signal, { shadows: false }));
+  keep(await prepareScene(renderer, faceScene, camera, rtInt, signal, { shadows: false }));
+  keep(await prepareScene(renderer, faceScene, camera, null, signal, { shadows: false }));
+  keep(await prepareScene(renderer, fadeScene, fadeCam, null, signal, { shadows: false }));
+  throwIfStartupAborted(signal);
+  return { render, resize, setScreens, setHandoff, applyLook, settleLook, probe, dispose };
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+
   /* ---------- 釋放 ---------- */
   function disposeMaterial(m: THREE.Material, seen: Set<object>) {
     if (seen.has(m)) return;
@@ -3173,7 +3163,6 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     });
   }
   /** 可能被呼叫兩次（World 卸載時、BeaconScene 釋放 renderer 前），第二次不做事 */
-  let disposed = false;
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -3188,7 +3177,7 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     disposables.clear();
     extEnv?.dispose();
     extEnv = null;
-    intEnv.dispose();
+    intEnv?.dispose();
     ext.environment = null;
     int.environment = null;
     pmrem.dispose();
@@ -3198,5 +3187,4 @@ export function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.Perspe
     fadeScene.clear();
   }
 
-  return { render, resize, setScreens, setHandoff, applyLook, settleLook, probe, dispose };
 }

@@ -210,15 +210,19 @@ export function useTerminalData() {
     selected,
   );
 
-  const board: BeaconJourneyProps['board'] = boardState.data
-    ? { close: boardState.data.close, change: boardState.data.change, date: boardState.data.date }
-    : null;
+  // Other terminal panels resolve independently; only changed screen content should repaint 3D textures.
+  const board = useMemo<BeaconJourneyProps['board']>(
+    () => boardState.data
+      ? { close: boardState.data.close, change: boardState.data.change, date: boardState.data.date }
+      : null,
+    [boardState.data?.close, boardState.data?.change, boardState.data?.date],
+  );
 
+  const monitorRow = watchRows.find((row) => row.symbol === selected);
   const monitor = useMemo<BeaconJourneyProps['monitor']>(() => {
-    const row = watchRows.find((r) => r.symbol === selected);
-    if (!row || row.closes.length < 2 || !row.date) return null;
-    return { symbol: row.symbol, name: row.name, closes: row.closes, date: row.date };
-  }, [watchRows, selected]);
+    if (!monitorRow || monitorRow.closes.length < 2 || !monitorRow.date) return null;
+    return { symbol: monitorRow.symbol, name: monitorRow.name, closes: monitorRow.closes, date: monitorRow.date };
+  }, [monitorRow?.symbol, monitorRow?.name, monitorRow?.closes, monitorRow?.date]);
 
   return {
     infos,
