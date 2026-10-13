@@ -33,6 +33,7 @@ export interface BeaconSceneProps extends Pick<BeaconJourneyProps, 'stockCount' 
   onReady: () => void;
   /** WebGL context 掉了（交給外層改顯示海報） */
   onLost: () => void;
+  onError: () => void;
 }
 
 /** 晨夜切換的時間（--dur-eclipse） */
@@ -96,9 +97,10 @@ interface WorldProps {
   onReady: () => void;
   onPark: (parked: boolean) => void;
   onLost: () => void;
+  onError: () => void;
 }
 
-function World({ progress, low, canHover, data, handoff, poster, activeRef, worldOut, onReady, onPark, onLost }: WorldProps) {
+function World({ progress, low, canHover, data, handoff, poster, activeRef, worldOut, onReady, onPark, onLost, onError }: WorldProps) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const width = useThree((s) => s.size.width);
@@ -130,25 +132,32 @@ function World({ progress, low, canHover, data, handoff, poster, activeRef, worl
     }
   }, [onPark]);
 
-  // 建場景（StrictMode 開發模式會建兩次，第一次會被完整釋放）
+  // Keep the poster interactive while construction and shader preparation yield.
   useEffect(() => {
-    const w = createBeacon(gl, camera, { low });
-    const s = state.current;
-    w.applyLook(s.dawn);
-    w.settleLook();
-    worldRef.current = w;
-    worldOut.current = w;
-    setWorld(w);
+    const controller = new AbortController();
+    let owned: BeaconWorld | null = null;
     const probeHost = window as Window & { __beaconProbe?: () => FaceProbe };
-    if (probeEnabled()) probeHost.__beaconProbe = () => w.probe();
+    void createBeacon(gl, camera, { low, dawn: state.current.dawn, signal: controller.signal }).then((w) => {
+      if (controller.signal.aborted) {
+        w.dispose();
+        return;
+      }
+      owned = w;
+      worldRef.current = w;
+      worldOut.current = w;
+      setWorld(w);
+      if (probeEnabled()) probeHost.__beaconProbe = () => w.probe();
+    }).catch(() => {
+      if (!controller.signal.aborted) onError();
+    });
     return () => {
+      controller.abort();
       if (probeHost.__beaconProbe) delete probeHost.__beaconProbe;
-      worldRef.current = null;
-      if (worldOut.current === w) worldOut.current = null;
-      setWorld(null);
-      w.dispose();
+      if (worldRef.current === owned) worldRef.current = null;
+      if (worldOut.current === owned) worldOut.current = null;
+      owned?.dispose();
     };
-  }, [gl, camera, low, worldOut]);
+  }, [gl, camera, low, worldOut, onError]);
 
   // 尺寸變了：調整 render target 與構圖
   useEffect(() => {
@@ -168,6 +177,7 @@ function World({ progress, low, canHover, data, handoff, poster, activeRef, worl
     let cancelled = false;
     world.setScreens(data, isDark);
     wake();
+    if (state.current.fonts) return;
     loadScreenFonts().then(() => {
       if (cancelled) return;
       world.setScreens(data, isDark);
@@ -282,6 +292,7 @@ export function BeaconScene({
   handoff,
   onReady,
   onLost,
+  onError,
 }: BeaconSceneProps) {
   const [poster] = useState(readPosterParams);
   // 低階設定只在建立時決定（跨過斷點不重建整個場景）
@@ -351,6 +362,7 @@ export function BeaconScene({
         onReady={onReady}
         onPark={setParked}
         onLost={onLost}
+        onError={onError}
       />
     </Canvas>
   );
