@@ -77,7 +77,38 @@ def test_daily_tick_never_dispatches_retired_pipeline():
     worker = scheduler.Scheduler(lambda job: calls.append(job), start)
     for days in (0, 1, 30):
         worker.tick(start + timedelta(days=days, hours=3))
-    assert set(calls) == {"cnyes", "rag", "impact", "text-brief"}
+    assert set(calls) == {"market", "cnyes", "rag", "impact", "text-brief"}
+
+
+@pytest.mark.parametrize("now,expected", [
+    ("2026-10-13T08:39:00+08:00", "2026-10-13T08:40:00+08:00"),
+    ("2026-10-13T08:40:00+08:00", "2026-10-13T17:40:00+08:00"),
+    ("2026-10-13T17:40:00+08:00", "2026-10-13T18:40:00+08:00"),
+    ("2026-10-13T13:40:00+00:00", "2026-10-14T08:40:00+08:00"),
+    ("2026-10-16T21:40:00+08:00", "2026-10-17T08:40:00+08:00"),
+    ("2026-10-17T08:40:00+08:00", "2026-10-19T08:40:00+08:00"),
+])
+def test_market_refresh_covers_late_publication_and_skips_weekend_evenings(now, expected):
+    worker = scheduler.Scheduler(lambda job: None, datetime.fromisoformat(now))
+    assert worker.next_runs["market"] == datetime.fromisoformat(expected)
+
+
+def test_daily_market_refresh_bounds_history_and_skips_supplemental_work(monkeypatch, tmp_path):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 13, 17, 40, tzinfo=tz)
+
+    monkeypatch.setattr(scheduler, "datetime", Clock)
+    calls = []
+    assert scheduler.run_pipeline("market", start=date(2021, 1, 1), symbols=None,
+        output=tmp_path, daily_only=True, run=lambda command: calls.append(command) or 0) == 0
+    assert calls == [
+        ["market-backfill", "--benchmark-only", "--incremental", "--start", "2026-10-06"],
+        ["market-fetch", "--from-stock-info", "--daily-only", "--start", "2026-10-06", "--out", str(tmp_path)],
+        ["market-import", "--input-dir", str(tmp_path)],
+        ["paper-reconcile", "--execute"],
+    ]
 
 
 @pytest.mark.parametrize("symbols", [None, "2330,2317"])

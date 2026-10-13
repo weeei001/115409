@@ -186,7 +186,7 @@ def test_duplicate_rejected_and_completed_manual_run_can_rerun(tmp_path, setting
             actor = db.get(User, user_id)
             for action in ("pause", "resume"):
                 with pytest.raises(AppError, match="Manual"):
-                    jobs.perform(db, actor, "market", action)
+                    jobs.perform(db, actor, "stock-backfill", action)
             first = service.perform_job(db, actor, jobs, "cnyes", "run", None)["run_id"]
             with pytest.raises(AppError) as exc:
                 service.perform_job(db, actor, jobs, "cnyes", "run", None)
@@ -512,7 +512,7 @@ def test_retired_jobs_keep_history_but_cannot_execute_queued_runs(tmp_path, sett
         assert jobs._execute(queued_id) == 1
         assert not jobs._enabled(retired)
         assert retired not in {job["name"] for job in jobs.snapshot()["jobs"]}
-        assert {job["name"] for job in jobs.snapshot()["jobs"] if job["schedule"] == "Manual"} == {"market", "stock-backfill"}
+        assert {job["name"] for job in jobs.snapshot()["jobs"] if job["schedule"] == "Manual"} == {"stock-backfill"}
         with factory() as db:
             assert db.get(AdminJobRun, old_id).status == "failed"
             assert db.get(AdminJobRun, queued_id).status == "interrupted"

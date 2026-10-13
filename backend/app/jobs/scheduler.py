@@ -31,7 +31,7 @@ def run_worker(command: list[str]) -> int:
 
 def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, run=None,
                  impact_execute=True, impact_limit=100, impact_max_cost_usd=0.50,
-                 impact_since: date | None = None, source_enabled=None) -> int:
+                 impact_since: date | None = None, source_enabled=None, daily_only=False) -> int:
     run = run or run_worker
     if job == "ltn":
         raise ValueError("Liberty Times source has been retired")
@@ -44,22 +44,28 @@ def run_pipeline(job: str, *, start: date, symbols: str | None, output: Path, ru
         commands.append(["stock-backfill", "--symbol", symbols])
     if job == "market":
         today = datetime.now(TAIPEI).date()
+        # Daily refreshes use current exchange snapshots, not quarterly backfills.
+        market_start = max(start, today - timedelta(days=7)) if daily_only else start
         previous_month = today.replace(day=1) - timedelta(days=1)
         revenue_start = (previous_month.replace(day=1) - timedelta(days=1)).replace(day=1)
         supplemental_symbols = ["--stocks", symbols] if symbols else []
-        commands.append(["market-backfill", "--benchmark-only", "--incremental", "--start", start.isoformat()])
+        commands.append(["market-backfill", "--benchmark-only", "--incremental", "--start", market_start.isoformat()])
         commands.extend([
             ["market-fetch", *(["--stocks", symbols] if symbols else ["--from-stock-info"]),
-             "--start", start.isoformat(), "--out", str(output)],
+             *(["--daily-only"] if daily_only else []),
+             "--start", market_start.isoformat(), "--out", str(output)],
             ["market-import", "--input-dir", str(output)],
-            ["market-supplemental-backfill", *supplemental_symbols,
-             "--start", max(start, revenue_start).isoformat(), "--end", today.isoformat(),
-             "--datasets", "monthly_revenue", "--out", str(output / "revenue_report.json")],
-            ["market-supplemental-backfill", *supplemental_symbols,
-             "--start", max(start, today - timedelta(days=400)).isoformat(), "--end", today.isoformat(),
-             "--datasets", "financial_metrics", "--out", str(output / "financial_metrics_report.json")],
-            ["paper-reconcile", "--execute"],
         ])
+        if not daily_only:
+            commands.extend([
+                ["market-supplemental-backfill", *supplemental_symbols,
+                 "--start", max(start, revenue_start).isoformat(), "--end", today.isoformat(),
+                 "--datasets", "monthly_revenue", "--out", str(output / "revenue_report.json")],
+                ["market-supplemental-backfill", *supplemental_symbols,
+                 "--start", max(start, today - timedelta(days=400)).isoformat(), "--end", today.isoformat(),
+                 "--datasets", "financial_metrics", "--out", str(output / "financial_metrics_report.json")],
+            ])
+        commands.append(["paper-reconcile", "--execute"])
     if job == "cnyes":
         commands.append(["crawl-cnyes", "--scheduled-once"])
     if job in {"rag", "impact"}:
@@ -98,7 +104,7 @@ def next_daily(now: datetime, at: time) -> datetime:
 
 
 class Scheduler:
-    def __init__(self, run, now: datetime, *, market_at: time = time(17),
+    def __init__(self, run, now: datetime, *, market_at: time = time(17, 40),
                  brief_at: time = time(22, 30), enabled=None):
         self.run, self.market_at = run, market_at
         self.enabled = enabled or (lambda name: True)
@@ -107,9 +113,29 @@ class Scheduler:
         self.schedules = {name: f"Hourly :{minute:02d} Asia/Taipei"
                           for name, minute in self.hourly_minutes.items()}
         self.schedules["text-brief"] = f"Daily {brief_at:%H:%M} Asia/Taipei"
+        self.market_times = tuple(
+            (datetime.combine(date.min, market_at) + timedelta(hours=offset)).time()
+            for offset in range(5)
+        )
+        self.schedules["market"] = (
+            "Weekdays " + ", ".join(at.strftime("%H:%M") for at in self.market_times)
+            + "; Mon-Sat 08:40 Asia/Taipei"
+        )
         self.next_runs = {name: self.next_time(name, now) for name in self.schedules}
 
     def next_time(self, name: str, now: datetime) -> datetime:
+        if name == "market":
+            now = now.astimezone(TAIPEI)
+            for offset in range(8):
+                day = now.date() + timedelta(days=offset)
+                times = list(self.market_times) if day.weekday() < 5 else []
+                if day.weekday() < 6:
+                    times.append(time(8, 40))
+                future = [datetime.combine(day, at, TAIPEI) for at in times
+                          if datetime.combine(day, at, TAIPEI) > now]
+                if future:
+                    return min(future)
+            raise AssertionError("No market refresh deadline")
         if name == "text-brief":
             return next_daily(now, self.brief_at)
         now = now.astimezone(TAIPEI)
@@ -132,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbols", help="Limit market fetch and brief warmup to these codes; default is every stock_info company")
     parser.add_argument("--out", type=Path, default=state_directory() / "market")
     parser.add_argument("--job", required=True, choices=["market", "cnyes", "rag", "text-brief", "impact"])
+    parser.add_argument("--daily-only", action="store_true",
+                        help="Refresh daily market snapshots without quarterly or monthly backfills")
     parser.add_argument("--market-time", dest="market_time", type=time.fromisoformat, default=time(17))
     parser.add_argument("--impact-execute", dest="impact_execute",
                         action=argparse.BooleanOptionalAction, default=True,
@@ -144,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--impact-since", type=date.fromisoformat,
                         help="Fixed publication start date for incremental event analysis; default is the last 30 days")
     args = parser.parse_args(argv)
+    if args.daily_only and args.job != "market":
+        parser.error("--daily-only requires --job market")
     if args.market_time.tzinfo is not None:
         parser.error("--market-time is a Taiwan local time without a timezone suffix")
     if (args.impact_limit < 1 or not math.isfinite(args.impact_max_cost_usd)
@@ -157,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     def run(job):
         return run_pipeline(job, start=args.start, symbols=symbols, output=args.out,
                             impact_execute=args.impact_execute, impact_limit=args.impact_limit,
-                            impact_max_cost_usd=args.impact_max_cost_usd, impact_since=args.impact_since)
+                            impact_max_cost_usd=args.impact_max_cost_usd, impact_since=args.impact_since,
+                            **({"daily_only": True} if args.daily_only else {}))
 
     with worker_lock("scheduler"):
         def stop(signum, frame):
