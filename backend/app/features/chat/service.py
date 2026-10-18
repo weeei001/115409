@@ -112,6 +112,7 @@ class ChatService:
                 "LLM_MAX_TOKENS": settings.CHAT_LLM_MAX_TOKENS,
                 "LLM_TIMEOUT_SECONDS": settings.CHAT_LLM_TIMEOUT_SECONDS,
                 "LLM_MAX_RETRIES": settings.CHAT_LLM_MAX_RETRIES,
+                "LLM_REASONING_EFFORT": settings.CHAT_LLM_REASONING_EFFORT,
             }), http)
         self.intent_llm = intent_llm if intent_llm is not None else self.llm
         self.session_factory = session_factory

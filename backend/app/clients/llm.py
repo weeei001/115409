@@ -74,6 +74,12 @@ def _thinking_extra_body(model: str, enable_thinking: bool | None = None) -> dic
         return {"chat_template_kwargs": {"enable_thinking": False}}
     return {}
 
+def _extra_body(model: str, settings: Any) -> dict[str, Any]:
+    body = _thinking_extra_body(model, settings.LLM_ENABLE_THINKING)
+    effort = getattr(settings, "LLM_REASONING_EFFORT", "")
+    return {**body, "reasoning": {"effort": effort}} if effort else body
+
+
 def _load_json_object(text: str) -> dict[str, Any] | None:
     text = _clean_llm_json_text(text)
     repaired_text = _repair_json_numeric_expressions(text)
@@ -216,7 +222,7 @@ class LlmClient:
             streaming=use_stream,
             stream_chunk_timeout=settings.LLM_STREAM_CHUNK_TIMEOUT_SECONDS or None,
             stream_usage=use_stream,
-            extra_body=_thinking_extra_body(self.model_name, settings.LLM_ENABLE_THINKING),
+            extra_body=_extra_body(self.model_name, settings),
             http_socket_options=() if self.http is not None else None,
             http_async_client=self.http,
         )

@@ -80,3 +80,15 @@ def test_chat_uses_shared_model_with_default_chat_limits(settings):
     assert service.llm.settings.LLM_MAX_TOKENS == 8192
     assert service.llm.settings.LLM_TIMEOUT_SECONDS == 85
     assert service.llm.settings.LLM_MAX_RETRIES == 0
+
+
+def test_chat_uses_low_reasoning_effort_and_can_turn_it_off(settings):
+    from app.clients.llm import _extra_body
+
+    settings = configured(settings)
+    chat_settings = ChatService(settings=settings, http=None).llm.settings
+    assert _extra_body(settings.LLM_MODEL, chat_settings)["reasoning"] == {"effort": "low"}
+    # 分析等其他模型呼叫不受對話設定影響。
+    assert "reasoning" not in _extra_body(settings.LLM_MODEL, settings)
+    off = settings.model_copy(update={"CHAT_LLM_REASONING_EFFORT": ""})
+    assert "reasoning" not in _extra_body(off.LLM_MODEL, ChatService(settings=off, http=None).llm.settings)

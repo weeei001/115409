@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_MODEL: str = ""
     LLM_ENABLE_THINKING: bool | None = None
+    # OpenRouter 的推理強度；空字串表示不傳，由模型預設決定。
+    LLM_REASONING_EFFORT: Literal["", "minimal", "low", "medium", "high"] = ""
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 8192
     LLM_RESPONSE_FORMAT: Literal["off", "json_object", "json_schema"] = "json_object"
@@ -72,6 +74,8 @@ class Settings(BaseSettings):
     # 規劃、檢索加上約 3,000 tokens 的回答常需 45～60 秒；整輪上限須低於 Cloudflare 的 100 秒回應上限。
     CHAT_LLM_TIMEOUT_SECONDS: float = 85
     CHAT_LLM_MAX_RETRIES: int = 0
+    # 本機正式資料庫實測：low 讓對話首字平均 18.7→11.5 秒，回答品質未見下降。
+    CHAT_LLM_REASONING_EFFORT: Literal["", "minimal", "low", "medium", "high"] = "low"
     CHAT_REQUEST_TIMEOUT_SECONDS: float = Field(90, gt=0, allow_inf_nan=False)
     LLM_INPUT_PRICE_PER_M: float = 0.20
     LLM_OUTPUT_PRICE_PER_M: float = 1.20
