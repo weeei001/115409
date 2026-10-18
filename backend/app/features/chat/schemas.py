@@ -17,7 +17,7 @@ class AskRequest(BaseModel):
     _evidence_trace: dict = PrivateAttr(default_factory=dict)
     query: str = Field(min_length=1, max_length=6000)
     stock_id: str | None = Field(default=None, pattern=r"^[0-9]{4,6}$")
-    stream: bool = Field(default=False, description="保留舊請求相容性；回覆一律使用一般 JSON。")
+    stream: bool = Field(default=False, description="保留舊請求相容性；要串流回答請以 Accept: text/event-stream 請求。")
     answer_detail: Literal["plain", "standard", "technical"] = "plain"
     history: list[ChatTurn] = Field(default_factory=list, max_length=8)
 

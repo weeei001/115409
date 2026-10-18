@@ -66,6 +66,35 @@ async function check() {
   });
   globalThis.fetch = async () => new Response(JSON.stringify({ actions: [] }));
   await assert.rejects(ragAsk({ query: 'Malformed' }), /未回傳完整回答/);
+
+  // SSE：回答逐段送出，完成事件帶回與 JSON 相同的結果；事件可能被切在任意位元組。
+  const sse = (frames: object[]) => {
+    const bytes = new TextEncoder().encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''));
+    return new Response(new ReadableStream({
+      start(controller) {
+        for (let index = 0; index < bytes.length; index += 7) controller.enqueue(bytes.slice(index, index + 7));
+        controller.close();
+      },
+    }), { headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  globalThis.fetch = async (_url, options) => {
+    assert.equal((options?.headers as Record<string, string>).Accept, 'text/event-stream');
+    return sse([{ type: 'delta', text: '台積電' }, { type: 'delta', text: '營收成長。[S1]' },
+      { type: 'done', response: { answer: '台積電營收成長。[S1]', sources: [source], message_id: 'streamed-id' } }]);
+  };
+  const deltas: string[] = [];
+  const streamed = await ragAsk({ query: 'Stream' }, { conversationId: 'one', onDelta: (text) => deltas.push(text) });
+  assert.deepEqual(deltas, ['台積電', '營收成長。[S1]']);
+  assert.equal(streamed.answer, '台積電營收成長。[S1]');
+  assert.deepEqual(streamed.sources, [source]);
+  assert.equal(streamed.serverId, 'streamed-id');
+  globalThis.fetch = async () => sse([{ type: 'delta', text: '部分' }, { type: 'error', status: 504, message: '本次回答已超過時間上限，請縮小問題後再試。' }]);
+  await assert.rejects(ragAsk({ query: 'Stream error' }, { onDelta: () => {} }), (error: Error & { status?: number }) =>
+    error.status === 504 && error.message === '本次回答已超過時間上限，請縮小問題後再試。');
+  globalThis.fetch = async () => sse([{ type: 'delta', text: '部分' }]);
+  await assert.rejects(ragAsk({ query: 'Stream dropped' }, { onDelta: () => {} }), /連線中斷/);
+  globalThis.fetch = async () => new Response(JSON.stringify({ answer: 'JSON fallback' }));
+  assert.equal((await ragAsk({ query: 'Old server' }, { onDelta: () => assert.fail('no deltas for JSON') })).answer, 'JSON fallback');
   globalThis.fetch = async () => { throw new TypeError('secret provider URL'); };
   await assert.rejects(ragAsk({ query: 'Network' }), (error: Error) => {
     assert.match(error.message, /連線中斷/);
@@ -105,5 +134,5 @@ if (process.argv.includes('--child')) {
     });
     assert.equal(child.status, 0, child.stderr || child.stdout);
   }
-  console.log('Chat JSON API passed: routing, bounded history, safe response fields, saved IDs, errors, cancellation, and timeout.');
+  console.log('Chat API passed: routing, bounded history, safe response fields, saved IDs, SSE streaming, errors, cancellation, and timeout.');
 }

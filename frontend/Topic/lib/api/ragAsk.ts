@@ -49,10 +49,43 @@ export interface RagAskResponse {
   serverId?: string;
 }
 
-/** 一般 JSON 請求；回答完成後一次回傳文字、來源及已儲存訊息 ID。 */
+const STREAM_DROPPED_MESSAGE = '與伺服器的連線中斷，尚未取得完整回覆。請確認網路連線後重試。';
+
+/** 讀取 SSE：delta 逐段交給 onDelta，done 回傳與 JSON 相同的結果，error 轉成錯誤。 */
+async function readAnswerStream(res: Response, onDelta: (text: string) => void): Promise<unknown> {
+  if (!res.body) throw new ApiRequestError(STREAM_DROPPED_MESSAGE);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let end = buffer.indexOf('\n\n');
+    while (end >= 0) {
+      const data = buffer.slice(0, end).split('\n').filter((line) => line.startsWith('data: '))
+        .map((line) => line.slice(6)).join('\n');
+      buffer = buffer.slice(end + 2);
+      end = buffer.indexOf('\n\n');
+      if (!data) continue;
+      const event = JSON.parse(data) as { type?: string; text?: unknown; response?: unknown; message?: unknown; status?: unknown };
+      if (event.type === 'delta' && typeof event.text === 'string') onDelta(event.text);
+      else if (event.type === 'done') return event.response;
+      else if (event.type === 'error') {
+        throw new ApiRequestError(typeof event.message === 'string' ? event.message : '伺服器無法完成回覆，請稍後再試。',
+          typeof event.status === 'number' ? event.status : undefined);
+      }
+    }
+    if (done) throw new ApiRequestError(STREAM_DROPPED_MESSAGE);
+  }
+}
+
+/**
+ * 提出問題。提供 onDelta 時以 SSE 串流，回答文字產生後立即逐段傳入；
+ * 兩種方式最後都回傳完整文字、來源及已儲存訊息 ID。
+ */
 export async function ragAsk(
   params: RagAskParams,
-  options?: { signal?: AbortSignal; conversationId?: string },
+  options?: { signal?: AbortSignal; conversationId?: string; onDelta?: (text: string) => void },
 ): Promise<RagAskResponse> {
   const ctrl = new AbortController();
   const timeoutMs = getRagApiTimeoutMs();
@@ -66,7 +99,8 @@ export async function ragAsk(
     const url = options?.conversationId ? `${API_BASE}/api/conversations/${encodeURIComponent(options.conversationId)}/ask` : ASK_URL;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', Accept: options?.onDelta ? 'text/event-stream' : 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({
         query: params.query, stock_id: params.stock_id ?? null, answer_detail: params.answer_detail ?? 'plain',
         history: (params.history ?? []).slice(-8).map(cleanHistoryMessage).filter((message) => message.content),
@@ -84,7 +118,9 @@ export async function ragAsk(
       }
       throw new ApiRequestError(message, res.status);
     }
-    const result = await res.json();
+    const result = options?.onDelta && res.headers.get('content-type')?.includes('text/event-stream')
+      ? await readAnswerStream(res, options.onDelta) as Record<string, unknown> | undefined
+      : await res.json();
     if (!result || typeof result.answer !== 'string') throw new ApiRequestError('伺服器未回傳完整回答，請重新提問。');
     return {
       answer: result.answer,
@@ -100,7 +136,7 @@ export async function ragAsk(
       ? `AI 回覆超過 ${Math.round(timeoutMs / 1000)} 秒，已停止等待。請重新提問。`
       : error instanceof ApiRequestError
         ? userFacingMessage(error, '伺服器無法完成回覆，請稍後再試。')
-        : '與伺服器的連線中斷，尚未取得完整回覆。請確認網路連線後重試。';
+        : STREAM_DROPPED_MESSAGE;
     throw new ApiRequestError(message, error instanceof ApiRequestError ? error.status : undefined, { cause: error });
   } finally {
     clearTimeout(timer);

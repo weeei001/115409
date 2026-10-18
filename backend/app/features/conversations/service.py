@@ -127,11 +127,11 @@ class ConversationService:
             logging.getLogger(__name__).exception("Conversation lease renewal failed")
             consumer.cancel()
 
-    async def ask(self, conversation_id, turn_id, request):
+    async def ask(self, conversation_id, turn_id, request, on_delta=None):
         finished = False
         heartbeat = asyncio.create_task(self._heartbeat(conversation_id, turn_id, asyncio.current_task()))
         try:
-            response = await self.chat.ask(request)
+            response = await (self.chat.ask(request) if on_delta is None else self.chat.ask(request, on_delta=on_delta))
             extra = response.model_dump(mode="json", include={"dashboard", "actions", "sources"})
             message_id = self._finish(conversation_id, turn_id, response.answer, "completed", extra)
             if not message_id:
