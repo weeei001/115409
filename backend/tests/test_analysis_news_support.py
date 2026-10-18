@@ -42,6 +42,15 @@ def test_unverified_first_publication_is_one_plain_limitation(db_session, settin
     assert not any(text.startswith("缺少：新聞") or "首次公開" in text for text in result.limitations)
 
 
+def test_unverified_first_publication_alone_is_not_a_content_gap():
+    from app.features.analysis.evidence import NEWS_FIRST_PUBLIC_LIMITATION
+    from app.features.analysis.service import content_gaps
+
+    # Every crawled article carries this provenance note; it stays listed but cannot mark a brief limited.
+    assert content_gaps([NEWS_FIRST_PUBLIC_LIMITATION]) == []
+    assert content_gaps(["月營收", NEWS_FIRST_PUBLIC_LIMITATION]) == ["月營收"]
+
+
 def test_ambiguous_opinion_words_preserve_the_brief_without_content_checks(db_session, settings, monkeypatch):
     from app.db.models.stock_info import StockInfo
     from app.features.analysis import validation

@@ -78,5 +78,5 @@ def test_chat_uses_shared_model_with_default_chat_limits(settings):
     assert service.llm.model_name == settings.LLM_MODEL
     assert service.llm.settings is not settings
     assert service.llm.settings.LLM_MAX_TOKENS == 8192
-    assert service.llm.settings.LLM_TIMEOUT_SECONDS == 60
+    assert service.llm.settings.LLM_TIMEOUT_SECONDS == 85
     assert service.llm.settings.LLM_MAX_RETRIES == 0

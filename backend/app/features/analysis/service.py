@@ -64,6 +64,15 @@ def text_brief_revision() -> str:
                                 "pipeline": "backend-v2-structural-validation-only"})[:12]
 
 
+def content_gaps(missing_fields: list[str]) -> list[str]:
+    """Missing data that makes a brief limited.
+
+    Unverified first-publication time applies to every crawled article, so it stays listed as a
+    limitation without marking otherwise complete content as limited.
+    """
+    return [field for field in missing_fields if field != NEWS_FIRST_PUBLIC_LIMITATION]
+
+
 def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
     return {"purpose": "production", "content_validation": False, "rag_lookback_days": gate.RAG_DEFAULT_NEWS_LOOKBACK_DAYS,
             "rag_max_events": gate.RAG_DEFAULT_MAX_NEWS_EVENTS,
@@ -351,7 +360,7 @@ class AnalysisService:
         }
         latency_ms = round((perf_counter() - started) * 1000)
         signals = verification.model_dump(exclude={"jargon_hits", "simplified_chars"})
-        limited = bool(discarded or any(signals.values()) or rag.fallback_mode or bundle.missing_fields)
+        limited = bool(discarded or any(signals.values()) or rag.fallback_mode or content_gaps(bundle.missing_fields))
         status = "unavailable" if brief is None else "limited" if limited else "verified"
         limitations = [fallback_message] if brief is None else []
         if brief is not None:

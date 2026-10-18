@@ -10,7 +10,7 @@ import type { ClaimType, ForwardView, ForwardViewKey } from '../types/textBrief'
  * Responses without a brief use each component's empty state.
  */
 export function briefStatusNote(status: string | undefined): string | null {
-  return status === 'limited' ? '部分分析內容缺漏，未提供的段落已留空' : null;
+  return status === 'limited' ? '部分資料或分析段落不完整' : null;
 }
 
 export const STANCE: Record<string, string> = {

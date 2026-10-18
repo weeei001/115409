@@ -69,9 +69,10 @@ class Settings(BaseSettings):
     # 單次模型逾時與整輪上限分開；意圖、檢索、初答及唯一一次修復共用整輪時間。
     # 對話僅獨立設定 token、逾時與重試上限。
     CHAT_LLM_MAX_TOKENS: int = 8192
-    CHAT_LLM_TIMEOUT_SECONDS: float = 60
+    # 規劃、檢索加上約 3,000 tokens 的回答常需 45～60 秒；整輪上限須低於 Cloudflare 的 100 秒回應上限。
+    CHAT_LLM_TIMEOUT_SECONDS: float = 85
     CHAT_LLM_MAX_RETRIES: int = 0
-    CHAT_REQUEST_TIMEOUT_SECONDS: float = Field(60, gt=0, allow_inf_nan=False)
+    CHAT_REQUEST_TIMEOUT_SECONDS: float = Field(90, gt=0, allow_inf_nan=False)
     LLM_INPUT_PRICE_PER_M: float = 0.20
     LLM_OUTPUT_PRICE_PER_M: float = 1.20
     ANALYSIS_TIMEOUT_SECONDS: int = 1200

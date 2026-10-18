@@ -159,7 +159,7 @@ function briefResult(data: Partial<TextBriefResponse>): UseStockTextBriefResult 
 
 /* ── 後端 status：limited 要提示內容有刪減並指向「分析限制」；verified 不提示 ── */
 {
-  const note = '部分分析內容缺漏，未提供的段落已留空';
+  const note = '部分資料或分析段落不完整';
   const limits = ['下列段落未提供內容：風險。'];
   const card = (status: string) => text(renderToStaticMarkup(React.createElement(AIBriefSummaryCard, {
     symbol: '2330', brief: briefResult({ brief: BRIEF, status, limitations: limits }), onOpenDetail: () => {},

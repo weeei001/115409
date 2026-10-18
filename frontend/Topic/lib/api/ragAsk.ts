@@ -78,6 +78,10 @@ export async function ragAsk(
     if (!res.ok) {
       let message = genericMessageForStatus(res.status);
       try { message = pickDetailMessage(await res.json(), res.status); } catch { /* 使用狀態碼對應訊息。 */ }
+      // 閘道（Cloudflare）逾時會以英文錯誤頁取代後端的中文說明。
+      if ((res.status === 504 || res.status === 524) && message === genericMessageForStatus(res.status)) {
+        message = 'AI 回覆時間超過上限，請縮小問題範圍後再試。';
+      }
       throw new ApiRequestError(message, res.status);
     }
     const result = await res.json();
