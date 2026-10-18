@@ -11,7 +11,7 @@ from app.db.models.daily_price import DailyPrice
 from app.db.models.stock_info import StockInfo
 from app.features.chat import service as chat_module
 from app.features.chat.knowledge import reference_source
-from app.features.chat.data_queries import NewsSupplementPlan, StockDiscoveryPlan
+from app.features.chat.data_queries import StockDiscoveryPlan
 from app.features.chat.schemas import AskRequest
 from test_chat import NOW, chat, plan_payload
 
@@ -27,7 +27,7 @@ def data_tools(chat, db_session, monkeypatch):
             db_session.add(DailyPrice(symbol=symbol, date=NOW.date() - timedelta(days=offset),
                                       close=100 + offset, volume_shares=volume))
     db_session.commit()
-    decisions = {"groups": [["半導體業"], ["水泥工業"]], "needed": False,
+    decisions = {"groups": [["半導體業"], ["水泥工業"]],
                  "search_all": False, "calls": [], "payloads": {}}
     models.intent = {"stocks": [], "data_needs": ["market", "news"],
                      "discover_stocks": True, "news_strategy": "auto"}
@@ -42,8 +42,6 @@ def data_tools(chat, db_session, monkeypatch):
         elif schema == "StockDiscoveryPlan":
             payload = {"industry_groups": decisions["groups"],
                        "search_all": decisions["search_all"], "limit": 3}
-        elif schema == "NewsSupplementPlan":
-            payload = {"needed": decisions["needed"], "query": "科技股與水泥股的最新產業風險"}
         else:
             raise AssertionError(f"Unexpected schema: {schema}")
         return LlmResult(payload, "", {"finish_reason": "stop"})
@@ -56,7 +54,7 @@ def ask(service, query="科技股與水泥股各有哪些值得比較的台股�
     return asyncio.run(service.ask(AskRequest(query=query)))
 
 
-def test_public_sector_selection_reads_database_without_personal_or_unneeded_news(data_tools, monkeypatch):
+def test_public_sector_selection_reads_database_without_personal_data_or_news_decision(data_tools, monkeypatch):
     _, service, _, retrieval, decisions = data_tools
 
     def forbidden(*args, **kwargs):
@@ -66,36 +64,34 @@ def test_public_sector_selection_reads_database_without_personal_or_unneeded_new
     response = ask(service)
     assert response.detected_stocks == ["2330", "1101", "2317"]
     assert {"market_technical", "comparison"} <= {source.category for source in response.sources}
-    assert not retrieval.calls
-    assert decisions["calls"] == ["TaskPlan", "StockDiscoveryPlan", "NewsSupplementPlan"]
-    payload = decisions["payloads"]["NewsSupplementPlan"]
-    assert any(item["category"] == "market_technical" for item in payload["evidence"])
+    # 個股分析的新聞只作補充：直接檢索，不再多一次模型判斷。
+    assert decisions["calls"] == ["TaskPlan", "StockDiscoveryPlan"]
+    assert retrieval.calls[0]["query"] == "科技股與水泥股各有哪些值得比較的台股標的？"
     assert set(decisions["payloads"]["StockDiscoveryPlan"]["available_industries"]) == {"半導體業", "水泥工業"}
 
 
-def test_optional_news_runs_after_database_observations_and_uses_selected_symbols(data_tools, monkeypatch):
+def test_supplementary_news_runs_alongside_market_data_with_selected_symbols(data_tools, monkeypatch):
     _, service, _, retrieval, decisions = data_tools
-    decisions["needed"] = True
-    order = []
-    original_market = service._market_sources
     original_search = retrieval.search_question
+    overlapped = []
 
     def market(*args):
-        order.append("market")
-        return original_market(*args)
+        overlapped.append("market")
+        return service.__class__._market_sources(service, *args)
 
     async def news(*args, **kwargs):
-        order.append("news")
-        assert "NewsSupplementPlan" in decisions["calls"]
+        overlapped.append("news")
         return await original_search(*args, **kwargs)
 
     monkeypatch.setattr(service, "_market_sources", market)
     monkeypatch.setattr(retrieval, "search_question", news)
     response = ask(service)
-    assert order == ["market", "news"]
+    assert sorted(overlapped) == ["market", "news"]
     assert retrieval.calls[0]["symbols"] == response.detected_stocks
-    assert retrieval.calls[0]["query"] == "科技股與水泥股的最新產業風險"
     assert {"market_technical", "news"} <= {source.category for source in response.sources}
+    # 行情先列、新聞在後，引用編號順序與先前一致。
+    categories = [source.category for source in response.sources]
+    assert categories.index("market_technical") < categories.index("news")
 
 
 def test_analysis_without_codes_or_discovery_flag_still_queries_candidates(data_tools):
@@ -105,7 +101,7 @@ def test_analysis_without_codes_or_discovery_flag_still_queries_candidates(data_
     assert "1101" in response.detected_stocks
     assert any(source.category == "market_technical" for source in response.sources)
     assert any(source.category == "comparison" for source in response.sources)
-    assert not retrieval.calls
+    assert retrieval.calls
 
 
 def test_numerical_sector_comparison_never_requires_news_decision(data_tools):
@@ -157,7 +153,7 @@ def test_explicit_stock_preserves_scope_without_discovery_or_with_pinned_request
     response = asyncio.run(service.ask(request))
     assert response.detected_stocks == ["2330"]
     assert "StockDiscoveryPlan" not in decisions["calls"]
-    assert not retrieval.calls
+    assert retrieval.calls[0]["symbols"] == ["2330"]
 
 
 def test_mixed_explicit_stock_and_sector_candidates_preserve_requested_stock(data_tools):
@@ -193,7 +189,7 @@ def test_authorized_account_and_favorites_combine_with_sector_candidates(data_to
     personal = next(source for source in response.sources if source.category == "personal")
     assert json.loads(personal.content)["portfolio"]["available_cash"] == 42000
     assert "StockDiscoveryPlan" in decisions["calls"]
-    assert not retrieval.calls
+    assert retrieval.calls[0]["symbols"] == response.detected_stocks
     assert not any(action.type == "paper_order_draft" for action in response.actions)
 
 
@@ -224,7 +220,7 @@ def test_empty_sector_discovery_keeps_explicit_stock_evidence(data_tools):
     discovery = next(source for source in response.sources if source.category == "stock_discovery")
     assert json.loads(discovery.content)["missing_groups"] == [["Unsupported industry"]]
     assert any(kind == "text" for kind, _ in models.calls)
-    assert not retrieval.calls
+    assert retrieval.calls[0]["symbols"] == ["2330"]
 
 
 def test_empty_personal_holdings_and_discovery_keep_authorized_account(data_tools, monkeypatch):
@@ -262,13 +258,6 @@ def test_discovery_schema_rejects_ambiguous_or_coerced_tool_arguments(payload):
         StockDiscoveryPlan.model_validate(payload)
 
 
-def test_news_supplement_requires_boolean_and_bounded_query():
-    for payload in ({"needed": "false", "query": "Query"},
-                    {"needed": True, "query": "x" * 1001}):
-        with pytest.raises(ValidationError):
-            NewsSupplementPlan.model_validate(payload)
-
-
 def test_invalid_discovery_decision_does_not_query_candidates_or_news(data_tools, monkeypatch):
     _, service, models, retrieval, decisions = data_tools
     decisions["search_all"] = "true"
@@ -299,7 +288,7 @@ def test_injected_industry_remains_literal_and_does_not_expand_scope(data_tools,
     assert not retrieval.calls
 
 
-@pytest.mark.parametrize("stage", ["StockDiscoveryPlan", "NewsSupplementPlan"])
+@pytest.mark.parametrize("stage", ["StockDiscoveryPlan"])
 def test_added_model_decisions_share_request_deadline_and_cancel(data_tools, monkeypatch, stage):
     _, service, models, retrieval, decisions = data_tools
     original = models.generate

@@ -220,7 +220,7 @@ def test_stale_request_cannot_acknowledge_another_turn(service, db_session, sett
     assert messages[1].status == "interrupted" and messages[-1].id == current_id
 
 
-@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("stream", [False, True, "sse"])
 def test_raw_numeric_answer_is_saved_with_dashboard_without_validation_diagnostics(
         client, service, db_session, settings, monkeypatch, caplog, stream):
     from app.features.chat import service as chat_module
@@ -250,14 +250,22 @@ def test_raw_numeric_answer_is_saved_with_dashboard_without_validation_diagnosti
     conversation_id = service.create(owner).id
     caplog.set_level(logging.WARNING, logger=chat_module.__name__)
 
-    response = client.post(f"/api/conversations/{conversation_id}/ask", headers=headers, json={
+    request_headers = {**headers, "Accept": "text/event-stream"} if stream == "sse" else headers
+    response = client.post(f"/api/conversations/{conversation_id}/ask", headers=request_headers, json={
         "query": "請讀取我的收藏股票和模擬投資預算，協助我挑選適合進一步研究的股票。PRIVATE_QUERY_SENTINEL",
-        "stream": stream,
+        "stream": stream is True,
     })
 
     # 對話直接保存模型原文，不檢核或修復內容。
     assert response.status_code == 200
-    answer = response.json()["answer"]
+    if stream == "sse":
+        events = [json.loads(line[len("data: "):]) for line in response.text.split("\n\n") if line.startswith("data: ")]
+        assert "".join(event["text"] for event in events if event["type"] == "delta") == models.answer
+        result = events[-1]["response"]
+        assert events[-1]["type"] == "done" and result["message_id"]
+    else:
+        result = response.json()
+    answer = result["answer"]
     assert answer == models.answer
     assert len([kind for kind, _ in models.calls if kind in {"text", "stream"}]) == 1
 

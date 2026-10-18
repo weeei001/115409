@@ -17,6 +17,7 @@ from app.core.errors import AppError, NotFound, ServiceUnavailable, UpstreamTime
 from app.features.market.company_catalog import load_catalog
 from app.features.market.repository import stock_names
 from app.features.news.text import extract_candidate_stocks
+from app.features.news.versions import LATEST_CONTENT_LIMITATION
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
@@ -26,7 +27,7 @@ from .knowledge import collect_knowledge_sources, reference_source
 from .stock_context import collect_stock_sources
 from .personal_context import read_personal_context, paper_draft, paper_draft_offers
 from .planning import plan_request
-from .data_queries import plan_discovery, plan_news_supplement
+from .data_queries import plan_discovery
 from .stock_discovery import discover_stock_candidates, stock_industries
 from .evidence import assess_evidence
 
@@ -76,6 +77,7 @@ def _add_usage(response: AskResponse, metadata: dict) -> None:
 
 
 REQUEST_TIMEOUT_MESSAGE = "本次回答已超過時間上限，請縮小問題後再試。"
+SLOW_CHAT_MS = 30_000
 _usage_request_id = ContextVar("chat_usage_request_id", default=None)
 
 
@@ -110,6 +112,7 @@ class ChatService:
                 "LLM_MAX_TOKENS": settings.CHAT_LLM_MAX_TOKENS,
                 "LLM_TIMEOUT_SECONDS": settings.CHAT_LLM_TIMEOUT_SECONDS,
                 "LLM_MAX_RETRIES": settings.CHAT_LLM_MAX_RETRIES,
+                "LLM_REASONING_EFFORT": settings.CHAT_LLM_REASONING_EFFORT,
             }), http)
         self.intent_llm = intent_llm if intent_llm is not None else self.llm
         self.session_factory = session_factory
@@ -148,6 +151,46 @@ class ChatService:
             raise ServiceUnavailable("股票候選資料暫時無法讀取")
         with self.session_factory() as db:
             return discover_stock_candidates(db, groups, as_of, limit)
+
+    async def _collect_market(self, response, unavailable, needs, market_symbols, time_from, time_to, now):
+        if not ("market" in needs and market_symbols):
+            return
+        as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
+        start_date = datetime.fromisoformat(time_from).date() if time_from else None
+        # 儲存資料只有日期精度，歷史截止若包含盤中時刻，保守取前一天。
+        if time_to:
+            cutoff = datetime.fromisoformat(time_to)
+            if cutoff < now and cutoff.time() != datetime.max.time().replace(microsecond=0):
+                as_of -= timedelta(days=1)
+                unavailable.append("歷史截止時間包含日內時刻；日資料保守取前一天，無法還原盤中行情。")
+        if start_date and start_date > as_of:
+            unavailable.append("指定區間內沒有可採用的完整日資料。")
+        else:
+            try:
+                market_sources = await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date)
+                response.sources.extend(market_sources)
+                missing = [symbol for symbol in market_symbols if not any(
+                    source.stock_id == symbol and source.category == "market_technical" for source in market_sources)]
+                if missing:
+                    unavailable.append("以下股票缺少指定區間的價量資料：" + "、".join(missing) + "；不能據此完成全體比較。")
+            except (SQLAlchemyError, ServiceUnavailable) as exc:
+                logging.getLogger(__name__).warning("Chat market source unavailable: %s", type(exc).__name__)
+                unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
+
+    async def _timed_news_search(self, request, query, **filters):
+        entry = {"stage": "news_search", "status": "started"}
+        request._planning_trace.append(entry)
+        started = perf_counter()
+        try:
+            found = await self.retrieval.search_question(query, **filters)
+            entry["status"] = "completed"
+            return found
+        except BaseException as exc:
+            entry["status"] = "failed"
+            entry["error_type"] = type(exc).__name__
+            raise
+        finally:
+            entry["duration_ms"] = int((perf_counter() - started) * 1000)
 
     async def _prepare(self, request: AskRequest) -> tuple[AskResponse, str, str]:
         intent_llm = tracked_client(self.intent_llm, self.session_factory, "chat",
@@ -331,54 +374,28 @@ class ChatService:
             unsupported = [symbol for symbol in symbols if symbol not in market_symbols]
             if unsupported:
                 unavailable.append("以下股票不支援行情與基本面查詢：" + "、".join(unsupported) + "；不能據此完成全體比較。")
-        if "market" in needs and market_symbols:
-            as_of = datetime.fromisoformat(time_to).date() if time_to else now.date()
-            start_date = datetime.fromisoformat(time_from).date() if time_from else None
-            # 儲存資料只有日期精度，歷史截止若包含盤中時刻，保守取前一天。
-            if time_to:
-                cutoff = datetime.fromisoformat(time_to)
-                if cutoff < now and cutoff.time() != datetime.max.time().replace(microsecond=0):
-                    as_of -= timedelta(days=1)
-                    unavailable.append("歷史截止時間包含日內時刻；日資料保守取前一天，無法還原盤中行情。")
-            if start_date and start_date > as_of:
-                unavailable.append("指定區間內沒有可採用的完整日資料。")
-            else:
-                try:
-                    market_sources = await asyncio.to_thread(self._market_sources, market_symbols, as_of, start_date)
-                    response.sources.extend(market_sources)
-                    missing = [symbol for symbol in market_symbols if not any(
-                        source.stock_id == symbol and source.category == "market_technical" for source in market_sources)]
-                    if missing:
-                        unavailable.append("以下股票缺少指定區間的價量資料：" + "、".join(missing) + "；不能據此完成全體比較。")
-                except (SQLAlchemyError, ServiceUnavailable) as exc:
-                    logging.getLogger(__name__).warning("Chat market source unavailable: %s", type(exc).__name__)
-                    unavailable.append("行情、技術指標、法人與基本面資料暫時無法讀取。")
+        # 新聞檢索與行情讀取同時進行；個股分析的新聞只作補充，不另外以模型判斷是否補查。
+        news_task = None
+        if "news" in needs:
+            news_end = datetime.fromisoformat(time_to) if time_to else now
+            news_start = time_from or (news_end - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+            news_task = asyncio.create_task(self._timed_news_search(
+                request, query, symbols=[] if intent.news_scope == "market_wide" else symbols,
+                time_from=news_start, time_to=news_end.strftime("%Y-%m-%d %H:%M:%S")))
+        try:
+            await self._collect_market(response, unavailable, needs, market_symbols, time_from, time_to, now)
+        except BaseException:
+            if news_task is not None:
+                news_task.cancel()
+            raise
 
         required_needs = set(intent.data_needs)
-        news_query = query
-        if "news" in needs and intent.news_strategy == "auto":
-            try:
-                supplement = await plan_news_supplement(
-                    intent_llm, request=request, query=query, sources=response.sources,
-                    add_usage=lambda metadata: _add_usage(response, metadata))
-            except (ServiceUnavailable, UpstreamTimeout):
-                supplement = None
-            if supplement is not None:
-                if supplement.needed:
-                    news_query = supplement.query
-                else:
-                    needs.discard("news")
-                    required_needs.discard("news")
-            else:
-                unavailable.append("未能完成新聞補查判斷，本輪依原問題查詢相關新聞。")
+        if intent.news_strategy == "auto":
+            required_needs.discard("news")
         news_error = None
-        if "news" in needs:
+        if news_task is not None:
             try:
-                news_end = datetime.fromisoformat(time_to) if time_to else now
-                news_start = time_from or (news_end - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-                found = await self.retrieval.search_question(news_query,
-                    symbols=[] if intent.news_scope == "market_wide" else symbols,
-                    time_from=news_start, time_to=news_end.strftime("%Y-%m-%d %H:%M:%S"))
+                found = await news_task
                 if not found.hits:
                     raise NotFound(NO_NEWS_MESSAGE)
                 for hit in found.hits:
@@ -399,7 +416,7 @@ class ChatService:
                 unavailable.append("未找到符合問題的新聞。" if exc.status_code == 404 else "新聞服務暫時無法使用。")
 
         if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
-            unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
+            unavailable.append(LATEST_CONTENT_LIMITATION)
         response.sources.extend(collect_knowledge_sources(
             query, stock_options=stock_options if stock_options_available else None, include_help="help" in needs,
             include_knowledge=bool(needs & {"market", "knowledge"})))
@@ -444,6 +461,9 @@ class ChatService:
             time_focus += ("\n行情資料為附日期的每日觀測，並非即時報價。請使用提供的共同期間比較；"
                            "未指定期間時，價格比較採最近 30 個日曆日。各股技術指標時序最多包含 "
                            "40 筆觀測，回答時請列明實際日期。")
+        if intent.news_strategy == "auto" and "news" in needs:
+            time_focus += ("\n本輪新聞為補充資料：系統數值已足以回答時可不引用；"
+                           "不得以新聞補足缺少的行情、財報或帳戶資料。")
         if intent.forward_outlook:
             time_focus += ("\n這是未來走勢問題，請區分已觀測事實與預測。證據不足以支持方向時，"
                            "應明確說明無法判定；有資料來源不代表足以預測走勢。")
@@ -460,24 +480,51 @@ class ChatService:
         _add_usage(response, metadata)
         response.answer = raw_text
 
-    async def ask(self, request: AskRequest) -> AskResponse:
+    async def _answer(self, llm, request, prompt, response, on_delta) -> None:
+        system_prompt = answer_system_prompt(request.answer_detail)
+        if on_delta is None:
+            result = await llm.text(system_prompt=system_prompt, prompt=prompt)
+            self._publish_answer(result.raw_text, result.metadata, response)
+            return
+        parts, metadata = [], {}
+        async for chunk in llm.stream_text(system_prompt=system_prompt, prompt=prompt):
+            metadata.update(chunk.metadata)
+            if chunk.text:
+                parts.append(chunk.text)
+                await on_delta(chunk.text)
+        self._publish_answer("".join(parts).strip(), metadata, response)
+
+    async def ask(self, request: AskRequest, on_delta=None) -> AskResponse:
+        """on_delta 有值時以串流產生回答，每段文字產生後立即傳給它。"""
         started = perf_counter()
         deadline = asyncio.get_running_loop().time() + self.request_timeout_seconds
         request_id = str(uuid4())
         usage_context = _usage_request_id.set(request_id)
         llm = tracked_client(self.llm, self.session_factory, "chat", request_id)
+        timing = {"request_id": request_id, "stream": on_delta is not None, "status": "failed"}
         try:
             self.require_enabled()
             async with asyncio.timeout_at(deadline):
                 response, prompt, warning = await self._prepare(request)
+                timing["prepare_ms"] = int((perf_counter() - started) * 1000)
                 if prompt:
                     _remaining_seconds(deadline)
-                    result = await llm.text(system_prompt=answer_system_prompt(request.answer_detail), prompt=prompt)
-                    self._publish_answer(result.raw_text, result.metadata, response)
+                    answer_started = perf_counter()
+                    await self._answer(llm, request, prompt, response, on_delta)
+                    timing["answer_ms"] = int((perf_counter() - answer_started) * 1000)
                 _remaining_seconds(deadline)
             response.duration_ms = int((perf_counter() - started) * 1000)
+            timing["status"] = "completed"
             return response
         except TimeoutError as exc:
+            timing["status"] = "timeout"
             raise UpstreamTimeout(REQUEST_TIMEOUT_MESSAGE) from exc
         finally:
             _usage_request_id.reset(usage_context)
+            timing["total_ms"] = int((perf_counter() - started) * 1000)
+            timing["steps"] = [{key: entry.get(key) for key in ("stage", "status", "duration_ms")}
+                               for entry in request._planning_trace]
+            # 未設定日誌時只會輸出 WARNING：慢或失敗的請求才需要在正式環境留下紀錄。
+            slow = timing["status"] != "completed" or timing["total_ms"] >= SLOW_CHAT_MS
+            logging.getLogger(__name__).log(logging.WARNING if slow else logging.INFO,
+                                            "chat_timing %s", json.dumps(timing, ensure_ascii=False))

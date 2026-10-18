@@ -100,7 +100,7 @@ export function ChatMessage({ message, reducedMotion, streamActive, onFollowUp, 
 
   const time = entryTime(message.timestamp);
   const statusLabel = !isUser && message.status
-    ? { streaming: '生成中', completed: '已完成', failed: '回覆失敗', interrupted: '回覆已中斷；可重新提問。' }[message.status]
+    ? { streaming: message.content ? '生成中' : '查詢資料中', completed: '已完成', failed: '回覆失敗', interrupted: '回覆已中斷；可重新提問。' }[message.status]
     : null;
 
   return (

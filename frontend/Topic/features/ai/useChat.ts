@@ -247,7 +247,11 @@ export function useChat({ listHistory = true }: { listHistory?: boolean } = {}) 
     setStreamingMessageId(assistantId);
 
     try {
-      const result = await ragAsk({ query: text, history, stock_id: stockId ?? null }, { signal: ctrl.signal, conversationId: selectedId ?? undefined });
+      const result = await ragAsk({ query: text, history, stock_id: stockId ?? null }, {
+        signal: ctrl.signal, conversationId: selectedId ?? undefined,
+        // 回答邊產生邊顯示；完成後再以完整結果（含來源與資料面板）取代。
+        onDelta: (delta) => { answer += delta; update(() => ({ content: answer })); },
+      });
       if (!current()) return;
       completed = true;
       answer = result.answer;

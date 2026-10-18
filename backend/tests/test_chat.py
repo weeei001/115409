@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.clients.llm import LlmResult
+from app.clients.llm import LlmResult, LlmTextChunk
 from app.core.errors import ServiceUnavailable, UpstreamTimeout, install_error_handlers
 from app.features.chat import service as chat_module
 from app.features.chat.router import get_guest_quota, get_service, router
@@ -68,6 +68,15 @@ class FakeModels:
         if self.error:
             raise self.error
         return LlmResult({}, self.answer, self.metadata)
+
+    async def stream_text(self, **kwargs):
+        self.calls.append(("stream", kwargs))
+        if self.error:
+            raise self.error
+        middle = len(self.answer) // 2
+        for part in (self.answer[:middle], self.answer[middle:]):
+            yield LlmTextChunk(part, {})
+        yield LlmTextChunk("", self.metadata)
 
 
 

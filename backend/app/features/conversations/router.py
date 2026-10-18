@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from typing import Annotated
 from uuid import UUID
 
@@ -8,7 +9,7 @@ from app.core.errors import AuthenticationFailed
 from app.db.models.user import User
 from app.features.auth import service as auth_service
 from app.features.auth.router import Configuration, Database
-from app.features.chat.router import get_service as get_chat_service
+from app.features.chat.router import get_service as get_chat_service, stream_answer, wants_stream
 from app.features.chat.schemas import AskRequest
 from app.features.subscriptions import service as subscription_service
 from app.features.subscriptions.service import AskQuota
@@ -70,9 +71,14 @@ def clear_message_rating(conversation_id: UUID, message_id: UUID, user: CurrentU
 
 @router.post("/{conversation_id}/ask", response_model=ConversationAskResponse,
              responses={429: {"description": "這個方案的 AI 提問額度已用完"}})
-async def ask_conversation(conversation_id: UUID, body: AskRequest, user: CurrentUser, service: Service):
+async def ask_conversation(conversation_id: UUID, body: AskRequest, http_request: Request, user: CurrentUser,
+                           service: Service):
     service.chat.require_enabled()
     user_id = user.id
-    with AskQuota(service.session_factory, subscription_service.user_subject(user_id), user_id).reserve():
+    with ExitStack() as stack:
+        stack.enter_context(AskQuota(service.session_factory, subscription_service.user_subject(user_id), user_id).reserve())
         turn_id, request = service.begin(user_id, str(conversation_id), body)
+        if wants_stream(http_request):
+            return stream_answer(lambda on_delta: service.ask(str(conversation_id), turn_id, request, on_delta=on_delta),
+                                 stack.pop_all())
         return await service.ask(str(conversation_id), turn_id, request)

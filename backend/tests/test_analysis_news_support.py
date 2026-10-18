@@ -25,10 +25,11 @@ def fixture(published, quote="公司公布最新營收，並表示需求仍待�
     return bundle, item
 
 
-def test_unverified_first_publication_is_one_plain_limitation(db_session, settings):
+def test_latest_content_note_is_one_limitation_not_a_missing_field(db_session, settings):
+    from app.features.analysis.evidence import build_evidence_bundle
+    from app.features.news.versions import LATEST_CONTENT_LIMITATION
     from app.features.retrieval.schemas import RagResult
     from app.db.models.stock_info import StockInfo
-    from app.features.analysis.evidence import NEWS_FIRST_PUBLIC_LIMITATION
     from test_analysis_service import FakeLlm, FakeRag, run_service, seed_prices
 
     db_session.add(StockInfo(symbol="2330", name="TSMC"))
@@ -37,9 +38,14 @@ def test_unverified_first_publication_is_one_plain_limitation(db_session, settin
     news = {"title": "台積電營收", "summary": "台積電公布營收。", "publisher": "鉅亨網",
             "timestamp": "2026-07-10T09:19:00+08:00", "source_state": {"revision_id": 1}}
     result = run_service(db_session, settings, FakeLlm(), FakeRag(RagResult(news_sources=[news])))
-    assert NEWS_FIRST_PUBLIC_LIMITATION == "新聞的首次發布時間無法確認，分析可能用到事後才公開的資訊。"
-    assert result.limitations.count(NEWS_FIRST_PUBLIC_LIMITATION) == 1
-    assert not any(text.startswith("缺少：新聞") or "首次公開" in text for text in result.limitations)
+    assert result.limitations.count(LATEST_CONTENT_LIMITATION) == 1
+    assert not any(text.startswith("缺少：") and "新聞" in text for text in result.limitations)
+    # Every stored article shares this property, so it is disclosed but never counted as missing data.
+    empty_rows = {"price_rows": [], "chip_rows": [], "technical_rows": [], "income_rows": [],
+                  "revenue_rows": [], "valuation_rows": []}
+    from datetime import date
+    bundle = build_evidence_bundle(symbol="2330", as_of_date=date(2026, 7, 31), rows=empty_rows, news_sources=[news])
+    assert LATEST_CONTENT_LIMITATION not in bundle.missing_fields
 
 
 def test_ambiguous_opinion_words_preserve_the_brief_without_content_checks(db_session, settings, monkeypatch):
