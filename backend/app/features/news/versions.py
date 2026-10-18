@@ -83,6 +83,10 @@ def update_article(db, article, values):
     return True
 
 
+# Articles are filtered by the source's publication time, but updates overwrite the stored content.
+LATEST_CONTENT_LIMITATION = "新聞依發布時間篩選，但內容為最新版本；未保存發布當下的版本，可能包含發布後才修訂的內容。"
+
+
 def source_states(db, articles, as_of=None):
     """Use latest source content, bounded by publication time when requested."""
     articles = [SimpleNamespace(**article) if isinstance(article, Mapping) else article for article in articles]
@@ -96,6 +100,5 @@ def source_states(db, articles, as_of=None):
         eligible = not outside_cutoff
         result[article.article_id] = {"eligible": eligible, "status": "active", "canonical_key": key,
             "canonical_url": canonical,
-            "limitation": ("Publication time is unknown or after the requested cutoff; excluded." if outside_cutoff else
-                           "Selected by publication time using the latest source content; retrospective evidence, not a point-in-time reconstruction.")}
+            "limitation": "發布時間不明或晚於分析基準時間，已排除。" if outside_cutoff else LATEST_CONTENT_LIMITATION}
     return result

@@ -17,6 +17,7 @@ from app.core.errors import AppError, NotFound, ServiceUnavailable, UpstreamTime
 from app.features.market.company_catalog import load_catalog
 from app.features.market.repository import stock_names
 from app.features.news.text import extract_candidate_stocks
+from app.features.news.versions import LATEST_CONTENT_LIMITATION
 from app.features.retrieval.common import get_source_name, normalize_source_url, source_provenance
 from app.features.retrieval.service import RetrievalService
 
@@ -399,7 +400,7 @@ class ChatService:
                 unavailable.append("未找到符合問題的新聞。" if exc.status_code == 404 else "新聞服務暫時無法使用。")
 
         if any(source.source_state and source.source_state.get("limitation") for source in response.sources):
-            unavailable.append("新聞首次公開時間及完整修訂歷史未核實；不能宣稱精確還原當時可得資訊。")
+            unavailable.append(LATEST_CONTENT_LIMITATION)
         response.sources.extend(collect_knowledge_sources(
             query, stock_options=stock_options if stock_options_available else None, include_help="help" in needs,
             include_knowledge=bool(needs & {"market", "knowledge"})))

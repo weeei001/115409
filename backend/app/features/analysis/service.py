@@ -25,7 +25,8 @@ from app.core.errors import AppError, ServiceUnavailable
 from app.db.models.llm_response import LlmResponse, LLM_RESPONSE_KIND_TEXT_BRIEF
 from . import repository, validation as gate
 from app.features.news.eligibility import contains_simulation
-from .evidence import (EVIDENCE_PAYLOAD_VERSION, FIELD_GLOSSARY, NEWS_FIRST_PUBLIC_LIMITATION, TIMELINE_TRADING_DAYS,
+from app.features.news.versions import LATEST_CONTENT_LIMITATION
+from .evidence import (EVIDENCE_PAYLOAD_VERSION, FIELD_GLOSSARY, TIMELINE_TRADING_DAYS,
                        build_evidence_bundle)
 from .lessons import PAST_REVIEWS_GUIDANCE, lessons_enabled
 from .prompts import TEXT_BRIEF_SYSTEM_PROMPT, few_shot_examples, select_examples
@@ -62,15 +63,6 @@ def text_brief_revision() -> str:
                                 "evidence_payload": EVIDENCE_PAYLOAD_VERSION,
                                 "schema": StockBehaviorTextBrief.model_json_schema(),
                                 "pipeline": "backend-v2-structural-validation-only"})[:12]
-
-
-def content_gaps(missing_fields: list[str]) -> list[str]:
-    """Missing data that makes a brief limited.
-
-    Unverified first-publication time applies to every crawled article, so it stays listed as a
-    limitation without marking otherwise complete content as limited.
-    """
-    return [field for field in missing_fields if field != NEWS_FIRST_PUBLIC_LIMITATION]
 
 
 def build_llm_runtime_config(settings: Any, model_name: str) -> dict[str, Any]:
@@ -360,7 +352,7 @@ class AnalysisService:
         }
         latency_ms = round((perf_counter() - started) * 1000)
         signals = verification.model_dump(exclude={"jargon_hits", "simplified_chars"})
-        limited = bool(discarded or any(signals.values()) or rag.fallback_mode or content_gaps(bundle.missing_fields))
+        limited = bool(discarded or any(signals.values()) or rag.fallback_mode or bundle.missing_fields)
         status = "unavailable" if brief is None else "limited" if limited else "verified"
         limitations = [fallback_message] if brief is None else []
         if brief is not None:
@@ -375,8 +367,9 @@ class AnalysisService:
             limitations.append(f"新聞服務降級，分析僅使用可取得資料（{rag.reason or rag.status}）。")
         if not any(item.get("kind") == "guidance" for item in bundle.news):
             limitations.append(gate.TEXT_BRIEF_NO_GUIDANCE_LIMITATION)
-        limitations.extend(field if field == NEWS_FIRST_PUBLIC_LIMITATION else f"缺少：{field}"
-                           for field in bundle.missing_fields)
+        limitations.extend(f"缺少：{field}" for field in bundle.missing_fields)
+        if bundle.news:
+            limitations.append(LATEST_CONTENT_LIMITATION)
         limitations.append("僅檢查資料格式與引用連結；分析內容與預測信心未經人工核實或校準。")
         if any(re.search(r"FVOCI|\d+家金控", str(item.get("value", ""))) for item in bundle.news):
             limitations.append("新聞包含金控獲利或 FVOCI 等財務口徑；公司與產業合計、當期損益與保留盈餘的比較尚未完整自動核對。")

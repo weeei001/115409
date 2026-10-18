@@ -16,8 +16,6 @@ FINANCIAL_LOOKBACK_DAYS = 900
 REVENUE_LOOKBACK_DAYS = 800
 SHARES_PER_LOT = 1000
 EVIDENCE_PAYLOAD_VERSION = "period-bound-facts-v1"
-# A full sentence in missing_fields; the brief shows it without the "缺少：" prefix.
-NEWS_FIRST_PUBLIC_LIMITATION = "新聞的首次發布時間無法確認，分析可能用到事後才公開的資訊。"
 
 FINANCIAL_PUBLISH_LAG_DAYS = 50
 ANNUAL_PUBLISH_LAG_DAYS = 95
@@ -712,7 +710,7 @@ def build_news_items(
                                          else "local_datetime" if "T" in timestamp
                                          else "date" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", timestamp)
                                          else "unknown"),
-            "publication_basis": "上游提供的報導發布時間；首次公開及完整修訂歷史仍未核實",
+            "publication_basis": "來源網站標示的發布時間",
             "kind": kind if kind in {"general", "guidance", "market"} else "general",
             "title": title,
             "value": summary or title,
@@ -724,8 +722,7 @@ def build_news_items(
             ),
         }
         if isinstance(source.get("source_state"), dict):
-            item["source_state"] = {**source["source_state"], "limitation":
-                "新聞首次公開時間及完整修訂歷史未核實；僅能作回顧資料，不能宣稱精確還原當時可得資訊。"}
+            item["source_state"] = source["source_state"]
         items.append({key: value for key, value in item.items() if value is not None})
     return items
 
@@ -779,8 +776,6 @@ def build_evidence_bundle(*, symbol: str, as_of_date: date,
             fundamental_missing.append(missing)
     if not news:
         timeline_missing.append("近期新聞")
-    if any(item.get("source_state", {}).get("limitation") for item in news):
-        timeline_missing.append(NEWS_FIRST_PUBLIC_LIMITATION)
     return EvidenceBundle(
         symbol=symbol, as_of_date=as_of_date, daily_timeline=timeline,
         chip_summary=chips, long_term_anchor=anchor, fundamental=fundamental, news=news,
