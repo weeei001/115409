@@ -125,9 +125,24 @@ def test_review_due_once_without_automatic_sale(db_session, owner):
     assert review['reason'] == 'Revenue thesis'
     assert review['status'] == 'due'
     assert review['price_return_pct'] == 5
-    assert db_session.query(Notification).count() == 1
+    assert db_session.query(Notification).filter_by(kind='paper_review').count() == 1
     service.acknowledge_review(db_session, owner, review['id'])
     assert service.snapshot(db_session, owner, at(3))['reviews'][0]['status'] == 'reviewed'
+
+
+def test_fill_and_system_cancel_notify_once_but_user_cancel_does_not(db_session, owner):
+    buy(db_session, owner)
+    buy(db_session, owner, key='tiny', budget=50)
+    mine = buy(db_session, owner, key='mine')
+    service.cancel_order(db_session, owner, mine['id'])
+    market(db_session, 2, 100)
+    service.reconcile(db_session, owner, at(2))
+    service.reconcile(db_session, owner, at(2))
+    notices = {(n.title, n.body, n.url, n.delivered_at) for n in db_session.query(Notification).filter_by(kind='paper_order')}
+    assert notices == {
+        ('2330 模擬買進已成交', '09/02 以收盤價 100.00 元買進 99 股。', '/order', None),
+        ('2330 模擬買進委託已取消', '預算不足以用 09/02 收盤價 100.00 元買進 1 股，已釋放預留的資金或股數。', '/order', None),
+    }
 
 
 def test_owner_isolation_and_conversation_ownership(db_session, owner):

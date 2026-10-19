@@ -129,7 +129,8 @@ def migrate_schema(engine):
     from app.db.models.audit import AuditLog
     if engine.dialect.name not in {"mysql", "sqlite"}:
         raise ValueError("Schema migration requires MySQL or SQLite")
-    report = {"audit_renamed": False, "topics_added": 0, "columns_removed": [], "indexes_removed": []}
+    report = {"audit_renamed": False, "topics_added": 0, "columns_added": [], "columns_removed": [],
+              "indexes_removed": []}
     with engine.begin() as connection:
         _preflight(connection)
         tables = set(inspect(connection).get_table_names())
@@ -140,6 +141,12 @@ def migrate_schema(engine):
             report["audit_renamed"] = True
         else:
             AuditLog.__table__.create(connection, checkfirst=True)
+        if "notification_preferences" in tables:
+            existing = _columns(connection, "notification_preferences")
+            for name in ("paper_order", "paper_review"):
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE notification_preferences ADD COLUMN {name} BOOLEAN NOT NULL DEFAULT 0"))
+                    report["columns_added"].append(f"notification_preferences.{name}")
         if "news_event_impacts" in tables:
             legacy_topics = "topics" in _columns(connection, "news_event_impacts")
             report["topics_added"] = migrate_event_topics(connection)
@@ -168,7 +175,7 @@ def migrate_schema(engine):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=(
-        "Migrate shared audit logs, event topics and redundant columns. Stop application writers first. "
+        "Migrate shared audit logs, event topics, notification preferences and redundant columns. Stop application writers first. "
         "MySQL DDL is not transactional; this command can be rerun after interruption."
     ))
     parser.parse_args(argv)

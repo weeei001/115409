@@ -192,6 +192,20 @@ def _eligible_sessions(db, current):
     return days
 
 
+def _notify(db, row, kind, title, body, url, dedupe, current):
+    # Delivery (push or inbox only) follows the user's preference; a push older than a day is stale.
+    timestamp = current.replace(tzinfo=None)
+    db.add(Notification(user_id=row.user_id, kind=kind, symbol=row.symbol, title=title, body=body, url=url,
+                        dedupe_key=sha256(dedupe.encode()).hexdigest(), created_at=timestamp, expires_at=timestamp + timedelta(days=1)))
+
+
+def _cancelled(db, row, current, reason):
+    row.status = 'cancelled'
+    side = '買進' if row.side == 'buy' else '賣出'
+    _notify(db, row, 'paper_order', f'{row.symbol} 模擬{side}委託已取消', f'{reason}，已釋放預留的資金或股數。',
+            '/order', f'paper-order:{row.id}', current)
+
+
 def _settle(db, user_id, current):
     account = _lock_account(db, user_id, required=False)
     if account is None:
@@ -208,7 +222,7 @@ def _settle(db, user_id, current):
         if price is None or price.close is None or price.close <= 0:
             # Late imports still fill at the target close; a halted or delisted day never will.
             if repo.priced_sessions_after(db, row.symbol, trade_day, days[-1]) >= STALE_TARGET_SESSIONS:
-                row.status = 'cancelled'
+                _cancelled(db, row, current, f'{trade_day:%m/%d} 沒有收盤價（可能暫停交易）')
             continue
         if row.side == 'buy':
             qty = int((row.budget / (price.close * (1 + row.fee_rate))).to_integral_value(rounding=ROUND_DOWN))
@@ -218,7 +232,7 @@ def _settle(db, user_id, current):
             while qty > 0 and price.close * qty + _money(price.close * qty * row.fee_rate) > row.budget:
                 qty -= 1
             if qty == 0:
-                row.status = 'cancelled'
+                _cancelled(db, row, current, f'預算不足以用 {trade_day:%m/%d} 收盤價 {price.close:,.2f} 元買進 1 股')
                 continue
             fee = _money(price.close * qty * row.fee_rate)
             account.cash -= price.close * qty + fee
@@ -230,6 +244,10 @@ def _settle(db, user_id, current):
             account.cash += price.close * qty - fee - tax
         row.status, row.trade_date = 'filled', trade_day
         row.filled_quantity, row.fill_price, row.fee, row.tax = qty, price.close, fee, tax
+        side = '買進' if row.side == 'buy' else '賣出'
+        _notify(db, row, 'paper_order', f'{row.symbol} 模擬{side}已成交',
+                f'{trade_day:%m/%d} 以收盤價 {price.close:,.2f} 元{side} {qty:,} 股。', '/order',
+                f'paper-order:{row.id}', current)
     existing = {r.order_id for r in repo.reviews(db, user_id, lock=True)}
     for row in records:
         if row.status != 'filled' or row.side != 'buy' or row.id in existing:
@@ -240,12 +258,8 @@ def _settle(db, user_id, current):
         due = following[row.review_after_days - 1]
         review = PaperReview(id=str(uuid4()), order_id=row.id, due_date=due, status='due')
         db.add(review)
-        timestamp = current.replace(tzinfo=None)
-        db.add(Notification(user_id=user_id, kind='paper_review', symbol=row.symbol,
-                            title=f'{row.symbol} 的模擬投資已到回顧時間',
-                            body='回顧當初的投資理由，對照後續行情與新聞。',
-                            url=f'/order?review={review.id}', dedupe_key=sha256(f'paper-review:{row.id}'.encode()).hexdigest(),
-                            created_at=timestamp, expires_at=timestamp + timedelta(days=90), delivered_at=timestamp))
+        _notify(db, row, 'paper_review', f'{row.symbol} 的模擬投資已到回顧時間', '回顧當初的投資理由，對照後續行情與新聞。',
+                f'/order?review={review.id}', f'paper-review:{row.id}', current)
     # Locking rereads refresh ORM state even when the session disables autoflush.
     db.flush()
 

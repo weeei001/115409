@@ -25,6 +25,10 @@ def legacy_engine():
         for name, column in (("idx_source", "source"), ("idx_stock_id", "stock_id"), ("idx_pub_time", "pub_time")):
             connection.execute(text(f"CREATE INDEX {name} ON news_articles({column})"))
         connection.execute(text("INSERT INTO users(id,email,is_active) VALUES(1,'one@example.test',1)"))
+        for name in ("paper_order", "paper_review"):
+            connection.execute(text(f"ALTER TABLE notification_preferences DROP COLUMN {name}"))
+        connection.execute(text("INSERT INTO notification_preferences(user_id,daily_summary,price_alert,major_news,"
+                                "price_threshold,quiet_start,quiet_end,created_at) VALUES(1,1,0,0,5,22,8,'2026-01-01')"))
         connection.execute(text("INSERT INTO admin_audit_logs(id,actor_id,actor_email,action,target,status,created_at) "
                                 "VALUES(7,1,'old@example.test','stock.add','2330','succeeded','2026-01-01')"))
         connection.execute(text("INSERT INTO chat_conversations(id,user_id,title,updated_at) "
@@ -57,12 +61,14 @@ def test_migration_preserves_history_and_relations_and_is_repeatable(legacy_engi
     assert report["audit_renamed"] is True
     assert report["topics_added"] == 2
     assert set(report["indexes_removed"]) == {"idx_source", "idx_stock_id", "idx_pub_time"}
+    assert report["columns_added"] == ["notification_preferences.paper_order", "notification_preferences.paper_review"]
     with legacy_engine.connect() as connection:
         assert connection.execute(text("SELECT id,actor_email FROM audit_logs")).one() == (7, 'old@example.test')
         assert connection.execute(text("SELECT message_id,rating FROM chat_message_feedback")).one() == ('m', 'helpful')
         assert connection.execute(text("SELECT id,order_id FROM paper_reviews")).one() == ('r', 'o')
         assert connection.scalar(text("SELECT COUNT(*) FROM news_event_impacts")) == 2
         assert set(connection.scalars(text("SELECT topic FROM news_event_topics"))) == {'earnings', 'ai'}
+        assert connection.execute(text("SELECT daily_summary,paper_order,paper_review FROM notification_preferences")).one() == (1, 0, 0)
         for name, old in (("chat_message_feedback", "user_id"), ("chat_message_feedback", "conversation_id"),
                           ("paper_reviews", "user_id"), ("news_event_impacts", "topics"),
                           ("market_technical_indicators", "macd_signal")):
@@ -74,7 +80,7 @@ def test_migration_preserves_history_and_relations_and_is_repeatable(legacy_engi
         db.commit()
         assert db.scalar(select(AuditLog.id).order_by(AuditLog.id.desc())) > 7
     assert migrate_schema(legacy_engine) == {
-        "audit_renamed": False, "topics_added": 0, "columns_removed": [], "indexes_removed": [],
+        "audit_renamed": False, "topics_added": 0, "columns_added": [], "columns_removed": [], "indexes_removed": [],
     }
 
 

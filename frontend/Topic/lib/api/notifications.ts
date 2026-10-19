@@ -7,6 +7,8 @@ export interface NotificationPreferences {
   daily_summary: boolean;
   price_alert: boolean;
   major_news: boolean;
+  paper_order: boolean;
+  paper_review: boolean;
   price_threshold: number;
   quiet_start: number;
   quiet_end: number;

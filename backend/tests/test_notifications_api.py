@@ -27,7 +27,7 @@ def test_preferences_are_opt_in_validated_and_private(client, db_session, settin
     user, headers = account(db_session, settings, "a@example.com")
     _, other = account(db_session, settings, "b@example.com")
     defaults = client.get("/notifications/preferences", headers=headers).json()
-    assert defaults == dict(daily_summary=False, price_alert=False, major_news=False,
+    assert defaults == dict(daily_summary=False, price_alert=False, major_news=False, paper_order=False, paper_review=False,
                             price_threshold=5, quiet_start=22, quiet_end=8)
     changed = {**defaults, "major_news": True, "price_threshold": 3}
     assert client.put("/notifications/preferences", headers=headers, json=changed).json() == changed

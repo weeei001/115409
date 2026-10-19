@@ -9,6 +9,9 @@ from app.db.models.notification import NotificationDelivery
 from app.features.subscriptions.service import push_allowed
 from . import delivery_repository as repository
 
+# Paper-trading notices concern the user's own orders, not favorites.
+FAVORITE_KINDS = {"daily_summary", "price_alert", "major_news"}
+
 
 def quiet_now(preference, now):
     hour = now.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Asia/Taipei")).hour
@@ -29,7 +32,7 @@ def dispatch_notifications(db, sender, now=None, *, limit=100, should_stop=lambd
         user, preference = repository.recipient(db, notification)
         if (not user or not user.is_active or not preference
                 or not getattr(preference, notification.kind, False)
-                or not repository.still_favorited(db, notification)
+                or (notification.kind in FAVORITE_KINDS and not repository.still_favorited(db, notification))
                 # Push is a paid-plan tool; the inbox keeps the notification either way.
                 or not push_allowed(db, notification.user_id)):
             notification.delivered_at = now
