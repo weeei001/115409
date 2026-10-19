@@ -2,7 +2,7 @@
 
 風格：**燈塔表（Light List）**。全站排成一本航海用的燈塔名錄：每檔股票是一筆條目，代號是編號、產業是所屬海岸、收盤／漲跌／資料日是它的燈質。
 兩套主題是同一天的兩個班：dark＝**夜海**（夜班），light＝**晨海**（晨班），品質要求相同。
-token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。圖表需要解析後的色值，放在 `lib/charts/theme.ts`；手機網址列的 `theme-color` 也寫了 `--background` 的解析值（`components/layout/ThemeColorMeta.tsx`）；首頁旅程的螢幕畫面在讀不到 token 時用的解析值與晨班文案襯底色在 `features/home/journey/scene/theme.ts`（`PAGE_TOKEN_FALLBACK`、`DAWN_CAPTION_TINT`）。改 token 時這幾處要一起改。
+token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。圖表需要解析後的色值，放在 `lib/charts/theme.ts`；手機網址列的 `theme-color` 也寫了 `--background` 的解析值（`components/layout/ThemeColorMeta.tsx`）；首屏晨班文案襯底的取色寫在 `features/home/HomeHero.tsx`（`DAWN_SCRIM`）。改 token 時這幾處要一起改。
 
 三個識別特徵：
 
@@ -24,23 +24,23 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 | focus | `focus-lamp` utility；捲動容器裡用 `focus-lamp-inset` | 外圈 `--focus`、內圈燈色；晨海外圈是墨色（燈色在白底只有 1.86:1）。元件貼著 `overflow` 容器邊緣時（橫向捲動的分頁與圖例、抽屜與清單裡的滿寬列）改用 `focus-lamp-inset`：兩圈畫在元件內側，外圈貼邊、燈色在內，不會被裁掉。程式移過去的大容器（`main`、`section`）不顯示框：`outline-none focus-visible:shadow-none` |
 | 漲／跌 | `text-up`、`text-down`、`bg-up-muted`、`bg-down-muted`、`text-up-emphasis`、`text-down-emphasis` | 見第 7 節 |
 | 狀態 | `danger`、`success`、`warning`（各有 `-muted`、`-border`），`text-warning-icon` | 錯誤、成功、警告；刻意避開漲跌的紅綠，也不用燈色 |
-| 3D 上的文字襯底 | `--scrim`（旅程用 inline style 的 `var(--scrim)`） | 首頁旅程的文案襯底 |
+| 海報上的文字襯底 | `--scrim`（首屏用 inline style 的 `var(--scrim)`） | 首頁首屏的文案襯底 |
 | 小燈像素圖 | `--mascot-line`、`-eye`、`-body`、`-shade`、`-glass`、`-lamp`、`-lamp-dim`、`-lamp-off`（SVG `fill` 直接用 `var()`） | 只給站內助手（第 12 節）。黑白條紋，不用紅白；燈只用燈色 |
 | 捲軸 | 全站統一（`styles/main.css` base 層），元件不用另外寫；要藏起來用 `scrollbar-none` | 透明軌道、`--input` 色的細滑塊、沒有箭頭，hover 加粗轉 `--muted-foreground`。元件不要設 `scrollbar-color`／`scrollbar-width`（`none` 除外）：Chromium 會改走標準捲軸，箭頭又跑回來 |
 
-沒有漸層、玻璃、光暈；唯一的光暈是 3D 場景裡的燈。
+沒有漸層、玻璃、光暈；唯一的光暈是首屏海報裡的燈。
 
 ## 2. 字型
 
-- 顯示標題：`font-serif` = Noto Serif TC 900（只載入 900）。用在 h1、帳頁 h2、旅程標題。
+- 顯示標題：`font-serif` = Noto Serif TC 900（只載入 900）。用在 h1、帳頁 h2。
 - 介面與內文：`font-sans` = Noto Sans TC 400／500／700。
 - 數字與代號：`font-mono` = IBM Plex Mono 400／500／600，一律加 `tabular-nums`。
 - 字型由 `pages/_app.tsx` 用 `next/font/google` 自架載入，寫進 `--font-app-serif／sans／mono`；`styles/main.css` 的 `--font-*` 引用它們，並列同一組字族當退路。要換字型時，兩邊一起改。
 
 | 角色 | class | 用在 |
 |---|---|---|
-| Display | `font-serif font-black tracking-[0.03em]`；lg 以上 `text-[clamp(44px,min(6.2vw,9svh),86px)] leading-[1.12]`，手機 `text-[clamp(32px,10.2vw,46px)] leading-[1.14]` | 首頁 h1（`BeaconJourney.tsx`） |
-| Chapter | `font-serif font-black text-[clamp(28px,3.3vw,46px)] leading-[1.22]` | 觀測台標題、交接章標題（lg 以上）；其他旅程章節標題另外依視窗高度縮放（`BeaconJourney.tsx` 的 `HEADING_*`） |
+| Display | `font-serif font-black tracking-[0.03em]`；lg 以上 `text-[clamp(44px,min(6.2vw,9svh),86px)] leading-[1.12]`，手機 `text-[clamp(32px,10.2vw,46px)] leading-[1.14]` | 首頁 h1（`HomeHero.tsx`） |
+| Chapter | `font-serif font-black text-[clamp(28px,3.3vw,46px)] leading-[1.22]` | 觀測台標題 |
 | Page title | `font-serif font-black text-[clamp(1.625rem,3.2vw,2.75rem)] leading-[1.2] tracking-[0.04em]` | 各頁 h1（`SiteHeader` 輸出） |
 | Section | `font-serif font-black text-xl tracking-[0.06em]` | 帳頁 h2（`Ledger`） |
 | Panel caption | `text-[13px] font-medium tracking-[0.04em] text-muted-foreground` | 面板 h3（`LedgerPanel`） |
@@ -132,7 +132,7 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 
 ## 10. 動效
 
-節奏來自燈質「Fl W 10s」：週期 P = 10 秒（3D 場景的兩道光束 20 秒轉一圈，每 10 秒掃過一次，見 `features/home/journey/scene/buildBeacon.ts`），所有時長都是 P 的分數（token 在 `styles/main.css`）。
+節奏來自燈質「Fl W 10s」：週期 P = 10 秒（燈塔的兩道光束 20 秒轉一圈，每 10 秒掃過一次），所有時長都是 P 的分數（token 在 `styles/main.css`）。
 
 | token | 時長 | 用在 |
 |---|---|---|
@@ -154,22 +154,14 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 - focus 立即出現，不做動畫：focus 狀態一律 `transition: none`（`styles/main.css` 的 base 規則與 `focus-lamp`），連外圈顏色都不漸變。
 - 按鈕忙碌（送出、重新整理中）：文字改成進行中的說法（「處理中…」「更新中…」）並加 `aria-busy`，不用轉圈圖示。
 - 換班（切換主題）：顏色過渡 625ms，標了 `data-stagger` 的面板每張延遲 25ms（`lib/theme/ThemeContext.tsx`）；減少動態時不過渡，直接換色。
-- `prefers-reduced-motion`：CSS 會把動畫與過渡壓到幾乎為 0，`AnimatedSection` 與換頁直接不做動畫（只改動畫參數，不換掉元件結構，否則整頁會在載入後重掛），Q 光帶靜止；程式捲動（`scrollTo`、`scrollIntoView`）改用 `behavior: 'auto'`。例外：首頁旅程照樣跑 3D（第 11 節）。
-- 捲動驅動的透明度與位移：scroll listener 算出進度後手動 `set` 到 `useMotionValue`，再用 `useMotionValueEvent(progress, 'change')` 直接寫 style（`features/home/journey/BeaconJourney.tsx`）；不要用 `useScroll`／`useTransform` 直接綁到 `style`（會被升級成 ViewTimeline 而算錯）。
+- `prefers-reduced-motion`：CSS 會把動畫與過渡壓到幾乎為 0，`AnimatedSection` 與換頁直接不做動畫（只改動畫參數，不換掉元件結構，否則整頁會在載入後重掛），Q 光帶靜止；程式捲動（`scrollTo`、`scrollIntoView`）改用 `behavior: 'auto'`。
 
-## 11. 首頁旅程
+## 11. 首頁首屏
 
-- 觀測台（`features/home/terminal/ObservationTerminal.tsx`）是旅程的終點，上下留白用 `py-10 lg:py-16`（比一般頁面的 `py-6 lg:py-10` 寬），讓交接後的第一屏和旅程同一個呼吸。
-- 結構：`features/home/journey/BeaconJourney.tsx` 是首屏外殼（不 import three），`BeaconScene.tsx` 與 `scene/` 是 3D 場景，閒置後才用 `next/dynamic`（`ssr: false`）載入。首屏是海報圖加真正的 DOM 文字，LCP 不等 WebGL。
-- 五段文案（海面、燈塔、窗、桌前、交接）、四個進度站（海面／燈塔／窗前／觀測台）；章節區間、文案透明度與時間（`shiftHour`）在 `journeyMath.ts`，測試在 `journeyMode.test.ts`。
-- 版面：
-  - **3D 路線**（所有人，包含減少動態與低功耗裝置）：文案直接放在場景的留白處（燈塔章在天空、窗章在窗旁、桌前章在牆上、交接章在上方），底下是從畫面邊緣淡進來、沒有邊緣的 `--scrim` 柔和襯底，不是卡片，也不用全寬橫條；每章位置不同，不蓋住該章的主體。桌面進度列是一條髮線上的四個刻度，四個站名都顯示、目前站加粗，沒有框。晨海的文案襯底是貼合文字塊的柔邊橢圓（取該章畫面的冷色調，透明度最多 0.55），不是整段白霧。最後 8% 的捲動（進度 0.92→1.0）是連續的交接：相機直線推進，三面螢幕從機身上的位置插值到觀測台量到的三欄矩形（觀測清單／報價／加權指數，誤差 ≤ 1px；窄螢幕只有中間那面對到報價欄，左右兩面移出畫面），邊框從機身邊框的寬度收成 1px 並換成頁面線色，螢幕內容交叉淡入成觀測台的版式，房間溶接成頁面底色。同一段期間場景把 `--handoff`（0→1）寫在 `<html>` 上：觀測台頂端的燈光餘溫隨之淡出、第一組面板隨之淡入（`styles/main.css` 的 `#terminal` 規則）；場景不在跑（只剩首屏海報、卸載、換頁、分頁隱藏）時這個變數一定要移除，面板才不會留在半透明。最後一章有主要按鈕「進入觀測台」，交接時淡出。觀測台用負的下邊距（一個舞台高）疊在舞台底下，最後一個舞台高的捲動被釘在舞台上緣（`translate`）；h ≥ 0.95（`<html data-handed-off>`）或捲到終點（`data-past`）時舞台用 `--dur-sweep` 溶掉，露出對齊好的真觀測台，捲回來再溶回來。不跟著捲動拖淡化（場景畫的內容跟觀測台不同，停在半透明會兩層字疊在一起），也不能讓場景畫的三欄和觀測台上下各出現一份。
-  - **只有首屏**（`data-mode="poster"`）：看過一次 3D 旅程（`localStorage` 的 `beacon-journey-seen`，場景第一次畫出來時記下）、不支援 WebGL2 或場景出錯時，旅程只剩首屏（海報＋文案，沒有「從頭看起」；後兩種多一行「這台裝置無法啟用 3D 場景，已改用靜態畫面。」），往下直接是觀測台。不做圖版式的海報版面。
-- 場景只畫傳進來的真實資料；沒有資料就顯示「讀取中…」，不放只有標誌的畫面。收盤價下方只放日漲跌，不另外放區間漲跌（同一檔股票的漲跌幅只用一種口徑）。海報是靜態圖，不把有日期的數字烤進去；螢幕畫中性的格線與無日期的走勢線。
-- 時間順著旅程走：夜班從餘暉到入夜，晨班從天亮前到日出；文案要和畫面一致。室內夜班靠桌燈與螢幕照明，晨班靠窗外天光。晨夜切換用一個混合值在 1250ms 內過渡。
-- 第一次訪問一律跑 3D，`prefers-reduced-motion` 與低功耗裝置（核心數、記憶體、`saveData`、App 內建的 WebView）都不降級；看過一次（`journeyMode.ts` 的 `journeySeen`）、沒有 WebGL2（`probeWebGL2`）或場景出錯時只留首屏。WebGL context 掉了不重建場景，舞台底下各章的海報會露出來。
-- 效能：DPR 桌面最多 1.5、手機 1.25；分頁隱藏、舞台捲出視窗、捲到終點時停止 render loop；卸載時先釋放場景的 geometry、material、texture、render target，再釋放 renderer（順序反了，`renderer.dispose()` 清掉內部記錄後再釋放 render target 會拋錯）。
-- 海報在 `public/beacon/`（夜／晨 × 4 張 × 橫式／直式），由場景自己擷取；場景或燈光改了要重新產生。第一張是首屏；其餘墊在 3D 舞台各章底下（場景還沒載入、或 context 掉了才看得到），第 3、4 張也用在登入、註冊頁（`features/auth/AuthForm.tsx`）。第一張 ≤ 70KB，其餘 ≤ 90KB。
+- 結構：`features/home/HomeHero.tsx` 是首屏，一個視窗高（`100svh` − 頁首）：燈塔海報加真正的 DOM 文字（燈質列、h1、一句說明、「直接看行情」），往下直接是觀測台（`features/home/terminal/ObservationTerminal.tsx`）。沒有 3D 場景，也沒有捲動驅動的動畫。
+- 海報夜班／晨班各一張，主題 class 在首次繪製前就寫在 `<html>`，用 `dark:` 選圖才不會閃；直式窄螢幕用 720×1440 的直幅版本。文字底下是柔邊襯底：夜班用 `--scrim`，晨班是貼合文字塊的柔邊橢圓（取海報的冷色天光），不是卡片或全寬橫條。
+- 燈質列寫加權指數、漲跌與收盤日（`features/home/boardFormat.ts`，跟觀測台同一組格式函式）；沒有資料時寫「最近儲存的收盤資料 · 非即時」。
+- 海報在 `public/beacon/`：第 1 張（橫式＋直式）是首屏；第 3、4 張（橫式）用在登入、註冊頁（`features/auth/AuthForm.tsx`）。第一張 ≤ 70KB，其餘 ≤ 90KB。
 
 ## 12. 站內助手「小燈」
 
@@ -199,5 +191,5 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
   - Radix Dialog（modal）：焦點在說明卡裡、Esc 或「結束導覽」結束、方向鍵左右換步；點變暗的地方不結束（避免誤觸）。讀屏器每步念「第幾步、標題、說明」。結束後焦點回到小燈。
   - 入口：面板開頭的「帶我看這頁怎麼看」與標題列的指南針鈕；第一次來某一頁時，小燈的泡泡會問「第一次來這頁？點我帶你看看」（每頁只問一次，`tei:assistant-tour-offered:v1`），這時點小燈直接開始導覽。
   - 文案只說這一區是什麼、怎麼操作，不解讀行情、不給買賣建議，不寫「今日」「即時」。
-- 什麼時候不出現：`/ai`（本身就是助手）、首頁旅程中（觀測台捲到視窗上半部或已交接才出現；3D 旅程最後一段觀測台釘在舞台底下、舞台還沒溶掉時不算）、首次造訪的風險提示條還在時（按「我已了解」後才出現）、列印。
+- 什麼時候不出現：`/ai`（本身就是助手）、首頁還沒捲到觀測台時（觀測台上緣捲到視窗上半部才出現）、首次造訪的風險提示條還在時（按「我已了解」後才出現）、列印。
 - 燈色元素：小燈的燈點與光束是角色的一部分，列為「一個視窗最多兩個燈色元素」的例外，不拿來代表漲跌或狀態以外的意思；面板裡的燈色只有送出鈕。

@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn';
 
 /**
  * 登入、註冊、忘記密碼、重設密碼與個人中心「變更密碼」共用的表單元件。
- * 帳號頁以表單為主體（左），右側依頁面放不同的旁注：登入＝觀測室的窗、註冊＝桌前（首頁旅程的海報），
+ * 帳號頁以表單為主體（左），右側依頁面放不同的旁注：登入＝觀測室的窗、註冊＝桌前（燈塔海報），
  * 忘記／重設密碼＝三個步驟。
  */
 
@@ -59,7 +59,7 @@ export function AuthPanel({ id, title, children, footer }: { id: string; title: 
   );
 }
 
-/** 首頁旅程的海報：3＝亮著燈的觀測室窗口，4＝守燈人的桌前（public/beacon，夜班／晨班各一張） */
+/** 燈塔海報：3＝亮著燈的觀測室窗口，4＝守燈人的桌前（public/beacon，夜班／晨班各一張） */
 export type AuthPoster = 3 | 4;
 
 /** 圖框比例：依左欄表單的高度挑，讓兩欄底部大致齊平 */
@@ -83,7 +83,7 @@ export function AuthPlate({
   children,
 }: {
   poster: AuthPoster;
-  /** 站名：圖裡是首頁旅程的哪一處 */
+  /** 站名：圖裡是燈塔的哪一處 */
   caption: string;
   ratio?: keyof typeof PLATE_RATIO;
   /** 圖下的一行說明：一句頁首副標沒有說的事實 */

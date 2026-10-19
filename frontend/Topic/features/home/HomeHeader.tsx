@@ -7,10 +7,9 @@ import { NAV_SEARCH_BULK_HINT, PrimaryNav } from '@/components/layout/PrimaryNav
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { usePrefersReducedMotion, useSyncAppHeaderHeight } from '@/lib/hooks/useClientEnv';
 import type { StockInfo } from '@/lib/types/api';
-import { pinTerminal } from './journey/handoffVar';
 
 interface Props {
-  /** 旅程終點（觀測台）的元素 id */
+  /** 觀測台的元素 id */
   terminalId: string;
   symbols: string[];
   stockInfos: StockInfo[];
@@ -21,9 +20,9 @@ interface Props {
 }
 
 /**
- * 首頁頁首：一條平的 sticky 列，旅程與觀測台共用。
- * 第一個可聚焦的元素是「直接看行情」（跳到觀測台），鍵盤使用者不必走完旅程。
- * h1 在旅程的第一章，這裡的品牌名不是標題。
+ * 首頁頁首：一條平的 sticky 列，首屏與觀測台共用。
+ * 第一個可聚焦的元素是「直接看行情」（跳到觀測台）。
+ * h1 在首屏，這裡的品牌名不是標題。
  */
 export function HomeHeader({ terminalId, symbols, stockInfos, boardDate, onSelect, onBulkSelect }: Props) {
   const reduce = usePrefersReducedMotion();
@@ -34,8 +33,6 @@ export function HomeHeader({ terminalId, symbols, stockInfos, boardDate, onSelec
     e.preventDefault();
     const target = document.getElementById(terminalId);
     if (!target) return;
-    // 旅程最後一段觀測台被釘在舞台上緣：先放開，scrollIntoView 才會捲到它真正的位置
-    pinTerminal(terminalId, 0);
     target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
     target.focus({ preventScroll: true });
   };

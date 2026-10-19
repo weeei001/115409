@@ -17,7 +17,7 @@ import type { MascotLook, MascotMood } from './sprite';
 
 /** AI 對話頁本身就是完整的助手，不再放小燈 */
 const HIDDEN_ROUTES = new Set(['/ai']);
-/** 首頁觀測台的 id（pages/index.tsx 的 TERMINAL_ID）：旅程走完、到觀測台才出現 */
+/** 首頁觀測台的 id（pages/index.tsx 的 TERMINAL_ID）：捲到觀測台才出現 */
 const HOME_TERMINAL_ID = 'terminal';
 /** 第一次出現時的自我介紹泡泡，看過就不再出現 */
 const INTRO_KEY = 'tei:assistant-intro:v1';
@@ -69,20 +69,14 @@ function useRiskNoticeAcknowledged(): boolean {
   return acknowledged;
 }
 
-/**
- * 首頁觀測台算不算「到了」：3D 旅程已經交接（<html data-handed-off>），或觀測台上緣在視窗上半部。
- * 3D 旅程最後一個舞台高，觀測台被釘在舞台底下（舞台有 data-pinned）：量到的位置在上方，但舞台還沒溶掉、看不到，不算到了。
- */
-export function homeTerminalReached(handedOff: boolean, stagePinned: boolean, terminalTop: number | undefined, viewportHeight: number): boolean {
-  if (handedOff) return true;
-  if (stagePinned) return false;
+/** 首頁觀測台算不算「到了」：觀測台上緣在視窗上半部 */
+export function homeTerminalReached(terminalTop: number | undefined, viewportHeight: number): boolean {
   return terminalTop !== undefined && terminalTop < viewportHeight / 2;
 }
 
 /**
  * 首頁：觀測台到了才算（homeTerminalReached）；其他頁一律 true。
- * 每次捲動重新找元素再量（rAF 節流）：觀測台在 hydrate、切換海報路線時可能換成新的節點，觀察舊節點會一直等不到。
- * 場景的相機平滑會落後捲動，停手後才交接完成：data-handed-off 變了也要重量。
+ * 每次捲動重新找元素再量（rAF 節流）：觀測台在 hydrate 時可能換成新的節點，觀察舊節點會一直等不到。
  */
 function useHomeTerminalReached(onHome: boolean): boolean {
   const [reached, setReached] = useState(false);
@@ -91,10 +85,8 @@ function useHomeTerminalReached(onHome: boolean): boolean {
     let frame = 0;
     const check = () => {
       frame = 0;
-      const root = document.documentElement;
       const top = document.getElementById(HOME_TERMINAL_ID)?.getBoundingClientRect().top;
-      const pinned = document.querySelector('[data-journey-stage][data-pinned]') !== null;
-      setReached(homeTerminalReached(root.hasAttribute('data-handed-off'), pinned, top, window.innerHeight));
+      setReached(homeTerminalReached(top, window.innerHeight));
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(check);
@@ -102,11 +94,8 @@ function useHomeTerminalReached(onHome: boolean): boolean {
     check();
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
-    const mo = new MutationObserver(schedule);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-handed-off'] });
     return () => {
       cancelAnimationFrame(frame);
-      mo.disconnect();
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     };

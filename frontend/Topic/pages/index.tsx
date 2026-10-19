@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { StockSearch } from '@/components/common/StockSearch';
 import { HomeHeader } from '@/features/home/HomeHeader';
 import { MainContentAnchor } from '@/components/layout/MainContentAnchor';
-import { BeaconJourney } from '@/features/home/journey/BeaconJourney';
+import { HomeHero } from '@/features/home/HomeHero';
 import { ObservationTerminal } from '@/features/home/terminal/ObservationTerminal';
 import { useTerminalData } from '@/features/home/terminal/useTerminalData';
 import { bulkSearchTarget } from '@/lib/utils/compareQuery';
@@ -11,7 +11,7 @@ import { NAV_SEARCH_BULK_HINT } from '@/components/layout/PrimaryNav';
 
 const TERMINAL_ID = 'terminal';
 
-/** 首頁：燈塔旅程（海面 → 燈塔 → 窗前）之後接上用真實資料的觀測台 */
+/** 首頁：首屏燈塔海報，往下接上用真實資料的觀測台 */
 export default function HomePage() {
   const router = useRouter();
   const data = useTerminalData();
@@ -40,13 +40,7 @@ export default function HomePage() {
       />
       <MainContentAnchor />
 
-      <BeaconJourney
-        terminalId={TERMINAL_ID}
-        stockCount={data.stockInfos.length || null}
-        industryCount={data.industryCount}
-        board={data.board}
-        monitor={data.monitor}
-      />
+      <HomeHero terminalId={TERMINAL_ID} board={data.board} />
 
       <main aria-label="觀測台">
         <ObservationTerminal
