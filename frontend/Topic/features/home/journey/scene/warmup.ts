@@ -223,3 +223,71 @@ export async function prepareScene(
     shadowTarget?.dispose();
   }
 }
+
+const WARM_BATCH = 8;
+
+/**
+ * A first draw uploads geometry and textures and finishes driver-side program
+ * setup. Spread that over frames by drawing a few objects at a time into one
+ * scissored pixel, instead of letting the first visible frame do all of it.
+ */
+export async function warmDraws(
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  target: THREE.WebGLRenderTarget | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfStartupAborted(signal);
+  const objects: THREE.Object3D[] = [];
+  scene.traverseVisible((object) => {
+    const o = object as THREE.Object3D & Partial<Record<'isMesh' | 'isPoints' | 'isLine' | 'isSprite', boolean>>;
+    if (o.isMesh || o.isPoints || o.isLine || o.isSprite) objects.push(object);
+  });
+  const culled = objects.map((object) => object.frustumCulled);
+  for (const object of objects) {
+    object.visible = false;
+    // The real camera pose is not set yet; upload everything the scene can show.
+    object.frustumCulled = false;
+  }
+  const previousTarget = renderer.getRenderTarget();
+  const previousFace = renderer.getActiveCubeFace();
+  const previousMip = renderer.getActiveMipmapLevel();
+  const scissor = new THREE.Vector4();
+  const scissorTest = target ? target.scissorTest : renderer.getScissorTest();
+  if (target) scissor.copy(target.scissor);
+  else renderer.getScissor(scissor);
+  try {
+    for (let i = 0; i < objects.length; i += WARM_BATCH) {
+      await yieldStartup(signal);
+      const batch = objects.slice(i, i + WARM_BATCH);
+      batch.forEach((object) => (object.visible = true));
+      try {
+        if (target) {
+          target.scissor.set(0, 0, 1, 1);
+          target.scissorTest = true;
+        } else {
+          renderer.setScissor(0, 0, 1, 1);
+          renderer.setScissorTest(true);
+        }
+        renderer.setRenderTarget(target);
+        renderer.render(scene, camera);
+      } finally {
+        batch.forEach((object) => (object.visible = false));
+        if (target) {
+          target.scissor.copy(scissor);
+          target.scissorTest = scissorTest;
+        } else {
+          renderer.setScissor(scissor);
+          renderer.setScissorTest(scissorTest);
+        }
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+      }
+    }
+  } finally {
+    objects.forEach((object, i) => {
+      object.visible = true;
+      object.frustumCulled = culled[i];
+    });
+  }
+}

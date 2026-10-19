@@ -29,8 +29,30 @@ export function waitForStartup<T>(pending: Promise<T>, signal?: AbortSignal): Pr
   });
 }
 
+/** Startup work allowed per frame before the browser must get a chance to paint. */
+const FRAME_SLICE_MS = 8;
+let sliceStart = -Infinity;
+
+/**
+ * Resume after the next paint. scheduler.yield() continuations outrank rendering,
+ * so a chain of them holds the poster at Chrome's ~100ms anti-starvation cadence.
+ * Without rAF (tests, workers) this is a plain task boundary.
+ */
+export async function waitStartupFrame(signal?: AbortSignal): Promise<void> {
+  throwIfStartupAborted(signal);
+  if (typeof requestAnimationFrame !== 'function') return taskBoundary(signal);
+  await waitForStartup(new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))), signal);
+  sliceStart = performance.now();
+}
+
 /** Give painting and input a task boundary; a microtask alone would keep blocking both. */
 export function yieldStartup(signal?: AbortSignal): Promise<void> {
+  throwIfStartupAborted(signal);
+  if (typeof requestAnimationFrame === 'function' && performance.now() - sliceStart >= FRAME_SLICE_MS) return waitStartupFrame(signal);
+  return taskBoundary(signal);
+}
+
+function taskBoundary(signal?: AbortSignal): Promise<void> {
   throwIfStartupAborted(signal);
   const scheduler = (globalThis as typeof globalThis & { scheduler?: { yield(): Promise<void> } }).scheduler;
   // Use a browser task boundary without nested setTimeout's minimum delay.

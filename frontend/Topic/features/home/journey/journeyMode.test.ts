@@ -39,6 +39,7 @@ import {
   terminalColumnRects,
   type Rect,
 } from './journeyMath';
+import { journeySeen, markJourneySeen } from './journeyMode';
 import { closeRange, dayChange, groupWatch } from './scene/screens';
 import { LOOKS, lookWeights } from './scene/theme';
 import { boardFigures, changeText, quoteCharacteristic } from './boardFormat';
@@ -494,6 +495,20 @@ assert.equal(shiftHour(1), 1);
   assert.equal(noChange?.change, null);
   assert.equal(noChange?.tone, 'neutral');
   assert.equal(boardFigures(null), null);
+}
+
+// ── 3D 旅程只在第一次訪問時播 ──
+{
+  const items = new Map<string, string>();
+  const storage = { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) };
+  assert.equal(journeySeen(storage), false);
+  markJourneySeen(storage);
+  assert.equal(journeySeen(storage), true);
+  // 存取被擋（無痕、停用儲存）：當成沒看過，照樣播，不拋錯
+  const blocked = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+  assert.equal(journeySeen(blocked), false);
+  markJourneySeen(blocked);
+  assert.equal(journeySeen(null), false);
 }
 
 console.log('Journey progress, chapter, time-of-day, hand-off layout, hand-off interpolation and board checks passed.');

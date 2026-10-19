@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import { throwIfStartupAborted, yieldStartup } from './startup';
+import { throwIfStartupAborted, waitStartupFrame, yieldStartup } from './startup';
 
 type RendererProgram = NonNullable<THREE.WebGLRenderer['info']['programs']>[number];
 
@@ -19,8 +19,9 @@ export async function initializeShaderPrograms(
     await yieldStartup(signal);
     // A material can create several variants, while compileAsync only waits for
     // its final currentProgram. Check every linked program before reflection.
+    // Poll once per frame: the driver compiles off-thread, so spinning only takes frames from the poster.
     while (parallel && !context.getProgramParameter(program.program as WebGLProgram, parallel.COMPLETION_STATUS_KHR)) {
-      await yieldStartup(signal);
+      await waitStartupFrame(signal);
     }
     throwIfStartupAborted(signal);
     program.getUniforms();

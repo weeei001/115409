@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Router from 'next/router';
 import { useMotionValue, useMotionValueEvent } from 'motion/react';
@@ -26,7 +26,7 @@ import {
   type MeasuredTerminal,
 } from './journeyMath';
 import { clearHandoff, pinTerminal } from './handoffVar';
-import { probeWebGL2, type JourneyMode } from './journeyMode';
+import { journeySeen, markJourneySeen, probeWebGL2, type JourneyMode } from './journeyMode';
 import type { SparkLine, WatchItem } from './scene/screens';
 import { DAWN_CAPTION_TINT } from './scene/theme';
 
@@ -36,7 +36,7 @@ import { DAWN_CAPTION_TINT } from './scene/theme';
  * 這個檔案是首屏就載入的外殼，不 import three：
  * - 首屏是海報 <img> 加真正的 DOM 文字，LCP 不等 WebGL。
  * - 3D 場景（BeaconScene）在閒置後才用 next/dynamic 載入，第一格畫好再花 1250ms 淡入。
- * - 一律跑 3D（減少動態、低功耗裝置也是）。只有不支援 WebGL2、或場景出錯時不載場景：
+ * - 第一次訪問一律跑 3D（減少動態、低功耗裝置也是）。看過一次、不支援 WebGL2、或場景出錯時不載場景：
  *   只留首屏（海報＋文案），往下直接是觀測台。
  *
  * 3D 版面的舞台黏在頁首下方，高度是「視窗 − 頁首」，所以畫面與文案永遠落在看得到的範圍。
@@ -605,6 +605,14 @@ function useTerminalShape(terminalId: string, enabled: boolean, isDark: boolean)
 
 export function BeaconJourney({ terminalId, stockCount, industryCount, board, monitor }: BeaconJourneyProps) {
   const [mode, setMode] = useState<JourneyMode>('scene');
+  /** 看過旅程才改用海報（不是裝置不支援）：不顯示「無法啟用 3D」 */
+  const [seen, setSeen] = useState(false);
+  // 看過一次就不再播：第一次繪製前換成海報版面（伺服器端一律輸出 3D 版面，兩者的首屏是同一張海報）
+  useLayoutEffect(() => {
+    if (!journeySeen()) return;
+    setSeen(true);
+    setMode('poster');
+  }, []);
   const [loadScene, setLoadScene] = useState(false);
   // context 掉過一次就不再重載（避免一直建了又掉）
   const [sceneBlocked, setSceneBlocked] = useState(false);
@@ -805,7 +813,10 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
     return () => window.clearTimeout(id);
   }, [sceneReady]);
 
-  const onSceneReady = useCallback(() => setSceneReady(true), []);
+  const onSceneReady = useCallback(() => {
+    setSceneReady(true);
+    markJourneySeen();
+  }, []);
   // WebGL context 掉了：收掉場景，底下的海報會露出來（觀測台的 --handoff 一起拿掉）
   const onSceneLost = useCallback(() => {
     clearHandoff();
@@ -945,7 +956,7 @@ export function BeaconJourney({ terminalId, stockCount, industryCount, board, mo
                 <ArrowRight aria-hidden />
               </Button>
             </div>
-            {!sceneLayout && <p className="mt-3 text-[13px] leading-relaxed text-foreground">這台裝置無法啟用 3D 場景，已改用靜態畫面。</p>}
+            {!sceneLayout && !seen && <p className="mt-3 text-[13px] leading-relaxed text-foreground">這台裝置無法啟用 3D 場景，已改用靜態畫面。</p>}
           </div>
 
           {/* 第二段：燈塔（左上的天空） */}

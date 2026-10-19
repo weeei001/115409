@@ -32,7 +32,7 @@ import {
 } from './screens';
 import { forEachStartupRow, throwIfStartupAborted, waitForStartup, yieldStartup } from './startup';
 import { waterNormals } from './waterNormals';
-import { prepareScene } from './warmup';
+import { prepareScene, warmDraws } from './warmup';
 import { warmEnvironmentShaders } from './environmentWarmup';
 import { addSurfaceDetail, plasterDetail, roomAoUniforms, stoneDetail, woodDetail, type DetailOptions } from './surface';
 import {
@@ -346,6 +346,8 @@ export async function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.
   sky.material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, twilight);
     shader.fragmentShader = shader.fragmentShader
+      // 內建雲層關掉了，但分支還在：D3D（Windows 的 ANGLE）會把它的 fbm 迴圈展開，光編這個 shader 就讓整頁卡上近一秒
+      .replace('if ( direction.y > 0.0 && cloudCoverage > 0.0 ) {', 'if ( false ) {')
       .replace('void main() {', 'uniform vec3 uGlowLow;\nuniform vec3 uGlowHigh;\nuniform vec3 uBelt;\nvoid main() {')
       .replace(
         'vec3 texColor = ( Lin + L0 ) * 0.04',
@@ -3115,6 +3117,10 @@ export async function createBeacon(renderer: THREE.WebGLRenderer, camera: THREE.
   keep(await prepareScene(renderer, faceScene, camera, rtInt, signal, { shadows: false }));
   keep(await prepareScene(renderer, faceScene, camera, null, signal, { shadows: false }));
   keep(await prepareScene(renderer, fadeScene, fadeCam, null, signal, { shadows: false }));
+  // 第一格會畫的組合（室內與螢幕畫進 rtInt、室外畫到畫面上）：先分批上傳，第一格不必一次做完
+  await warmDraws(renderer, int, camera, rtInt, signal);
+  await warmDraws(renderer, faceScene, camera, rtInt, signal);
+  await warmDraws(renderer, ext, camera, null, signal);
   throwIfStartupAborted(signal);
   return { render, resize, setScreens, setHandoff, applyLook, settleLook, probe, dispose };
   } catch (error) {
