@@ -8,7 +8,7 @@ import { acknowledgeRiskNotice, browserStorage, hasAcknowledgedRiskNotice, RISK_
 /**
  * 首次造訪的投資風險提示：固定在畫面底部，按「我已了解」後不再出現。
  * 不是對話框：不鎖焦點、不擋操作，只蓋住底部一條。伺服器輸出不含它（掛載後才判斷），避免 hydrate 不一致。
- * 顯示時把自己的高度（含手勢區）寫進 `--risk-notice-height`，貼著畫面底部的內容（首頁首屏的標題與按鈕）用它閃開。
+ * 顯示時把自己的高度（含手勢區）寫進 `--risk-notice-height`，貼著畫面底部的內容用它閃開（`--app-bottom-inset`）。
  */
 export function RiskNoticeBanner() {
   const [visible, setVisible] = useState(false);
