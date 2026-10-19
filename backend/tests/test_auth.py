@@ -185,6 +185,29 @@ def test_mail_failure_stays_private(settings, monkeypatch, caplog):
     assert "private provider credentials" not in caplog.text
 
 
+@pytest.mark.parametrize("configured, display", [
+    ("sender@example.com", "股海明燈"),
+    ("客服中心 <sender@example.com>", "客服中心"),
+])
+def test_mail_sender_shows_platform_name(settings, monkeypatch, configured, display):
+    from email import message_from_string
+    from email.header import decode_header, make_header
+    from email.utils import parseaddr
+    settings.SMTP_HOST, settings.SMTP_USER, settings.SMTP_FROM = "smtp.invalid", "", configured
+    sent = []
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def starttls(self): pass
+        def sendmail(self, sender, recipients, raw): sent.append((sender, raw))
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+    assert mail.send_password_reset_email("person@example.com", "http://app/?token=t", settings) is True
+    envelope, raw = sent[0]
+    name, address = parseaddr(message_from_string(raw)["From"])
+    assert (envelope, address, str(make_header(decode_header(name)))) == ("sender@example.com", "sender@example.com", display)
+
+
 @pytest.mark.parametrize("operation", ["reset", "change", "renew"])
 def test_failed_password_transaction_preserves_password_and_old_token(db_session, settings, monkeypatch, operation):
     user = User(email="person@example.com", password_hash=bcrypt.hashpw(b"Original123", bcrypt.gensalt(rounds=4)).decode())

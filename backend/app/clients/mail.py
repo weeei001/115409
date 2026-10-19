@@ -2,6 +2,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr, parseaddr
 
 from app.core.config import Settings
 
@@ -12,12 +13,13 @@ logger = logging.getLogger(__name__)
 def send_password_reset_email(to_email: str, reset_link: str, settings: Settings) -> bool:
     if not settings.SMTP_HOST.strip():
         return False
-    sender = (settings.SMTP_FROM or settings.SMTP_USER).strip()
+    # SMTP_FROM accepts "address" or "Name <address>"; recipients see the platform name by default.
+    name, sender = parseaddr((settings.SMTP_FROM or settings.SMTP_USER).strip())
     if not sender:
         return False
     message = MIMEMultipart("alternative")
     message["Subject"] = "重設密碼"
-    message["From"] = sender
+    message["From"] = formataddr((name or "股海明燈", sender))
     message["To"] = to_email
     message.attach(MIMEText(
         f"請在 {settings.PASSWORD_RESET_EXPIRE_MINUTES} 分鐘內點擊以下連結重設密碼：\n\n{reset_link}\n",
