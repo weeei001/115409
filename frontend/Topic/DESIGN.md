@@ -2,7 +2,7 @@
 
 風格：**燈塔表（Light List）**。全站排成一本航海用的燈塔名錄：每檔股票是一筆條目，代號是編號、產業是所屬海岸、收盤／漲跌／資料日是它的燈質。
 兩套主題是同一天的兩個班：dark＝**夜海**（夜班），light＝**晨海**（晨班），品質要求相同。
-token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。圖表需要解析後的色值，放在 `lib/charts/theme.ts`；手機網址列的 `theme-color` 也寫了 `--background` 的解析值（`components/layout/ThemeColorMeta.tsx`）；首屏晨班文案襯底的取色寫在 `features/home/HomeHero.tsx`（`DAWN_SCRIM`）。改 token 時這幾處要一起改。
+token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。圖表需要解析後的色值，放在 `lib/charts/theme.ts`；手機網址列的 `theme-color` 也寫了 `--background` 的解析值（`components/layout/ThemeColorMeta.tsx`）。改 token 時這幾處要一起改。
 
 三個識別特徵：
 
@@ -24,11 +24,10 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 | focus | `focus-lamp` utility；捲動容器裡用 `focus-lamp-inset` | 外圈 `--focus`、內圈燈色；晨海外圈是墨色（燈色在白底只有 1.86:1）。元件貼著 `overflow` 容器邊緣時（橫向捲動的分頁與圖例、抽屜與清單裡的滿寬列）改用 `focus-lamp-inset`：兩圈畫在元件內側，外圈貼邊、燈色在內，不會被裁掉。程式移過去的大容器（`main`、`section`）不顯示框：`outline-none focus-visible:shadow-none` |
 | 漲／跌 | `text-up`、`text-down`、`bg-up-muted`、`bg-down-muted`、`text-up-emphasis`、`text-down-emphasis` | 見第 7 節 |
 | 狀態 | `danger`、`success`、`warning`（各有 `-muted`、`-border`），`text-warning-icon` | 錯誤、成功、警告；刻意避開漲跌的紅綠，也不用燈色 |
-| 海報上的文字襯底 | `--scrim`（首屏用 inline style 的 `var(--scrim)`） | 首頁首屏的文案襯底 |
 | 小燈像素圖 | `--mascot-line`、`-eye`、`-body`、`-shade`、`-glass`、`-lamp`、`-lamp-dim`、`-lamp-off`（SVG `fill` 直接用 `var()`） | 只給站內助手（第 12 節）。黑白條紋，不用紅白；燈只用燈色 |
 | 捲軸 | 全站統一（`styles/main.css` base 層），元件不用另外寫；要藏起來用 `scrollbar-none` | 透明軌道、`--input` 色的細滑塊、沒有箭頭，hover 加粗轉 `--muted-foreground`。元件不要設 `scrollbar-color`／`scrollbar-width`（`none` 除外）：Chromium 會改走標準捲軸，箭頭又跑回來 |
 
-沒有漸層、玻璃、光暈；唯一的光暈是首屏海報裡的燈。
+沒有漸層、玻璃、光暈。
 
 ## 2. 字型
 
@@ -158,10 +157,9 @@ token 的實際數值只寫在 `styles/main.css`，這裡寫用途與規則。�
 
 ## 11. 首頁首屏
 
-- 結構：`features/home/HomeHero.tsx` 是首屏，一個視窗高（`100svh` − 頁首）：燈塔海報加真正的 DOM 文字（燈質列、h1、一句說明、「直接看行情」），往下直接是觀測台（`features/home/terminal/ObservationTerminal.tsx`）。沒有 3D 場景，也沒有捲動驅動的動畫。
-- 海報夜班／晨班各一張，主題 class 在首次繪製前就寫在 `<html>`，用 `dark:` 選圖才不會閃；直式窄螢幕用 720×1440 的直幅版本。文字底下是柔邊襯底：夜班用 `--scrim`，晨班是貼合文字塊的柔邊橢圓（取海報的冷色天光），不是卡片或全寬橫條。
+- 結構：`features/home/HomeHero.tsx` 是首屏，只有文字（燈質列、h1、一句說明、「直接看行情」），沒有圖、3D 場景或捲動動畫；容器跟頁首、觀測台同寬（`max-w-[1320px]`），下緣一條分隔線，往下直接是觀測台（`features/home/terminal/ObservationTerminal.tsx`）。
 - 燈質列寫加權指數、漲跌與收盤日（`features/home/boardFormat.ts`，跟觀測台同一組格式函式）；沒有資料時寫「最近儲存的收盤資料 · 非即時」。
-- 海報在 `public/beacon/`：第 1 張（橫式＋直式）是首屏；第 3、4 張（橫式）用在登入、註冊頁（`features/auth/AuthForm.tsx`）。第一張 ≤ 70KB，其餘 ≤ 90KB。
+- 燈塔海報只剩 `public/beacon/` 的第 3、4 張（夜班／晨班各一），用在登入、註冊頁（`features/auth/AuthForm.tsx`），每張 ≤ 90KB。
 
 ## 12. 站內助手「小燈」
 
