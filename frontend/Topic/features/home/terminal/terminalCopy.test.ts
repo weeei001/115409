@@ -45,10 +45,10 @@ assert.ok(source.includes('${plotted.first} → ${plotted.last}'), 'Range separa
 assert.ok(source.includes('回到頂端'));
 
 // P2-079～P2-081：首屏按鈕說明會發生什麼；首頁只用「觀測台」一個詞
-const journey = readFileSync(join(__dirname, '../journey/BeaconJourney.tsx'), 'utf8');
+const hero = readFileSync(join(__dirname, '../HomeHero.tsx'), 'utf8');
 const header = readFileSync(join(__dirname, '../HomeHeader.tsx'), 'utf8');
-for (const phrase of ['登上燈塔\n', '直接看觀測台', '觀測室。', '資料庫最近儲存', 'stop="觀測室"']) assert.ok(!journey.includes(phrase), `BeaconJourney still contains「${phrase.trim()}」`);
-assert.ok(journey.includes('從頭看起') && journey.includes('直接看行情'));
+for (const phrase of ['登上燈塔\n', '直接看觀測台', '觀測室。', '資料庫最近儲存', 'stop="觀測室"']) assert.ok(!hero.includes(phrase), `HomeHero still contains「${phrase.trim()}」`);
+assert.ok(hero.includes('直接看行情'));
 assert.ok(header.includes('直接看行情') && !header.includes('跳到觀測台\n'));
 
 console.log('Home terminal copy and keyboard tests passed.');

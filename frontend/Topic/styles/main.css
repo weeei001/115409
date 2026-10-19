@@ -33,7 +33,7 @@
   --border-strong: #0e1a24;
   /* focus 外圈：晨海用墨色（燈色在白底只有 1.86:1），內圈一律是燈色 */
   --focus: #0e1a24;
-  /* 3D 場景上方文字的襯底 */
+  /* 首屏海報上方文字的襯底 */
   --scrim: rgba(243, 246, 248, 0.82);
   /* 抽屜等浮層後方的遮罩 */
   --overlay: rgba(14, 26, 36, 0.5);
@@ -416,42 +416,6 @@
     background: currentColor;
     transform: rotate(-45deg);
   }
-}
-
-/* 交接：首頁 3D 場景在最後 8% 的捲動把 --handoff 從 0 推到 1（其他頁沒有這個值，預設 1）。
-   觀測台頂端有一層燈光餘溫隨之淡出，第一組面板隨之淡入，讓螢幕與面板看起來是同一個東西 */
-#terminal {
-  position: relative;
-  /* 首頁 3D 版面時觀測台疊在旅程舞台底下（BeaconJourney 的負下邊距）：裡面的 z-index 不能穿出去蓋到舞台 */
-  isolation: isolate;
-  --handoff-tint: color-mix(in srgb, var(--brand) 22%, var(--background));
-}
-#terminal::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 70vh;
-  background: linear-gradient(to bottom, var(--handoff-tint), transparent);
-  opacity: calc(1 - var(--handoff, 1));
-  pointer-events: none;
-  z-index: 1;
-}
-#terminal .handoff-fade {
-  opacity: var(--handoff, 1);
-}
-/* 旅程舞台（首頁 3D 版面）：觀測台疊在它底下、交接最後一段被釘在舞台上緣。
-   交接尾聲（data-handed-off，h ≥ 0.95，三塊畫面已經對齊觀測台三欄；而且觀測台正釘在底下，data-pinned）或捲到終點（data-past）時溶掉，露出觀測台；捲回來再溶回來。
-   用一段固定時間溶接、不跟著捲動拖：場景畫的清單與圖表跟觀測台的內容不同，停在半透明會兩層字疊在一起。
-   減少動態也跑 3D，一樣要溶掉；過渡時間被下面的 reduced motion 規則壓到幾乎為 0 */
-[data-journey-stage] {
-  transition:
-    opacity var(--dur-sweep) var(--ease-swell),
-    visibility var(--dur-sweep);
-}
-:root[data-handed-off] [data-journey-stage][data-pinned],
-[data-journey-stage][data-past] {
-  opacity: 0;
-  visibility: hidden;
 }
 
 /* 可點的列：hover 只換淺色底；左側 2px 燈色標線只給選取（data-selected、aria-current="page"、aria-selected），

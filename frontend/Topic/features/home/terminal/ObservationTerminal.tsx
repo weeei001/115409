@@ -260,7 +260,7 @@ export function ObservationTerminal({ id, data, toolbar }: { id: string; data: T
             </EmptyState>
           </div>
         ) : null}
-        <div className={cn('handoff-fade mt-6 grid gap-px border bg-border lg:grid-cols-[300px_minmax(0,1fr)_320px]', gridDown && 'hidden')}>
+        <div className={cn('mt-6 grid gap-px border bg-border lg:grid-cols-[300px_minmax(0,1fr)_320px]', gridDown && 'hidden')}>
           {/* 觀測清單 */}
           <div data-tour="terminal-watchlist" id={`${id}-watchlist`} className="order-2 min-w-0 scroll-mt-16 bg-card lg:relative lg:order-none">
             <div className="flex flex-col lg:absolute lg:inset-0">

@@ -17,7 +17,7 @@ import { dedupeFetch } from '@/lib/utils/inFlight';
 import { shiftYmdMonths, toYmdLocal } from '@/lib/utils/date';
 import type { ChipsVolumeData, StockInfo } from '@/lib/types/api';
 import type { DailyQuote, InstitutionalDay, PriceChartData, PriceStats, TechnicalDay } from '@/lib/types/view';
-import type { BeaconJourneyProps } from '../journey/types';
+import type { HeroBoard } from '../boardFormat';
 
 /** idle＝還沒有東西可以抓（例如股票清單沒載入，所以沒有選中的股票） */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -112,11 +112,6 @@ export function useTerminalData() {
   const stockInfos = useMemo(() => infos.data ?? [], [infos.data]);
   const symbolKey = stockInfos.map((s) => s.symbol).join(',');
 
-  const industryCount = useMemo(() => {
-    const set = new Set(stockInfos.map((s) => s.industry).filter((v): v is string => Boolean(v)));
-    return set.size || null;
-  }, [stockInfos]);
-
   const boardState = useLoadable<BoardData | null>(
     async () => {
       const start = shiftYmdMonths(today, -WATCH_LOOKBACK_MONTHS);
@@ -210,24 +205,16 @@ export function useTerminalData() {
     selected,
   );
 
-  // Other terminal panels resolve independently; only changed screen content should repaint 3D textures.
-  const board = useMemo<BeaconJourneyProps['board']>(
+  const board = useMemo<HeroBoard | null>(
     () => boardState.data
       ? { close: boardState.data.close, change: boardState.data.change, date: boardState.data.date }
       : null,
     [boardState.data?.close, boardState.data?.change, boardState.data?.date],
   );
 
-  const monitorRow = watchRows.find((row) => row.symbol === selected);
-  const monitor = useMemo<BeaconJourneyProps['monitor']>(() => {
-    if (!monitorRow || monitorRow.closes.length < 2 || !monitorRow.date) return null;
-    return { symbol: monitorRow.symbol, name: monitorRow.name, closes: monitorRow.closes, date: monitorRow.date };
-  }, [monitorRow?.symbol, monitorRow?.name, monitorRow?.closes, monitorRow?.date]);
-
   return {
     infos,
     stockInfos,
-    industryCount,
     boardState,
     board,
     watchState,
@@ -244,7 +231,6 @@ export function useTerminalData() {
     institutional,
     technical,
     chips,
-    monitor,
   };
 }
 

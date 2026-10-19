@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* 浮動（fixed）的提示條與按鈕任何一頁都不印，免得蓋在紙本內容上 */}
       <div className="print:hidden">
         <RiskNoticeBanner />
-        {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕；首頁旅程有自己的進度列與「回到海面」 */}
+        {/* 對話頁會自動捲到最新訊息，浮動鈕還會蓋住送出鈕；首頁觀測台有自己的「回到頂端」 */}
         {router.pathname === '/ai' || router.pathname === '/' ? null : <ScrollToTop />}
       </div>
       {/* 站內助手小燈：放在換頁動畫外面，換頁時對話還在；面板用 portal，自己標 print:hidden */}
