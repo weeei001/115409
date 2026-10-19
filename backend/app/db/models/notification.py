@@ -16,6 +16,8 @@ class NotificationPreference(Base):
     daily_summary = Column(Boolean, nullable=False, default=False)
     price_alert = Column(Boolean, nullable=False, default=False)
     major_news = Column(Boolean, nullable=False, default=False)
+    paper_order = Column(Boolean, nullable=False, default=False)
+    paper_review = Column(Boolean, nullable=False, default=False)
     news_enabled_at = Column(DateTime, nullable=True)
     price_threshold = Column(Float, nullable=False, default=5.0)
     quiet_start = Column(Integer, nullable=False, default=22)

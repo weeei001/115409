@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Bell, CalendarDays, Newspaper, RefreshCw, TrendingUp } from 'lucide-react';
+import { Bell, CalendarDays, ClipboardCheck, Newspaper, Receipt, RefreshCw, TrendingUp } from 'lucide-react';
 import { AnimatedSection } from '@/components/common/AnimatedSection';
 import { Ledger, LedgerPanel, LightGlyph, NextStep } from '@/components/common/Ledger';
 import { EmptyState, LoadingRows, Notice } from '@/components/common/Notice';
@@ -56,6 +56,8 @@ const notificationKinds: Record<string, { label: string; icon: typeof Bell }> = 
   daily_summary: { label: '每日摘要', icon: CalendarDays },
   price_alert: { label: '漲跌幅提醒', icon: TrendingUp },
   major_news: { label: '重大新聞／公告', icon: Newspaper },
+  paper_order: { label: '模擬交易委託', icon: Receipt },
+  paper_review: { label: '模擬投資回顧', icon: ClipboardCheck },
 };
 
 export function NotificationSettings() {
@@ -219,6 +221,8 @@ function AccountNotificationSettings({ account }: { account: string }) {
                     ['daily_summary', '收藏股每日摘要', '交易日收盤後，彙整收藏股漲跌與重要新聞。'],
                     ['price_alert', '單日漲跌幅提醒', '依每日收盤資料判斷，不是盤中即時。'],
                     ['major_news', '重大新聞／公告', '收藏公司有重要事件時通知；重複的事件只通知一次。'],
+                    ['paper_order', '模擬交易成交／取消', '模擬委託依收盤價成交，或因停牌、預算不足被系統取消時通知；自行取消的委託不另通知。'],
+                    ['paper_review', '模擬投資回顧到期', '買進滿設定的交易日數時，提醒回顧當初的投資理由。'],
                   ] as const).map(([key, label, description]) => <label key={key} className={cn('flex min-h-11 items-start gap-3 bg-card py-3', checkRowClass)}>
                     <input type="checkbox" checked={preferences[key]} onChange={(event) => setPreferences({ ...preferences, [key]: event.target.checked })} className={checkboxClass} />
                     <span className="min-w-0"><span className="block text-sm font-medium">{label}</span><span className="block text-xs leading-relaxed text-muted-foreground">{description}</span></span>

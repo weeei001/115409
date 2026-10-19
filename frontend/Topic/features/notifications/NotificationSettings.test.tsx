@@ -7,6 +7,8 @@ const prefs: NotificationPreferences = {
   daily_summary: true,
   price_alert: false,
   major_news: true,
+  paper_order: false,
+  paper_review: true,
   price_threshold: 5,
   quiet_start: 22,
   quiet_end: 8,

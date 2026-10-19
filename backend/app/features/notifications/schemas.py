@@ -10,6 +10,8 @@ class NotificationPreferences(BaseModel):
     daily_summary: bool = False
     price_alert: bool = False
     major_news: bool = False
+    paper_order: bool = False
+    paper_review: bool = False
     price_threshold: float = Field(5, ge=1, le=30, allow_inf_nan=False)
     quiet_start: int = Field(22, ge=0, le=23)
     quiet_end: int = Field(8, ge=0, le=23)

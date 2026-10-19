@@ -94,6 +94,19 @@ def test_delivery_rechecks_eligibility(db_session, reason):
     assert sender.calls == []
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_paper_notifications_follow_their_own_preference_not_favorites(db_session, enabled):
+    user, preference, favorite, notice, _ = setup(db_session)
+    db_session.delete(favorite)
+    notice.kind, notice.symbol, notice.url = "paper_order", "2317", "/order"
+    preference.paper_order = enabled
+    db_session.commit()
+    sender = Sender()
+    dispatch_notifications(db_session, sender, NOW)
+    assert len(sender.calls) == (2 if enabled else 0)
+    assert notice.delivered_at is not None
+
+
 def test_quiet_notifications_do_not_block_another_user(db_session):
     _, preference, _, _, _ = setup(db_session, quiet_start=16, quiet_end=18)
     other = User(email="other@example.com", is_active=True)
