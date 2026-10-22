@@ -33,7 +33,6 @@ export const TOURS: Record<string, PageTourDef> = {
       { target: 'stock-flows', title: '法人與指標', body: '一張是最近交易日三大法人（外資、投信、自營）的買賣超張數，一張是 RSI、MACD、KD 的讀數與訊號。按「籌碼明細」「技術指標明細」看完整圖表。' },
       { target: 'stock-fundamentals', title: '基本面與持股', body: '月營收與年增率、單季 EPS、本益比與殖利率、最近一次除權息，以及融資融券、外資持股比例和集保股權分散。按「基本面明細」「信用交易與持股」看走勢與明細表。' },
       { target: 'stock-brief', title: 'AI 投資分析', body: 'AI 依行情、法人、營收與新聞整理的摘要，分短線、波段、中期說明方向與分析信心。按「查看完整分析」看每一段的依據。僅供研究參考，不是投資建議。' },
-      { target: 'stock-track', title: 'AI 判斷回顧', body: '回頭檢查過去的 AI 摘要：判斷之後第 5、20、40 個交易日，實際走勢有沒有對上，並和「每次都猜漲」與大盤比較。' },
       { target: 'stock-news', title: '相關新聞', body: '和這檔有關的新聞。標籤是 AI 判讀的影響方向，正向紅、負向綠；最下面一列看更多新聞與原文依據。' },
     ],
   },

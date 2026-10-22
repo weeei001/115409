@@ -31,7 +31,6 @@ const SECTIONS: Array<{ id: string; title: string; paragraphs: ReactNode[] }> = 
     title: '三、AI 分析的限制',
     paragraphs: [
       'AI 依公開資料自動整理，可能誤判、遺漏或引用不完整。摘要中的多空立場、情境與風險是研究參考，不是買進或賣出的建議，也不保證準確。',
-      '本站公開 AI 摘要的歷史命中率（個股頁「AI 判斷回顧」），讓你自行評估 AI 判斷的可信度；過去的命中率不代表未來的表現。',
     ],
   },
   {

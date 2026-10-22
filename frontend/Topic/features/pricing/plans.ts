@@ -42,7 +42,7 @@ export const PLANS: Plan[] = [
     audience: '剛開始學投資、想先用虛擬資金練習的人',
     price: { monthly: 0, yearly: 0 },
     highlights: [
-      { text: 'AI 投資分析、判斷回顧、新聞事件影響完整開放' },
+      { text: 'AI 投資分析、新聞事件影響完整開放' },
       { text: '模擬投資與投資回顧' },
       { text: 'AI 對話與小燈：會員每日 5 次、訪客每日 3 次' },
       { text: '收藏股 10 檔、多股比較 5 檔' },
@@ -86,7 +86,7 @@ export const PLANS: Plan[] = [
 export const PRIMARY_PLAN_ID: PlanId = 'plus';
 
 /** 方案卡下方的一句說明 */
-export const PRICING_LEAD = '所有方案都能完整查看 AI 投資分析、AI 判斷回顧與新聞事件影響；付費只差在用量和工具，所有方案都沒有廣告。';
+export const PRICING_LEAD = '所有方案都能完整查看 AI 投資分析與新聞事件影響；付費只差在用量和工具，所有方案都沒有廣告。';
 
 export function planById(id: PlanId): Plan {
   const plan = PLANS.find((item) => item.id === id);
@@ -182,7 +182,6 @@ export const comparisonGroups = (stockCount: number | null): ComparisonGroup[] =
     rows: [
       { feature: '行情、K 線、技術指標、三大法人', cells: everyPlan() },
       { feature: 'AI 投資分析：多空立場、三個區間展望、證據', cells: everyPlan(yes('完整內容，不需登入')) },
-      { feature: 'AI 判斷回顧與命中率', cells: everyPlan() },
       { feature: '新聞列表與事件影響分析', cells: everyPlan() },
       { feature: 'AI 分析報告列印、存成 PDF', cells: everyPlan() },
       { feature: '模擬投資與投資回顧', cells: everyPlan() },
@@ -262,7 +261,7 @@ export const PRICING_DEMO_NOTICE =
 export const PAID_SCOPE_NOTE =
   '付費方案只差在用量（額度、檔數、保存期間）和工具（通知通道、匯出、桌面小燈），不包含任何投資建議，也不提供個別股票的分析意見或推介。';
 /** AI 判讀免費、付費不影響準確度（商業模式第 7.4 節） */
-export const AI_FREE_NOTE = 'AI 投資分析、判斷回顧與新聞事件影響在每個方案都完整開放。AI 可能出錯，付費不會提高 AI 的準確度。';
+export const AI_FREE_NOTE = 'AI 投資分析與新聞事件影響在每個方案都完整開放。AI 可能出錯，付費不會提高 AI 的準確度。';
 /**
  * 方案頁、結帳頁的免責段落。商業模式 7.1：方案頁與行銷文案不寫「投資顧問」「明牌」「勝率」「保證獲利」，
  * 服務性質的完整說明留在投資免責聲明（兩頁都有連結）
@@ -283,13 +282,13 @@ export const PRICING_FAQ: PricingFaq[] = [
     id: 'ai-free',
     question: '為什麼 AI 投資分析全部免費？',
     answer:
-      '個股的多空立場與趨勢判讀只透過 AI 投資分析、AI 判斷回顧與新聞事件影響提供，這三項在每個方案都完整開放，不登入也看得到。股海明燈的定位是讓 AI 判讀可以解釋、可以檢驗，付費只買用量和工具，不賣分析內容。',
+      '個股的多空立場與趨勢判讀只透過 AI 投資分析與新聞事件影響提供，這兩項在每個方案都完整開放，不登入也看得到。股海明燈的定位是讓 AI 判讀可以解釋、可以檢驗，付費只買用量和工具，不賣分析內容。',
   },
   {
     id: 'accuracy',
     question: '付費會讓 AI 判讀更準嗎？',
     answer:
-      '不會。所有方案用同一套資料與 AI，付費差異和 AI 判讀品質無關。AI 可能出錯，歷史命中率公開在個股頁的「AI 判斷回顧」，可以自行評估。',
+      '不會。所有方案用同一套資料與 AI，付費差異和 AI 判讀品質無關。AI 可能出錯，請自行查證後再做判斷。',
   },
   {
     id: 'quota',
